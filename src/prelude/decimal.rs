@@ -110,6 +110,22 @@ impl<const P: usize> ops::Div for Decimal<P> {
     }
 }
 
+impl<const P: usize> Decimal<P> {
+    pub fn conv<const N: usize>(&self) -> Decimal<N> {
+        Decimal {
+            internal: if N > P {
+                self.internal * (U256::exp10(N - P))
+            } else {
+                self.internal / (U256::exp10(P - N))
+            },
+        }
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        self.to_string().parse().unwrap()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
