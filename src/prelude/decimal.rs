@@ -1,5 +1,5 @@
 use primitive_types::U256;
-use std::{fmt, iter, str};
+use std::{fmt, iter, ops, str};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ParseStrError {
@@ -89,6 +89,24 @@ impl<const P: usize> fmt::Display for Decimal<P> {
 impl<const P: usize> fmt::Debug for Decimal<P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
+    }
+}
+
+impl<const P: usize> ops::Mul for Decimal<P> {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self {
+            internal: (self.internal * rhs.internal) / U256::exp10(P),
+        }
+    }
+}
+
+impl<const P: usize> ops::Div for Decimal<P> {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        Self {
+            internal: (self.internal * U256::exp10(P)) / rhs.internal,
+        }
     }
 }
 
