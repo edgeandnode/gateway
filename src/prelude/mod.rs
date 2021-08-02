@@ -9,3 +9,81 @@ pub type PPM = Decimal<6>;
 pub type USD = Decimal<18>;
 /// Decimal GRT with 18 fractional digits
 pub type GRT = Decimal<18>;
+
+macro_rules! bytes_wrapper {
+    ($vis:vis, $id:ident, $len:expr) => {
+        #[derive(Clone, Copy, Eq, PartialEq)]
+        $vis struct $id {
+            pub bytes: [u8; $len],
+        }
+        impl From<[u8; $len]> for $id {
+            fn from(bytes: [u8; $len]) -> Self {
+                Self { bytes }
+            }
+        }
+        impl std::ops::Deref for $id {
+            type Target = [u8; $len];
+            fn deref(&self) -> &Self::Target {
+                &self.bytes
+            }
+        }
+    };
+    ($vis:vis, $id:ident, $len:expr, "HexDebug") => {
+        bytes_wrapper!($vis, $id, $len);
+        impl std::fmt::Debug for $id {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "0x{}", hex::encode(self.bytes))
+            }
+        }
+    };
+}
+
+bytes_wrapper!(pub, Address, 20, "HexDebug");
+bytes_wrapper!(pub, Bytes32, 32, "HexDebug");
+bytes_wrapper!(pub, SubgraphDeploymentID, 32);
+
+impl SubgraphDeploymentID {
+    pub fn from_ipfs_hash(hash: &str) -> Option<Self> {
+        let mut decoded = [0u8; 34];
+        bs58::decode(hash).into(&mut decoded).ok()?;
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&decoded[2..]);
+        Some(bytes.into())
+    }
+
+    pub fn ipfs_hash(&self) -> String {
+        bs58::encode([&[0x12, 0x20], self.as_ref()].concat()).into_string()
+    }
+}
+
+impl std::fmt::Debug for SubgraphDeploymentID {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.ipfs_hash())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn subgraph_deployment_id_encoding() {
+        let ipfs_hash = "QmWmyoMoctfbAaiEs2G46gpeUmhqFRDW6KWo64y5r581Vz";
+        let mut bytes = [0u8; 32];
+        bytes.clone_from_slice(
+            &hex::decode("12207d5a99f603f231d53a4f39d1521f98d2e8bb279cf29bebfd0687dc98458e7f89")
+                .unwrap()
+                .as_slice()[2..],
+        );
+
+        let id1 = SubgraphDeploymentID::from(bytes);
+        let id2 = SubgraphDeploymentID::from_ipfs_hash(ipfs_hash)
+            .expect("Unable to create SubgraphDeploymentID from IPFS hash");
+
+        assert_eq!(id1.ipfs_hash(), ipfs_hash);
+        assert_eq!(*id1, bytes);
+        assert_eq!(id2.ipfs_hash(), ipfs_hash);
+        assert_eq!(*id2, bytes);
+        assert_eq!(id1, id2);
+    }
+}
