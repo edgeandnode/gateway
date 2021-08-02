@@ -1,7 +1,8 @@
+use crate::indexer_selection::utility::concave_utility;
 use crate::prelude::*;
 
 pub struct EconomicSecurity {
-    pub slashable_usd: f64,
+    pub slashable_usd: USD,
     pub utility: SelectionFactor,
 }
 
@@ -19,6 +20,21 @@ impl NetworkParameters {
     pub fn grt_to_usd(&self, grt: GRT) -> Option<USD> {
         let conversion_rate = self.usd_to_grt_conversion.value_immediate()?;
         Some(grt / conversion_rate)
+    }
+
+    pub fn economic_security_utility(
+        &self,
+        indexer_stake: GRT,
+        u_a: f64,
+    ) -> Option<EconomicSecurity> {
+        let slashing_percentage = self.slashing_percentage.value_immediate()?;
+        let slashable_grt = indexer_stake * (slashing_percentage / PPM::from(1)).conv();
+        let slashable_usd = self.grt_to_usd(slashable_grt)?;
+        let utility = concave_utility(slashable_usd.as_f64(), u_a);
+        Some(EconomicSecurity {
+            slashable_usd,
+            utility: SelectionFactor::one(utility),
+        })
     }
 }
 
@@ -123,6 +139,62 @@ mod tests {
         assert_eq!(
             params.grt_to_usd(trillion),
             Some("1954144184235.163468761907206198".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn high_stake() {
+        // $1m dollars amounts to ~80% utility
+        test_economic_security_utility(1_000, 0.5, 2_000_000_000, 0.00000161757, 1_000_000, 0.8);
+    }
+
+    #[test]
+    fn low_stake() {
+        // $100k amounts to 15% utility
+        test_economic_security_utility(100, 0.05, 200_000_000, 0.00000161757, 100_000, 0.15);
+    }
+
+    #[test]
+    fn low_a() {
+        // Different u_a for a case where $10k is plenty of utility
+        test_economic_security_utility(1, 1.0, 10_000, 0.00016, 10_000, 0.8);
+    }
+
+    #[test]
+    fn testnet_a() {
+        // For the testnet, expecting ~$400k slashable for these parameters.
+        // Each Indexer gets $5m, and slashing percent is 10.
+        test_economic_security_utility(1, 0.1, 4_000_000, 0.000006, 400_000, 0.91);
+    }
+
+    fn test_economic_security_utility(
+        usd_to_grt: u64,
+        slashing_percentage: f64,
+        stake: u64,
+        u_a: f64,
+        expected_slashable: u64,
+        expected_utility: f64,
+    ) {
+        let params = NetworkParameters {
+            usd_to_grt_conversion: Eventual::from_value(usd_to_grt.into()),
+            slashing_percentage: Eventual::from_value(
+                slashing_percentage.to_string().parse().unwrap(),
+            ),
+        };
+        let security = params.economic_security_utility(stake.into(), u_a).unwrap();
+        assert_eq!(security.slashable_usd, expected_slashable.into());
+        assert_within(security.utility, expected_utility, 0.01);
+    }
+
+    fn assert_within(utility: SelectionFactor, expected: f64, tolerance: f64) {
+        let diff = (utility.utility - expected).abs();
+        assert!(
+            diff <= tolerance,
+            "Expected utility of {} +- {} but got {} which is off by {}",
+            expected,
+            tolerance,
+            utility.utility,
+            diff
         );
     }
 }
