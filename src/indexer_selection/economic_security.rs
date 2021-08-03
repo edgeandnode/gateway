@@ -46,11 +46,11 @@ mod tests {
     async fn two_usd_to_grt() {
         let params = NetworkParameters {
             usd_to_grt_conversion: Eventual::from_value("0.511732966311998143".parse().unwrap()),
-            slashing_percentage: Eventual::from_value(0.into()),
+            slashing_percentage: Eventual::from_value(0u64.try_into().unwrap()),
         };
         // Check conversion of 2 USD to GRT
         assert_eq!(
-            params.usd_to_grt(2.into()),
+            params.usd_to_grt(2u64.try_into().unwrap()),
             Some("1.023465932623996286".parse().unwrap())
         );
     }
@@ -58,11 +58,11 @@ mod tests {
     fn two_grt_to_usd() {
         let params = NetworkParameters {
             usd_to_grt_conversion: Eventual::from_value("0.511732966311998143".parse().unwrap()),
-            slashing_percentage: Eventual::from_value(0.into()),
+            slashing_percentage: Eventual::from_value(0u64.try_into().unwrap()),
         };
         // Check conversion of 2 GRT to USD
         assert_eq!(
-            params.grt_to_usd(2.into()),
+            params.grt_to_usd(2u64.try_into().unwrap()),
             Some("3.908288368470326937".parse().unwrap())
         );
     }
@@ -71,9 +71,9 @@ mod tests {
         let (mut conversion_writer, conversion) = Eventual::new();
         let params = NetworkParameters {
             usd_to_grt_conversion: conversion,
-            slashing_percentage: Eventual::from_value(0.into()),
+            slashing_percentage: Eventual::from_value(0u64.try_into().unwrap()),
         };
-        let trillion: USD = 10u64.pow(12).into();
+        let trillion: USD = 10u64.pow(12).try_into().unwrap();
         // Assert None is returned if eventual has no value.
         assert_eq!(params.usd_to_grt(trillion), None);
         // Set conversion rate
@@ -89,9 +89,9 @@ mod tests {
         let (mut conversion_writer, conversion) = Eventual::new();
         let params = NetworkParameters {
             usd_to_grt_conversion: conversion,
-            slashing_percentage: Eventual::from_value(0.into()),
+            slashing_percentage: Eventual::from_value(0u64.try_into().unwrap()),
         };
-        let trillion: GRT = 10u64.pow(12).into();
+        let trillion: GRT = 10u64.pow(12).try_into().unwrap();
         // Assert None is returned if eventual has no value.
         assert_eq!(params.grt_to_usd(trillion), None);
         // Set conversion rate
@@ -137,13 +137,18 @@ mod tests {
         expected_utility: f64,
     ) {
         let params = NetworkParameters {
-            usd_to_grt_conversion: Eventual::from_value(usd_to_grt.into()),
+            usd_to_grt_conversion: Eventual::from_value(usd_to_grt.try_into().unwrap()),
             slashing_percentage: Eventual::from_value(
                 slashing_percentage.to_string().parse().unwrap(),
             ),
         };
-        let security = params.economic_security_utility(stake.into(), u_a).unwrap();
-        assert_eq!(security.slashable_usd, expected_slashable.into());
+        let security = params
+            .economic_security_utility(stake.try_into().unwrap(), u_a)
+            .unwrap();
+        assert_eq!(
+            security.slashable_usd,
+            expected_slashable.try_into().unwrap()
+        );
         assert_within(security.utility, expected_utility, 0.01);
     }
 

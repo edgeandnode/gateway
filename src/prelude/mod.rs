@@ -2,6 +2,7 @@ mod decimal;
 
 pub use crate::prelude::decimal::*;
 pub use eventuals::{Eventual, EventualWriter};
+pub use std::convert::TryInto;
 
 /// Decimal Parts-Per-Million with 6 fractional digits
 pub type PPM = UDecimal<6>;
