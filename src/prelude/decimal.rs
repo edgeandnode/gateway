@@ -9,18 +9,27 @@ pub enum ParseStrError {
 /// Represents a positive decimal value with some fractional digit precision, P.
 /// Using U256 as storage.
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct UDecimal<const P: usize> {
+pub struct UDecimal<const P: u8> {
     internal: U256,
 }
 
-impl<I: Into<U256>, const P: usize> From<I> for UDecimal<P> {
-    fn from(from: I) -> Self {
-        let internal = from.into() * U256::exp10(P);
-        Self { internal }
-    }
+macro_rules! impl_from_uints {
+    ($($t:ty),+) => {
+        $(impl<const P: u8> std::convert::TryInto<UDecimal<P>> for $t {
+            type Error = &'static str;
+            fn try_into(self) -> Result<UDecimal<P>, Self::Error> {
+                let internal = U256::from(self)
+                    .checked_mul(U256::exp10(P as usize))
+                    .ok_or("overflow")?;
+                Ok(UDecimal { internal })
+            }
+        })*
+    };
 }
 
-impl<const P: usize> str::FromStr for UDecimal<P> {
+impl_from_uints!(u8, u16, u32, u64, u128, usize, U256);
+
+impl<const P: u8> str::FromStr for UDecimal<P> {
     type Err = ParseStrError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use ParseStrError::*;
@@ -29,10 +38,11 @@ impl<const P: usize> str::FromStr for UDecimal<P> {
             return Err(InvalidInput);
         }
         let (int, frac) = s.split_at(s.chars().position(|c| c == '.').unwrap_or(s.len()));
+        let p = P as usize;
         let digits = int
             .chars()
             // append fractional digits (after decimal point)
-            .chain(frac.chars().skip(1).chain(iter::repeat('0')).take(P))
+            .chain(frac.chars().skip(1).chain(iter::repeat('0')).take(p))
             .collect::<String>();
         Ok(UDecimal {
             internal: U256::from_dec_str(&digits).map_err(|_| InvalidInput)?,
@@ -40,29 +50,30 @@ impl<const P: usize> str::FromStr for UDecimal<P> {
     }
 }
 
-impl<const P: usize> fmt::Display for UDecimal<P> {
+impl<const P: u8> fmt::Display for UDecimal<P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.internal == 0.into() {
             return write!(f, "0");
         }
+        let p = P as usize;
         let digits = self.internal.to_string().into_bytes();
         let ctz = digits
             .iter()
             .rev()
             .take_while(|&&b| b == b'0')
             .count()
-            .min(P);
-        if digits.len() < P {
-            let fill = iter::repeat('0').take(P - digits.len()).collect::<String>();
+            .min(p);
+        if digits.len() < p {
+            let fill = iter::repeat('0').take(p - digits.len()).collect::<String>();
             let frac = &digits[0..digits.len() - ctz];
             write!(f, "0.{}{}", fill, unsafe { str::from_utf8_unchecked(frac) })
         } else {
-            let (mut int, mut frac) = digits.split_at(digits.len() - P);
+            let (mut int, mut frac) = digits.split_at(digits.len() - p);
             frac = &frac[0..frac.len() - ctz];
             if int.len() == 0 {
                 int = &[b'0'];
             }
-            if ctz == P {
+            if ctz == p {
                 write!(f, "{}", unsafe { str::from_utf8_unchecked(&int) })
             } else {
                 write!(
@@ -76,37 +87,37 @@ impl<const P: usize> fmt::Display for UDecimal<P> {
     }
 }
 
-impl<const P: usize> fmt::Debug for UDecimal<P> {
+impl<const P: u8> fmt::Debug for UDecimal<P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
 }
 
-impl<const P: usize> ops::Mul for UDecimal<P> {
+impl<const P: u8> ops::Mul for UDecimal<P> {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
         Self {
-            internal: (self.internal * rhs.internal) / U256::exp10(P),
+            internal: (self.internal * rhs.internal) / U256::exp10(P as usize),
         }
     }
 }
 
-impl<const P: usize> ops::Div for UDecimal<P> {
+impl<const P: u8> ops::Div for UDecimal<P> {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
         Self {
-            internal: (self.internal * U256::exp10(P)) / rhs.internal,
+            internal: (self.internal * U256::exp10(P as usize)) / rhs.internal,
         }
     }
 }
 
-impl<const P: usize> UDecimal<P> {
-    pub fn change_precision<const N: usize>(&self) -> UDecimal<N> {
+impl<const P: u8> UDecimal<P> {
+    pub fn change_precision<const N: u8>(&self) -> UDecimal<N> {
         UDecimal {
             internal: if N > P {
-                self.internal * (U256::exp10(N - P))
+                self.internal * (U256::exp10((N - P) as usize))
             } else if N < P {
-                self.internal / (U256::exp10(P - N))
+                self.internal / (U256::exp10((P - N) as usize))
             } else {
                 self.internal
             },
@@ -162,7 +173,7 @@ mod test {
         ]);
     }
 
-    fn test_udecimal<const P: usize>(tests: &[(&str, Option<(&str, u64)>)]) {
+    fn test_udecimal<const P: u8>(tests: &[(&str, Option<(&str, u64)>)]) {
         for (input, expected) in tests {
             println!("input: \"{}\"", input);
             let d = UDecimal::<P>::from_str(input);
