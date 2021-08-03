@@ -93,6 +93,10 @@ impl<const P: u8> fmt::Debug for UDecimal<P> {
     }
 }
 
+// TODO: The following mathematical operations may result in overflow. This is
+// fine for our current use-case. But should be handled if we want to release as
+// a separate library.
+
 impl<const P: u8> ops::Mul for UDecimal<P> {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
