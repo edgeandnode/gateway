@@ -1,4 +1,4 @@
-use crate::indexer_selection::utility::concave_utility;
+use crate::indexer_selection::utility::{concave_utility, SelectionFactor};
 use crate::prelude::*;
 
 pub struct EconomicSecurity {
@@ -28,7 +28,7 @@ impl NetworkParameters {
         u_a: f64,
     ) -> Option<EconomicSecurity> {
         let slashing_percentage = self.slashing_percentage.value_immediate()?;
-        let slashable_grt = indexer_stake * (slashing_percentage / PPM::from(1)).conv();
+        let slashable_grt = indexer_stake * slashing_percentage.change_precision();
         let slashable_usd = self.grt_to_usd(slashable_grt)?;
         let utility = concave_utility(slashable_usd.as_f64(), u_a);
         Some(EconomicSecurity {
@@ -38,44 +38,16 @@ impl NetworkParameters {
     }
 }
 
-pub struct SelectionFactor {
-    pub weight: f64,
-    pub utility: f64,
-}
-
-impl SelectionFactor {
-    pub const fn zero() -> Self {
-        Self {
-            weight: 0.0,
-            utility: 0.0,
-        }
-    }
-
-    pub const fn one(utility: f64) -> Self {
-        Self {
-            weight: 1.0,
-            utility,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time;
 
     #[tokio::test]
     async fn two_usd_to_grt() {
-        let (mut conversion_writer, conversion) = Eventual::new();
         let params = NetworkParameters {
-            usd_to_grt_conversion: conversion,
+            usd_to_grt_conversion: Eventual::from_value("0.511732966311998143".parse().unwrap()),
             slashing_percentage: Eventual::from_value(0.into()),
         };
-        // Assert None is returned if eventual has no value.
-        assert_eq!(params.grt_to_usd(2.into()), None);
-        // Set conversion rate
-        conversion_writer.write("0.511732966311998143".parse().unwrap());
-        time::sleep(time::Duration::from_millis(100)).await;
         // Check conversion of 2 USD to GRT
         assert_eq!(
             params.usd_to_grt(2.into()),
@@ -83,18 +55,11 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn two_grt_to_usd() {
-        let (mut conversion_writer, conversion) = Eventual::new();
+    fn two_grt_to_usd() {
         let params = NetworkParameters {
-            usd_to_grt_conversion: conversion,
+            usd_to_grt_conversion: Eventual::from_value("0.511732966311998143".parse().unwrap()),
             slashing_percentage: Eventual::from_value(0.into()),
         };
-        // Assert None is returned if eventual has no value.
-        assert_eq!(params.grt_to_usd(2.into()), None);
-        // Set conversion rate
-        conversion_writer.write("0.511732966311998143".parse().unwrap());
-        time::sleep(time::Duration::from_millis(100)).await;
         // Check conversion of 2 GRT to USD
         assert_eq!(
             params.grt_to_usd(2.into()),
@@ -102,8 +67,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn trillion_usd_to_grt() {
+    fn trillion_usd_to_grt() {
         let (mut conversion_writer, conversion) = Eventual::new();
         let params = NetworkParameters {
             usd_to_grt_conversion: conversion,
@@ -114,7 +78,6 @@ mod tests {
         assert_eq!(params.usd_to_grt(trillion), None);
         // Set conversion rate
         conversion_writer.write("0.511732966311998143".parse().unwrap());
-        time::sleep(time::Duration::from_millis(100)).await;
         // Check conversion of 1 trillion USD to GRT
         assert_eq!(
             params.usd_to_grt(trillion),
@@ -122,8 +85,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn trillion_grt_to_usd() {
+    fn trillion_grt_to_usd() {
         let (mut conversion_writer, conversion) = Eventual::new();
         let params = NetworkParameters {
             usd_to_grt_conversion: conversion,
@@ -134,7 +96,6 @@ mod tests {
         assert_eq!(params.grt_to_usd(trillion), None);
         // Set conversion rate
         conversion_writer.write("0.511732966311998143".parse().unwrap());
-        time::sleep(time::Duration::from_millis(100)).await;
         // Check conversion of 1 trillion GRT to USD
         assert_eq!(
             params.grt_to_usd(trillion),

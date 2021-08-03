@@ -4,11 +4,11 @@ pub use crate::prelude::decimal::*;
 pub use eventuals::{Eventual, EventualWriter};
 
 /// Decimal Parts-Per-Million with 6 fractional digits
-pub type PPM = Decimal<6>;
+pub type PPM = UDecimal<6>;
 /// Decimal USD with 18 fractional digits
-pub type USD = Decimal<18>;
+pub type USD = UDecimal<18>;
 /// Decimal GRT with 18 fractional digits
-pub type GRT = Decimal<18>;
+pub type GRT = UDecimal<18>;
 
 macro_rules! bytes_wrapper {
     ($vis:vis, $id:ident, $len:expr) => {
