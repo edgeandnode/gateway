@@ -1,5 +1,8 @@
 mod decimal;
 
+#[cfg(test)]
+pub mod test_utils;
+
 pub use crate::prelude::decimal::*;
 pub use eventuals::{Eventual, EventualWriter};
 pub use std::convert::TryInto;
@@ -11,9 +14,15 @@ pub type USD = UDecimal<18>;
 /// Decimal GRT with 18 fractional digits
 pub type GRT = UDecimal<18>;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BlockPointer {
+    pub number: u64,
+    pub hash: Bytes32,
+}
+
 macro_rules! bytes_wrapper {
     ($vis:vis, $id:ident, $len:expr) => {
-        #[derive(Clone, Copy, Eq, PartialEq)]
+        #[derive(Clone, Copy, Eq, Hash, PartialEq)]
         $vis struct $id {
             pub bytes: [u8; $len],
         }
