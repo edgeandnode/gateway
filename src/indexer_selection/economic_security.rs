@@ -41,6 +41,7 @@ impl NetworkParameters {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::indexer_selection::test_utils::*;
 
     #[test]
     fn two_usd_to_grt() {
@@ -153,17 +154,5 @@ mod tests {
             expected_slashable.try_into().unwrap()
         );
         assert_within(security.utility, expected_utility, 0.01);
-    }
-
-    fn assert_within(utility: SelectionFactor, expected: f64, tolerance: f64) {
-        let diff = (utility.utility - expected).abs();
-        assert!(
-            diff <= tolerance,
-            "Expected utility of {} +- {} but got {} which is off by {}",
-            expected,
-            tolerance,
-            utility.utility,
-            diff
-        );
     }
 }
