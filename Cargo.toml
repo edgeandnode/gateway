@@ -7,7 +7,11 @@ version = "0.1.0"
 
 [dependencies]
 bs58 = "0.4"
-eventuals = "0.6.3"
+cost-model = {git = "ssh://git@github.com/graphprotocol/agora.git", rev = "48bf329"}
+eventuals = "0.6.4"
+graphql-parser = {git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df"}
 hex = "0.4"
+# TODO: replace marshalling and remove neon dependency
+neon-utils = "1.1"
 primitive-types = "0.8"
-tokio = {version = "1.8", features = ["sync", "time", "macros", "rt-multi-thread"]}
+tokio = {version = "1.8", features = ["sync", "time", "macros", "rt-multi-thread", "parking_lot"]}
