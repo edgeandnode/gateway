@@ -1,4 +1,3 @@
-use crate::prelude::*;
 use std::io::{Cursor, Write as _};
 
 pub fn bytes_from_id<const N: usize>(id: usize) -> [u8; N] {

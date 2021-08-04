@@ -42,8 +42,8 @@ impl NetworkParameters {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn two_usd_to_grt() {
+    #[test]
+    fn two_usd_to_grt() {
         let params = NetworkParameters {
             usd_to_grt_conversion: Eventual::from_value("0.511732966311998143".parse().unwrap()),
             slashing_percentage: Eventual::from_value(0u64.try_into().unwrap()),
@@ -55,6 +55,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn two_grt_to_usd() {
         let params = NetworkParameters {
             usd_to_grt_conversion: Eventual::from_value("0.511732966311998143".parse().unwrap()),
@@ -67,6 +68,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn trillion_usd_to_grt() {
         let (mut conversion_writer, conversion) = Eventual::new();
         let params = NetworkParameters {
@@ -85,6 +87,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn trillion_grt_to_usd() {
         let (mut conversion_writer, conversion) = Eventual::new();
         let params = NetworkParameters {
