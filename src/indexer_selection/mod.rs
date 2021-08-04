@@ -1,6 +1,10 @@
 mod economic_security;
 mod network_cache;
+mod performance;
 mod utility;
+
+#[cfg(test)]
+mod test_utils;
 
 use crate::prelude::*;
 use cost_model;
