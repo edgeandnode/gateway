@@ -8,7 +8,7 @@ pub enum ParseStrError {
 
 /// Represents a positive decimal value with some fractional digit precision, P.
 /// Using U256 as storage.
-#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct UDecimal<const P: u8> {
     internal: U256,
 }
@@ -155,6 +155,18 @@ impl<const P: u8> UDecimal<P> {
     pub fn as_f64(&self) -> f64 {
         // TODO: avoid relying on string conversions for this
         self.to_string().parse().unwrap()
+    }
+
+    pub fn saturating_add(self, other: Self) -> Self {
+        Self {
+            internal: self.internal.saturating_add(other.internal),
+        }
+    }
+
+    pub fn saturating_sub(self, other: Self) -> Self {
+        Self {
+            internal: self.internal.saturating_sub(other.internal),
+        }
     }
 }
 

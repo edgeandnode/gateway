@@ -90,10 +90,11 @@ impl PriceEfficiency {
         // account at all.
         // But my hunch is that the utility combining function captures this and it's ok
         // to have it be separate like this.
+
+        // Solve the equation (1/(x+n))-n for n to intersect axis at desired places
         let scale = (-1.0 + 5.0f64.sqrt()) / 2.0;
         let one_wei: GRT = GRTWei::try_from(1u64).unwrap().shift();
-        // Solve the equation (1/(x+n))-n for n to intersect axis at desired places
-        let scaled_fee = fee / (*max_budget + one_wei);
+        let scaled_fee = fee / max_budget.saturating_add(one_wei);
         let utility = (1.0 / (scaled_fee.as_f64() + scale)) - scale;
 
         // Did some math too see what the optimal price (as a proportion of budget) should
