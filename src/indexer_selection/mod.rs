@@ -2,6 +2,7 @@ mod economic_security;
 mod network_cache;
 mod performance;
 mod price_efficiency;
+mod reputation;
 mod utility;
 
 #[cfg(test)]
