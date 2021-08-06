@@ -13,6 +13,8 @@ pub type PPM = UDecimal<6>;
 pub type USD = UDecimal<18>;
 /// Decimal GRT with 18 fractional digits
 pub type GRT = UDecimal<18>;
+/// Decimal GRT Wei (10^-18 GRT)
+pub type GRTWei = UDecimal<0>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockPointer {

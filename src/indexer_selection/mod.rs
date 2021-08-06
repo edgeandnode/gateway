@@ -1,6 +1,7 @@
 mod economic_security;
 mod network_cache;
 mod performance;
+mod price_efficiency;
 mod utility;
 
 #[cfg(test)]
@@ -19,6 +20,26 @@ pub type Context<'c> = cost_model::Context<'c, &'c str>;
 pub enum SelectionError {
     BadInput,
     MissingBlock(UnresolvedBlock),
+    BadIndexer(BadIndexerReason),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum BadIndexerReason {
+    MissingIndexerStake,
+    MissingIndexerDelegatedStake,
+    BehindMinimumBlock,
+    MissingIndexingStatus,
+    MissingCostModel,
+    QueryNotCosted,
+    FeeTooHigh,
+    InsufficientCollateral,
+    NaN,
+}
+
+impl From<BadIndexerReason> for SelectionError {
+    fn from(err: BadIndexerReason) -> Self {
+        Self::BadIndexer(err)
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

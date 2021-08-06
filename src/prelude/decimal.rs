@@ -8,17 +8,17 @@ pub enum ParseStrError {
 
 /// Represents a positive decimal value with some fractional digit precision, P.
 /// Using U256 as storage.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct UDecimal<const P: u8> {
     internal: U256,
 }
 
 macro_rules! impl_from_uints {
     ($($t:ty),+) => {
-        $(impl<const P: u8> std::convert::TryInto<UDecimal<P>> for $t {
+        $(impl<const P: u8> std::convert::TryFrom<$t> for UDecimal<P> {
             type Error = &'static str;
-            fn try_into(self) -> Result<UDecimal<P>, Self::Error> {
-                let internal = U256::from(self)
+            fn try_from(from: $t) -> Result<UDecimal<P>, Self::Error> {
+                let internal = U256::from(from)
                     .checked_mul(U256::exp10(P as usize))
                     .ok_or("overflow")?;
                 Ok(UDecimal { internal })
@@ -115,8 +115,26 @@ impl<const P: u8> ops::Div for UDecimal<P> {
     }
 }
 
+impl<const P: u8> ops::Add for UDecimal<P> {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            internal: self.internal + rhs.internal,
+        }
+    }
+}
+
+impl<const P: u8> ops::Sub for UDecimal<P> {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            internal: self.internal - rhs.internal,
+        }
+    }
+}
+
 impl<const P: u8> UDecimal<P> {
-    pub fn change_precision<const N: u8>(&self) -> UDecimal<N> {
+    pub fn change_precision<const N: u8>(self) -> UDecimal<N> {
         UDecimal {
             internal: if N > P {
                 self.internal * (U256::exp10((N - P) as usize))
@@ -128,9 +146,27 @@ impl<const P: u8> UDecimal<P> {
         }
     }
 
+    pub fn shift<const N: u8>(self) -> UDecimal<N> {
+        UDecimal {
+            internal: self.internal,
+        }
+    }
+
     pub fn as_f64(&self) -> f64 {
         // TODO: avoid relying on string conversions for this
         self.to_string().parse().unwrap()
+    }
+
+    pub fn saturating_add(self, other: Self) -> Self {
+        Self {
+            internal: self.internal.saturating_add(other.internal),
+        }
+    }
+
+    pub fn saturating_sub(self, other: Self) -> Self {
+        Self {
+            internal: self.internal.saturating_sub(other.internal),
+        }
     }
 }
 
