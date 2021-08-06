@@ -42,8 +42,8 @@ impl UtilityAggregator {
         Self { mult: 1.0 }
     }
 
-    pub fn add(&mut self, factor: &SelectionFactor) {
-        let SelectionFactor { weight, utility } = *factor;
+    pub fn add(&mut self, factor: SelectionFactor) {
+        let SelectionFactor { weight, utility } = factor;
 
         // One outcome we want is that any utility approaching 0
         // should seriously disadvantage the result.
@@ -81,7 +81,7 @@ impl UtilityAggregator {
         self.mult *= utility.powf(weight);
     }
 
-    pub fn crunch(&self) -> f64 {
+    pub fn crunch(self) -> f64 {
         self.mult
     }
 }
@@ -97,11 +97,10 @@ mod tests {
     fn test(expect: f64, utils: &[(f64, f64)]) {
         let mut agg = UtilityAggregator::new();
         for util in utils.iter() {
-            let util = SelectionFactor {
+            agg.add(SelectionFactor {
                 utility: util.0,
                 weight: util.1,
-            };
-            agg.add(&util);
+            });
         }
         let util = agg.crunch();
         assert_eq!(expect, util);

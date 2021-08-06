@@ -1,10 +1,13 @@
 use crate::indexer_selection::{
     utility::{concave_utility, SelectionFactor},
-    BadIndexerReason, SelectionError, UnresolvedBlock,
+    BadIndexerReason, Context, SelectionError, UnresolvedBlock,
 };
 use crate::prelude::*;
+use codecs::Encode as _;
+use cost_model::QueryVariables;
 use graphql_parser::query as q;
 use neon_utils::marshalling::codecs;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
     convert::TryFrom,
@@ -42,7 +45,129 @@ pub struct DataFreshness {
     highest_reported_block: Option<u64>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct DeterministicQuery {
+    pub blocks_behind: Option<u64>,
+    pub query: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SerializableQuery {
+    pub query: String,
+    pub variables: QueryVariables,
+}
+
 impl NetworkCache {
+    // TODO: test
+    pub fn make_query_deterministic(
+        &mut self,
+        network: &str,
+        mut context: Context,
+        blocks_behind: u64,
+    ) -> Result<DeterministicQuery, SelectionError> {
+        let mut latest = None;
+        // TODO: Ugh this code is a mess, and it's not even doing fragments yet.
+        let ops = &mut context.operations[..];
+        for top_level_field in Self::top_level_fields(ops)? {
+            let mut require_latest = true;
+            for arg in top_level_field.arguments.iter_mut() {
+                match arg {
+                    ("block", block) => {
+                        match block {
+                            q::Value::Object(fields) => match fields.iter_mut().next() {
+                                Some((&"hash", _)) => require_latest = false,
+                                Some((&"number", number)) => {
+                                    let number = Self::number(number, &context.variables)?;
+                                    // Some, but not all, duplicated code
+                                    // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
+                                    let hash = self
+                                        .block_cache(network)
+                                        .number_to_hash
+                                        .get(&number)
+                                        .ok_or(UnresolvedBlock::WithNumber(number))?;
+                                    require_latest = false;
+                                    *fields = BTreeMap::new();
+                                    let hash = hash.encode();
+                                    let hash = q::Value::String(hash);
+                                    fields.insert("hash", hash);
+                                }
+                                _ => return Err(SelectionError::BadInput),
+                            },
+                            q::Value::Variable(name) => {
+                                let var = context
+                                    .variables
+                                    .get(name)
+                                    .ok_or(SelectionError::BadInput)?;
+                                match var {
+                                    q::Value::Object(fields) => match fields.iter().next() {
+                                        Some((name, _)) if name.as_str() == "hash" => {
+                                            require_latest = false
+                                        }
+                                        Some((name, number)) if name.as_str() == "number" => {
+                                            let number = Self::number(number, &context.variables)?;
+                                            // Some, but not all, duplicated code
+                                            // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
+                                            let hash = self
+                                                .block_cache(network)
+                                                .number_to_hash
+                                                .get(&number)
+                                                .ok_or(UnresolvedBlock::WithNumber(number))?;
+                                            require_latest = false;
+                                            let mut fields = BTreeMap::new();
+                                            let hash = hash.encode();
+                                            let hash = q::Value::String(hash);
+                                            fields.insert("hash", hash);
+                                            // This is different then the above which just replaces the
+                                            // fields in the existing object, because we must not modify
+                                            // the variable in case it's used elsewhere.
+                                            *arg = (arg.0, q::Value::Object(fields));
+                                        }
+                                        _ => return Err(SelectionError::BadInput),
+                                    },
+                                    _ => return Err(SelectionError::BadInput),
+                                }
+                            }
+                            _ => return Err(SelectionError::BadInput),
+                        };
+                    }
+                    _ => {}
+                }
+            }
+            if require_latest {
+                // Get and cache the latest block hash so that it's used consistently.
+                latest.get_or_insert_with(|| self.latest_block(network, blocks_behind));
+                let block = latest.clone().unwrap()?;
+                let mut fields = BTreeMap::new();
+                fields.insert("hash", q::Value::String(block.hash.encode()));
+                let arg = ("block", q::Value::Object(fields));
+                top_level_field.arguments.push(arg);
+            }
+        }
+
+        let mut definitions = Vec::new();
+        definitions.extend(context.fragments.into_iter().map(q::Definition::Fragment));
+        definitions.extend(context.operations.into_iter().map(q::Definition::Operation));
+
+        let query = q::Document { definitions };
+
+        // TODO: (Performance) Could write these all to a string in one go to avoid an allocation and copy here.
+
+        let query = SerializableQuery {
+            query: query.to_string(),
+            variables: context.variables,
+        };
+
+        // The query only maintains being behind if the latest block has
+        // been requested. Otherwise it's not "behind", it's what is requested.
+        let blocks_behind = latest.map(|_| blocks_behind);
+
+        let query = serde_json::to_string(&query).map_err(|_| SelectionError::BadInput)?;
+        Ok(DeterministicQuery {
+            blocks_behind,
+            query,
+        })
+    }
+
     pub fn freshness_requirements<'c>(
         &self,
         operations: &mut [q::OperationDefinition<'c, &'c str>],
@@ -120,6 +245,28 @@ impl NetworkCache {
         Ok(result)
     }
 
+    fn number<'t, T: q::Text<'t>>(
+        number: &q::Value<'t, T>,
+        variables: &QueryVariables,
+    ) -> Result<u64, SelectionError> {
+        let number = match number {
+            q::Value::Int(i) => Ok(i.as_i64()),
+            q::Value::Variable(name) => {
+                let var = variables.get(name.as_ref());
+                let var = match var {
+                    Some(q::Value::Int(i)) => Ok(i.as_i64()),
+                    _ => Err(SelectionError::BadInput),
+                };
+                var
+            }
+            _ => Err(SelectionError::BadInput),
+        }?;
+        number
+            .and_then(|i| Some(u64::try_from(i)))
+            .ok_or(SelectionError::BadInput)?
+            .map_err(|_| SelectionError::BadInput)
+    }
+
     fn hash_to_number(&self, network: &str, hash: &Bytes32) -> Option<u64> {
         let i = self.networks.iter().position(|v| v == network)?;
         self.caches[i].hash_to_number.get(hash).cloned()
@@ -131,6 +278,31 @@ impl NetworkCache {
             cache.hash_to_number.remove(&prev);
         }
         cache.hash_to_number.insert(block.hash, block.number);
+    }
+
+    pub fn latest_block(
+        &self,
+        network: &str,
+        behind: u64,
+    ) -> Result<BlockPointer, UnresolvedBlock> {
+        let i = self
+            .networks
+            .iter()
+            .position(|v| v == network)
+            .ok_or(UnresolvedBlock::WithNumber(0))?;
+        let cache = &self.caches[i];
+        let latest = cache
+            .number_to_hash
+            .keys()
+            .rev()
+            .next()
+            .ok_or(UnresolvedBlock::WithNumber(behind))?;
+        let number = latest.saturating_sub(behind);
+        let hash = *cache
+            .number_to_hash
+            .get(&number)
+            .ok_or(UnresolvedBlock::WithNumber(number))?;
+        Ok(BlockPointer { number, hash })
     }
 
     fn block_cache(&mut self, network: &str) -> &mut BlockCache {
@@ -147,6 +319,11 @@ impl NetworkCache {
 }
 
 impl DataFreshness {
+    pub fn blocks_behind(&self) -> Result<u64, BadIndexerReason> {
+        self.blocks_behind
+            .ok_or(BadIndexerReason::MissingIndexingStatus)
+    }
+
     pub fn set_blocks_behind(&mut self, blocks: u64, highest: u64) {
         self.blocks_behind = Some(blocks);
         self.highest_reported_block = Some(highest)
@@ -214,10 +391,8 @@ impl DataFreshness {
         requirements: &BlockRequirements,
         u_a: f64,
         latest_block: u64,
-    ) -> Result<(SelectionFactor, u64), SelectionError> {
-        let blocks_behind = self
-            .blocks_behind
-            .ok_or(BadIndexerReason::MissingIndexingStatus)?;
+        blocks_behind: u64,
+    ) -> Result<SelectionFactor, SelectionError> {
         // Require the Indexer to have synced at least up to the minimum block
         if let Some(minimum) = requirements.minimum_block {
             let our_latest = latest_block.saturating_sub(blocks_behind);
@@ -228,7 +403,7 @@ impl DataFreshness {
         // Add utility if the latest block is requested. Otherwise,
         // data freshness is not a utility, but a binary of minimum block.
         // (Note that it can be both).
-        let factor = if requirements.has_latest {
+        if requirements.has_latest {
             let utility = {
                 if blocks_behind == 0 {
                     1.0
@@ -237,19 +412,17 @@ impl DataFreshness {
                     concave_utility(freshness, u_a)
                 }
             };
-            SelectionFactor::one(utility)
+            Ok(SelectionFactor::one(utility))
         } else {
-            SelectionFactor::zero()
-        };
-        Ok((factor, blocks_behind))
+            Ok(SelectionFactor::zero())
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::indexer_selection::Context;
-    use crate::prelude::test_utils::bytes_from_id;
+    use crate::indexer_selection::{test_utils::gen_blocks, Context};
     use codecs::Encode as _;
 
     #[test]
@@ -398,16 +571,6 @@ mod tests {
         let blocks = gen_blocks(&[12, 7]);
         let cache = cache_with("", &blocks);
         assert_eq!(cache.latest_block("", 5), Ok(blocks[1].clone()));
-    }
-
-    fn gen_blocks(numbers: &[u64]) -> Vec<BlockPointer> {
-        numbers
-            .iter()
-            .map(|&number| BlockPointer {
-                number,
-                hash: bytes_from_id(number as usize).into(),
-            })
-            .collect()
     }
 
     fn cache_with(network: &str, blocks: &[BlockPointer]) -> NetworkCache {
