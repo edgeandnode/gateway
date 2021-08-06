@@ -1,4 +1,6 @@
 mod decimal;
+pub mod shared_lookup;
+pub mod weighted_sample;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -24,7 +26,7 @@ pub struct BlockPointer {
 
 macro_rules! bytes_wrapper {
     ($vis:vis, $id:ident, $len:expr) => {
-        #[derive(Clone, Copy, Eq, Hash, PartialEq)]
+        #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
         $vis struct $id {
             pub bytes: [u8; $len],
         }

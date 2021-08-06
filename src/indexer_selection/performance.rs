@@ -25,20 +25,13 @@ use crate::indexer_selection::utility::{concave_utility, SelectionFactor};
 use ordered_float::NotNan;
 use std::time::Duration;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct Performance {
     performance: Vec<f64>,
     count: Vec<f64>,
 }
 
 impl Performance {
-    pub fn new() -> Self {
-        Self {
-            performance: Vec::new(),
-            count: Vec::new(),
-        }
-    }
-
     fn quantized_performance(duration: Duration) -> f64 {
         // Get nearest triangle number of quantized duration, then convert to performance.
         // The idea here is to quantize with variable precision to limit bucket count,
@@ -154,7 +147,7 @@ mod tests {
     /// Check the utility, given some A.
     /// Verify that the expected utility is within a range.
     fn uniform_test(mean: f64, std_dev: f64, a_u: f64, expected: f64, tolerance: f64) {
-        let mut tracker = Performance::new();
+        let mut tracker = Performance::default();
         let dist = Normal::new(mean, std_dev).unwrap();
         for _ in 0..10000 {
             let duration = thread_rng().sample(dist);
@@ -213,7 +206,7 @@ mod tests {
     #[test]
     fn debug_ratios() {
         fn web_utility(ms: u64) -> f64 {
-            let mut tracker = Performance::new();
+            let mut tracker = Performance::default();
             tracker.add_successful_query(Duration::from_millis(ms));
             tracker.expected_utility(WEB_UTIL).utility
         }
