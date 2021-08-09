@@ -249,6 +249,7 @@ impl DataFreshness {
 mod tests {
     use super::*;
     use crate::indexer_selection::Context;
+    use crate::prelude::test_utils::bytes_from_id;
     use codecs::Encode as _;
 
     #[test]
@@ -365,4 +366,55 @@ mod tests {
         todo!()
     }
     */
+
+    #[test]
+    fn can_get_latest() {
+        let blocks = gen_blocks(&[0, 1, 2, 3, 4, 5, 6, 7]);
+        let cache = cache_with("", &blocks);
+        assert_eq!(cache.latest_block("", 0), Ok(blocks[7].clone()));
+    }
+
+    #[test]
+    fn missing() {
+        let blocks = gen_blocks(&[0, 1, 2, 3, 5, 6, 7]);
+        let cache = cache_with("", &blocks);
+        assert_eq!(
+            cache.latest_block("", 3),
+            Err(UnresolvedBlock::WithNumber(4))
+        );
+    }
+
+    #[test]
+    fn missing_head() {
+        let blocks = gen_blocks(&[0, 1, 2, 3]);
+        let cache = cache_with("", &blocks);
+        assert_eq!(cache.latest_block("", 7), Ok(blocks[0].clone()));
+    }
+
+    /// Skipping some number of blocks from latest does not require all
+    /// blocks between the latest and the skipped to.
+    #[test]
+    fn does_not_require_intermediates() {
+        let blocks = gen_blocks(&[12, 7]);
+        let cache = cache_with("", &blocks);
+        assert_eq!(cache.latest_block("", 5), Ok(blocks[1].clone()));
+    }
+
+    fn gen_blocks(numbers: &[u64]) -> Vec<BlockPointer> {
+        numbers
+            .iter()
+            .map(|&number| BlockPointer {
+                number,
+                hash: bytes_from_id(number as usize).into(),
+            })
+            .collect()
+    }
+
+    fn cache_with(network: &str, blocks: &[BlockPointer]) -> NetworkCache {
+        let mut cache = NetworkCache::default();
+        for block in blocks.iter() {
+            cache.set_block(network, block.clone());
+        }
+        cache
+    }
 }
