@@ -21,11 +21,7 @@ use rand::{thread_rng, Rng as _};
 use receipts::*;
 use reputation::*;
 pub use secp256k1::SecretKey;
-use std::sync::Arc;
-use tokio::{
-    sync::{Mutex, RwLock},
-    time,
-};
+use tokio::{sync::RwLock, time};
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
@@ -65,6 +61,14 @@ pub enum BadIndexerReason {
     FeeTooHigh,
     InsufficientCollateral,
     NaN,
+}
+
+impl From<BorrowFail> for BadIndexerReason {
+    fn from(err: BorrowFail) -> Self {
+        match err {
+            BorrowFail::InsufficientCollateral => Self::InsufficientCollateral,
+        }
+    }
 }
 
 impl From<BadIndexerReason> for SelectionError {
@@ -138,6 +142,7 @@ impl Indexers {
         self.network_cache.write().await.set_block(network, block);
     }
 
+    #[cfg(test)]
     pub async fn set_default_cost_model(&mut self, indexing: &Indexing, price: GRT) {
         self.set_cost_model(indexing, format!("default => {};", price), "{}".into())
             .await;
@@ -396,7 +401,7 @@ impl Indexers {
             .with_value_mut(&indexing, |info| info.receipts.commit(&score.fee))
             .await
             .map(move |receipt| Some((indexing, score, receipt)))
-            .ok_or(BadIndexerReason::InsufficientCollateral.into())
+            .map_err(|err| SelectionError::BadIndexer(err.into()))
     }
 
     async fn score_indexer(
@@ -714,7 +719,7 @@ mod tests {
         let query_time = time::Instant::now();
         const COUNT: usize = 86400;
         const QPS: u64 = 2000;
-        for i in 0..COUNT {
+        for _ in 0..COUNT {
             let query = "{ a }".to_string();
             let variables = "".to_string();
             let budget: GRT = "0.00005".parse().unwrap();

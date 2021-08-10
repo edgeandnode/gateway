@@ -1,11 +1,8 @@
-use crate::{
-    indexer_selection::{BadIndexerReason, SecretKey},
-    prelude::*,
-};
+use crate::{indexer_selection::SecretKey, prelude::*};
 pub use receipts_allocation::QueryStatus;
 use receipts_allocation::ReceiptPool as ReceiptPoolAllocation;
-pub use receipts_transfer::ReceiptBorrow;
 use receipts_transfer::ReceiptPool as ReceiptPoolTransfer;
+pub use receipts_transfer::{BorrowFail, ReceiptBorrow};
 use std::convert::TryFrom;
 
 #[derive(Default)]
@@ -41,19 +38,21 @@ impl Receipts {
         }
     }
 
-    /// Return the transfer receipt, or none if insufficient collateral.
-    pub fn commit(&mut self, locked_fee: &GRT) -> Option<receipts_transfer::ReceiptBorrow> {
+    pub fn commit(
+        &mut self,
+        locked_fee: &GRT,
+    ) -> Result<receipts_transfer::ReceiptBorrow, BorrowFail> {
         let locked_fee = locked_fee.shift::<0>().as_u256();
         if let Some(transfers) = &mut self.transfers {
-            transfers.commit(locked_fee).ok()
+            transfers.commit(locked_fee)
         } else if let Some(allocations) = &mut self.allocations {
-            let commitment = allocations.commit(locked_fee).ok()?;
-            Some(receipts_transfer::ReceiptBorrow {
+            let commitment = allocations.commit(locked_fee)?;
+            Ok(receipts_transfer::ReceiptBorrow {
                 commitment,
                 low_collateral_warning: false,
             })
         } else {
-            None
+            Err(BorrowFail::InsufficientCollateral)
         }
     }
 
