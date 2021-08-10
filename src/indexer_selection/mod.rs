@@ -108,6 +108,7 @@ pub struct UtilityConfig {
     economic_security: f64,
     performance: f64,
     data_freshness: f64,
+    price_efficiency: f64,
 }
 
 pub struct IndexerScore {
@@ -455,7 +456,9 @@ impl Indexers {
                     latest_block.number,
                     blocks_behind,
                 )?);
-                let (fee, price_efficiency) = data.price_efficiency.get_price(context, &budget)?;
+                let (fee, price_efficiency) =
+                    data.price_efficiency
+                        .get_price(context, config.price_efficiency, &budget)?;
                 aggregator.add(price_efficiency);
 
                 if !data.receipts.has_collateral_for(&fee) {
@@ -546,7 +549,7 @@ impl Default for UtilityConfig {
             data_freshness: 4.33,
             // Don't over or under value "getting a good deal"
             // Note: This is not a utility_a parameter, but is a weight.
-            // price_efficiency: 1.0,
+            price_efficiency: 0.5,
             // TODO
             // reputation: 0.0,
         }

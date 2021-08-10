@@ -32,6 +32,7 @@ impl PriceEfficiency {
     pub fn get_price(
         &self,
         context: &mut Context<'_>,
+        weight: f64,
         max_budget: &GRT,
     ) -> Result<(USD, SelectionFactor), SelectionError> {
         let model = self.cost_model()?;
@@ -124,11 +125,7 @@ impl PriceEfficiency {
 
         // Treat price as having relatively low importance to
         // prioritize network health over cost to dApp developers.
-        let savings_utility = SelectionFactor {
-            weight: 0.5,
-            utility,
-        };
-
+        let savings_utility = SelectionFactor { weight, utility };
         Ok((fee, savings_utility))
     }
 }
@@ -151,7 +148,11 @@ mod test {
         let tests = [(0.01, 0.0), (0.02, 0.2763), (0.1, 0.7746), (1.0, 0.9742)];
         for (budget, expected_utility) in tests {
             let (fee, utility) = efficiency
-                .get_price(&mut context, &budget.to_string().parse::<GRT>().unwrap())
+                .get_price(
+                    &mut context,
+                    0.5,
+                    &budget.to_string().parse::<GRT>().unwrap(),
+                )
                 .unwrap();
             println!("fee: {}, {:?}", fee, utility);
             assert_eq!(fee, "0.01".parse::<GRT>().unwrap());
