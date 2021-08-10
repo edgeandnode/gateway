@@ -173,8 +173,14 @@ impl<const P: u8> UDecimal<P> {
     }
 
     pub fn as_f64(&self) -> f64 {
-        // TODO: avoid relying on string conversions for this
-        self.to_string().parse().unwrap()
+        let mut buf = [0u8; 32];
+        self.internal.to_little_endian(&mut buf);
+        let ctz = buf.iter().rev().take_while(|&&b| b == 0).count();
+        let mut value: f64 = 0.0;
+        for i in 0..(buf.len() - ctz) {
+            value += 2.0f64.powf((i as usize * 8) as f64) * (buf[i] as f64);
+        }
+        value / 10.0f64.powf(P as f64)
     }
 
     pub fn saturating_add(self, other: Self) -> Self {
