@@ -32,6 +32,10 @@ pub struct Performance {
 }
 
 impl Performance {
+    fn new() -> Self {
+        Self::default()
+    }
+
     fn quantized_performance(duration: Duration) -> f64 {
         // Get nearest triangle number of quantized duration, then convert to performance.
         // The idea here is to quantize with variable precision to limit bucket count,
@@ -206,7 +210,7 @@ mod tests {
     #[test]
     fn debug_ratios() {
         fn web_utility(ms: u64) -> f64 {
-            let mut tracker = Performance::default();
+            let mut tracker = Performance::new();
             tracker.add_successful_query(Duration::from_millis(ms));
             tracker.expected_utility(WEB_UTIL).utility
         }

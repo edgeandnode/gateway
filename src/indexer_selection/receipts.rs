@@ -41,25 +41,19 @@ impl Receipts {
         }
     }
 
-    pub fn commit(
-        &mut self,
-        locked_fee: &GRT,
-    ) -> Result<receipts_transfer::ReceiptBorrow, BadIndexerReason> {
+    /// Return the transfer receipt, or none if insufficient collateral.
+    pub fn commit(&mut self, locked_fee: &GRT) -> Option<receipts_transfer::ReceiptBorrow> {
         let locked_fee = locked_fee.shift::<0>().as_u256();
         if let Some(transfers) = &mut self.transfers {
-            transfers
-                .commit(locked_fee)
-                .map_err(|_| BadIndexerReason::InsufficientCollateral)
+            transfers.commit(locked_fee).ok()
         } else if let Some(allocations) = &mut self.allocations {
-            let commitment = allocations
-                .commit(locked_fee)
-                .map_err(|_| BadIndexerReason::InsufficientCollateral)?;
-            Ok(receipts_transfer::ReceiptBorrow {
+            let commitment = allocations.commit(locked_fee).ok()?;
+            Some(receipts_transfer::ReceiptBorrow {
                 commitment,
                 low_collateral_warning: false,
             })
         } else {
-            Err(BadIndexerReason::InsufficientCollateral)
+            None
         }
     }
 
