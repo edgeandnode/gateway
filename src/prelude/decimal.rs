@@ -173,14 +173,30 @@ impl<const P: u8> UDecimal<P> {
     }
 
     pub fn as_f64(&self) -> f64 {
-        let mut buf = [0u8; 32];
-        self.internal.to_little_endian(&mut buf);
-        let ctz = buf.iter().rev().take_while(|&&b| b == 0).count();
-        let mut value: f64 = 0.0;
-        for i in 0..(buf.len() - ctz) {
-            value += 2.0f64.powf((i as usize * 8) as f64) * (buf[i] as f64);
+        // Collect the little-endian bytes of the U256 value.
+        let mut le_u8 = [0u8; 32];
+        self.internal.to_little_endian(&mut le_u8);
+        // Merge the 32 bytes into 4 u64 values to reduce the amount of float
+        // operations required to calculate the final value.
+        let mut le_u64 = [0u64; 4];
+        for n in 0..le_u64.len() {
+            let mut buf = [0u8; 8];
+            let i = n * 8;
+            buf.copy_from_slice(&le_u8[i..(i + 8)]);
+            le_u64[n] = u64::from_le_bytes(buf);
         }
-        value / 10.0f64.powf(P as f64)
+        // Count trailing u64 zero values. This is used to avoid unnecessary
+        // multiplications by zero.
+        let ctz = le_u64.iter().rev().take_while(|&&b| b == 0).count();
+        // Sum the terms and then divide by 10^P, where each term equals
+        // 2^(64i) * n.
+        le_u64
+            .iter()
+            .enumerate()
+            .take(le_u64.len() - ctz)
+            .map(|(i, &n)| 2.0f64.powf((i * 64) as f64) * (n as f64))
+            .sum::<f64>()
+            / 10.0f64.powf(P as f64)
     }
 
     pub fn saturating_add(self, other: Self) -> Self {
