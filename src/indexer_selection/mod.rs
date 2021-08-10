@@ -52,7 +52,6 @@ pub enum SelectionError {
     MissingNetworkParams,
     MissingBlock(UnresolvedBlock),
     BadIndexer(BadIndexerReason),
-    InsufficientCollateral { indexer: Address, fee: GRT },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -115,24 +114,23 @@ pub struct IndexerScore {
     blocks_behind: u64,
 }
 
-#[derive(Clone)]
 pub struct Indexers {
-    network_params: Arc<RwLock<NetworkParameters>>,
-    network_cache: Arc<RwLock<NetworkCache>>,
-    indexings: Arc<SharedLookup<Indexing, IndexingData>>,
-    indexers: Arc<SharedLookup<Address, IndexerUtilityTracker>>,
-    // last_decay: Arc<Mutex<Option<time::Instant>>>,
+    network_params: RwLock<NetworkParameters>,
+    network_cache: RwLock<NetworkCache>,
+    indexings: SharedLookup<Indexing, IndexingData>,
+    indexers: SharedLookup<Address, IndexerUtilityTracker>,
+    // last_decay: Mutex<Option<time::Instant>>,
 }
 
 impl Indexers {
     // TODO: use eventuals to update shared state.
 
-    pub fn new(network_params: Arc<RwLock<NetworkParameters>>) -> Indexers {
+    pub fn new(network_params: NetworkParameters) -> Indexers {
         Indexers {
-            network_params,
-            network_cache: Arc::default(),
-            indexings: Arc::default(),
-            indexers: Arc::default(),
+            network_params: RwLock::new(network_params),
+            network_cache: RwLock::default(),
+            indexings: SharedLookup::default(),
+            indexers: SharedLookup::default(),
         }
     }
 
@@ -279,8 +277,57 @@ impl Indexers {
             .await
             .freshness_requirements(&mut context.operations, network)?;
 
-        // Select random indexer, weighted by utility. Indexers with incomplete
-        // data or that do not meet the minimum requirements will be excluded.
+        let (indexing, score, receipt) = loop {
+            match self
+                .make_selection(
+                    config,
+                    network,
+                    subgraph,
+                    &mut context,
+                    indexers,
+                    budget,
+                    &freshness_requirements,
+                )
+                .await
+            {
+                Err(SelectionError::BadIndexer(BadIndexerReason::InsufficientCollateral)) => {
+                    continue
+                }
+                Ok(Some(result)) => break result,
+                Ok(None) => return Ok(None),
+                Err(err) => return Err(err),
+            }
+        };
+
+        let query = self.network_cache.write().await.make_query_deterministic(
+            network,
+            context,
+            score.blocks_behind,
+        )?;
+
+        Ok(Some(IndexerQuery {
+            indexer: indexing.indexer,
+            query: query.query,
+            receipt,
+            fee: score.fee,
+            slashable_usd: score.slashable,
+            utility: score.utility,
+            blocks_behind: query.blocks_behind,
+        }))
+    }
+
+    /// Select random indexer, weighted by utility. Indexers with incomplete data or that do not
+    /// meet the minimum requirements will be excluded.
+    async fn make_selection(
+        &mut self,
+        config: &UtilityConfig,
+        network: &str,
+        subgraph: &SubgraphDeploymentID,
+        context: &mut Context<'_>,
+        indexers: &[Address],
+        budget: USD,
+        freshness_requirements: &BlockRequirements,
+    ) -> Result<Option<(Indexing, IndexerScore, ReceiptBorrow)>, SelectionError> {
         let mut scores = Vec::new();
         for indexer in indexers {
             let indexing = Indexing {
@@ -291,10 +338,10 @@ impl Indexers {
                 .score_indexer(
                     network,
                     &indexing,
-                    &mut context,
+                    context,
                     budget,
                     config,
-                    &freshness_requirements,
+                    freshness_requirements,
                 )
                 .await;
             let score = match result {
@@ -308,7 +355,6 @@ impl Indexers {
             };
             scores.push((indexing, score));
         }
-
         let max_utility = match scores.iter().map(|(_, score)| score.utility).max() {
             Some(n) => n,
             None => return Ok(None),
@@ -327,11 +373,10 @@ impl Indexers {
         // getting crazy and we're exploiting the utility strongly.
         const UTILITY_PREFERENCE: f64 = 1.1;
         utility_cutoff = max_utility * (1.0 - utility_cutoff.powf(UTILITY_PREFERENCE));
+        let mut selected = WeightedSample::new();
         let scores = scores
             .into_iter()
             .filter(|(_, score)| score.utility >= utility_cutoff);
-
-        let mut selected = WeightedSample::new();
         for (indexing, score) in scores {
             let sybil = score.sybil.into();
             selected.add((indexing, score), sybil);
@@ -340,7 +385,6 @@ impl Indexers {
             Some(selection) => selection,
             None => return Ok(None),
         };
-
         // Technically the "algorithm" part ends here, but eventually we want to
         // be able to go back with data already collected if a later step fails.
 
@@ -348,29 +392,11 @@ impl Indexers {
         // kick off resolutions (eg: getting block hashes, or adding collateral)
         // and at the same time try to use another Indexer.
 
-        let query = self.network_cache.write().await.make_query_deterministic(
-            network,
-            context,
-            score.blocks_behind,
-        )?;
-        let receipt = self
-            .indexings
+        self.indexings
             .with_value_mut(&indexing, |info| info.receipts.commit(&score.fee))
             .await
-            .map_err(|_| SelectionError::InsufficientCollateral {
-                indexer: indexing.indexer,
-                fee: score.fee,
-            })?;
-
-        Ok(Some(IndexerQuery {
-            indexer: indexing.indexer,
-            query: query.query,
-            receipt,
-            fee: score.fee,
-            slashable_usd: score.slashable,
-            utility: score.utility,
-            blocks_behind: query.blocks_behind,
-        }))
+            .map(move |receipt| Some((indexing, score, receipt)))
+            .ok_or(BadIndexerReason::InsufficientCollateral.into())
     }
 
     async fn score_indexer(
@@ -548,10 +574,10 @@ mod tests {
 
     #[tokio::test]
     async fn battle_high_and_low() {
-        let network_params = Arc::new(RwLock::new(NetworkParameters {
+        let network_params = NetworkParameters {
             usd_to_grt_conversion: Eventual::from_value(1u64.try_into().unwrap()),
             slashing_percentage: Eventual::from_value("0.1".parse().unwrap()),
-        }));
+        };
         let mut indexers = Indexers::new(network_params);
 
         let network = "mainnet";
