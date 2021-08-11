@@ -12,7 +12,12 @@ mod test_utils;
 #[cfg(test)]
 mod tests;
 
-use crate::prelude::{shared_lookup::SharedLookup, weighted_sample::WeightedSample, *};
+use crate::prelude::{
+    free_candy::SharedLookup as FreeCandy,
+    shared_lookup::{SharedLookup, SharedLookupWriter},
+    weighted_sample::WeightedSample,
+    *,
+};
 use cost_model;
 use cost_model::CostModel;
 use economic_security::*;
@@ -29,18 +34,9 @@ use tokio::{
     sync::{Mutex, RwLock},
     time,
 };
-use tree_buf;
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
-
-#[derive(
-    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, tree_buf::Decode, tree_buf::Encode,
-)]
-pub struct Indexing {
-    pub indexer: Address,
-    pub subgraph: SubgraphDeploymentID,
-}
 
 pub struct IndexerQuery {
     pub indexer: Address,
@@ -99,10 +95,40 @@ impl From<UnresolvedBlock> for SelectionError {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct IndexerUtilityTracker {
-    stake: Option<GRT>,
-    delegated_stake: Option<GRT>,
+pub struct IndexerDataReader {
+    pub stake: Eventual<GRT>,
+    pub delegated_stake: Eventual<GRT>,
+}
+
+pub struct IndexerDataWriter {
+    pub stake: EventualWriter<GRT>,
+    pub delegated_stake: EventualWriter<GRT>,
+}
+
+impl shared_lookup::Reader for IndexerDataReader {
+    type Writer = IndexerDataWriter;
+    fn new() -> (Self::Writer, Self) {
+        let (stake_writer, stake) = Eventual::new();
+        let (delegatted_stake_writer, delegated_stake) = Eventual::new();
+        (
+            IndexerDataWriter {
+                stake: stake_writer,
+                delegated_stake: delegatted_stake_writer,
+            },
+            IndexerDataReader {
+                stake,
+                delegated_stake,
+            },
+        )
+    }
+}
+
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, tree_buf::Decode, tree_buf::Encode,
+)]
+pub struct Indexing {
+    pub indexer: Address,
+    pub subgraph: SubgraphDeploymentID,
 }
 
 #[derive(Default)]
@@ -132,18 +158,20 @@ pub struct IndexerScore {
 pub struct Inputs {
     pub slashing_percentage: Eventual<PPM>,
     pub usd_to_grt_conversion: Eventual<USD>,
+    pub indexers: SharedLookup<Address, IndexerDataReader>,
 }
 
 pub struct InputWriters {
     pub slashing_percentage: EventualWriter<PPM>,
     pub usd_to_grt_conversion: EventualWriter<USD>,
+    pub indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
 }
 
 pub struct Indexers {
     network_params: NetworkParameters,
     network_cache: RwLock<NetworkCache>,
-    indexings: SharedLookup<Indexing, IndexingData>,
-    indexers: SharedLookup<Address, IndexerUtilityTracker>,
+    indexers: SharedLookup<Address, IndexerDataReader>,
+    indexings: FreeCandy<Indexing, IndexingData>,
     last_decay: Mutex<Option<time::Instant>>,
 }
 
@@ -153,14 +181,17 @@ impl Indexers {
     pub fn inputs() -> (InputWriters, Inputs) {
         let (slashing_percentage_writer, slashing_percentage) = Eventual::new();
         let (usd_to_grt_conversion_writer, usd_to_grt_conversion) = Eventual::new();
+        let (indexers_writer, indexers) = SharedLookup::new();
         (
             InputWriters {
                 slashing_percentage: slashing_percentage_writer,
                 usd_to_grt_conversion: usd_to_grt_conversion_writer,
+                indexers: indexers_writer,
             },
             Inputs {
                 slashing_percentage,
                 usd_to_grt_conversion,
+                indexers,
             },
         )
     }
@@ -172,8 +203,8 @@ impl Indexers {
                 usd_to_grt_conversion: inputs.usd_to_grt_conversion,
             },
             network_cache: RwLock::default(),
-            indexings: SharedLookup::default(),
-            indexers: SharedLookup::default(),
+            indexers: inputs.indexers,
+            indexings: FreeCandy::default(),
             last_decay: Mutex::default(),
         }
     }
@@ -210,15 +241,6 @@ impl Indexers {
         self.indexings
             .with_value_mut(indexing, move |data| {
                 data.freshness.set_blocks_behind(behind, block_number);
-            })
-            .await;
-    }
-
-    pub async fn set_stake(&mut self, indexer: &Address, stake: GRT, delegated: GRT) {
-        self.indexers
-            .with_value_mut(indexer, move |data| {
-                data.stake = Some(stake);
-                data.delegated_stake = Some(delegated);
             })
             .await;
     }
@@ -287,13 +309,10 @@ impl Indexers {
         Snapshot {
             slashing_percentage: slashing_percentage.to_little_endian().into(),
             usd_to_grt_conversion: usd_to_grt_conversion.to_little_endian().into(),
+            indexers: self.indexers.snapshot().await,
             indexings: self
                 .indexings
                 .snapshot(IndexingDataSnapshot::snapshot)
-                .await,
-            indexers: self
-                .indexers
-                .snapshot(IndexerUtilityTrackerSnapshot::snapshot)
                 .await,
         }
     }
@@ -305,20 +324,13 @@ impl Indexers {
         inputs
             .usd_to_grt_conversion
             .write(GRT::from_little_endian(&snapshot.usd_to_grt_conversion));
+        inputs.indexers.restore(snapshot.indexers).await;
         self.indexings
             .restore(
                 snapshot
                     .indexings
                     .into_iter()
                     .map(|(k, v)| (k, IndexingDataSnapshot::restore(v))),
-            )
-            .await;
-        self.indexers
-            .restore(
-                snapshot
-                    .indexers
-                    .into_iter()
-                    .map(|(k, v)| (k, IndexerUtilityTrackerSnapshot::restore(v))),
             )
             .await;
     }
@@ -504,19 +516,22 @@ impl Indexers {
         freshness_requirements: &BlockRequirements,
     ) -> Result<IndexerScore, SelectionError> {
         let mut aggregator = UtilityAggregator::new();
-        let (indexer_stake, delegated_stake) = self
+        let indexer_data = self
             .indexers
-            .with_value(
-                &indexing.indexer,
-                |v| -> Result<(GRT, GRT), BadIndexerReason> {
-                    let indexer_stake = v.stake.ok_or(BadIndexerReason::MissingIndexerStake)?;
-                    let delegated_stake = v
-                        .delegated_stake
-                        .ok_or(BadIndexerReason::MissingIndexerDelegatedStake)?;
-                    Ok((indexer_stake, delegated_stake))
-                },
-            )
-            .await?;
+            .with_value(&indexing.indexer, |r| {
+                (
+                    r.stake.value_immediate(),
+                    r.delegated_stake.value_immediate(),
+                )
+            })
+            .await
+            .unwrap_or_default();
+        let indexer_stake = indexer_data
+            .0
+            .ok_or(BadIndexerReason::MissingIndexerStake)?;
+        let delegated_stake = indexer_data
+            .1
+            .ok_or(BadIndexerReason::MissingIndexerDelegatedStake)?;
         let economic_security = self
             .network_params
             .economic_security_utility(indexer_stake, config.economic_security)
