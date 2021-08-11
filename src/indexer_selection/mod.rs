@@ -4,6 +4,7 @@ mod performance;
 mod price_efficiency;
 mod receipts;
 mod reputation;
+mod snapshot;
 mod utility;
 
 #[cfg(test)]
@@ -21,12 +22,16 @@ use rand::{thread_rng, Rng as _};
 use receipts::*;
 use reputation::*;
 pub use secp256k1::SecretKey;
+use snapshot::*;
 use tokio::{sync::RwLock, time};
+use tree_buf;
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, tree_buf::Decode, tree_buf::Encode,
+)]
 pub struct Indexing {
     pub indexer: Address,
     pub subgraph: SubgraphDeploymentID,
@@ -96,7 +101,7 @@ pub struct IndexerUtilityTracker {
 }
 
 #[derive(Default)]
-struct IndexingData {
+pub struct IndexingData {
     performance: Performance,
     freshness: DataFreshness,
     price_efficiency: PriceEfficiency,
@@ -119,6 +124,16 @@ pub struct IndexerScore {
     blocks_behind: u64,
 }
 
+pub struct Inputs {
+    pub slashing_percentage: Eventual<PPM>,
+    pub usd_to_grt_conversion: Eventual<USD>,
+}
+
+pub struct InputWriters {
+    pub slashing_percentage: EventualWriter<PPM>,
+    pub usd_to_grt_conversion: EventualWriter<USD>,
+}
+
 pub struct Indexers {
     network_params: RwLock<NetworkParameters>,
     network_cache: RwLock<NetworkCache>,
@@ -130,9 +145,27 @@ pub struct Indexers {
 impl Indexers {
     // TODO: use eventuals to update shared state.
 
-    pub fn new(network_params: NetworkParameters) -> Indexers {
+    pub fn inputs() -> (InputWriters, Inputs) {
+        let (slashing_percentage_writer, slashing_percentage) = Eventual::new();
+        let (usd_to_grt_conversion_writer, usd_to_grt_conversion) = Eventual::new();
+        (
+            InputWriters {
+                slashing_percentage: slashing_percentage_writer,
+                usd_to_grt_conversion: usd_to_grt_conversion_writer,
+            },
+            Inputs {
+                slashing_percentage,
+                usd_to_grt_conversion,
+            },
+        )
+    }
+
+    pub fn new(inputs: Inputs) -> Indexers {
         Indexers {
-            network_params: RwLock::new(network_params),
+            network_params: RwLock::new(NetworkParameters {
+                slashing_percentage: inputs.slashing_percentage,
+                usd_to_grt_conversion: inputs.usd_to_grt_conversion,
+            }),
             network_cache: RwLock::default(),
             indexings: SharedLookup::default(),
             indexers: SharedLookup::default(),
@@ -141,12 +174,6 @@ impl Indexers {
 
     pub async fn set_block(&mut self, network: &str, block: BlockPointer) {
         self.network_cache.write().await.set_block(network, block);
-    }
-
-    #[cfg(test)]
-    pub async fn set_default_cost_model(&mut self, indexing: &Indexing, price: GRT) {
-        self.set_cost_model(indexing, format!("default => {};", price), "{}".into())
-            .await;
     }
 
     pub async fn set_cost_model(&mut self, indexing: &Indexing, model: String, globals: String) {
@@ -235,6 +262,59 @@ impl Indexers {
                 data.receipts.release(receipt, status);
                 data.reputation.add_failed_query();
             })
+            .await;
+    }
+
+    pub async fn take_snapshot(&self) -> Snapshot {
+        let (slashing_percentage, usd_to_grt_conversion) = {
+            let params = self.network_params.read().await;
+            (
+                params
+                    .slashing_percentage
+                    .value_immediate()
+                    .unwrap_or_default(),
+                params
+                    .usd_to_grt_conversion
+                    .value_immediate()
+                    .unwrap_or_default(),
+            )
+        };
+        Snapshot {
+            slashing_percentage: slashing_percentage.to_little_endian().into(),
+            usd_to_grt_conversion: usd_to_grt_conversion.to_little_endian().into(),
+            indexings: self
+                .indexings
+                .snapshot(IndexingDataSnapshot::snapshot)
+                .await,
+            indexers: self
+                .indexers
+                .snapshot(IndexerUtilityTrackerSnapshot::snapshot)
+                .await,
+        }
+    }
+
+    pub async fn restore_snapshot(&mut self, inputs: &mut InputWriters, snapshot: Snapshot) {
+        inputs
+            .slashing_percentage
+            .write(PPM::from_little_endian(&snapshot.slashing_percentage));
+        inputs
+            .usd_to_grt_conversion
+            .write(GRT::from_little_endian(&snapshot.usd_to_grt_conversion));
+        self.indexings
+            .restore(
+                snapshot
+                    .indexings
+                    .into_iter()
+                    .map(|(k, v)| (k, IndexingDataSnapshot::restore(v))),
+            )
+            .await;
+        self.indexers
+            .restore(
+                snapshot
+                    .indexers
+                    .into_iter()
+                    .map(|(k, v)| (k, IndexerUtilityTrackerSnapshot::restore(v))),
+            )
             .await;
     }
 
@@ -561,7 +641,7 @@ mod tests {
     use super::*;
     use crate::{
         indexer_selection::test_utils::{gen_blocks, TEST_KEY},
-        prelude::test_utils::bytes_from_id,
+        prelude::test_utils::{bytes_from_id, default_cost_model},
     };
     use std::collections::{BTreeMap, HashMap};
 
@@ -582,11 +662,16 @@ mod tests {
 
     #[tokio::test]
     async fn battle_high_and_low() {
-        let network_params = NetworkParameters {
-            usd_to_grt_conversion: Eventual::from_value(1u64.try_into().unwrap()),
-            slashing_percentage: Eventual::from_value("0.1".parse().unwrap()),
-        };
-        let mut indexers = Indexers::new(network_params);
+        let (mut input_writers, inputs) = Indexers::inputs();
+        let mut indexers = Indexers::new(inputs);
+        input_writers
+            .slashing_percentage
+            .write("0.1".parse().unwrap());
+        input_writers
+            .usd_to_grt_conversion
+            .write(1u64.try_into().unwrap());
+
+        eventuals::idle().await;
 
         let network = "mainnet";
         let blocks = gen_blocks(&(0u64..100).into_iter().collect::<Vec<u64>>());
@@ -696,7 +781,7 @@ mod tests {
                 subgraph,
             };
             indexers
-                .set_default_cost_model(&indexing, indexer.price)
+                .set_cost_model(&indexing, default_cost_model(indexer.price), "{}".into())
                 .await;
             indexers
                 .set_indexing_status(network, &indexing, latest.number - indexer.blocks_behind)
@@ -801,6 +886,20 @@ mod tests {
         }
         println!("Total Fees: {}", (total_fees * QPS.try_into().unwrap()));
 
-        // TODO: test snapshot restore
+        // Demonstrate snapshot restore.
+        let mut start = time::Instant::now();
+        let snapshot = indexers.take_snapshot().await;
+        let serialized = tree_buf::encode(&snapshot);
+        println!(
+            "Snapshot taken in {:?}. Used {}B.",
+            time::Instant::now() - start,
+            serialized.len()
+        );
+
+        start = time::Instant::now();
+        indexers
+            .restore_snapshot(&mut input_writers, tree_buf::decode(&serialized).unwrap())
+            .await;
+        println!("Snapshot restored in {:?}.", time::Instant::now() - start,);
     }
 }

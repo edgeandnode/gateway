@@ -26,7 +26,7 @@ pub struct BlockPointer {
 
 macro_rules! bytes_wrapper {
     ($vis:vis, $id:ident, $len:expr) => {
-        #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd, tree_buf::Decode, tree_buf::Encode)]
         $vis struct $id {
             pub bytes: [u8; $len],
         }

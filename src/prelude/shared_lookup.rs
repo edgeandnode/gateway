@@ -13,11 +13,31 @@ impl<K, V> Default for SharedLookup<K, V> {
 	}
 }
 
+impl<K, V> SharedLookup<K, V>
+where
+	K: Clone + Eq + Hash,
+	V: Default,
+{
+	pub async fn snapshot<S, F: Fn(&V) -> S>(&self, f: F) -> Vec<(K, S)> {
+		use futures::stream::{FuturesUnordered, StreamExt as _};
+		let keys = self.inner.read().await.keys().cloned().collect::<Vec<K>>();
+		keys
+			.iter()
+			.map(|k| {
+				let key = k.clone();
+				self.with_value(k, |v| (key, f(v)))
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect()
+			.await
+	}
+}
+
 impl<K: Eq + Hash, V> SharedLookup<K, V> {
-	pub async fn restore(&self, data: HashMap<K, V>) {
+	pub async fn restore<I: IntoIterator<Item = (K, V)>>(&self, iter: I) {
 		let mut inner = self.inner.write().await;
 		inner.clear();
-		for (k, v) in data.into_iter() {
+		for (k, v) in iter.into_iter() {
 			inner.insert(k, Arc::new(RwLock::new(v)));
 		}
 	}
@@ -56,15 +76,5 @@ impl<K: Clone + Eq + Hash, V: Default> SharedLookup<K, V> {
 		let value = self.get_or_create(key).await;
 		let mut lock = value.write().await;
 		f(&mut lock)
-	}
-}
-
-impl<K, V> SharedLookup<K, V>
-where
-	K: Clone,
-{
-	pub async fn keys_snapshot(&self) -> Vec<K> {
-		let read = self.inner.read().await;
-		read.keys().map(Clone::clone).collect()
 	}
 }

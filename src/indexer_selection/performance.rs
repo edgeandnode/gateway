@@ -24,8 +24,9 @@
 use crate::indexer_selection::utility::{concave_utility, SelectionFactor};
 use ordered_float::NotNan;
 use std::time::Duration;
+use tree_buf;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, tree_buf::Decode, tree_buf::Encode)]
 pub struct Performance {
     performance: Vec<f64>,
     count: Vec<f64>,
