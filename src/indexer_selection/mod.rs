@@ -23,7 +23,10 @@ use receipts::*;
 use reputation::*;
 pub use secp256k1::SecretKey;
 use snapshot::*;
-use tokio::{sync::RwLock, time};
+use tokio::{
+    sync::{Mutex, RwLock},
+    time,
+};
 use tree_buf;
 use utility::*;
 
@@ -139,7 +142,7 @@ pub struct Indexers {
     network_cache: RwLock<NetworkCache>,
     indexings: SharedLookup<Indexing, IndexingData>,
     indexers: SharedLookup<Address, IndexerUtilityTracker>,
-    // last_decay: Mutex<Option<time::Instant>>,
+    last_decay: Mutex<Option<time::Instant>>,
 }
 
 impl Indexers {
@@ -169,6 +172,7 @@ impl Indexers {
             network_cache: RwLock::default(),
             indexings: SharedLookup::default(),
             indexers: SharedLookup::default(),
+            last_decay: Mutex::default(),
         }
     }
 
@@ -317,22 +321,28 @@ impl Indexers {
             .await;
     }
 
-    // TODO: decay
-    // pub async fn decay(&mut self) {
-    //     let mut log = match self.last_decay.try_lock() {
-    //         Ok(log) => log,
-    //         Err(_) => return,
-    //     };
-    //     let time = time::Instant::now();
-    //     let last_decay = match log.replace(time) {
-    //         Some(last_decay) => last_decay,
-    //         None => return,
-    //     };
-    //     let passed_hours = (time - last_decay).as_secs_f64() / 3600.0;
-    //     // Information half-life of ~24 hours.
-    //     let retain = 0.973f64.powf(passed_hours);
-    //     // TODO
-    // }
+    pub async fn decay(&mut self) {
+        let mut log = match self.last_decay.try_lock() {
+            Ok(log) => log,
+            Err(_) => return,
+        };
+        let time = time::Instant::now();
+        let last_decay = match log.replace(time) {
+            Some(last_decay) => last_decay,
+            None => return,
+        };
+        let passed_hours = (time - last_decay).as_secs_f64() / 3600.0;
+        // Information half-life of ~24 hours.
+        let retain = 0.973f64.powf(passed_hours);
+        for indexing in self.indexings.keys().await {
+            self.indexings
+                .with_value_mut(&indexing, |data| {
+                    data.performance.decay(retain);
+                    data.reputation.decay(retain);
+                })
+                .await;
+        }
+    }
 
     // TODO: Specify budget in terms of a cost model -
     // the budget should be different per query
@@ -802,7 +812,7 @@ mod tests {
         let query_time = time::Instant::now();
         const COUNT: usize = 86400;
         const QPS: u64 = 2000;
-        for _ in 0..COUNT {
+        for i in 0..COUNT {
             let query = "{ a }".to_string();
             let variables = "".to_string();
             let budget: GRT = "0.00005".parse().unwrap();
@@ -819,12 +829,12 @@ mod tests {
                 .await
                 .unwrap();
 
-            // TODO
             // This will make almost no difference.
             // Just testing.
-            // if i % (COUNT / 10) == 0 {
-            //     indexers.decay();
-            // }
+            if i % (COUNT / 10) == 0 {
+                indexers.decay().await;
+            }
+
             let query = match result {
                 Some(query) => query,
                 None => continue,
