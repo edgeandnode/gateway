@@ -1,7 +1,7 @@
 use crate::{
   indexer_selection::{
     test_utils::{gen_blocks, TEST_KEY},
-    IndexerStake, Indexers, Indexing, UtilityConfig,
+    Indexers, Indexing, UtilityConfig,
   },
   prelude::test_utils::{bytes_from_id, default_cost_model},
   prelude::*,
@@ -152,14 +152,11 @@ async fn battle_high_and_low() {
       .set_indexing_status(network, &indexing, latest.number - indexer.blocks_behind)
       .await;
     input_writers
-      .indexer_stake
-      .update(
-        &indexing.indexer,
-        IndexerStake {
-          stake: Some(indexer.stake),
-          delegated_stake: Some(indexer.delegated_stake),
-        },
-      )
+      .indexers
+      .update(&indexing.indexer, |w| {
+        w.stake.write(indexer.stake);
+        w.delegated_stake.write(indexer.delegated_stake);
+      })
       .await;
     data.insert(indexing.indexer, indexer);
     indexer_ids.push(indexing.indexer);
