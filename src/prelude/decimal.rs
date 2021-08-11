@@ -150,6 +150,12 @@ impl<const P: u8> UDecimal<P> {
         Self { internal: 0.into() }
     }
 
+    pub fn from_little_endian(bytes: &[u8; 32]) -> Self {
+        Self {
+            internal: U256::from_little_endian(bytes),
+        }
+    }
+
     pub fn change_precision<const N: u8>(self) -> UDecimal<N> {
         UDecimal {
             internal: if N > P {
@@ -197,6 +203,12 @@ impl<const P: u8> UDecimal<P> {
             .map(|(i, &n)| 2.0f64.powf((i * 64) as f64) * (n as f64))
             .sum::<f64>()
             / 10.0f64.powf(P as f64)
+    }
+
+    pub fn to_little_endian(&self) -> [u8; 32] {
+        let mut buf = [0u8; 32];
+        self.internal.to_little_endian(&mut buf);
+        buf
     }
 
     pub fn saturating_add(self, other: Self) -> Self {
