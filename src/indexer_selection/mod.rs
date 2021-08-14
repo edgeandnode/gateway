@@ -13,7 +13,6 @@ mod test_utils;
 mod tests;
 
 use crate::prelude::{
-    free_candy::SharedLookup as FreeCandy,
     shared_lookup::{SharedLookup, SharedLookupWriter},
     weighted_sample::WeightedSample,
     *,
@@ -30,6 +29,7 @@ use receipts::*;
 use reputation::*;
 pub use secp256k1::SecretKey;
 use snapshot::*;
+use std::{collections::HashMap, sync::Arc};
 use tokio::{
     sync::{Mutex, RwLock},
     time,
@@ -171,7 +171,7 @@ pub struct Indexers {
     network_params: NetworkParameters,
     network_cache: RwLock<NetworkCache>,
     indexers: SharedLookup<Address, IndexerDataReader>,
-    indexings: FreeCandy<Indexing, IndexingData>,
+    indexings: RwLock<HashMap<Indexing, Arc<RwLock<IndexingData>>>>,
     last_decay: Mutex<Option<time::Instant>>,
 }
 
@@ -204,7 +204,7 @@ impl Indexers {
             },
             network_cache: RwLock::default(),
             indexers: inputs.indexers,
-            indexings: FreeCandy::default(),
+            indexings: RwLock::default(),
             last_decay: Mutex::default(),
         }
     }
@@ -216,12 +216,11 @@ impl Indexers {
     pub async fn set_cost_model(&mut self, indexing: &Indexing, model: String, globals: String) {
         let src = model.clone();
         let compiled = CostModel::compile(model, &globals).ok();
-        self.indexings
-            .with_value_mut(indexing, move |data| {
-                data.price_efficiency
-                    .set_cost_model(compiled, (src, globals))
-            })
-            .await;
+        self.update_indexing(indexing, move |data| {
+            data.price_efficiency
+                .set_cost_model(compiled, (src, globals))
+        })
+        .await;
     }
 
     pub async fn set_indexing_status(
@@ -238,11 +237,10 @@ impl Indexers {
             .map(|block| block.number)
             .unwrap_or_default();
         let behind = latest.saturating_sub(block_number);
-        self.indexings
-            .with_value_mut(indexing, move |data| {
-                data.freshness.set_blocks_behind(behind, block_number);
-            })
-            .await;
+        self.update_indexing(indexing, move |data| {
+            data.freshness.set_blocks_behind(behind, block_number);
+        })
+        .await;
     }
 
     pub async fn install_receipts_transfer(
@@ -252,11 +250,10 @@ impl Indexers {
         collateral: &GRT,
         secret: SecretKey,
     ) {
-        self.indexings
-            .with_value_mut(indexing, move |data| {
-                data.receipts.add_transfer(transfer_id, collateral, secret);
-            })
-            .await;
+        self.update_indexing(indexing, move |data| {
+            data.receipts.add_transfer(transfer_id, collateral, secret);
+        })
+        .await;
     }
 
     pub async fn observe_successful_query(
@@ -265,13 +262,12 @@ impl Indexers {
         duration: time::Duration,
         receipt: &[u8],
     ) {
-        self.indexings
-            .with_value_mut(indexing, move |data| {
-                data.receipts.release(receipt, QueryStatus::Success);
-                data.performance.add_successful_query(duration);
-                data.reputation.add_successful_query();
-            })
-            .await;
+        self.update_indexing(indexing, move |data| {
+            data.receipts.release(receipt, QueryStatus::Success);
+            data.performance.add_successful_query(duration);
+            data.reputation.add_successful_query();
+        })
+        .await;
     }
 
     pub async fn observe_failed_query(
@@ -285,12 +281,11 @@ impl Indexers {
         } else {
             QueryStatus::Failure
         };
-        self.indexings
-            .with_value_mut(indexing, move |data| {
-                data.receipts.release(receipt, status);
-                data.reputation.add_failed_query();
-            })
-            .await;
+        self.update_indexing(indexing, move |data| {
+            data.receipts.release(receipt, status);
+            data.reputation.add_failed_query();
+        })
+        .await;
     }
 
     pub async fn take_snapshot(&self) -> Snapshot {
@@ -310,11 +305,18 @@ impl Indexers {
             slashing_percentage: slashing_percentage.to_little_endian().into(),
             usd_to_grt_conversion: usd_to_grt_conversion.to_little_endian().into(),
             indexers: self.indexers.snapshot().await,
-            indexings: self
-                .indexings
-                .snapshot(IndexingDataSnapshot::snapshot)
-                .await,
+            indexings: self.take_indexings_snapshot().await,
         }
+    }
+
+    async fn take_indexings_snapshot(&self) -> Vec<IndexingDataSnapshot> {
+        use std::convert::From as _;
+        let mut snapshot = Vec::new();
+        for (k, v) in self.indexings.read().await.iter() {
+            let data = v.read().await;
+            snapshot.push(IndexingDataSnapshot::from((k, &data as &IndexingData)));
+        }
+        snapshot
     }
 
     pub async fn restore_snapshot(&mut self, inputs: &mut InputWriters, snapshot: Snapshot) {
@@ -325,14 +327,13 @@ impl Indexers {
             .usd_to_grt_conversion
             .write(GRT::from_little_endian(&snapshot.usd_to_grt_conversion));
         inputs.indexers.restore(snapshot.indexers).await;
-        self.indexings
-            .restore(
-                snapshot
-                    .indexings
-                    .into_iter()
-                    .map(|(k, v)| (k, IndexingDataSnapshot::restore(v))),
-            )
-            .await;
+
+        let mut indexings = self.indexings.write().await;
+        indexings.clear();
+        for snapshot in snapshot.indexings {
+            let (k, v) = snapshot.into();
+            indexings.insert(k, Arc::new(RwLock::new(v)));
+        }
     }
 
     pub async fn decay(&mut self) {
@@ -345,20 +346,61 @@ impl Indexers {
             Some(last_decay) => last_decay,
             None => return,
         };
+        drop(log);
         let passed_hours = (time - last_decay).as_secs_f64() / 3600.0;
         // Information half-life of ~24 hours.
         let retain = 0.973f64.powf(passed_hours);
-        for indexing in self.indexings.keys().await {
-            self.indexings
-                .with_value_mut(&indexing, |data| {
-                    data.performance.decay(retain);
-                    data.reputation.decay(retain);
-                })
-                .await;
+        let indexings: Vec<Indexing> = self.indexings.read().await.keys().cloned().collect();
+        for indexing in indexings {
+            self.update_indexing(&indexing, |data| {
+                data.performance.decay(retain);
+                data.reputation.decay(retain);
+            })
+            .await;
         }
     }
 
-    // TODO: Specify budget in terms of a cost model -
+    async fn update_indexing<T, F>(&mut self, indexing: &Indexing, f: F) -> T
+    where
+        F: FnOnce(&mut IndexingData) -> T,
+    {
+        let mut indexings = self.indexings.write().await;
+        match indexings.get_mut(indexing) {
+            Some(data) => {
+                let mut data = data.write().await;
+                f(&mut data)
+            }
+            None => {
+                let mut data = IndexingData::default();
+                let v = f(&mut data);
+                indexings.insert(indexing.clone(), Arc::new(RwLock::new(data)));
+                v
+            }
+        }
+    }
+
+    async fn with_indexing<T, F>(&self, indexing: &Indexing, f: F) -> T
+    where
+        F: FnOnce(&IndexingData) -> T,
+    {
+        match self.indexings.read().await.get(indexing) {
+            Some(data) => {
+                let data = data.read().await;
+                f(&data)
+            }
+            None => {
+                let data = IndexingData::default();
+                let v = f(&data);
+                self.indexings
+                    .write()
+                    .await
+                    .insert(indexing.clone(), Arc::new(RwLock::new(data)));
+                v
+            }
+        }
+    }
+
+    // TODO: Specify budget in terms Arc::new(RwLock::new(data)) a cost model -
     // the budget should be different per query
     pub async fn select_indexer(
         &mut self,
@@ -499,8 +541,7 @@ impl Indexers {
         // kick off resolutions (eg: getting block hashes, or adding collateral)
         // and at the same time try to use another Indexer.
 
-        self.indexings
-            .with_value_mut(&indexing, |info| info.receipts.commit(&score.fee))
+        self.update_indexing(&indexing, |data| data.receipts.commit(&score.fee))
             .await
             .map(move |receipt| Some((indexing, score, receipt)))
             .map_err(|err| SelectionError::BadIndexer(err.into()))
@@ -539,8 +580,7 @@ impl Indexers {
         aggregator.add(economic_security.utility.clone());
 
         let blocks_behind = self
-            .indexings
-            .with_value(&indexing, |data| data.freshness.blocks_behind())
+            .with_indexing(&indexing, |data| data.freshness.blocks_behind())
             .await?;
         let latest_block = self
             .network_cache
@@ -548,45 +588,44 @@ impl Indexers {
             .await
             .latest_block(network, blocks_behind)?;
 
-        self.indexings
-            .with_value(&indexing, |data| {
-                aggregator.add(data.performance.expected_utility(config.performance));
-                aggregator.add(data.reputation.expected_utility()?);
-                aggregator.add(data.freshness.expected_utility(
-                    freshness_requirements,
-                    config.data_freshness,
-                    latest_block.number,
-                    blocks_behind,
-                )?);
-                let (fee, price_efficiency) =
-                    data.price_efficiency
-                        .get_price(context, config.price_efficiency, &budget)?;
-                aggregator.add(price_efficiency);
+        self.with_indexing(&indexing, |data| {
+            aggregator.add(data.performance.expected_utility(config.performance));
+            aggregator.add(data.reputation.expected_utility()?);
+            aggregator.add(data.freshness.expected_utility(
+                freshness_requirements,
+                config.data_freshness,
+                latest_block.number,
+                blocks_behind,
+            )?);
+            let (fee, price_efficiency) =
+                data.price_efficiency
+                    .get_price(context, config.price_efficiency, &budget)?;
+            aggregator.add(price_efficiency);
 
-                if !data.receipts.has_collateral_for(&fee) {
-                    return Err(BadIndexerReason::InsufficientCollateral.into());
-                }
+            if !data.receipts.has_collateral_for(&fee) {
+                return Err(BadIndexerReason::InsufficientCollateral.into());
+            }
 
-                // It's not immediately obvious why this mult works. We want to consider the amount
-                // staked over the total amount staked of all Indexers in the running. But, we don't
-                // know the total stake. If we did, it would be dividing all of these by that
-                // constant. Dividing all weights by a constant has no effect on the selection
-                // algorithm. Interestingly, delegating to an indexer just about guarantees that the
-                // indexer will receive more queries if they met the minimum criteria above. So,
-                // delegating more and then getting more queries is kind of a self-fulfilling
-                // prophesy. What balances this, is that any amount delegated is most productive
-                // when delegated proportionally to each Indexer's utility for that subgraph.
-                let utility = aggregator.crunch();
+            // It's not immediately obvious why this mult works. We want to consider the amount
+            // staked over the total amount staked of all Indexers in the running. But, we don't
+            // know the total stake. If we did, it would be dividing all of these by that
+            // constant. Dividing all weights by a constant has no effect on the selection
+            // algorithm. Interestingly, delegating to an indexer just about guarantees that the
+            // indexer will receive more queries if they met the minimum criteria above. So,
+            // delegating more and then getting more queries is kind of a self-fulfilling
+            // prophesy. What balances this, is that any amount delegated is most productive
+            // when delegated proportionally to each Indexer's utility for that subgraph.
+            let utility = aggregator.crunch();
 
-                Ok(IndexerScore {
-                    fee,
-                    slashable: economic_security.slashable_usd,
-                    utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,
-                    sybil: Self::sybil(indexer_stake, delegated_stake)?,
-                    blocks_behind,
-                })
+            Ok(IndexerScore {
+                fee,
+                slashable: economic_security.slashable_usd,
+                utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,
+                sybil: Self::sybil(indexer_stake, delegated_stake)?,
+                blocks_behind,
             })
-            .await
+        })
+        .await
     }
 
     /// Sybil protection
