@@ -12,7 +12,7 @@ pub struct Snapshot {
     pub slashing_percentage: Bytes32,
     pub usd_to_grt_conversion: Bytes32,
     pub indexers: Vec<IndexerDataSnapshot>,
-    pub indexings: Vec<(Indexing, IndexingDataSnapshot)>,
+    pub indexings: Vec<IndexingDataSnapshot>,
 }
 
 #[derive(Debug, Decode, Encode)]
@@ -57,31 +57,36 @@ impl Into<(Address, IndexerDataReader, IndexerDataWriter)> for IndexerDataSnapsh
 
 #[derive(Debug, Decode, Encode)]
 pub struct IndexingDataSnapshot {
+    pub indexing: Indexing,
     pub performance: Performance,
     pub freshness: DataFreshness,
     pub price_efficiency: Option<(String, String)>,
     pub reputation: Reputation,
 }
 
-impl IndexingDataSnapshot {
-    pub fn snapshot(from: &IndexingData) -> Self {
+impl From<(&Indexing, &IndexingData)> for IndexingDataSnapshot {
+    fn from(from: (&Indexing, &IndexingData)) -> Self {
         Self {
-            performance: from.performance.clone(),
-            freshness: from.freshness.clone(),
-            price_efficiency: from.price_efficiency.model_source.clone(),
-            reputation: from.reputation.clone(),
+            indexing: from.0.clone(),
+            performance: from.1.performance.clone(),
+            freshness: from.1.freshness.clone(),
+            price_efficiency: from.1.price_efficiency.model_source.clone(),
+            reputation: from.1.reputation.clone(),
         }
     }
+}
 
-    pub fn restore(from: Self) -> IndexingData {
+impl Into<(Indexing, IndexingData)> for IndexingDataSnapshot {
+    fn into(self) -> (Indexing, IndexingData) {
         let mut price_efficiency = PriceEfficiency::default();
-        price_efficiency.model_source = from.price_efficiency;
-        IndexingData {
-            performance: from.performance,
-            freshness: from.freshness,
+        price_efficiency.model_source = self.price_efficiency;
+        let data = IndexingData {
+            performance: self.performance,
+            freshness: self.freshness,
             price_efficiency,
-            reputation: from.reputation,
+            reputation: self.reputation,
             receipts: Receipts::default(),
-        }
+        };
+        (self.indexing, data)
     }
 }

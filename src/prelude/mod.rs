@@ -1,5 +1,4 @@
 mod decimal;
-pub mod free_candy;
 pub mod shared_lookup;
 pub mod weighted_sample;
 
