@@ -1,5 +1,5 @@
 use std::{collections::HashMap, hash::Hash, sync::Arc};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockMappedWriteGuard, RwLockWriteGuard};
 
 pub trait Reader {
     type Writer;
@@ -34,11 +34,38 @@ where
         self.0.read().await.get(key).map(|v| f(v))
     }
 
+    pub async fn with_value_mut<T, F>(&self, key: &K, f: F) -> Option<T>
+    where
+        F: FnOnce(&mut R) -> T,
+    {
+        self.0.write().await.get_mut(key).map(|v| f(v))
+    }
+
+    // TODO: read lock outer, write lock inner
+    pub async fn get_mut_guard(&self, key: &K) -> Option<RwLockMappedWriteGuard<'_, R>> {
+        let mut outer = self.0.write().await;
+        match outer.get_mut(key) {
+            Some(_) => Some(RwLockWriteGuard::map(outer, |outer| {
+                outer.get_mut(key).unwrap()
+            })),
+            None => None,
+        }
+    }
+
     pub async fn snapshot<S>(&self) -> Vec<S>
     where
         S: for<'k, 'r> From<(&'k K, &'r R)>,
     {
         self.0.read().await.iter().map(From::from).collect()
+    }
+}
+
+impl<K, R> SharedLookup<K, R>
+where
+    K: Clone,
+{
+    pub async fn keys(&self) -> Vec<K> {
+        self.0.read().await.keys().cloned().collect()
     }
 }
 
