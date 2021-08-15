@@ -3,34 +3,37 @@ use crate::{
     prelude::*,
 };
 use cost_model::{CostError, CostModel};
-use std::convert::TryFrom;
+use std::{convert::TryFrom, hash::Hash as _, hash::Hasher as _};
+use tree_buf::{Decode, Encode};
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Decode, Encode, Eq, Hash, PartialEq)]
+pub struct CostModelSource {
+    pub model: String,
+    pub globals: String,
+}
+
 pub struct PriceEfficiency {
-    model: Option<CostModel>,
-    // TODO: (Performance) Don't save this. It's just here to avoid changing the
-    // cost model repo right now to put TreeBuf in there.
-    pub model_source: Option<(String, String)>,
+    pub model_src: Eventual<CostModelSource>,
+    model: CompilationStatus,
+}
+
+enum CompilationStatus {
+    NotCompiled,
+    BadInput,
+    Compiled { model: CostModel, hash: u64 },
 }
 
 impl PriceEfficiency {
-    // For price efficiency -
-    // start by multiplying budget by utility to get amount willing to pay.
-    // Subtract the cost to get "savings".
-    // This as a percentage of total becomes the weight
-    pub fn set_cost_model(&mut self, model: Option<CostModel>, model_source: (String, String)) {
-        self.model = model;
-        self.model_source = Some(model_source);
+    pub fn new(model_src: Eventual<CostModelSource>) -> Self {
+        Self {
+            model_src,
+            model: CompilationStatus::NotCompiled,
+        }
     }
 
-    pub fn cost_model(&self) -> Result<&CostModel, SelectionError> {
-        self.model
-            .as_ref()
-            .ok_or(BadIndexerReason::MissingCostModel.into())
-    }
-
-    pub fn get_price(
-        &self,
+    // TODO: optimistic read lock, promote to write lock when compiling
+    pub async fn get_price(
+        &mut self,
         context: &mut Context<'_>,
         weight: f64,
         max_budget: &GRT,
@@ -128,21 +131,52 @@ impl PriceEfficiency {
         let savings_utility = SelectionFactor { weight, utility };
         Ok((fee, savings_utility))
     }
+
+    fn cost_model(&mut self) -> Result<&CostModel, SelectionError> {
+        let src = match self.model_src.value_immediate() {
+            Some(src) => src,
+            None => return Err(BadIndexerReason::MissingCostModel.into()),
+        };
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        src.hash(&mut hasher);
+        let current_hash = hasher.finish();
+
+        let recompile = match self.model {
+            CompilationStatus::NotCompiled => true,
+            CompilationStatus::Compiled { hash, .. } => hash != current_hash,
+            CompilationStatus::BadInput => return Err(SelectionError::BadInput),
+        };
+        if recompile {
+            match CostModel::compile(src.model, &src.globals) {
+                Ok(model) => {
+                    let hash = current_hash;
+                    self.model = CompilationStatus::Compiled { model, hash };
+                }
+                Err(_) => {
+                    self.model = CompilationStatus::BadInput;
+                    return Err(SelectionError::BadInput);
+                }
+            }
+        }
+        match &self.model {
+            CompilationStatus::Compiled { model, .. } => Ok(model),
+            CompilationStatus::BadInput => Err(SelectionError::BadInput),
+            CompilationStatus::NotCompiled => unreachable!(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::indexer_selection::test_utils::assert_within;
+    use crate::indexer_selection::test_utils::{assert_within, default_cost_model};
     use crate::prelude::test_utils::BASIC_QUERY;
 
-    #[test]
-    fn price_efficiency() {
-        let mut efficiency = PriceEfficiency::default();
-        efficiency.set_cost_model(
-            CostModel::compile("default => 0.01;", "").ok(),
-            ("".into(), "".into()),
-        );
+    #[tokio::test]
+    async fn price_efficiency() {
+        let mut efficiency = PriceEfficiency::new(Eventual::from_value(default_cost_model(
+            "0.01".parse().unwrap(),
+        )));
         let mut context = Context::new(BASIC_QUERY, "").unwrap();
         // Expected values based on https://www.desmos.com/calculator/kxd4kpjxi5
         let tests = [(0.01, 0.0), (0.02, 0.2763), (0.1, 0.7746), (1.0, 0.9742)];
@@ -153,6 +187,7 @@ mod test {
                     0.5,
                     &budget.to_string().parse::<GRT>().unwrap(),
                 )
+                .await
                 .unwrap();
             println!("fee: {}, {:?}", fee, utility);
             assert_eq!(fee, "0.01".parse::<GRT>().unwrap());

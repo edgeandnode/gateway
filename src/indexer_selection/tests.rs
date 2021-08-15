@@ -1,10 +1,9 @@
 use crate::{
   indexer_selection::{
-    test_utils::{gen_blocks, TEST_KEY},
+    test_utils::{default_cost_model, gen_blocks, TEST_KEY},
     Indexers, Indexing, UtilityConfig,
   },
-  prelude::test_utils::{bytes_from_id, default_cost_model},
-  prelude::*,
+  prelude::{test_utils::bytes_from_id, *},
 };
 use rand::{thread_rng, Rng as _};
 use std::collections::{BTreeMap, HashMap};
@@ -145,8 +144,11 @@ async fn battle_high_and_low() {
       indexer: bytes_from_id(indexer_ids.len()).into(),
       subgraph,
     };
-    indexers
-      .set_cost_model(&indexing, default_cost_model(indexer.price), "{}".into())
+    input_writers
+      .indexings
+      .update(&indexing, |data| {
+        data.cost_model.write(default_cost_model(indexer.price));
+      })
       .await;
     indexers
       .set_indexing_status(network, &indexing, latest.number - indexer.blocks_behind)

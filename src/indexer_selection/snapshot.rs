@@ -1,7 +1,6 @@
 use crate::{
     indexer_selection::{
-        DataFreshness, IndexerDataReader, IndexerDataWriter, Indexing, IndexingData, Performance,
-        PriceEfficiency, Receipts, Reputation,
+        selection_factors::IndexingDataSnapshot, IndexerDataReader, IndexerDataWriter,
     },
     prelude::{shared_lookup::Reader as _, *},
 };
@@ -52,41 +51,5 @@ impl Into<(Address, IndexerDataReader, IndexerDataWriter)> for IndexerDataSnapsh
                 .write(GRT::from_little_endian(&delegated_stake));
         }
         (self.address, reader, writer)
-    }
-}
-
-#[derive(Debug, Decode, Encode)]
-pub struct IndexingDataSnapshot {
-    pub indexing: Indexing,
-    pub performance: Performance,
-    pub freshness: DataFreshness,
-    pub price_efficiency: Option<(String, String)>,
-    pub reputation: Reputation,
-}
-
-impl From<(&Indexing, &IndexingData)> for IndexingDataSnapshot {
-    fn from(from: (&Indexing, &IndexingData)) -> Self {
-        Self {
-            indexing: from.0.clone(),
-            performance: from.1.performance.clone(),
-            freshness: from.1.freshness.clone(),
-            price_efficiency: from.1.price_efficiency.model_source.clone(),
-            reputation: from.1.reputation.clone(),
-        }
-    }
-}
-
-impl Into<(Indexing, IndexingData)> for IndexingDataSnapshot {
-    fn into(self) -> (Indexing, IndexingData) {
-        let mut price_efficiency = PriceEfficiency::default();
-        price_efficiency.model_source = self.price_efficiency;
-        let data = IndexingData {
-            performance: self.performance,
-            freshness: self.freshness,
-            price_efficiency,
-            reputation: self.reputation,
-            receipts: Receipts::default(),
-        };
-        (self.indexing, data)
     }
 }
