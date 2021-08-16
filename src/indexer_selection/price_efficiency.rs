@@ -4,6 +4,7 @@ use crate::{
 };
 use cost_model::{CostError, CostModel};
 use std::{convert::TryFrom, hash::Hash as _, hash::Hasher as _};
+use tokio::sync::{RwLock, RwLockReadGuard};
 use tree_buf::{Decode, Encode};
 
 #[derive(Clone, Debug, Decode, Encode, Eq, Hash, PartialEq)]
@@ -14,7 +15,7 @@ pub struct CostModelSource {
 
 pub struct PriceEfficiency {
     pub model_src: Eventual<CostModelSource>,
-    model: CompilationStatus,
+    model: RwLock<CompilationStatus>,
 }
 
 enum CompilationStatus {
@@ -27,19 +28,17 @@ impl PriceEfficiency {
     pub fn new(model_src: Eventual<CostModelSource>) -> Self {
         Self {
             model_src,
-            model: CompilationStatus::NotCompiled,
+            model: RwLock::new(CompilationStatus::NotCompiled),
         }
     }
 
-    // TODO: optimistic read lock, promote to write lock when compiling
     pub async fn get_price(
-        &mut self,
+        &self,
         context: &mut Context<'_>,
         weight: f64,
         max_budget: &GRT,
     ) -> Result<(USD, SelectionFactor), SelectionError> {
-        let model = self.cost_model()?;
-        let cost = match model.cost_with_context(context) {
+        let cost = match self.cost_model().await?.cost_with_context(context) {
             Err(CostError::CostModelFail) | Err(CostError::QueryNotCosted) => {
                 return Err(BadIndexerReason::QueryNotCosted)?;
             }
@@ -132,7 +131,7 @@ impl PriceEfficiency {
         Ok((fee, savings_utility))
     }
 
-    fn cost_model(&mut self) -> Result<&CostModel, SelectionError> {
+    async fn cost_model(&self) -> Result<RwLockReadGuard<'_, CostModel>, SelectionError> {
         let src = match self.model_src.value_immediate() {
             Some(src) => src,
             None => return Err(BadIndexerReason::MissingCostModel.into()),
@@ -141,27 +140,38 @@ impl PriceEfficiency {
         src.hash(&mut hasher);
         let current_hash = hasher.finish();
 
-        let recompile = match self.model {
-            CompilationStatus::NotCompiled => true,
-            CompilationStatus::Compiled { hash, .. } => hash != current_hash,
-            CompilationStatus::BadInput => return Err(SelectionError::BadInput),
+        let recompile = match &self.model.read().await as &CompilationStatus {
+            &CompilationStatus::NotCompiled => true,
+            &CompilationStatus::Compiled { hash, .. } => hash != current_hash,
+            &CompilationStatus::BadInput => return Err(SelectionError::BadInput),
         };
+        // Only take write lock if compiling
         if recompile {
             match CostModel::compile(src.model, &src.globals) {
                 Ok(model) => {
+                    let mut write_lock = self.model.write().await;
                     let hash = current_hash;
-                    self.model = CompilationStatus::Compiled { model, hash };
+                    *write_lock = CompilationStatus::Compiled { model, hash };
                 }
                 Err(_) => {
-                    self.model = CompilationStatus::BadInput;
+                    let mut write_lock = self.model.write().await;
+                    *write_lock = CompilationStatus::BadInput;
                     return Err(SelectionError::BadInput);
                 }
             }
         }
-        match &self.model {
-            CompilationStatus::Compiled { model, .. } => Ok(model),
-            CompilationStatus::BadInput => Err(SelectionError::BadInput),
-            CompilationStatus::NotCompiled => unreachable!(),
+        let read_lock = self.model.read().await;
+        if let &CompilationStatus::Compiled { .. } = &read_lock as &CompilationStatus {
+            Ok(RwLockReadGuard::map(read_lock, |lock| {
+                if let CompilationStatus::Compiled { model, .. } = &lock as &CompilationStatus {
+                    model
+                } else {
+                    unreachable!()
+                }
+            }))
+        } else {
+            // The compilation status is guaranteed to be BadInput
+            Err(SelectionError::BadInput)
         }
     }
 }
@@ -174,7 +184,7 @@ mod test {
 
     #[tokio::test]
     async fn price_efficiency() {
-        let mut efficiency = PriceEfficiency::new(Eventual::from_value(default_cost_model(
+        let efficiency = PriceEfficiency::new(Eventual::from_value(default_cost_model(
             "0.01".parse().unwrap(),
         )));
         let mut context = Context::new(BASIC_QUERY, "").unwrap();
