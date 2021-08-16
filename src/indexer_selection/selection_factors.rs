@@ -115,7 +115,7 @@ impl SelectionFactors {
 
     #[inline]
     pub async fn get_price(
-        &mut self,
+        &self,
         context: &mut Context<'_>,
         weight: f64,
         max_budget: &GRT,

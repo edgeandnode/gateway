@@ -1,5 +1,5 @@
 use std::{collections::HashMap, hash::Hash, sync::Arc};
-use tokio::sync::{RwLock, RwLockMappedWriteGuard, RwLockWriteGuard};
+use tokio::sync::{RwLock, RwLockReadGuard};
 
 pub trait Reader {
     type Writer;
@@ -34,6 +34,7 @@ where
         self.0.read().await.get(key).map(|v| f(v))
     }
 
+    // TODO: rm
     pub async fn with_value_mut<T, F>(&self, key: &K, f: F) -> Option<T>
     where
         F: FnOnce(&mut R) -> T,
@@ -41,13 +42,11 @@ where
         self.0.write().await.get_mut(key).map(|v| f(v))
     }
 
-    // TODO: read lock outer, write lock inner
-    pub async fn get_mut_guard(&self, key: &K) -> Option<RwLockMappedWriteGuard<'_, R>> {
-        let mut outer = self.0.write().await;
-        match outer.get_mut(key) {
-            Some(_) => Some(RwLockWriteGuard::map(outer, |outer| {
-                outer.get_mut(key).unwrap()
-            })),
+    pub async fn get(&self, key: &K) -> Option<RwLockReadGuard<'_, R>> {
+        let outer = self.0.read().await;
+        // TODO: only get once
+        match outer.get(key) {
+            Some(_) => Some(RwLockReadGuard::map(outer, |outer| outer.get(key).unwrap())),
             None => None,
         }
     }

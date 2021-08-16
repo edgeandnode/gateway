@@ -522,7 +522,7 @@ impl Indexers {
 
         let (fee, price_efficiency) = self
             .indexings
-            .get_mut_guard(&indexing)
+            .get(&indexing)
             .await
             .ok_or(BadIndexerReason::MissingIndexingStatus)?
             .get_price(context, config.price_efficiency, &budget)
