@@ -262,7 +262,7 @@ async fn battle_high_and_low() {
 
   // Demonstrate snapshot restore.
   let mut start = time::Instant::now();
-  let snapshot = indexers.take_snapshot().await;
+  let snapshot = indexers.snapshot().await;
   let serialized = tree_buf::encode(&snapshot);
   println!(
     "Snapshot taken in {:?}. Used {}B.",
@@ -272,7 +272,7 @@ async fn battle_high_and_low() {
 
   start = time::Instant::now();
   indexers
-    .restore_snapshot(&mut input_writers, tree_buf::decode(&serialized).unwrap())
+    .restore(&mut input_writers, tree_buf::decode(&serialized).unwrap())
     .await;
   println!("Snapshot restored in {:?}.", time::Instant::now() - start,);
 }

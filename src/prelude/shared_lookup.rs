@@ -57,6 +57,11 @@ where
     {
         self.0.read().await.iter().map(From::from).collect()
     }
+
+    #[inline]
+    pub async fn read(&self) -> RwLockReadGuard<'_, HashMap<K, R>> {
+        self.0.read().await
+    }
 }
 
 impl<K, R> SharedLookup<K, R>
