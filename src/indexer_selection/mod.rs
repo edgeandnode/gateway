@@ -201,10 +201,12 @@ impl Indexers {
             .map(|block| block.number)
             .unwrap_or_default();
         let behind = latest.saturating_sub(block_number);
-        self.indexings
-            .with_value_mut(indexing, move |data| {
-                data.set_blocks_behind(behind, block_number);
-            })
+        let selection_factors = match self.indexings.get(indexing).await {
+            Some(selection_factors) => selection_factors,
+            None => return,
+        };
+        selection_factors
+            .set_blocks_behind(behind, block_number)
             .await;
     }
 
@@ -215,10 +217,12 @@ impl Indexers {
         collateral: &GRT,
         secret: SecretKey,
     ) {
-        self.indexings
-            .with_value_mut(indexing, move |data| {
-                data.add_transfer(transfer_id, collateral, secret);
-            })
+        let selection_factors = match self.indexings.get(indexing).await {
+            Some(selection_factors) => selection_factors,
+            None => return,
+        };
+        selection_factors
+            .add_transfer(transfer_id, collateral, secret)
             .await;
     }
 
@@ -228,10 +232,12 @@ impl Indexers {
         duration: time::Duration,
         receipt: &[u8],
     ) {
-        self.indexings
-            .with_value_mut(indexing, move |data| {
-                data.observe_successful_query(duration, receipt);
-            })
+        let selection_factors = match self.indexings.get(indexing).await {
+            Some(selection_factors) => selection_factors,
+            None => return,
+        };
+        selection_factors
+            .observe_successful_query(duration, receipt)
             .await;
     }
 
@@ -246,10 +252,12 @@ impl Indexers {
         } else {
             QueryStatus::Failure
         };
-        self.indexings
-            .with_value_mut(indexing, move |data| {
-                data.observe_failed_query(receipt, status);
-            })
+        let selection_factors = match self.indexings.get(indexing).await {
+            Some(selection_factors) => selection_factors,
+            None => return,
+        };
+        selection_factors
+            .observe_failed_query(receipt, status)
             .await;
     }
 
@@ -329,9 +337,10 @@ impl Indexers {
         let retain = 0.973f64.powf(passed_hours);
         let indexings: Vec<Indexing> = self.indexings.keys().await;
         for indexing in indexings {
-            self.indexings
-                .with_value_mut(&indexing, |data| data.decay(retain))
-                .await;
+            match self.indexings.get(&indexing).await {
+                Some(selection_factors) => selection_factors.decay(retain).await,
+                None => continue,
+            };
         }
     }
 
@@ -477,9 +486,11 @@ impl Indexers {
         // and at the same time try to use another Indexer.
 
         self.indexings
-            .with_value_mut(&indexing, |data| data.commit(&score.fee))
+            .get(&indexing)
             .await
             .ok_or(BadIndexerReason::InsufficientCollateral)?
+            .commit(&score.fee)
+            .await
             .map(move |receipt| Some((indexing, score, receipt)))
             .map_err(|err| SelectionError::BadIndexer(err.into()))
     }
@@ -496,13 +507,14 @@ impl Indexers {
         let mut aggregator = UtilityAggregator::new();
         let indexer_data = self
             .indexers
-            .with_value(&indexing.indexer, |r| {
+            .get(&indexing.indexer)
+            .await
+            .map(|data| {
                 (
-                    r.stake.value_immediate(),
-                    r.delegated_stake.value_immediate(),
+                    data.stake.value_immediate(),
+                    data.delegated_stake.value_immediate(),
                 )
             })
-            .await
             .unwrap_or_default();
         let indexer_stake = indexer_data
             .0
@@ -516,62 +528,65 @@ impl Indexers {
             .ok_or(SelectionError::MissingNetworkParams)?;
         aggregator.add(economic_security.utility.clone());
 
-        let blocks_behind = self
+        let selection_factors = self
             .indexings
-            .with_value(&indexing, |data| data.blocks_behind())
+            .get(&indexing)
             .await
-            .ok_or(BadIndexerReason::MissingIndexingStatus)??;
+            .ok_or(BadIndexerReason::MissingIndexingStatus)?;
+
+        let blocks_behind = selection_factors.blocks_behind().await?;
         let latest_block = self
             .network_cache
             .read()
             .await
             .latest_block(network, blocks_behind)?;
 
-        let (fee, price_efficiency) = self
-            .indexings
-            .get(&indexing)
-            .await
-            .ok_or(BadIndexerReason::MissingIndexingStatus)?
+        let (fee, price_efficiency) = selection_factors
             .get_price(context, config.price_efficiency, &budget)
             .await?;
         aggregator.add(price_efficiency);
 
-        self.indexings
-            .with_value(&indexing, |data| {
-                aggregator.add(data.expected_performance_utility(config.performance));
-                aggregator.add(data.expected_reputation_utility()?);
-                aggregator.add(data.expected_freshness_utility(
+        if !selection_factors.has_collateral_for(&fee).await {
+            return Err(BadIndexerReason::InsufficientCollateral.into());
+        }
+
+        aggregator.add(
+            selection_factors
+                .expected_performance_utility(config.performance)
+                .await,
+        );
+        aggregator.add(selection_factors.expected_reputation_utility().await?);
+        aggregator.add(
+            selection_factors
+                .expected_freshness_utility(
                     freshness_requirements,
                     config.data_freshness,
                     latest_block.number,
                     blocks_behind,
-                )?);
+                )
+                .await?,
+        );
 
-                if !data.has_collateral_for(&fee) {
-                    return Err(BadIndexerReason::InsufficientCollateral.into());
-                }
+        drop(selection_factors);
 
-                // It's not immediately obvious why this mult works. We want to consider the amount
-                // staked over the total amount staked of all Indexers in the running. But, we don't
-                // know the total stake. If we did, it would be dividing all of these by that
-                // constant. Dividing all weights by a constant has no effect on the selection
-                // algorithm. Interestingly, delegating to an indexer just about guarantees that the
-                // indexer will receive more queries if they met the minimum criteria above. So,
-                // delegating more and then getting more queries is kind of a self-fulfilling
-                // prophesy. What balances this, is that any amount delegated is most productive
-                // when delegated proportionally to each Indexer's utility for that subgraph.
-                let utility = aggregator.crunch();
+        // It's not immediately obvious why this mult works. We want to consider the amount
+        // staked over the total amount staked of all Indexers in the running. But, we don't
+        // know the total stake. If we did, it would be dividing all of these by that
+        // constant. Dividing all weights by a constant has no effect on the selection
+        // algorithm. Interestingly, delegating to an indexer just about guarantees that the
+        // indexer will receive more queries if they met the minimum criteria above. So,
+        // delegating more and then getting more queries is kind of a self-fulfilling
+        // prophesy. What balances this, is that any amount delegated is most productive
+        // when delegated proportionally to each Indexer's utility for that subgraph.
+        let utility = aggregator.crunch();
 
-                Ok(IndexerScore {
-                    fee,
-                    slashable: economic_security.slashable_usd,
-                    utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,
-                    sybil: Self::sybil(indexer_stake, delegated_stake)?,
-                    blocks_behind,
-                })
-            })
-            .await
-            .ok_or(BadIndexerReason::MissingIndexingStatus)?
+        Ok(IndexerScore {
+            fee,
+            slashable: economic_security.slashable_usd,
+            utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,
+            sybil: Self::sybil(indexer_stake, delegated_stake)?,
+            blocks_behind,
+        })
     }
 
     /// Sybil protection
