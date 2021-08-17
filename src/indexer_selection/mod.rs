@@ -1,11 +1,11 @@
 mod economic_security;
+mod indexers;
 mod network_cache;
 mod performance;
 mod price_efficiency;
 mod receipts;
 mod reputation;
 mod selection_factors;
-mod snapshot;
 mod utility;
 
 #[cfg(test)]
@@ -20,6 +20,7 @@ use crate::prelude::{
 };
 use cost_model;
 use economic_security::*;
+use indexers::*;
 use network_cache::*;
 pub use ordered_float::NotNan;
 pub use price_efficiency::CostModelSource;
@@ -28,7 +29,6 @@ use receipts::*;
 pub use secp256k1::SecretKey;
 pub use selection_factors::IndexingStatus;
 use selection_factors::*;
-use snapshot::*;
 use tokio::{
     sync::{Mutex, RwLock},
     time,
@@ -95,38 +95,18 @@ impl From<UnresolvedBlock> for SelectionError {
     }
 }
 
-pub struct IndexerDataReader {
-    pub stake: Eventual<GRT>,
-    pub delegated_stake: Eventual<GRT>,
-}
-
-pub struct IndexerDataWriter {
-    pub stake: EventualWriter<GRT>,
-    pub delegated_stake: EventualWriter<GRT>,
-}
-
-impl shared_lookup::Reader for IndexerDataReader {
-    type Writer = IndexerDataWriter;
-    fn new() -> (Self::Writer, Self) {
-        let (stake_writer, stake) = Eventual::new();
-        let (delegatted_stake_writer, delegated_stake) = Eventual::new();
-        (
-            IndexerDataWriter {
-                stake: stake_writer,
-                delegated_stake: delegatted_stake_writer,
-            },
-            IndexerDataReader {
-                stake,
-                delegated_stake,
-            },
-        )
-    }
-}
-
 #[derive(Clone, Debug, Decode, Eq, Hash, Encode, Ord, PartialEq, PartialOrd)]
 pub struct Indexing {
     pub indexer: Address,
     pub subgraph: SubgraphDeploymentID,
+}
+
+#[derive(Debug, Default, Decode, Encode)]
+pub struct Snapshot {
+    pub slashing_percentage: Bytes32,
+    pub usd_to_grt_conversion: Bytes32,
+    pub indexers: Vec<IndexerSnapshot>,
+    pub indexings: Vec<IndexingSnapshot>,
 }
 
 pub struct UtilityConfig {

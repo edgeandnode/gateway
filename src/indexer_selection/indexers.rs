@@ -1,17 +1,14 @@
-use crate::{
-    indexer_selection::{
-        selection_factors::IndexingSnapshot, IndexerDataReader, IndexerDataWriter,
-    },
-    prelude::{shared_lookup::Reader as _, *},
-};
+use crate::prelude::{shared_lookup::Reader as _, *};
 use tree_buf::{Decode, Encode};
 
-#[derive(Debug, Default, Decode, Encode)]
-pub struct Snapshot {
-    pub slashing_percentage: Bytes32,
-    pub usd_to_grt_conversion: Bytes32,
-    pub indexers: Vec<IndexerSnapshot>,
-    pub indexings: Vec<IndexingSnapshot>,
+pub struct IndexerDataReader {
+    pub stake: Eventual<GRT>,
+    pub delegated_stake: Eventual<GRT>,
+}
+
+pub struct IndexerDataWriter {
+    pub stake: EventualWriter<GRT>,
+    pub delegated_stake: EventualWriter<GRT>,
 }
 
 #[derive(Debug, Decode, Encode)]
@@ -19,6 +16,24 @@ pub struct IndexerSnapshot {
     address: Address,
     stake: Option<Bytes32>,
     delegated_stake: Option<Bytes32>,
+}
+
+impl shared_lookup::Reader for IndexerDataReader {
+    type Writer = IndexerDataWriter;
+    fn new() -> (Self::Writer, Self) {
+        let (stake_writer, stake) = Eventual::new();
+        let (delegatted_stake_writer, delegated_stake) = Eventual::new();
+        (
+            IndexerDataWriter {
+                stake: stake_writer,
+                delegated_stake: delegatted_stake_writer,
+            },
+            IndexerDataReader {
+                stake,
+                delegated_stake,
+            },
+        )
+    }
 }
 
 impl From<(&Address, &IndexerDataReader)> for IndexerSnapshot {
