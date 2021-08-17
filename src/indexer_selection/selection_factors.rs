@@ -27,6 +27,16 @@ pub struct IndexingData {
     pub status: EventualWriter<IndexingStatus>,
 }
 
+#[derive(Debug, Decode, Encode)]
+pub struct IndexingSnapshot {
+    pub cost_model: Option<CostModelSource>,
+    pub status: Option<IndexingStatus>,
+    pub indexing: Indexing,
+    pub performance: Performance,
+    pub freshness: DataFreshness,
+    pub reputation: Reputation,
+}
+
 impl shared_lookup::Reader for SelectionFactors {
     type Writer = IndexingData;
     fn new() -> (Self::Writer, Self) {
@@ -124,43 +134,29 @@ impl SelectionFactors {
             .get_price(context, weight, max_budget)
             .await
     }
-}
 
-#[derive(Debug, Decode, Encode)]
-pub struct IndexingDataSnapshot {
-    pub cost_model: Option<CostModelSource>,
-    pub status: Option<IndexingStatus>,
-    pub indexing: Indexing,
-    pub performance: Performance,
-    pub freshness: DataFreshness,
-    pub reputation: Reputation,
-}
-
-impl From<(&Indexing, &SelectionFactors)> for IndexingDataSnapshot {
-    fn from(from: (&Indexing, &SelectionFactors)) -> Self {
-        Self {
-            cost_model: from.1.price_efficiency.model_src.value_immediate(),
-            status: from.1.status.value_immediate(),
-            indexing: from.0.clone(),
-            performance: from.1.performance.clone(),
-            freshness: from.1.freshness.clone(),
-            reputation: from.1.reputation.clone(),
+    pub async fn snapshot(&self, indexing: &Indexing) -> IndexingSnapshot {
+        IndexingSnapshot {
+            cost_model: self.price_efficiency.model_src.value_immediate(),
+            status: self.status.value_immediate(),
+            indexing: indexing.clone(),
+            performance: self.performance.clone(),
+            freshness: self.freshness.clone(),
+            reputation: self.reputation.clone(),
         }
     }
-}
 
-impl Into<(Indexing, SelectionFactors, IndexingData)> for IndexingDataSnapshot {
-    fn into(self) -> (Indexing, SelectionFactors, IndexingData) {
+    pub async fn restore(snapshot: IndexingSnapshot) -> (Indexing, SelectionFactors, IndexingData) {
         let (mut writer, mut reader) = SelectionFactors::new();
-        if let Some(model_src) = self.cost_model {
+        if let Some(model_src) = snapshot.cost_model {
             writer.cost_model.write(model_src);
         }
-        if let Some(status) = self.status {
+        if let Some(status) = snapshot.status {
             writer.status.write(status);
         }
-        reader.performance = self.performance;
-        reader.freshness = self.freshness;
-        reader.reputation = self.reputation;
-        (self.indexing, reader, writer)
+        reader.performance = snapshot.performance;
+        reader.freshness = snapshot.freshness;
+        reader.reputation = snapshot.reputation;
+        (snapshot.indexing, reader, writer)
     }
 }

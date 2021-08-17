@@ -33,6 +33,7 @@ use tokio::{
     sync::{Mutex, RwLock},
     time,
 };
+use tree_buf::{Decode, Encode};
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
@@ -122,9 +123,7 @@ impl shared_lookup::Reader for IndexerDataReader {
     }
 }
 
-#[derive(
-    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, tree_buf::Decode, tree_buf::Encode,
-)]
+#[derive(Clone, Debug, Decode, Eq, Hash, Encode, Ord, PartialEq, PartialOrd)]
 pub struct Indexing {
     pub indexer: Address,
     pub subgraph: SubgraphDeploymentID,
@@ -274,7 +273,7 @@ impl Indexers {
             .await;
     }
 
-    pub async fn take_snapshot(&self) -> Snapshot {
+    pub async fn snapshot(&self) -> Snapshot {
         let (slashing_percentage, usd_to_grt_conversion) = {
             (
                 self.network_params
@@ -291,11 +290,23 @@ impl Indexers {
             slashing_percentage: slashing_percentage.to_little_endian().into(),
             usd_to_grt_conversion: usd_to_grt_conversion.to_little_endian().into(),
             indexers: self.indexers.snapshot().await,
-            indexings: self.indexings.snapshot().await,
+            indexings: self.snapshot_indexings().await,
         }
     }
 
-    pub async fn restore_snapshot(&mut self, inputs: &mut InputWriters, snapshot: Snapshot) {
+    async fn snapshot_indexings(&self) -> Vec<IndexingSnapshot> {
+        use futures::stream::{FuturesUnordered, StreamExt as _};
+        self.indexings
+            .read()
+            .await
+            .iter()
+            .map(|(k, v)| v.snapshot(k))
+            .collect::<FuturesUnordered<_>>()
+            .collect()
+            .await
+    }
+
+    pub async fn restore(&mut self, inputs: &mut InputWriters, snapshot: Snapshot) {
         inputs
             .slashing_percentage
             .write(PPM::from_little_endian(&snapshot.slashing_percentage));
@@ -303,7 +314,23 @@ impl Indexers {
             .usd_to_grt_conversion
             .write(GRT::from_little_endian(&snapshot.usd_to_grt_conversion));
         inputs.indexers.restore(snapshot.indexers).await;
-        inputs.indexings.restore(snapshot.indexings).await;
+        inputs
+            .indexings
+            .restore(self.restore_indexings(snapshot.indexings).await)
+            .await;
+    }
+
+    async fn restore_indexings(
+        &mut self,
+        snapshots: Vec<IndexingSnapshot>,
+    ) -> Vec<(Indexing, SelectionFactors, IndexingData)> {
+        use futures::stream::{FuturesUnordered, StreamExt as _};
+        snapshots
+            .into_iter()
+            .map(|snapshot| SelectionFactors::restore(snapshot))
+            .collect::<FuturesUnordered<_>>()
+            .collect()
+            .await
     }
 
     pub async fn decay(&mut self) {

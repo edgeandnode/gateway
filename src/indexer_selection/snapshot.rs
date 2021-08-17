@@ -1,6 +1,6 @@
 use crate::{
     indexer_selection::{
-        selection_factors::IndexingDataSnapshot, IndexerDataReader, IndexerDataWriter,
+        selection_factors::IndexingSnapshot, IndexerDataReader, IndexerDataWriter,
     },
     prelude::{shared_lookup::Reader as _, *},
 };
@@ -10,18 +10,18 @@ use tree_buf::{Decode, Encode};
 pub struct Snapshot {
     pub slashing_percentage: Bytes32,
     pub usd_to_grt_conversion: Bytes32,
-    pub indexers: Vec<IndexerDataSnapshot>,
-    pub indexings: Vec<IndexingDataSnapshot>,
+    pub indexers: Vec<IndexerSnapshot>,
+    pub indexings: Vec<IndexingSnapshot>,
 }
 
 #[derive(Debug, Decode, Encode)]
-pub struct IndexerDataSnapshot {
+pub struct IndexerSnapshot {
     address: Address,
     stake: Option<Bytes32>,
     delegated_stake: Option<Bytes32>,
 }
 
-impl From<(&Address, &IndexerDataReader)> for IndexerDataSnapshot {
+impl From<(&Address, &IndexerDataReader)> for IndexerSnapshot {
     fn from(from: (&Address, &IndexerDataReader)) -> Self {
         Self {
             address: from.0.clone(),
@@ -39,7 +39,7 @@ impl From<(&Address, &IndexerDataReader)> for IndexerDataSnapshot {
     }
 }
 
-impl Into<(Address, IndexerDataReader, IndexerDataWriter)> for IndexerDataSnapshot {
+impl Into<(Address, IndexerDataReader, IndexerDataWriter)> for IndexerSnapshot {
     fn into(self) -> (Address, IndexerDataReader, IndexerDataWriter) {
         let (mut writer, reader) = IndexerDataReader::new();
         if let Some(stake) = self.stake {
