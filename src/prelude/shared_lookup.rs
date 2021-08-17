@@ -27,21 +27,6 @@ where
         (writers, readers)
     }
 
-    pub async fn with_value<T, F>(&self, key: &K, f: F) -> Option<T>
-    where
-        F: FnOnce(&R) -> T,
-    {
-        self.0.read().await.get(key).map(|v| f(v))
-    }
-
-    // TODO: rm
-    pub async fn with_value_mut<T, F>(&self, key: &K, f: F) -> Option<T>
-    where
-        F: FnOnce(&mut R) -> T,
-    {
-        self.0.write().await.get_mut(key).map(|v| f(v))
-    }
-
     pub async fn get(&self, key: &K) -> Option<RwLockReadGuard<'_, R>> {
         let outer = self.0.read().await;
         // TODO: only get once
