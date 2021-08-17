@@ -10,6 +10,11 @@ use tree_buf::{Decode, Encode};
 
 #[derive(Clone, Debug, Decode, Encode, Eq, PartialEq)]
 pub struct IndexingStatus {
+    // TODO: use this as input to DataFreshness, attempting this ran into the following problems
+    // to solve in the future:
+    // - The indexing block number is effectively reset to penalize the indexer.
+    // - I have some confusion about the use of the parameters of DataFreshness::expected_utility
+    //   rather than the state of the DataFreshness object.
     pub block: u64,
 }
 
