@@ -9,7 +9,7 @@ mod selection_factors;
 mod utility;
 
 #[cfg(test)]
-mod test_utils;
+pub mod test_utils;
 #[cfg(test)]
 mod tests;
 
@@ -28,6 +28,7 @@ use rand::{thread_rng, Rng as _};
 use receipts::*;
 pub use secp256k1::SecretKey;
 use selection_factors::*;
+use std::{fmt, ops::Deref};
 use tokio::{
     sync::{Mutex, RwLock},
     time,
@@ -39,13 +40,38 @@ pub type Context<'c> = cost_model::Context<'c, &'c str>;
 
 #[derive(Clone, Debug)]
 pub struct IndexerQuery {
+    pub network: String,
     pub indexing: Indexing,
     pub query: String,
-    pub receipt: Vec<u8>,
+    pub receipt: Receipt,
     pub fee: GRT,
     pub slashable_usd: USD,
     pub utility: NotNan<f64>,
     pub blocks_behind: Option<u64>,
+}
+
+#[derive(Clone)]
+pub struct Receipt {
+    pub commitment: Vec<u8>,
+}
+
+impl From<Vec<u8>> for Receipt {
+    fn from(commitment: Vec<u8>) -> Self {
+        Self { commitment }
+    }
+}
+
+impl Deref for Receipt {
+    type Target = Vec<u8>;
+    fn deref(&self) -> &Self::Target {
+        &self.commitment
+    }
+}
+
+impl fmt::Debug for Receipt {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "0x{}", hex::encode(&self.commitment))
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -116,6 +142,7 @@ pub struct UtilityConfig {
     pub price_efficiency: f64,
 }
 
+#[derive(Debug)]
 pub struct IndexerScore {
     fee: GRT,
     slashable: USD,
@@ -183,6 +210,13 @@ impl Indexers {
 
     pub async fn set_block(&self, network: &str, block: BlockPointer) {
         self.network_cache.write().await.set_block(network, block);
+    }
+
+    pub async fn remove_block(&self, network: &str, block_hash: &Bytes32) {
+        self.network_cache
+            .write()
+            .await
+            .remove_block(network, block_hash);
     }
 
     pub async fn set_indexing_status(&self, network: &str, indexing: &Indexing, block_number: u64) {
@@ -392,9 +426,10 @@ impl Indexers {
         )?;
 
         Ok(Some(IndexerQuery {
+            network: network.into(),
             indexing,
             query: query.query,
-            receipt: receipt.commitment,
+            receipt: receipt.commitment.into(),
             fee: score.fee,
             slashable_usd: score.slashable,
             utility: score.utility,
@@ -433,9 +468,9 @@ impl Indexers {
             let score = match result {
                 Ok(score) => score,
                 Err(err) => match &err {
-                    &SelectionError::BadInput | &SelectionError::MissingNetworkParams => {
-                        return Err(err)
-                    }
+                    &SelectionError::BadInput
+                    | &SelectionError::MissingNetworkParams
+                    | &SelectionError::MissingBlock(_) => return Err(err),
                     _ => continue,
                 },
             };

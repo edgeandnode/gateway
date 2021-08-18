@@ -281,6 +281,13 @@ impl NetworkCache {
         cache.hash_to_number.insert(block.hash, block.number);
     }
 
+    pub fn remove_block(&mut self, network: &str, block_hash: &Bytes32) {
+        let cache = self.block_cache(network);
+        if let Some(number) = cache.hash_to_number.remove(block_hash) {
+            cache.number_to_hash.remove(&number);
+        }
+    }
+
     pub fn latest_block(
         &self,
         network: &str,
