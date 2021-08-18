@@ -147,8 +147,6 @@ pub struct Indexers {
 }
 
 impl Indexers {
-    // TODO: use eventuals to update shared state.
-
     pub fn inputs() -> (InputWriters, Inputs) {
         let (slashing_percentage_writer, slashing_percentage) = Eventual::new();
         let (usd_to_grt_conversion_writer, usd_to_grt_conversion) = Eventual::new();
