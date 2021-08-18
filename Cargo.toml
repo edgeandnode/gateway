@@ -6,16 +6,18 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-trait = "0.1" 
 bs58 = "0.4" 
 cost-model = {git = "ssh://git@github.com/graphprotocol/agora.git", rev = "48bf329"} 
 eventuals = "0.6" 
 futures = "0.3" 
 graphql-parser = {git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df"} 
+graphql_client = "0.10" 
 hex = "0.4" 
 neon-utils = "1.1" # TODO: replace marshalling and remove neon dependency
 ordered-float = "2.5" 
 primitive-types = "0.8" 
-rand = "0.8" 
+rand = {version = "0.8", features = ["small_rng"]} 
 receipts-allocation = {package = "receipts", git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "ea0ffdd"} 
 receipts-transfer = {package = "receipts", git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "f4b756f"} 
 secp256k1 = "0.20" 
@@ -27,3 +29,4 @@ tree-buf = "0.10"
 [dev-dependencies]
 eventuals = {version = "0.6", features = ["trace"]}
 rand_distr = "0.4"
+regex = "1.5"
