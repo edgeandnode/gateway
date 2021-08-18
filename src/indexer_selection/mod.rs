@@ -135,7 +135,7 @@ pub struct InputWriters {
 }
 
 pub struct Indexers {
-    network_params: RwLock<NetworkParameters>,
+    network_params: NetworkParameters,
     network_cache: RwLock<NetworkCache>,
     indexings: SharedLookup<Indexing, IndexingData>,
     indexers: SharedLookup<Address, IndexerUtilityTracker>,
@@ -162,10 +162,10 @@ impl Indexers {
 
     pub fn new(inputs: Inputs) -> Indexers {
         Indexers {
-            network_params: RwLock::new(NetworkParameters {
+            network_params: NetworkParameters {
                 slashing_percentage: inputs.slashing_percentage,
                 usd_to_grt_conversion: inputs.usd_to_grt_conversion,
-            }),
+            },
             network_cache: RwLock::default(),
             indexings: SharedLookup::default(),
             indexers: SharedLookup::default(),
@@ -267,13 +267,12 @@ impl Indexers {
 
     pub async fn take_snapshot(&self) -> Snapshot {
         let (slashing_percentage, usd_to_grt_conversion) = {
-            let params = self.network_params.read().await;
             (
-                params
+                self.network_params
                     .slashing_percentage
                     .value_immediate()
                     .unwrap_or_default(),
-                params
+                self.network_params
                     .usd_to_grt_conversion
                     .value_immediate()
                     .unwrap_or_default(),
@@ -349,8 +348,6 @@ impl Indexers {
     ) -> Result<Option<IndexerQuery>, SelectionError> {
         let budget: GRT = self
             .network_params
-            .read()
-            .await
             .usd_to_grt(budget)
             .ok_or(SelectionError::MissingNetworkParams)?;
         // Performance: Use a shared context to avoid duplicating query parsing,
@@ -510,8 +507,6 @@ impl Indexers {
             .await?;
         let economic_security = self
             .network_params
-            .read()
-            .await
             .economic_security_utility(indexer_stake, config.economic_security)
             .ok_or(SelectionError::MissingNetworkParams)?;
         aggregator.add(economic_security.utility.clone());
