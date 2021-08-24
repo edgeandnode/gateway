@@ -29,11 +29,10 @@ where
 
     pub async fn get(&self, key: &K) -> Option<RwLockReadGuard<'_, R>> {
         let outer = self.0.read().await;
-        // TODO: only get once
-        match outer.get(key) {
-            Some(_) => Some(RwLockReadGuard::map(outer, |outer| outer.get(key).unwrap())),
-            None => None,
+        if !outer.contains_key(key) {
+            return None;
         }
+        Some(RwLockReadGuard::map(outer, |outer| outer.get(key).unwrap()))
     }
 
     pub async fn snapshot<S>(&self) -> Vec<S>
@@ -63,20 +62,22 @@ where
     K: Clone + Eq + Hash,
     R: Reader<Writer = W>,
 {
-    pub async fn update<F>(&mut self, key: &K, f: F)
-    where
-        F: FnOnce(&mut W),
-    {
-        let writer = match self.writers.get_mut(key) {
-            Some(writer) => writer,
-            None => {
-                let (writer, reader) = R::new();
-                self.writers.insert(key.clone(), writer);
-                self.readers.write().await.insert(key.clone(), reader);
-                self.writers.get_mut(key).unwrap()
-            }
-        };
-        f(writer);
+    pub async fn write(&mut self, key: &K) -> &mut W {
+        self.add_entry(key).await;
+        self.writers.get_mut(key).unwrap()
+    }
+
+    pub async fn read(&mut self, key: &K) -> RwLockReadGuard<'_, R> {
+        self.add_entry(key).await;
+        RwLockReadGuard::map(self.readers.read().await, |outer| outer.get(key).unwrap())
+    }
+
+    async fn add_entry(&mut self, key: &K) {
+        if !self.writers.contains_key(key) {
+            let (writer, reader) = R::new();
+            self.writers.insert(key.clone(), writer);
+            self.readers.write().await.insert(key.clone(), reader);
+        }
     }
 
     pub async fn restore<S>(&mut self, snapshot: Vec<S>)
