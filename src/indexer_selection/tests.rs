@@ -146,20 +146,18 @@ async fn battle_high_and_low() {
         };
         input_writers
             .indexings
-            .update(&indexing, |data| {
-                data.cost_model.write(default_cost_model(indexer.price));
-            })
-            .await;
+            .write(&indexing)
+            .await
+            .cost_model
+            .write(default_cost_model(indexer.price));
         indexers
             .set_indexing_status(network, &indexing, latest.number - indexer.blocks_behind)
             .await;
-        input_writers
-            .indexers
-            .update(&indexing.indexer, |w| {
-                w.stake.write(indexer.stake);
-                w.delegated_stake.write(indexer.delegated_stake);
-            })
-            .await;
+        let indexer_writer = input_writers.indexers.write(&indexing.indexer).await;
+        indexer_writer.stake.write(indexer.stake);
+        indexer_writer
+            .delegated_stake
+            .write(indexer.delegated_stake);
         data.insert(indexing.indexer, indexer);
         indexer_ids.push(indexing.indexer);
         indexers
