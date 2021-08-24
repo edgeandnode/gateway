@@ -145,6 +145,7 @@ impl<const P: u8> ops::SubAssign for UDecimal<P> {
     }
 }
 
+#[allow(dead_code)]
 impl<const P: u8> UDecimal<P> {
     pub fn zero() -> Self {
         Self { internal: 0.into() }

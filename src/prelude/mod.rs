@@ -1,4 +1,4 @@
-mod decimal;
+pub mod decimal;
 pub mod shared_lookup;
 pub mod weighted_sample;
 
