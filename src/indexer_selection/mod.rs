@@ -38,10 +38,11 @@ use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
 
+#[derive(Clone, Debug)]
 pub struct IndexerQuery {
-    pub indexer: Address,
+    pub indexing: Indexing,
     pub query: String,
-    pub receipt: ReceiptBorrow,
+    pub receipt: Vec<u8>,
     pub fee: GRT,
     pub slashable_usd: USD,
     pub utility: NotNan<f64>,
@@ -110,10 +111,10 @@ pub struct Snapshot {
 }
 
 pub struct UtilityConfig {
-    economic_security: f64,
-    performance: f64,
-    data_freshness: f64,
-    price_efficiency: f64,
+    pub economic_security: f64,
+    pub performance: f64,
+    pub data_freshness: f64,
+    pub price_efficiency: f64,
 }
 
 pub struct IndexerScore {
@@ -181,16 +182,11 @@ impl Indexers {
         }
     }
 
-    pub async fn set_block(&mut self, network: &str, block: BlockPointer) {
+    pub async fn set_block(&self, network: &str, block: BlockPointer) {
         self.network_cache.write().await.set_block(network, block);
     }
 
-    pub async fn set_indexing_status(
-        &mut self,
-        network: &str,
-        indexing: &Indexing,
-        block_number: u64,
-    ) {
+    pub async fn set_indexing_status(&self, network: &str, indexing: &Indexing, block_number: u64) {
         let latest = self
             .network_cache
             .write()
@@ -209,7 +205,7 @@ impl Indexers {
     }
 
     pub async fn install_receipts_transfer(
-        &mut self,
+        &self,
         indexing: &Indexing,
         transfer_id: Bytes32,
         collateral: &GRT,
@@ -225,7 +221,7 @@ impl Indexers {
     }
 
     pub async fn observe_successful_query(
-        &mut self,
+        &self,
         indexing: &Indexing,
         duration: time::Duration,
         receipt: &[u8],
@@ -240,7 +236,7 @@ impl Indexers {
     }
 
     pub async fn observe_failed_query(
-        &mut self,
+        &self,
         indexing: &Indexing,
         receipt: &[u8],
         is_unknown: bool,
@@ -292,7 +288,7 @@ impl Indexers {
             .await
     }
 
-    pub async fn restore(&mut self, inputs: &mut InputWriters, snapshot: Snapshot) {
+    pub async fn restore(&self, inputs: &mut InputWriters, snapshot: Snapshot) {
         inputs
             .slashing_percentage
             .write(PPM::from_little_endian(&snapshot.slashing_percentage));
@@ -307,7 +303,7 @@ impl Indexers {
     }
 
     async fn restore_indexings(
-        &mut self,
+        &self,
         snapshots: Vec<IndexingSnapshot>,
     ) -> Vec<(Indexing, SelectionFactors, IndexingData)> {
         use futures::stream::{FuturesUnordered, StreamExt as _};
@@ -319,7 +315,7 @@ impl Indexers {
             .await
     }
 
-    pub async fn decay(&mut self) {
+    pub async fn decay(&self) {
         let mut log = match self.last_decay.try_lock() {
             Ok(log) => log,
             Err(_) => return,
@@ -345,7 +341,7 @@ impl Indexers {
     // TODO: Specify budget in terms of a cost model -
     // the budget should be different per query
     pub async fn select_indexer(
-        &mut self,
+        &self,
         config: &UtilityConfig,
         network: &str,
         subgraph: &SubgraphDeploymentID,
@@ -397,9 +393,9 @@ impl Indexers {
         )?;
 
         Ok(Some(IndexerQuery {
-            indexer: indexing.indexer,
+            indexing,
             query: query.query,
-            receipt,
+            receipt: receipt.commitment,
             fee: score.fee,
             slashable_usd: score.slashable,
             utility: score.utility,
@@ -410,7 +406,7 @@ impl Indexers {
     /// Select random indexer, weighted by utility. Indexers with incomplete data or that do not
     /// meet the minimum requirements will be excluded.
     async fn make_selection(
-        &mut self,
+        &self,
         config: &UtilityConfig,
         network: &str,
         subgraph: &SubgraphDeploymentID,
@@ -494,7 +490,7 @@ impl Indexers {
     }
 
     async fn score_indexer(
-        &mut self,
+        &self,
         network: &str,
         indexing: &Indexing,
         context: &mut Context<'_>,

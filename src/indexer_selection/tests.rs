@@ -27,7 +27,7 @@ struct IndexerResults {
 #[tokio::test]
 async fn battle_high_and_low() {
     let (mut input_writers, inputs) = Indexers::inputs();
-    let mut indexers = Indexers::new(inputs);
+    let indexers = Indexers::new(inputs);
     input_writers
         .slashing_percentage
         .write("0.1".parse().unwrap());
@@ -207,27 +207,27 @@ async fn battle_high_and_low() {
             Some(query) => query,
             None => continue,
         };
-        let entry = results.entry(query.indexer).or_default();
+        let entry = results.entry(query.indexing.indexer).or_default();
         entry.queries_received += 1;
-        let data = data.get(&query.indexer).unwrap();
+        let data = data.get(&query.indexing.indexer).unwrap();
         let indexing = Indexing {
             subgraph,
-            indexer: query.indexer,
+            indexer: query.indexing.indexer,
         };
         if data.reliability > thread_rng().gen() {
             let duration = time::Duration::from_millis(data.latency_ms);
-            let receipt = &query.receipt.commitment;
+            let receipt = &query.receipt;
             let fees: GRTWei =
                 primitive_types::U256::from_big_endian(&receipt[(receipt.len() - 32)..])
                     .try_into()
                     .unwrap();
             entry.query_fees = fees.shift();
             indexers
-                .observe_successful_query(&indexing, duration, &query.receipt.commitment)
+                .observe_successful_query(&indexing, duration, &query.receipt)
                 .await;
         } else {
             indexers
-                .observe_failed_query(&indexing, &query.receipt.commitment, false)
+                .observe_failed_query(&indexing, &query.receipt, false)
                 .await;
         }
     }
