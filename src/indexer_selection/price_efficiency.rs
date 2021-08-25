@@ -99,7 +99,9 @@ impl PriceEfficiency {
         let scale = (-1.0 + 5.0f64.sqrt()) / 2.0;
         let one_wei: GRT = GRTWei::try_from(1u64).unwrap().shift();
         let scaled_fee = fee / max_budget.saturating_add(one_wei);
-        let utility = (1.0 / (scaled_fee.as_f64() + scale)) - scale;
+        let mut utility = (1.0 / (scaled_fee.as_f64() + scale)) - scale;
+        // Set minimum utility, since small negative utility can result from loss of precision when the fee approaches the budget.
+        utility = utility.max(1e-18);
 
         // Did some math too see what the optimal price (as a proportion of budget) should
         // be for an Indexer to maximize their own revenue given the current algorithm.
