@@ -442,8 +442,8 @@ impl Indexers {
             scores.push((indexing, score));
         }
         let max_utility = match scores.iter().map(|(_, score)| score.utility).max() {
-            Some(n) => n,
-            None => return Ok(None),
+            Some(n) if n != 0.0 => n,
+            _ => return Ok(None),
         };
         // Having a random utility cutoff that is weighted toward 1 normalized
         // to the highest score makes it so that we define our selection based
