@@ -73,6 +73,16 @@ impl SelectionFactors {
         lock.receipts.release(receipt, status);
     }
 
+    pub async fn observe_indexing_behind(
+        &self,
+        freshness_requirements: &Result<BlockRequirements, SelectionError>,
+        latest: u64,
+    ) {
+        let mut lock = self.locked.write().await;
+        lock.freshness
+            .observe_indexing_behind(freshness_requirements, latest);
+    }
+
     pub async fn decay(&self, retain: f64) {
         let mut lock = self.locked.write().await;
         lock.performance.decay(retain);

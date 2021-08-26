@@ -185,16 +185,30 @@ impl<R: Resolver> QueryEngine<R> {
                     indexers.remove(
                         indexers
                             .iter()
-                            .position(|id| id == &indexer_query.indexing.indexer)
+                            .position(|indexer| indexer == &indexer_query.indexing.indexer)
                             .unwrap(),
                     );
                     continue;
                 }
             };
+            let indexer_behind_err =
+                "Failed to decode `block.hash` value: `no block with that hash found`";
+            if response
+                .errors
+                .as_ref()
+                .map(|errs| errs.iter().any(|err| err.message == indexer_behind_err))
+                .unwrap_or(false)
+            {
+                self.indexers.observe_indexing_behind(&indexer_query).await;
+                indexers.remove(
+                    indexers
+                        .iter()
+                        .position(|indexer| indexer == &indexer_query.indexing.indexer)
+                        .unwrap(),
+                );
+                continue;
+            }
 
-            // TODO: check for known query error (responded with block not found error)
-
-            // TODO: check if block wasn't found
             // TODO: fisherman
 
             self.indexers
@@ -204,7 +218,6 @@ impl<R: Resolver> QueryEngine<R> {
                     &indexer_query.receipt,
                 )
                 .await;
-
             return Ok(QueryResponse {
                 query: indexer_query,
                 response,
