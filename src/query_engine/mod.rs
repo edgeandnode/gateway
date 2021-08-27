@@ -101,7 +101,7 @@ pub struct InputWriters {
 }
 
 impl Inputs {
-    fn new() -> (InputWriters, Self) {
+    pub fn new() -> (InputWriters, Self) {
         let (indexer_input_writers, indexer_inputs) = Indexers::inputs();
         let indexers = Arc::new(Indexers::new(indexer_inputs));
         let (deployments_writer, deployments) = SharedLookup::new();
