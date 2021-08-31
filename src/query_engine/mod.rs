@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests;
 
-pub use crate::indexer_selection::{Indexing, IndexingStatus, UtilityConfig};
+pub use crate::indexer_selection::{Indexing, UtilityConfig};
 use crate::{
     indexer_selection::{self, IndexerQuery, Indexers, SelectionError, UnresolvedBlock},
     prelude::{
