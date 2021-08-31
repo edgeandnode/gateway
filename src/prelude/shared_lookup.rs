@@ -1,4 +1,8 @@
-use std::{collections::HashMap, hash::Hash, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    hash::Hash,
+    sync::Arc,
+};
 use tokio::sync::{RwLock, RwLockReadGuard};
 
 pub trait Reader {
@@ -7,10 +11,10 @@ pub trait Reader {
 }
 
 #[derive(Clone)]
-pub struct SharedLookup<K, R>(Arc<RwLock<HashMap<K, R>>>);
+pub struct SharedLookup<K, R>(Arc<RwLock<HashMap<K, Arc<R>>>>);
 
 pub struct SharedLookupWriter<K, R, W> {
-    readers: Arc<RwLock<HashMap<K, R>>>,
+    readers: Arc<RwLock<HashMap<K, Arc<R>>>>,
     writers: HashMap<K, W>,
 }
 
@@ -27,23 +31,20 @@ where
         (writers, readers)
     }
 
-    pub async fn get(&self, key: &K) -> Option<RwLockReadGuard<'_, R>> {
-        let outer = self.0.read().await;
-        if !outer.contains_key(key) {
-            return None;
-        }
-        Some(RwLockReadGuard::map(outer, |outer| outer.get(key).unwrap()))
+    pub async fn get(&self, key: &K) -> Option<Arc<R>> {
+        self.0.read().await.get(key).cloned()
     }
 
     pub async fn snapshot<S>(&self) -> Vec<S>
     where
         S: for<'k, 'r> From<(&'k K, &'r R)>,
     {
-        self.0.read().await.iter().map(From::from).collect()
+        let outer = self.0.read().await;
+        outer.iter().map(|(k, r)| S::from((k, &r))).collect()
     }
 
     #[inline]
-    pub async fn read(&self) -> RwLockReadGuard<'_, HashMap<K, R>> {
+    pub async fn read(&self) -> RwLockReadGuard<'_, HashMap<K, Arc<R>>> {
         self.0.read().await
     }
 }
@@ -63,21 +64,29 @@ where
     R: Reader<Writer = W>,
 {
     pub async fn write(&mut self, key: &K) -> &mut W {
-        self.add_entry(key).await;
-        self.writers.get_mut(key).unwrap()
-    }
-
-    pub async fn read(&mut self, key: &K) -> RwLockReadGuard<'_, R> {
-        self.add_entry(key).await;
-        RwLockReadGuard::map(self.readers.read().await, |outer| outer.get(key).unwrap())
-    }
-
-    async fn add_entry(&mut self, key: &K) {
-        if !self.writers.contains_key(key) {
-            let (writer, reader) = R::new();
-            self.writers.insert(key.clone(), writer);
-            self.readers.write().await.insert(key.clone(), reader);
+        match self.writers.entry(key.clone()) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(v) => {
+                let (writer, reader) = R::new();
+                let reader = Arc::new(reader);
+                self.readers.write().await.insert(key.clone(), reader);
+                v.insert(writer)
+            }
         }
+    }
+
+    pub async fn read(&mut self, key: &K) -> Arc<R> {
+        if let Some(r) = self.readers.read().await.get(key) {
+            return r.clone();
+        }
+        let (writer, reader) = R::new();
+        self.writers.insert(key.clone(), writer);
+        let reader = Arc::new(reader);
+        self.readers
+            .write()
+            .await
+            .insert(key.clone(), reader.clone());
+        reader
     }
 
     pub async fn restore<S>(&mut self, snapshot: Vec<S>)
@@ -90,7 +99,7 @@ where
         for s in snapshot.into_iter() {
             let (k, r, w) = s.into();
             self.writers.insert(k.clone(), w);
-            readers.insert(k, r);
+            readers.insert(k, Arc::new(r));
         }
     }
 }
