@@ -6,7 +6,7 @@ pub mod weighted_sample;
 pub mod test_utils;
 
 pub use crate::prelude::decimal::*;
-pub use eventuals::{Eventual, EventualWriter};
+pub use eventuals::{Eventual, EventualWriter, Ptr};
 pub use std::convert::TryInto;
 
 /// Decimal Parts-Per-Million with 6 fractional digits
