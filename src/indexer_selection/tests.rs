@@ -35,8 +35,6 @@ async fn battle_high_and_low() {
         .usd_to_grt_conversion
         .write(1u64.try_into().unwrap());
 
-    eventuals::idle().await;
-
     let network = "mainnet";
     let blocks = gen_blocks(&(0u64..100).into_iter().collect::<Vec<u64>>());
     for block in blocks.iter() {
