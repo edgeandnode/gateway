@@ -189,7 +189,7 @@ impl Indexers {
     pub async fn set_indexing_status(&self, network: &str, indexing: &Indexing, block_number: u64) {
         let latest = self
             .network_cache
-            .write()
+            .read()
             .await
             .latest_block(network, 0)
             .map(|block| block.number)
