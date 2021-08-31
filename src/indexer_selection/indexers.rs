@@ -22,11 +22,11 @@ impl shared_lookup::Reader for IndexerDataReader {
     type Writer = IndexerDataWriter;
     fn new() -> (Self::Writer, Self) {
         let (stake_writer, stake) = Eventual::new();
-        let (delegatted_stake_writer, delegated_stake) = Eventual::new();
+        let (delegated_stake_writer, delegated_stake) = Eventual::new();
         (
             IndexerDataWriter {
                 stake: stake_writer,
-                delegated_stake: delegatted_stake_writer,
+                delegated_stake: delegated_stake_writer,
             },
             IndexerDataReader {
                 stake,
