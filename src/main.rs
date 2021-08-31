@@ -2,7 +2,6 @@ mod alchemy_client;
 mod indexer_selection;
 mod prelude;
 mod query_engine;
-mod syncing_client;
 mod ws_client;
 
 use crate::{
