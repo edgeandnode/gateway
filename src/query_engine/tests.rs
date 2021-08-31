@@ -345,7 +345,6 @@ impl Topology {
             let block = indexer.block(network.blocks.len()) as u64;
             let indexing_writer = indexer_inputs.indexings.write(&indexing).await;
             indexing_writer.cost_model.write(default_cost_model(fee));
-            indexing_writer.status.write(IndexingStatus { block });
             self.inputs
                 .indexers
                 .set_indexing_status(&network.name, &indexing, block)
@@ -501,7 +500,6 @@ impl Resolver for TopologyResolver {
         &self,
         query: &IndexerQuery,
     ) -> Result<Response<String>, Box<dyn Error>> {
-        use graphql_client::Error;
         use regex::Regex;
         let topology = self.topology.lock().await;
         let indexer = topology.indexers.get(&query.indexing.indexer).unwrap();
