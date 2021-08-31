@@ -27,7 +27,6 @@ pub use price_efficiency::CostModelSource;
 use rand::{thread_rng, Rng as _};
 use receipts::*;
 pub use secp256k1::SecretKey;
-pub use selection_factors::IndexingStatus;
 use selection_factors::*;
 use tokio::{
     sync::{Mutex, RwLock},
