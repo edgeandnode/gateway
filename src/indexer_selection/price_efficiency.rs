@@ -2,9 +2,9 @@ use crate::{
     indexer_selection::{utility::SelectionFactor, BadIndexerReason, Context, SelectionError},
     prelude::*,
 };
-use cost_model::{CostError, CostModel};
-use std::{convert::TryFrom, hash::Hash as _, hash::Hasher as _};
-use tokio::sync::{RwLock, RwLockReadGuard};
+use cost_model::{CompileError, CostError, CostModel};
+use eventuals::EventualExt;
+use std::convert::TryFrom;
 use tree_buf::{Decode, Encode};
 
 #[derive(Clone, Debug, Decode, Encode, Eq, Hash, PartialEq)]
@@ -15,21 +15,17 @@ pub struct CostModelSource {
 
 pub struct PriceEfficiency {
     pub model_src: Eventual<CostModelSource>,
-    model: RwLock<CompilationStatus>,
-}
-
-enum CompilationStatus {
-    NotCompiled,
-    BadInput,
-    Compiled { model: CostModel, hash: u64 },
+    model: Eventual<Result<Ptr<CostModel>, Ptr<CompileError>>>,
 }
 
 impl PriceEfficiency {
     pub fn new(model_src: Eventual<CostModelSource>) -> Self {
-        Self {
-            model_src,
-            model: RwLock::new(CompilationStatus::NotCompiled),
-        }
+        let model = model_src.clone().map(|src| async {
+            CostModel::compile(src.model, &src.globals)
+                .map(Ptr::new)
+                .map_err(Ptr::new)
+        });
+        Self { model_src, model }
     }
 
     pub async fn get_price(
@@ -38,7 +34,12 @@ impl PriceEfficiency {
         weight: f64,
         max_budget: &GRT,
     ) -> Result<(USD, SelectionFactor), SelectionError> {
-        let cost = match self.cost_model().await?.cost_with_context(context) {
+        let model = self
+            .model
+            .value_immediate()
+            .and_then(Result::ok)
+            .ok_or(BadIndexerReason::MissingCostModel)?;
+        let cost = match model.cost_with_context(context) {
             Err(CostError::CostModelFail) | Err(CostError::QueryNotCosted) => {
                 return Err(BadIndexerReason::QueryNotCosted)?;
             }
@@ -129,50 +130,6 @@ impl PriceEfficiency {
         // prioritize network health over cost to dApp developers.
         let savings_utility = SelectionFactor { weight, utility };
         Ok((fee, savings_utility))
-    }
-
-    async fn cost_model(&self) -> Result<RwLockReadGuard<'_, CostModel>, SelectionError> {
-        let src = match self.model_src.value_immediate() {
-            Some(src) => src,
-            None => return Err(BadIndexerReason::MissingCostModel.into()),
-        };
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        src.hash(&mut hasher);
-        let current_hash = hasher.finish();
-
-        let recompile = match &self.model.read().await as &CompilationStatus {
-            &CompilationStatus::NotCompiled => true,
-            &CompilationStatus::Compiled { hash, .. } => hash != current_hash,
-            &CompilationStatus::BadInput => return Err(SelectionError::BadInput),
-        };
-        // Only take write lock if compiling
-        if recompile {
-            match CostModel::compile(src.model, &src.globals) {
-                Ok(model) => {
-                    let mut write_lock = self.model.write().await;
-                    let hash = current_hash;
-                    *write_lock = CompilationStatus::Compiled { model, hash };
-                }
-                Err(_) => {
-                    let mut write_lock = self.model.write().await;
-                    *write_lock = CompilationStatus::BadInput;
-                    return Err(SelectionError::BadInput);
-                }
-            }
-        }
-        let read_lock = self.model.read().await;
-        if let &CompilationStatus::Compiled { .. } = &read_lock as &CompilationStatus {
-            Ok(RwLockReadGuard::map(read_lock, |lock| {
-                if let CompilationStatus::Compiled { model, .. } = &lock as &CompilationStatus {
-                    model
-                } else {
-                    unreachable!()
-                }
-            }))
-        } else {
-            // The compilation status is guaranteed to be BadInput
-            Err(SelectionError::BadInput)
-        }
     }
 }
 
