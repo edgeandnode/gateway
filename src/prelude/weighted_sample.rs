@@ -1,5 +1,4 @@
 use rand::{thread_rng, Rng as _};
-use std::collections::HashMap;
 
 /// Selects a random item from a stream of items with a weight
 #[derive(Debug)]
@@ -36,6 +35,7 @@ impl<T> WeightedSample<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn empty() {

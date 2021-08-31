@@ -7,77 +7,106 @@ use hex;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{self, Instrument};
 
-#[derive(Debug)]
 pub enum Request {
-    Block(UnresolvedBlock),
+    Block(UnresolvedBlock, oneshot::Receiver<BlockPointer>),
 }
 
-pub fn create(network: String, ws_url: String, indexers: Arc<Indexers>) -> mpsc::Sender<Request> {
-    let (sender, reqs) = mpsc::channel(32);
-    tokio::spawn(
-        async {
-            handle_ws_client(network, ws_url, indexers, reqs).await;
-            todo!("Alchemy WS client exited. Fallback to REST API");
-        }
-        .instrument(tracing::info_span!("Alchemy handler")),
-    );
-    sender
-}
-
-async fn handle_ws_client(
+struct Client {
     network: String,
     ws_url: String,
     indexers: Arc<Indexers>,
-    mut reqs: mpsc::Receiver<Request>,
-) {
-    let (requests, mut msgs) = ws_client::create(ws_url, 3);
-    loop {
+    requests: mpsc::Receiver<Request>,
+}
+
+pub fn create(network: String, ws_url: String, indexers: Arc<Indexers>) -> mpsc::Sender<Request> {
+    let _trace = tracing::info_span!("Alchemy client", %network).entered();
+    let buffer = 32;
+    let (mut ws_req_send, ws_req_recv) = mpsc::channel(8);
+    let (ws_msg_send, mut ws_msg_recv) = mpsc::channel(buffer);
+    let (request_send, request_recv) = mpsc::channel::<Request>(buffer);
+    ws_client::create(ws_msg_send, ws_req_recv, ws_url.clone(), 3);
+    let mut client = Client {
+        network,
+        ws_url,
+        indexers,
+        requests: request_recv,
+    };
+    tokio::spawn(
+        async move { while let Ok(()) = client.run(&mut ws_req_send, &mut ws_msg_recv).await {} }
+            .in_current_span(),
+    );
+    request_send
+}
+
+impl Client {
+    async fn run(
+        &mut self,
+        ws_send: &mut mpsc::Sender<ws_client::Request>,
+        ws_recv: &mut mpsc::Receiver<ws_client::Msg>,
+    ) -> Result<(), ()> {
         tokio::select! {
-            req = reqs.recv() => match req {
-                None => continue,
-                Some(Request::Block(UnresolvedBlock::WithNumber(n))) => {
-                    todo!("request block number");
-                }
-                Some(Request::Block(UnresolvedBlock::WithHash(n))) => {
-                    todo!("request block hash");
+            ws_result = ws_recv.recv() => match ws_result {
+                Some(msg) => self.handle_ws_msg(ws_send, msg).await,
+                None => {
+                    tracing::error!("TODO: fallback to REST when WS disconnects?");
+                    Err(())
                 }
             },
-            msg = msgs.recv() => match msg {
-                Some(ws_client::Msg::Connected) => {
-                   let sub = serde_json::to_string(&json!({
-                       "jsonrpc": "2.0",
-                       "id": 1,
-                       "method": "eth_subscribe",
-                       "params": ["newHeads"],
-                   }))
-                   .expect("Alchemy subscription should serialize to JSON");
-                   match requests.send(ws_client::Request::Send(sub)) {
-                       Ok(()) => continue,
-                       Err(_) => return,
-                   };
-                }
-                Some(ws_client::Msg::Recv(msg)) => match
-                    serde_json::from_str::<APIResponse<APIBlockHead>>(&msg)
-                {
-                    Ok(APIResponse { params: Some(APIResult { result: head }), .. }) => {
-                        tracing::info!("{} head: {:?}", network, head);
-                        let APIBlockHead { hash, number, uncles, } = head;
-                        indexers
-                            .set_block(&network, BlockPointer { number, hash })
+            Some(Request::Block(unresolved, resolved)) = self.requests.recv() => {
+                tracing::error!("TODO: handle unresolved: {:?}", unresolved);
+                Err(())
+            },
+            else => Err(()),
+        }
+    }
+
+    async fn handle_ws_msg(
+        &mut self,
+        ws_send: &mut mpsc::Sender<ws_client::Request>,
+        msg: ws_client::Msg,
+    ) -> Result<(), ()> {
+        match msg {
+            ws_client::Msg::Connected => {
+                let sub = serde_json::to_string(&json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "eth_subscribe",
+                    "params": ["newHeads"],
+                }))
+                .expect("Alchemy subscription should serialize to JSON");
+                if let Err(_) = ws_send.send(ws_client::Request::Send(sub)).await {
+                    tracing::error!("TODO: handle WS client exit");
+                    return Err(());
+                };
+            }
+            ws_client::Msg::Recv(msg) => {
+                match serde_json::from_str::<APIResponse<APIBlockHead>>(&msg) {
+                    Ok(APIResponse {
+                        params: Some(APIResult { result: head }),
+                        ..
+                    }) => {
+                        tracing::info!(?head);
+                        let APIBlockHead {
+                            hash,
+                            number,
+                            uncles,
+                        } = head;
+                        self.indexers
+                            .set_block(&self.network, BlockPointer { number, hash })
                             .await;
                         for uncle in uncles {
-                            indexers.remove_block(&network, &uncle).await;
+                            self.indexers.remove_block(&self.network, &uncle).await;
                         }
                     }
-                    Ok(response) => tracing::warn!(unexpected_response = ?response),
+                    Ok(unexpected_response) => tracing::warn!(?unexpected_response),
                     Err(err) => tracing::error!(%err),
-               }
-               None => return,
-            },
-        }
+                }
+            }
+        };
+        Ok(())
     }
 }
 

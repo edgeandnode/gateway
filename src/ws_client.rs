@@ -1,7 +1,10 @@
 use futures_util::{SinkExt, StreamExt};
-use tokio::net::TcpStream;
-use tokio::sync::mpsc;
-use tokio_tungstenite::{tungstenite, MaybeTlsStream, WebSocketStream};
+use std::io;
+use tokio::{net::TcpStream, sync::mpsc};
+use tokio_tungstenite::{
+    tungstenite::{self, error::Error as WSError},
+    MaybeTlsStream, WebSocketStream,
+};
 use tracing::{self, Instrument};
 
 #[derive(Debug)]
@@ -15,91 +18,104 @@ pub enum Msg {
     Recv(String),
 }
 
-pub fn create(
+type WSStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+struct Client {
+    notify: mpsc::Sender<Msg>,
+    requests: mpsc::Receiver<Request>,
     server_url: String,
     retry_limit: usize,
-) -> (mpsc::UnboundedSender<Request>, mpsc::UnboundedReceiver<Msg>) {
-    let (request_tx, mut request_rx) = mpsc::unbounded_channel();
-    let (mut msg_tx, msg_rx) = mpsc::unbounded_channel();
-    tokio::spawn(
-        async move {
-            let mut retry = 0;
-            while retry < retry_limit {
-                retry += 1;
-                let (stream, response) = match tokio_tungstenite::connect_async(&server_url).await {
-                    Ok(response) => response,
-                    Err(err) => {
-                        tracing::error!(%err);
-                        continue;
-                    }
-                };
-                let connection_status = response.status();
-                tracing::info!(%connection_status);
-                if connection_status.is_client_error() {
-                    return;
-                }
-                if connection_status.is_server_error() {
-                    continue;
-                }
-                retry = 0;
-                match msg_tx.send(Msg::Connected) {
-                    Ok(()) => (),
-                    Err(_) => {
-                        tracing::error!("message channel dropped");
-                        return;
-                    }
-                };
-                let result = handle_stream(stream, &mut request_rx, &mut msg_tx).await;
-                tracing::warn!("connection closed");
-                if let Err(()) = result {
-                    return;
-                }
-            }
-        }
-        .in_current_span(),
-    );
-    (request_tx, msg_rx)
 }
 
-async fn handle_stream(
-    mut stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    requests: &mut mpsc::UnboundedReceiver<Request>,
-    messages: &mut mpsc::UnboundedSender<Msg>,
-) -> Result<(), ()> {
-    loop {
+pub fn create(
+    notify: mpsc::Sender<Msg>,
+    requests: mpsc::Receiver<Request>,
+    server_url: String,
+    retry_limit: usize,
+) {
+    Client {
+        notify,
+        requests,
+        server_url,
+        retry_limit,
+    }
+    .spawn()
+}
+
+impl Client {
+    fn spawn(mut self) {
+        tokio::spawn(async move { while let Ok(()) = self.run().await {} }.in_current_span());
+    }
+
+    async fn run(&mut self) -> Result<(), ()> {
+        let mut conn = match self.reconnect().await {
+            Ok(conn) => conn,
+            Err(err) => {
+                tracing::error!(reconnect_err = %err);
+                return Err(());
+            }
+        };
+        if let Err(_) = self.notify.send(Msg::Connected).await {
+            return Err(());
+        }
+        while let Ok(()) = self.handle_msgs(&mut conn).await {}
+        Ok(())
+    }
+
+    async fn reconnect(&mut self) -> Result<WSStream, WSError> {
+        fn err<S: ToString>(msg: S) -> Result<WSStream, WSError> {
+            Err(WSError::Io(io::Error::new(
+                io::ErrorKind::NotConnected,
+                msg.to_string(),
+            )))
+        }
+        for _ in 0..self.retry_limit {
+            let (stream, response) = tokio_tungstenite::connect_async(&self.server_url).await?;
+            let connection_status = response.status();
+            tracing::info!(%connection_status);
+            if connection_status.is_client_error() {
+                return err(format!("client error: {}", connection_status));
+            }
+            if connection_status.is_server_error() {
+                return err(format!("server error: {}", connection_status));
+            };
+            return Ok(stream);
+        }
+        err("retries exhausted")
+    }
+
+    async fn handle_msgs(&mut self, conn: &mut WSStream) -> Result<(), ()> {
         tokio::select! {
-            result = stream.next() => match result {
+            result = conn.next() => match result {
                 Some(Ok(tungstenite::Message::Text(msg))) => {
                     tracing::trace!(?msg);
-                    if let Err(_) = messages.send(Msg::Recv(msg)) {
-                        tracing::error!("message channel dropped");
-                        let _ = stream.close(None).await;
+                    if let Err(_) = self.notify.send(Msg::Recv(msg)).await {
                         return Err(());
                     };
                 }
-                Some(Ok(msg)) => {
-                    tracing::trace!(?msg);
-                }
-                Some(Err(err)) => {
-                    tracing::error!(?err);
-                    return Ok(());
-                }
-                None => return Ok(()),
-            },
-            result = requests.recv() => match result {
-                Some(Request::Send(msg)) => {
-                    tracing::trace!("send {:?}", msg);
-                    if let Err(err) = stream.send(tungstenite::Message::Text(msg)).await {
-                        tracing::error!(?err);
-                        return Ok(());
-                    }
-                }
-                None => {
-                    tracing::error!("request channel dropped");
-                    let _ = stream.close(None).await;
+                Some(Ok(tungstenite::Message::Ping(_))) => tracing::trace!("ping"),
+                Some(Ok(tungstenite::Message::Close(close))) => {
+                    tracing::warn!(?close);
                     return Err(());
                 }
+                Some(Ok(unexpected_msg)) => tracing::warn!(?unexpected_msg),
+                Some(Err(recv_err)) => {
+                    tracing::error!(%recv_err);
+                    return Err(());
+                }
+                None => (),
+            },
+            result = self.requests.recv() => match result {
+                Some(Request::Send(outgoing)) => {
+                    tracing::trace!(?outgoing);
+                    if let Err(err) = conn.send(tungstenite::Message::Text(outgoing)).await {
+                        tracing::error!(send_err = %err);
+                        ();
+                    }
+                }
+                None => return Err(()),
             }
         };
+        Ok(())
     }
 }
