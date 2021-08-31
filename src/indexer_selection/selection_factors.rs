@@ -8,18 +8,7 @@ use crate::{
 use tokio::{sync::RwLock, time};
 use tree_buf::{Decode, Encode};
 
-#[derive(Clone, Debug, Decode, Encode, Eq, PartialEq)]
-pub struct IndexingStatus {
-    // TODO: use this as input to DataFreshness, attempting this ran into the following problems
-    // to solve in the future:
-    // - The indexing block number is effectively reset to penalize the indexer.
-    // - I have some confusion about the use of the parameters of DataFreshness::expected_utility
-    //   rather than the state of the DataFreshness object.
-    pub block: u64,
-}
-
 pub struct SelectionFactors {
-    status: Eventual<IndexingStatus>,
     price_efficiency: PriceEfficiency,
     locked: RwLock<LockedState>,
 }
@@ -34,13 +23,11 @@ struct LockedState {
 
 pub struct IndexingData {
     pub cost_model: EventualWriter<CostModelSource>,
-    pub status: EventualWriter<IndexingStatus>,
 }
 
 #[derive(Debug, Decode, Encode)]
 pub struct IndexingSnapshot {
     pub cost_model: Option<CostModelSource>,
-    pub status: Option<IndexingStatus>,
     pub indexing: Indexing,
     pub performance: Performance,
     pub freshness: DataFreshness,
@@ -51,15 +38,12 @@ impl shared_lookup::Reader for SelectionFactors {
     type Writer = IndexingData;
     fn new() -> (Self::Writer, Self) {
         let (cost_model_writer, cost_model) = Eventual::new();
-        let (status_writer, status) = Eventual::new();
         let reader = Self {
-            status,
             price_efficiency: PriceEfficiency::new(cost_model),
             locked: RwLock::default(),
         };
         let writer = Self::Writer {
             cost_model: cost_model_writer,
-            status: status_writer,
         };
         (writer, reader)
     }
@@ -147,7 +131,6 @@ impl SelectionFactors {
         let lock = self.locked.read().await;
         IndexingSnapshot {
             cost_model: self.price_efficiency.model_src.value_immediate(),
-            status: self.status.value_immediate(),
             indexing: indexing.clone(),
             performance: lock.performance.clone(),
             freshness: lock.freshness.clone(),
@@ -159,9 +142,6 @@ impl SelectionFactors {
         let (mut writer, reader) = SelectionFactors::new();
         if let Some(model_src) = snapshot.cost_model {
             writer.cost_model.write(model_src);
-        }
-        if let Some(status) = snapshot.status {
-            writer.status.write(status);
         }
         {
             let mut lock = reader.locked.write().await;
