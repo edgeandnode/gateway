@@ -17,11 +17,18 @@ use rand::{
 use std::{collections::BTreeMap, env, error::Error, fmt, iter, ops::RangeInclusive};
 use tokio::{self, sync::Mutex};
 
+/// Query engine tests use pseudorandomly generated network state and client query as inputs.
+/// The using these inputs, the query engine produces a query result that gets checked based on
+/// properties of the inputs. The network state is represented by `Topology`, which models the
+/// networks, subgraphs, deployments, and indexers in the Graph protocol. See also
+/// `Topology::check_result`.
+
 // TODO: test transfers
 // TODO: gen topology deltas to test state changes
 
 // This should be replaced by usize::log2 eventually
 // https://github.com/rust-lang/rust/issues/70887
+#[inline]
 fn log_2(x: usize) -> usize {
     assert!(x > 0);
     (std::mem::size_of::<usize>() * 8) - x.leading_zeros() as usize - 1
@@ -261,6 +268,9 @@ impl Topology {
         (self.rng.next_u64() % fraction) == 0
     }
 
+    /// Generate a length in the given range that should only be zero a small fraction of the time.
+    /// This is done to ensure that generated test cases have a reasonable probability to have
+    /// input components necessary to execute a complete query, while also covering the zero cases.
     fn gen_len(&mut self, range: RangeInclusive<usize>, zero_fraction: u64) -> usize {
         if range.end() == &0 {
             return 0;
@@ -389,27 +399,18 @@ impl Topology {
         let mut trace = Vec::new();
         trace.push(format!("{:#?}", query));
         trace.push(format!("{:#?}", result));
-        // TODO: check for invalid queries
+        // Return SubgraphNotFound if the subgraph does not exist.
         let subgraph = match self.subgraph(&query.subgraph) {
             Some(subgraph) => subgraph,
             None => {
-                match result {
-                    Err(QueryEngineError::SubgraphNotFound) => return Ok(()),
-                    Err(QueryEngineError::NoIndexerSelected) => {
-                        if self.networks.contains_key(&query.subgraph.network) {
-                            return err_with(
-                                trace,
-                                format!("TODO: I forget what this is checking"),
-                            );
-                        }
-                        return Ok(());
-                    }
-                    _ => (),
-                };
+                if let Err(QueryEngineError::SubgraphNotFound) = result {
+                    return Ok(());
+                }
                 trace.push(format!("expected SubgraphNotFound, got {:#?}", result));
                 return Err(trace);
             }
         };
+        // Return MissingBlocks if the network has no blocks.
         if let Err(QueryEngineError::MissingBlocks(_)) = result {
             if self
                 .networks
@@ -430,11 +431,13 @@ impl Topology {
             .flat_map(|deployment| deployment.indexings.iter())
             .map(|id| self.indexers.get(id).unwrap())
             .collect::<Vec<&IndexerTopology>>();
+        // Valid indexers have more than zero stake and fee <= budget.
         fn valid_indexer(indexer: &IndexerTopology) -> bool {
             !indexer.indexer_err
                 && (indexer.staked_grt > TokenAmount::Zero)
                 && (indexer.fee <= TokenAmount::Enough)
         }
+        // Return MalformedQuery Malformed queries are rejected.
         if query.query == "?" {
             if let Err(QueryEngineError::MalformedQuery) = result {
                 return Ok(());
@@ -448,6 +451,7 @@ impl Topology {
             .collect::<Vec<&IndexerTopology>>();
         trace.push(format!("valid indexers: {:#?}", valid));
         if valid.len() > 0 {
+            // A valid indexer implies that a response is returned.
             let response = match result {
                 Ok(response) => response,
                 Err(err) => return err_with(trace, format!("expected response, got {:?}", err)),
@@ -456,12 +460,14 @@ impl Topology {
                 data: Some("success".into()),
                 errors: None,
             };
+            // The test resolver only gives the following response for successful queries.
             if response.response != success {
                 return err_with(
                     trace,
                     format!("expected {:?}, got {:#?}", success, response.response,),
                 );
             }
+            // The response is from a valid indexer.
             if let Some(_) = valid
                 .into_iter()
                 .find(|indexer| response.query.indexing.indexer == indexer.id)
@@ -470,9 +476,11 @@ impl Topology {
             }
             return err_with(trace, "response did not match any valid indexer");
         }
+        // Return NoIndexerSelected if no valid indexers exist.
         if let Err(QueryEngineError::NoIndexerSelected) = result {
             return Ok(());
         }
+        // Return MissingBlocks if the network has no blocks.
         if self
             .networks
             .get(&query.subgraph.network)

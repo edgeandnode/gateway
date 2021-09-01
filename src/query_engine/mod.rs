@@ -13,7 +13,7 @@ use async_trait::async_trait;
 pub use graphql_client::Response;
 use im;
 use std::{error::Error, sync::Arc};
-use tokio::time;
+use tokio::time::Instant;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct QualifiedSubgraph {
@@ -172,9 +172,9 @@ impl<R: Resolver> QueryEngine<R> {
                     continue;
                 }
             };
-            let t0 = time::Instant::now();
+            let t0 = Instant::now();
             let result = self.resolver.query_indexer(&indexer_query).await;
-            let query_duration = time::Instant::now() - t0;
+            let query_duration = Instant::now() - t0;
 
             let response = match result {
                 Ok(response) => response,
