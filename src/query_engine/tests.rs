@@ -369,7 +369,9 @@ impl Topology {
                     })
                     .await;
                 writer.id.write(current.id);
-                *writer.indexers.write().await = current.indexings.iter().cloned().collect();
+                writer
+                    .indexers
+                    .write(current.indexings.iter().cloned().collect());
             }
         }
         eventuals::idle().await;

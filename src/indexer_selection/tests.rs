@@ -136,7 +136,7 @@ async fn battle_high_and_low() {
     ];
 
     let mut data = HashMap::new();
-    let mut indexer_ids = Vec::new();
+    let mut indexer_ids = im::Vector::new();
     for indexer in tests.iter() {
         let indexing = Indexing {
             indexer: bytes_from_id(indexer_ids.len()).into(),
@@ -157,7 +157,7 @@ async fn battle_high_and_low() {
             .delegated_stake
             .write(indexer.delegated_stake);
         data.insert(indexing.indexer, indexer);
-        indexer_ids.push(indexing.indexer);
+        indexer_ids.push_back(indexing.indexer);
         indexers
             .install_receipts_transfer(
                 &indexing,
