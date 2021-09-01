@@ -14,6 +14,7 @@ futures = "0.3"
 graphql-parser = {git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df"} 
 graphql_client = "0.10" 
 hex = "0.4" 
+im = "15.0" # Good vector implementation, CHAMP encoding should be added if we use a hash map/set
 neon-utils = "1.1" # TODO: replace marshalling and remove neon dependency
 num-traits = "0.2" 
 ordered-float = "2.5" 

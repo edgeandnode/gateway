@@ -21,6 +21,7 @@ use crate::prelude::{
 use cost_model;
 use economic_security::*;
 use graphql_parser::query as graphql_query;
+use im;
 use indexers::*;
 use network_cache::*;
 use num_traits::identities::Zero;
@@ -410,7 +411,7 @@ impl Indexers {
         config: &UtilityConfig,
         network: &str,
         subgraph: &SubgraphDeploymentID,
-        indexers: &[Address],
+        indexers: &im::Vector<Address>,
         query: String,
         variables: Option<String>,
         budget: USD,
@@ -436,7 +437,7 @@ impl Indexers {
                     network,
                     subgraph,
                     &mut context,
-                    indexers,
+                    &indexers,
                     budget,
                     &freshness_requirements,
                 )
@@ -477,7 +478,7 @@ impl Indexers {
         network: &str,
         subgraph: &SubgraphDeploymentID,
         context: &mut Context<'_>,
-        indexers: &[Address],
+        indexers: &im::Vector<Address>,
         budget: USD,
         freshness_requirements: &BlockRequirements,
     ) -> Result<Option<(Indexing, IndexerScore, ReceiptBorrow)>, SelectionError> {

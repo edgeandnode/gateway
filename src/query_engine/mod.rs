@@ -11,8 +11,9 @@ use crate::{
 };
 use async_trait::async_trait;
 pub use graphql_client::Response;
-use std::{error::Error, ops::Deref as _, sync::Arc};
-use tokio::{sync::RwLock, time};
+use im;
+use std::{error::Error, sync::Arc};
+use tokio::time;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct QualifiedSubgraph {
@@ -64,23 +65,23 @@ pub struct Config {
 
 pub struct Deployment {
     id: Eventual<SubgraphDeploymentID>,
-    indexers: Arc<RwLock<Vec<Address>>>,
+    indexers: Eventual<im::Vector<Address>>,
 }
 
 pub struct DeploymentWriter {
     pub id: EventualWriter<SubgraphDeploymentID>,
-    pub indexers: Arc<RwLock<Vec<Address>>>,
+    pub indexers: EventualWriter<im::Vector<Address>>,
 }
 
 impl Reader for Deployment {
     type Writer = DeploymentWriter;
     fn new() -> (Self::Writer, Self) {
         let (id_writer, id) = Eventual::new();
-        let indexers = Arc::<RwLock<Vec<Address>>>::default();
+        let (indexers_writer, indexers) = Eventual::new();
         (
             Self::Writer {
                 id: id_writer,
-                indexers: indexers.clone(),
+                indexers: indexers_writer,
             },
             Self { id, indexers },
         )
@@ -145,7 +146,7 @@ impl<R: Resolver> QueryEngine<R> {
             .await
             .ok_or(SubgraphNotFound)?;
         let deployment_id = deployment.id.value_immediate().ok_or(SubgraphNotFound)?;
-        let mut indexers = deployment.indexers.read().await.deref().clone();
+        let mut indexers = deployment.indexers.value_immediate().unwrap_or_default();
         drop(deployment);
         for _ in 0..self.config.indexer_selection_limit {
             let selection_result = self
@@ -181,7 +182,7 @@ impl<R: Resolver> QueryEngine<R> {
                     self.indexers
                         .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
                         .await;
-                    indexers.swap_remove(
+                    indexers.remove(
                         indexers
                             .iter()
                             .position(|indexer| indexer == &indexer_query.indexing.indexer)
