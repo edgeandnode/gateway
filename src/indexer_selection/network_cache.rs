@@ -69,6 +69,7 @@ impl NetworkCache {
         let mut latest = None;
         // TODO: Ugh this code is a mess, and it's not even doing fragments yet.
         let ops = &mut context.operations[..];
+        let mut unresolved_blocks = Vec::new();
         for top_level_field in Self::top_level_fields(ops)? {
             let mut require_latest = true;
             for arg in top_level_field.arguments.iter_mut() {
@@ -81,11 +82,16 @@ impl NetworkCache {
                                     let number = Self::number(number, &context.variables)?;
                                     // Some, but not all, duplicated code
                                     // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
-                                    let hash = self
-                                        .block_cache(network)
-                                        .number_to_hash
-                                        .get(&number)
-                                        .ok_or(UnresolvedBlock::WithNumber(number))?;
+                                    let hash =
+                                        match self.block_cache(network).number_to_hash.get(&number)
+                                        {
+                                            Some(hash) => hash,
+                                            None => {
+                                                unresolved_blocks
+                                                    .push(UnresolvedBlock::WithNumber(number));
+                                                continue;
+                                            }
+                                        };
                                     require_latest = false;
                                     *fields = BTreeMap::new();
                                     let hash = hash.encode();
@@ -108,11 +114,18 @@ impl NetworkCache {
                                             let number = Self::number(number, &context.variables)?;
                                             // Some, but not all, duplicated code
                                             // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
-                                            let hash = self
+                                            let hash = match self
                                                 .block_cache(network)
                                                 .number_to_hash
                                                 .get(&number)
-                                                .ok_or(UnresolvedBlock::WithNumber(number))?;
+                                            {
+                                                Some(hash) => hash,
+                                                None => {
+                                                    unresolved_blocks
+                                                        .push(UnresolvedBlock::WithNumber(number));
+                                                    continue;
+                                                }
+                                            };
                                             require_latest = false;
                                             let mut fields = BTreeMap::new();
                                             let hash = hash.encode();
@@ -137,12 +150,21 @@ impl NetworkCache {
             if require_latest {
                 // Get and cache the latest block hash so that it's used consistently.
                 latest.get_or_insert_with(|| self.latest_block(network, blocks_behind));
-                let block = latest.clone().unwrap()?;
+                let block = match latest.clone().unwrap() {
+                    Ok(block) => block,
+                    Err(unresolved) => {
+                        unresolved_blocks.push(unresolved);
+                        continue;
+                    }
+                };
                 let mut fields = BTreeMap::new();
                 fields.insert("hash", q::Value::String(block.hash.encode()));
                 let arg = ("block", q::Value::Object(fields));
                 top_level_field.arguments.push(arg);
             }
+        }
+        if !unresolved_blocks.is_empty() {
+            return Err(SelectionError::MissingBlocks(unresolved_blocks));
         }
 
         let mut definitions = Vec::new();
@@ -175,6 +197,7 @@ impl NetworkCache {
         network: &str,
     ) -> Result<BlockRequirements, SelectionError> {
         let mut requirements = BlockRequirements::default();
+        let mut unresolved_blocks = Vec::new();
         for top_level_field in Self::top_level_fields(operations)? {
             let mut has_latest = true;
             for arg in top_level_field.arguments.iter() {
@@ -192,9 +215,13 @@ impl NetworkCache {
                             let hash_bytes: [u8; 32] = codecs::decode(hash.as_str())
                                 .map_err(|_| SelectionError::BadInput)?;
                             let hash = hash_bytes.into();
-                            let number = self
-                                .hash_to_number(network, &hash)
-                                .ok_or(UnresolvedBlock::WithHash(hash))?;
+                            let number = match self.hash_to_number(network, &hash) {
+                                Some(number) => number,
+                                None => {
+                                    unresolved_blocks.push(UnresolvedBlock::WithHash(hash));
+                                    continue;
+                                }
+                            };
                             requirements.minimum_block =
                                 Some(requirements.minimum_block.unwrap_or_default().max(number));
                             has_latest = false;
@@ -205,6 +232,9 @@ impl NetworkCache {
                 }
             }
             requirements.has_latest = has_latest || requirements.has_latest;
+        }
+        if !unresolved_blocks.is_empty() {
+            return Err(SelectionError::MissingBlocks(unresolved_blocks));
         }
         Ok(requirements)
     }

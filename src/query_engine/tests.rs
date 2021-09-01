@@ -154,17 +154,16 @@ impl Topology {
             .map(|net| choose_name(rng, net.subgraphs.keys(), &invalid_subgraph))
             .unwrap_or(invalid_subgraph.clone());
         if self.flip_coin(32) {
+            network = invalid_network;
+        }
+        if self.flip_coin(32) {
             subgraph = invalid_subgraph;
-            if self.flip_coin(1) {
-                network = invalid_network;
-            }
         }
         let query = if self.flip_coin(32) { "?" } else { BASIC_QUERY };
         ClientQuery {
             query: query.into(),
             variables: None,
-            network: network,
-            subgraph: subgraph,
+            subgraph: QualifiedSubgraph { network, subgraph },
             budget: 1u64.try_into().unwrap(),
         }
     }
@@ -278,10 +277,10 @@ impl Topology {
         }
     }
 
-    fn subgraph(&self, network: &str, name: &str) -> Option<&SubgraphTopology> {
+    fn subgraph(&self, subgraph: &QualifiedSubgraph) -> Option<&SubgraphTopology> {
         self.networks
-            .get(network)
-            .and_then(|net| net.subgraphs.get(name))
+            .get(&subgraph.network)
+            .and_then(|net| net.subgraphs.get(&subgraph.subgraph))
     }
 
     fn subgraphs(&self) -> Vec<(NetworkTopology, SubgraphTopology)> {
@@ -364,7 +363,10 @@ impl Topology {
                 let writer = self
                     .inputs
                     .deployments
-                    .write(&(network.name, subgraph.name))
+                    .write(&QualifiedSubgraph {
+                        network: network.name,
+                        subgraph: subgraph.name,
+                    })
                     .await;
                 writer.id.write(current.id);
                 *writer.indexers.write().await = current.indexings.iter().cloned().collect();
@@ -386,13 +388,13 @@ impl Topology {
         trace.push(format!("{:#?}", query));
         trace.push(format!("{:#?}", result));
         // TODO: check for invalid queries
-        let subgraph = match self.subgraph(&query.network, &query.subgraph) {
+        let subgraph = match self.subgraph(&query.subgraph) {
             Some(subgraph) => subgraph,
             None => {
                 match result {
                     Err(QueryEngineError::SubgraphNotFound) => return Ok(()),
                     Err(QueryEngineError::NoIndexerSelected) => {
-                        if self.networks.contains_key(&query.network) {
+                        if self.networks.contains_key(&query.subgraph.network) {
                             return err_with(
                                 trace,
                                 format!("TODO: I forget what this is checking"),
@@ -406,8 +408,14 @@ impl Topology {
                 return Err(trace);
             }
         };
-        if let Err(QueryEngineError::MissingBlock(_)) = result {
-            if self.networks.get(&query.network).unwrap().blocks.len() == 0 {
+        if let Err(QueryEngineError::MissingBlocks(_)) = result {
+            if self
+                .networks
+                .get(&query.subgraph.network)
+                .unwrap()
+                .blocks
+                .is_empty()
+            {
                 return Ok(());
             }
             return err_with(trace, format!("expected MissingBlock, got {:?}", result));
@@ -463,8 +471,14 @@ impl Topology {
         if let Err(QueryEngineError::NoIndexerSelected) = result {
             return Ok(());
         }
-        if self.networks.get(&query.network).unwrap().blocks.len() == 0 {
-            if let Err(QueryEngineError::MissingBlock(_)) = result {
+        if self
+            .networks
+            .get(&query.subgraph.network)
+            .unwrap()
+            .blocks
+            .is_empty()
+        {
+            if let Err(QueryEngineError::MissingBlocks(_)) = result {
                 return Ok(());
             }
             return err_with(trace, format!("expected missing block, got {:#?}", result));
@@ -482,18 +496,27 @@ struct TopologyResolver {
 
 #[async_trait]
 impl Resolver for TopologyResolver {
-    async fn resolve_block(
+    async fn resolve_blocks(
         &self,
         network: &str,
-        block: &UnresolvedBlock,
-    ) -> Option<(BlockPointer, Vec<Bytes32>)> {
+        unresolved: &[UnresolvedBlock],
+    ) -> Vec<BlockHead> {
         let topology = self.topology.lock().await;
-        let blocks = &topology.networks.get(network)?.blocks;
-        let resolved_block = match block {
-            UnresolvedBlock::WithNumber(n) => blocks.get(*n as usize)?.clone(),
-            UnresolvedBlock::WithHash(h) => blocks.iter().find(|b| &b.hash == h)?.clone(),
+        let blocks = match topology.networks.get(network) {
+            Some(network) => &network.blocks,
+            None => return vec![],
         };
-        Some((resolved_block, vec![]))
+        unresolved
+            .into_iter()
+            .filter_map(|unresolved| {
+                let block = match unresolved {
+                    UnresolvedBlock::WithNumber(n) => blocks.get(*n as usize)?.clone(),
+                    UnresolvedBlock::WithHash(h) => blocks.iter().find(|b| &b.hash == h)?.clone(),
+                };
+                let uncles = vec![];
+                Some(BlockHead { block, uncles })
+            })
+            .collect()
     }
 
     async fn query_indexer(

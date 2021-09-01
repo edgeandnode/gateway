@@ -23,6 +23,7 @@ use economic_security::*;
 use graphql_parser::query as graphql_query;
 use indexers::*;
 use network_cache::*;
+use num_traits::identities::Zero;
 pub use ordered_float::NotNan;
 pub use price_efficiency::CostModelSource;
 use rand::{thread_rng, Rng as _};
@@ -79,7 +80,7 @@ impl fmt::Debug for Receipt {
 pub enum SelectionError {
     BadInput,
     MissingNetworkParams,
-    MissingBlock(UnresolvedBlock),
+    MissingBlocks(Vec<UnresolvedBlock>),
     BadIndexer(BadIndexerReason),
 }
 
@@ -114,12 +115,6 @@ impl From<BadIndexerReason> for SelectionError {
 pub enum UnresolvedBlock {
     WithNumber(u64),
     WithHash(Bytes32),
-}
-
-impl From<UnresolvedBlock> for SelectionError {
-    fn from(err: UnresolvedBlock) -> Self {
-        Self::MissingBlock(err)
-    }
 }
 
 #[derive(Clone, Debug, Decode, Eq, Hash, Encode, Ord, PartialEq, PartialOrd)]
@@ -503,18 +498,19 @@ impl Indexers {
                 )
                 .await;
             let score = match result {
-                Ok(score) => score,
+                Ok(score) if score.utility > NotNan::zero() => score,
                 Err(err) => match &err {
                     &SelectionError::BadInput
                     | &SelectionError::MissingNetworkParams
-                    | &SelectionError::MissingBlock(_) => return Err(err),
+                    | &SelectionError::MissingBlocks(_) => return Err(err),
                     _ => continue,
                 },
+                _ => continue,
             };
             scores.push((indexing, score));
         }
         let max_utility = match scores.iter().map(|(_, score)| score.utility).max() {
-            Some(n) if n != 0.0 => n,
+            Some(n) => n,
             _ => return Ok(None),
         };
         // Having a random utility cutoff that is weighted toward 1 normalized
@@ -604,7 +600,8 @@ impl Indexers {
             .network_cache
             .read()
             .await
-            .latest_block(network, blocks_behind)?;
+            .latest_block(network, blocks_behind)
+            .map_err(|unresolved| SelectionError::MissingBlocks(vec![unresolved]))?;
 
         let (fee, price_efficiency) = selection_factors
             .get_price(context, config.price_efficiency, &budget)

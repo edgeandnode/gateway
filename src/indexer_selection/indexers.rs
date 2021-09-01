@@ -1,4 +1,4 @@
-use crate::prelude::{shared_lookup::Reader as _, *};
+use crate::prelude::*;
 use tree_buf::{Decode, Encode};
 
 pub struct IndexerDataReader {
@@ -18,7 +18,7 @@ pub struct IndexerSnapshot {
     delegated_stake: Option<Bytes32>,
 }
 
-impl shared_lookup::Reader for IndexerDataReader {
+impl Reader for IndexerDataReader {
     type Writer = IndexerDataWriter;
     fn new() -> (Self::Writer, Self) {
         let (stake_writer, stake) = Eventual::new();

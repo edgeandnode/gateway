@@ -3,7 +3,7 @@ use crate::{
         network_cache::*, performance::*, price_efficiency::*, receipts::*, reputation::*,
         utility::*, BadIndexerReason, Context, Indexing, SecretKey, SelectionError,
     },
-    prelude::{shared_lookup, shared_lookup::Reader as _, *},
+    prelude::*,
 };
 use tokio::{sync::RwLock, time};
 use tree_buf::{Decode, Encode};
@@ -34,7 +34,7 @@ pub struct IndexingSnapshot {
     pub reputation: Reputation,
 }
 
-impl shared_lookup::Reader for SelectionFactors {
+impl Reader for SelectionFactors {
     type Writer = IndexingData;
     fn new() -> (Self::Writer, Self) {
         let (cost_model_writer, cost_model) = Eventual::new();
