@@ -24,6 +24,11 @@ pub struct BlockPointer {
     pub hash: Bytes32,
 }
 
+pub trait Reader {
+    type Writer;
+    fn new() -> (Self::Writer, Self);
+}
+
 macro_rules! bytes_wrapper {
     ($vis:vis, $id:ident, $len:expr) => {
         #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd, tree_buf::Decode, tree_buf::Encode)]

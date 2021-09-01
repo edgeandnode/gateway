@@ -11,15 +11,20 @@ use crate::{
 };
 use async_trait::async_trait;
 pub use graphql_client::Response;
-use std::{error::Error, sync::Arc};
+use std::{error::Error, ops::Deref as _, sync::Arc};
 use tokio::{sync::RwLock, time};
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct QualifiedSubgraph {
+    network: String,
+    subgraph: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct ClientQuery {
     pub query: String,
     pub variables: Option<String>,
-    pub network: String,
-    pub subgraph: String,
+    pub subgraph: QualifiedSubgraph,
     pub budget: USD,
 }
 
@@ -34,16 +39,19 @@ pub enum QueryEngineError {
     SubgraphNotFound,
     NoIndexerSelected,
     MalformedQuery,
-    MissingBlock(UnresolvedBlock),
+    MissingBlocks(Vec<UnresolvedBlock>),
+}
+
+#[derive(Debug)]
+pub struct BlockHead {
+    block: BlockPointer,
+    uncles: Vec<Bytes32>,
 }
 
 #[async_trait]
 pub trait Resolver {
-    async fn resolve_block(
-        &self,
-        network: &str,
-        block: &UnresolvedBlock,
-    ) -> Option<(BlockPointer, Vec<Bytes32>)>;
+    async fn resolve_blocks(&self, network: &str, unresolved: &[UnresolvedBlock])
+        -> Vec<BlockHead>;
 
     async fn query_indexer(&self, query: &IndexerQuery)
         -> Result<Response<String>, Box<dyn Error>>;
@@ -64,7 +72,7 @@ pub struct DeploymentWriter {
     pub indexers: Arc<RwLock<Vec<Address>>>,
 }
 
-impl shared_lookup::Reader for Deployment {
+impl Reader for Deployment {
     type Writer = DeploymentWriter;
     fn new() -> (Self::Writer, Self) {
         let (id_writer, id) = Eventual::new();
@@ -81,13 +89,13 @@ impl shared_lookup::Reader for Deployment {
 
 pub struct Inputs {
     indexers: Arc<Indexers>,
-    deployments: SharedLookup<(String, String), Deployment>,
+    deployments: SharedLookup<QualifiedSubgraph, Deployment>,
 }
 
 pub struct InputWriters {
     pub indexer_inputs: indexer_selection::InputWriters,
     pub indexers: Arc<Indexers>,
-    pub deployments: SharedLookupWriter<(String, String), Deployment, DeploymentWriter>,
+    pub deployments: SharedLookupWriter<QualifiedSubgraph, Deployment, DeploymentWriter>,
 }
 
 impl Inputs {
@@ -111,7 +119,7 @@ impl Inputs {
 
 pub struct QueryEngine<R: Resolver> {
     indexers: Arc<Indexers>,
-    deployments: SharedLookup<(String, String), Deployment>,
+    deployments: SharedLookup<QualifiedSubgraph, Deployment>,
     resolver: R,
     config: Config,
 }
@@ -130,11 +138,10 @@ impl<R: Resolver> QueryEngine<R> {
         &self,
         query: ClientQuery,
     ) -> Result<QueryResponse, QueryEngineError> {
-        use std::ops::Deref;
         use QueryEngineError::*;
         let deployment = self
             .deployments
-            .get(&(query.network.clone(), query.subgraph))
+            .get(&query.subgraph)
             .await
             .ok_or(SubgraphNotFound)?;
         let deployment_id = deployment.id.value_immediate().ok_or(SubgraphNotFound)?;
@@ -145,7 +152,7 @@ impl<R: Resolver> QueryEngine<R> {
                 .indexers
                 .select_indexer(
                     &self.config.utility,
-                    &query.network,
+                    &query.subgraph.network,
                     &deployment_id,
                     &indexers,
                     query.query.clone(),
@@ -159,16 +166,8 @@ impl<R: Resolver> QueryEngine<R> {
                 Err(SelectionError::BadInput) => return Err(MalformedQuery),
                 Err(SelectionError::MissingNetworkParams) => return Err(NoIndexerSelected),
                 Err(SelectionError::BadIndexer(reason)) => return Err(NoIndexerSelected),
-                Err(SelectionError::MissingBlock(unresolved)) => {
-                    let (block, uncles) = self
-                        .resolver
-                        .resolve_block(&query.network, &unresolved)
-                        .await
-                        .ok_or(MissingBlock(unresolved))?;
-                    self.indexers.set_block(&query.network, block).await;
-                    for uncle in uncles {
-                        self.indexers.remove_block(&query.network, &uncle).await;
-                    }
+                Err(SelectionError::MissingBlocks(unresolved)) => {
+                    self.resolve_blocks(&query, unresolved).await?;
                     continue;
                 }
             };
@@ -182,7 +181,7 @@ impl<R: Resolver> QueryEngine<R> {
                     self.indexers
                         .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
                         .await;
-                    indexers.remove(
+                    indexers.swap_remove(
                         indexers
                             .iter()
                             .position(|indexer| indexer == &indexer_query.indexing.indexer)
@@ -200,12 +199,6 @@ impl<R: Resolver> QueryEngine<R> {
                 .unwrap_or(false)
             {
                 self.indexers.observe_indexing_behind(&indexer_query).await;
-                indexers.remove(
-                    indexers
-                        .iter()
-                        .position(|indexer| indexer == &indexer_query.indexing.indexer)
-                        .unwrap(),
-                );
                 continue;
             }
 
@@ -224,5 +217,39 @@ impl<R: Resolver> QueryEngine<R> {
             });
         }
         Err(NoIndexerSelected)
+    }
+
+    async fn resolve_blocks(
+        &self,
+        query: &ClientQuery,
+        mut unresolved: Vec<UnresolvedBlock>,
+    ) -> Result<(), QueryEngineError> {
+        let heads = self
+            .resolver
+            .resolve_blocks(&query.subgraph.network, &unresolved)
+            .await;
+        for head in heads {
+            unresolved.swap_remove(
+                unresolved
+                    .iter()
+                    .position(|b| match b {
+                        UnresolvedBlock::WithHash(h) => h == &head.block.hash,
+                        UnresolvedBlock::WithNumber(n) => n == &head.block.number,
+                    })
+                    .unwrap(),
+            );
+            self.indexers
+                .set_block(&query.subgraph.network, head.block)
+                .await;
+            for uncle in head.uncles {
+                self.indexers
+                    .remove_block(&query.subgraph.network, &uncle)
+                    .await;
+            }
+        }
+        if !unresolved.is_empty() {
+            return Err(QueryEngineError::MissingBlocks(unresolved));
+        }
+        Ok(())
     }
 }

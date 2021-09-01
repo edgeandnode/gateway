@@ -146,6 +146,7 @@ mod test {
         let efficiency = PriceEfficiency::new(Eventual::from_value(default_cost_model(
             "0.01".parse().unwrap(),
         )));
+        eventuals::idle().await;
         let mut context = Context::new(BASIC_QUERY, "").unwrap();
         // Expected values based on https://www.desmos.com/calculator/kxd4kpjxi5
         let tests = [(0.01, 0.0), (0.02, 0.2763), (0.1, 0.7746), (1.0, 0.9742)];

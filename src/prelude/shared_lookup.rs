@@ -1,14 +1,10 @@
+use crate::prelude::Reader;
 use std::{
     collections::{hash_map::Entry, HashMap},
     hash::Hash,
     sync::Arc,
 };
 use tokio::sync::{RwLock, RwLockReadGuard};
-
-pub trait Reader {
-    type Writer;
-    fn new() -> (Self::Writer, Self);
-}
 
 #[derive(Clone)]
 pub struct SharedLookup<K, R>(Arc<RwLock<HashMap<K, Arc<R>>>>);
