@@ -498,7 +498,17 @@ impl Indexers {
                     freshness_requirements,
                 )
                 .await;
-            tracing::trace!(?indexing, score = ?result);
+            tracing::trace!(subgraph = ?indexing.subgraph, indexer = ?indexing.indexer);
+            match &result {
+                Ok(score) => tracing::trace!(
+                    ?score.fee,
+                    ?score.slashable,
+                    ?score.utility,
+                    ?score.sybil,
+                    ?score.blocks_behind,
+                ),
+                Err(err) => tracing::trace!(scrore.err = ?err),
+            };
             let score = match result {
                 Ok(score) if score.utility > NotNan::zero() => score,
                 Err(err) => match &err {

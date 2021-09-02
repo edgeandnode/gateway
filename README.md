@@ -7,7 +7,7 @@ This application is instrumented using the Tokio [Tracing](https://github.com/to
 
 ### Logs
 
-Logs filtering is set using the `RUST_LOG` environment variable. For example, if you would like to set the default log level to `trace`, but wand to set the log level for the `graph_gateway::ws_client` module to `debug`, you would use the following:
+Logs filtering is set using the `RUST_LOG` environment variable. For example, if you would like to set the default log level to `trace`, but want to set the log level for the `graph_gateway::ws_client` module to `debug`, you would use the following:
 ```
 RUST_LOG="trace,graph_gateway::ws_client=debug"
 ```
