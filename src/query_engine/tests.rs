@@ -168,6 +168,7 @@ impl Topology {
         }
         let query = if self.flip_coin(32) { "?" } else { BASIC_QUERY };
         ClientQuery {
+            id: self.rng.next_u64(),
             query: query.into(),
             variables: None,
             subgraph: QualifiedSubgraph { network, subgraph },
@@ -568,11 +569,12 @@ impl fmt::Debug for Topology {
 
 #[tokio::test]
 async fn test() {
+    init_tracing();
     let seed = env::vars()
         .find(|(k, _)| k == "TEST_SEED")
         .and_then(|(_, v)| v.parse::<u64>().ok())
         .unwrap_or(OsRng.next_u64());
-    println!("Seed: {}", seed);
+    tracing::info!(%seed);
     let rng = SmallRng::seed_from_u64(seed);
     for _ in 0..100 {
         let (input_writers, inputs) = Inputs::new();
