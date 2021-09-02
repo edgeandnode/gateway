@@ -1,0 +1,23 @@
+query IndexingStatuses($lastUpdateId: String!) {
+  data: indexingStatuses(lastUpdateId: $lastUpdateId) {
+    updateId
+    value {
+      deployment
+      statuses {
+        indexer {
+          id
+        }
+        deployment
+        network
+        block {
+          number
+          hash
+        }
+        synced
+        fatalError {
+          message
+        }
+      }
+    }
+  }
+}

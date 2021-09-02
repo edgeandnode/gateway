@@ -13,6 +13,10 @@ pub mod test_utils;
 #[cfg(test)]
 mod tests;
 
+pub use crate::indexer_selection::{
+    indexers::{IndexerDataReader, IndexerDataWriter},
+    selection_factors::{IndexingData, SelectionFactors},
+};
 use crate::prelude::{
     shared_lookup::{SharedLookup, SharedLookupWriter},
     weighted_sample::WeightedSample,
@@ -22,7 +26,7 @@ use cost_model;
 use economic_security::*;
 use graphql_parser::query as graphql_query;
 use im;
-use indexers::*;
+use indexers::IndexerSnapshot;
 use network_cache::*;
 use num_traits::identities::Zero;
 pub use ordered_float::NotNan;

@@ -2,6 +2,7 @@ mod alchemy_client;
 mod indexer_selection;
 mod prelude;
 mod query_engine;
+mod sync_client;
 mod ws_client;
 
 use crate::{
@@ -13,11 +14,18 @@ use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
 use std::error::Error;
 use structopt::StructOpt;
 use structopt_derive::StructOpt;
+use tokio::time::Duration;
 use tracing;
 use tracing_subscriber;
 
 #[derive(StructOpt, Debug)]
 struct Opt {
+    #[structopt(
+        help = "URL of gateway agent syncing API",
+        long = "--sync-agent",
+        env = "SYNC_AGENT"
+    )]
+    sync_agent: String,
     #[structopt(
         help = "Ethereum WebSocket provider URLs, format: '<network>=<url>,...'",
         long = "--ethereum-ws",
@@ -55,9 +63,10 @@ async fn main() {
     for (network, ws_url) in opt.ethereum_ws {
         alchemy_client::create(network, ws_url, input_writers.indexers.clone());
     }
+    sync_client::create(opt.sync_agent, Duration::from_secs(30), input_writers);
 
     loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        tokio::time::sleep(Duration::from_secs(10)).await;
     }
     todo!("handle client queries");
 
