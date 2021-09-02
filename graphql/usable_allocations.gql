@@ -1,0 +1,16 @@
+query UsableAllocations($lastUpdateId: String!) {
+  data: usableAllocations(lastUpdateId: $lastUpdateId) {
+    updateId
+    value {
+      id
+      creator
+      indexer {
+        id
+      }
+      subgraphDeploymentID
+      allocatedTokens
+      createdAt
+      createdAtEpoch
+    }
+  }
+}

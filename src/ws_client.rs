@@ -1,6 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use std::io;
-use tokio::{net::TcpStream, sync::mpsc};
+use tokio::{self, net::TcpStream, sync::mpsc};
 use tokio_tungstenite::{
     tungstenite::{self, error::Error as WSError},
     MaybeTlsStream, WebSocketStream,

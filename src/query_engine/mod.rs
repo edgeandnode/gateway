@@ -17,8 +17,8 @@ use tokio::time::Instant;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct QualifiedSubgraph {
-    network: String,
-    subgraph: String,
+    pub network: String,
+    pub subgraph: String,
 }
 
 #[derive(Clone, Debug)]

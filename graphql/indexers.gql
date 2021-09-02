@@ -1,0 +1,13 @@
+query Indexers($lastUpdateId: String!) {
+  data: indexers(lastUpdateId: $lastUpdateId) {
+    updateId
+    value {
+      deployment
+      indexers {
+        id
+        stakedTokens
+        delegatedTokens
+      }
+    }
+  }
+}

@@ -6,7 +6,10 @@ use crate::{
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    self,
+    sync::{mpsc, oneshot},
+};
 use tracing::{self, Instrument};
 
 pub enum Request {

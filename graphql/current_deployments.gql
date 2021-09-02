@@ -1,0 +1,9 @@
+query CurrentDeployments($lastUpdateId: String!) {
+  data: currentDeployments(lastUpdateId: $lastUpdateId) {
+    updateId
+    value {
+      subgraph
+      deployment
+    }
+  }
+}

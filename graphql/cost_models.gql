@@ -1,0 +1,16 @@
+query CostModels($lastUpdateId: String!) {
+  data: costModels(lastUpdateId: $lastUpdateId) {
+    updateId
+    value {
+      deployment
+      costModels {
+        indexer {
+          id
+        }
+        deployment
+        model
+        variables
+      }
+    }
+  }
+}

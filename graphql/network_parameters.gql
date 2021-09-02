@@ -1,0 +1,8 @@
+query NetworkParameters($lastUpdateId: String!) {
+  data: networkParameters(lastUpdateId: $lastUpdateId) {
+    updateId
+    value {
+      slashingPercentage
+    }
+  }
+}
