@@ -14,6 +14,7 @@ pub fn init_tracing() {
     let logger = tracing_subscriber::fmt::fmt()
         .with_max_level(tracing::Level::DEBUG)
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .json()
         .finish();
     tracing::subscriber::set_global_default(logger)
         .expect("Failed to set global default for tracing");
