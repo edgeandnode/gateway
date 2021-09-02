@@ -136,14 +136,15 @@ impl<R: Resolver> QueryEngine<R> {
         }
     }
 
+    #[tracing::instrument(skip(self, query), fields(%query.id))]
     pub async fn execute_query(
         &self,
         query: ClientQuery,
     ) -> Result<QueryResponse, QueryEngineError> {
         use QueryEngineError::*;
-        let _trace = tracing::info_span!("execute_query", query.id).entered();
         tracing::debug!(
-            ?query.subgraph,
+            query.network = %query.subgraph.network,
+            query.subgraph = %query.subgraph.subgraph,
             indexer_selection_limit = ?self.config.indexer_selection_limit);
         let deployment = self
             .deployments
@@ -187,7 +188,7 @@ impl<R: Resolver> QueryEngine<R> {
             let t0 = Instant::now();
             let result = self.resolver.query_indexer(&indexer_query).await;
             let query_duration = Instant::now() - t0;
-            tracing::debug!(?query_duration);
+            tracing::debug!(query_duration = ?query_duration);
 
             let response = match result {
                 Ok(response) => response,
