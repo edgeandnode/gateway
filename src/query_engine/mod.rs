@@ -1,13 +1,13 @@
 #[cfg(test)]
 mod tests;
 
-pub use crate::indexer_selection::{Indexing, UtilityConfig};
 use crate::{
     indexer_selection::{self, IndexerQuery, Indexers, SelectionError, UnresolvedBlock},
-    prelude::{
-        shared_lookup::{SharedLookup, SharedLookupWriter},
-        *,
-    },
+    prelude::shared_lookup::{SharedLookup, SharedLookupWriter},
+};
+pub use crate::{
+    indexer_selection::{Indexing, UtilityConfig},
+    prelude::*,
 };
 use async_trait::async_trait;
 pub use graphql_client::Response;
@@ -23,6 +23,7 @@ pub struct QualifiedSubgraph {
 
 #[derive(Clone, Debug)]
 pub struct ClientQuery {
+    pub id: u64,
     pub query: String,
     pub variables: Option<String>,
     pub subgraph: QualifiedSubgraph,
@@ -140,6 +141,10 @@ impl<R: Resolver> QueryEngine<R> {
         query: ClientQuery,
     ) -> Result<QueryResponse, QueryEngineError> {
         use QueryEngineError::*;
+        let _trace = tracing::info_span!("execute_query", query.id).entered();
+        tracing::debug!(
+            ?query.subgraph,
+            indexer_selection_limit = ?self.config.indexer_selection_limit);
         let deployment = self
             .deployments
             .get(&query.subgraph)
@@ -148,6 +153,7 @@ impl<R: Resolver> QueryEngine<R> {
         let deployment_id = deployment.id.value_immediate().ok_or(SubgraphNotFound)?;
         let mut indexers = deployment.indexers.value_immediate().unwrap_or_default();
         drop(deployment);
+        tracing::debug!(?deployment_id, deployment_indexers = indexers.len());
         for _ in 0..self.config.indexer_selection_limit {
             let selection_result = self
                 .indexers
@@ -161,24 +167,32 @@ impl<R: Resolver> QueryEngine<R> {
                     query.budget,
                 )
                 .await;
+            match &selection_result {
+                Ok(None) => tracing::info!(err = ?NoIndexerSelected),
+                Err(err) => tracing::info!(?err),
+                _ => (),
+            };
             let indexer_query = match selection_result {
                 Ok(Some(indexer_query)) => indexer_query,
-                Ok(None) => return Err(NoIndexerSelected),
+                Ok(None)
+                | Err(SelectionError::MissingNetworkParams)
+                | Err(SelectionError::BadIndexer(_)) => return Err(NoIndexerSelected),
                 Err(SelectionError::BadInput) => return Err(MalformedQuery),
-                Err(SelectionError::MissingNetworkParams) => return Err(NoIndexerSelected),
-                Err(SelectionError::BadIndexer(reason)) => return Err(NoIndexerSelected),
                 Err(SelectionError::MissingBlocks(unresolved)) => {
                     self.resolve_blocks(&query, unresolved).await?;
                     continue;
                 }
             };
+            tracing::info!(indexer = ?indexer_query.indexing.indexer);
             let t0 = Instant::now();
             let result = self.resolver.query_indexer(&indexer_query).await;
             let query_duration = Instant::now() - t0;
+            tracing::debug!(?query_duration);
 
             let response = match result {
                 Ok(response) => response,
                 Err(err) => {
+                    tracing::info!(%err);
                     self.indexers
                         .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
                         .await;
@@ -199,12 +213,14 @@ impl<R: Resolver> QueryEngine<R> {
                 .map(|errs| errs.iter().any(|err| err.message == indexer_behind_err))
                 .unwrap_or(false)
             {
+                tracing::info!("indexing behind");
                 self.indexers.observe_indexing_behind(&indexer_query).await;
                 continue;
             }
 
             // TODO: fisherman
 
+            tracing::info!("query successful");
             self.indexers
                 .observe_successful_query(
                     &indexer_query.indexing,
@@ -225,6 +241,7 @@ impl<R: Resolver> QueryEngine<R> {
         query: &ClientQuery,
         mut unresolved: Vec<UnresolvedBlock>,
     ) -> Result<(), QueryEngineError> {
+        tracing::debug!(unresolved_blocks = ?unresolved);
         let heads = self
             .resolver
             .resolve_blocks(&query.subgraph.network, &unresolved)

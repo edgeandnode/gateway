@@ -498,6 +498,7 @@ impl Indexers {
                     freshness_requirements,
                 )
                 .await;
+            tracing::trace!(?indexing, score = ?result);
             let score = match result {
                 Ok(score) if score.utility > NotNan::zero() => score,
                 Err(err) => match &err {
