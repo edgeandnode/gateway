@@ -25,6 +25,8 @@ struct Opt {
         parse(try_from_str = "parse_networks")
     )]
     ethereum_ws: Vec<(String, String)>,
+    #[structopt(help = "Format log output as JSON", long = "--log-json")]
+    log_json: bool,
     #[structopt(
         long = "--indexer-selection-limit",
         env = "INDEXER_SELECTION_LIMIT",
@@ -44,7 +46,7 @@ fn parse_networks(arg: &str) -> Result<(String, String), String> {
 #[tokio::main]
 async fn main() {
     let opt = Opt::from_args();
-    init_tracing();
+    init_tracing(opt.log_json);
     tracing::info!("Graph gateway starting...");
     tracing::trace!("{:#?}", opt);
 

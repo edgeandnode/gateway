@@ -26,7 +26,7 @@ struct IndexerResults {
 
 #[tokio::test]
 async fn battle_high_and_low() {
-    init_tracing();
+    init_tracing(false);
     let (mut input_writers, inputs) = Indexers::inputs();
     let indexers = Indexers::new(inputs);
     input_writers

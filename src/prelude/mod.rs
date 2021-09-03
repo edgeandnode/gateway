@@ -10,14 +10,17 @@ pub use eventuals::{Eventual, EventualWriter, Ptr};
 pub use std::convert::TryInto;
 pub use tracing;
 
-pub fn init_tracing() {
+pub fn init_tracing(json: bool) {
     let logger = tracing_subscriber::fmt::fmt()
         .with_max_level(tracing::Level::DEBUG)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .json()
-        .finish();
-    tracing::subscriber::set_global_default(logger)
-        .expect("Failed to set global default for tracing");
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env());
+    if json {
+        tracing::subscriber::set_global_default(logger.json().finish())
+            .expect("Failed to set global default for tracing");
+    } else {
+        tracing::subscriber::set_global_default(logger.finish())
+            .expect("Failed to set global default for tracing");
+    };
 }
 
 /// Decimal Parts-Per-Million with 6 fractional digits
