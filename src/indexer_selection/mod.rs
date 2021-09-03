@@ -503,8 +503,8 @@ impl Indexers {
                 Ok(score) => tracing::trace!(
                     ?score.fee,
                     ?score.slashable,
-                    ?score.utility,
-                    ?score.sybil,
+                    %score.utility,
+                    %score.sybil,
                     ?score.blocks_behind,
                 ),
                 Err(err) => tracing::trace!(scrore.err = ?err),

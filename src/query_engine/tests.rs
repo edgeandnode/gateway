@@ -569,7 +569,7 @@ impl fmt::Debug for Topology {
 
 #[tokio::test]
 async fn test() {
-    init_tracing();
+    init_tracing(false);
     let seed = env::vars()
         .find(|(k, _)| k == "TEST_SEED")
         .and_then(|(_, v)| v.parse::<u64>().ok())
