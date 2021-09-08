@@ -3,7 +3,6 @@ use crate::{
     prelude::*,
     ws_client,
 };
-use hex;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
 use std::{collections::HashMap, sync::Arc};
@@ -151,10 +150,7 @@ where
     D: Deserializer<'de>,
 {
     let input = String::deserialize(deserializer)?;
-    let mut buf = [0u8; 32];
-    hex::decode_to_slice(input.split_at(2).1, &mut buf)
-        .map_err(D::Error::custom)
-        .map(|()| buf.into())
+    input.parse::<Bytes32>().map_err(Error::custom)
 }
 
 fn deserialize_hashes<'de, D>(deserializer: D) -> Result<Vec<Bytes32>, D::Error>
@@ -164,10 +160,6 @@ where
     let inputs = Vec::deserialize(deserializer)?;
     inputs
         .into_iter()
-        .map(|input: &str| {
-            let mut buf = [0u8; 32];
-            hex::decode_to_slice(input.split_at(2).1, &mut buf).map_err(D::Error::custom)?;
-            Ok(buf.into())
-        })
+        .map(|input: &str| input.parse::<Bytes32>().map_err(Error::custom))
         .collect()
 }

@@ -7,7 +7,7 @@ pub mod test_utils;
 
 pub use crate::prelude::decimal::*;
 pub use eventuals::{Eventual, EventualWriter, Ptr};
-pub use std::convert::TryInto;
+pub use std::{convert::TryInto, str::FromStr};
 pub use tracing;
 
 pub fn init_tracing(json: bool) {
@@ -52,6 +52,15 @@ macro_rules! bytes_wrapper {
         impl From<[u8; $len]> for $id {
             fn from(bytes: [u8; $len]) -> Self {
                 Self { bytes }
+            }
+        }
+        impl FromStr for $id {
+            type Err = hex::FromHexError;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                let mut bytes = [0u8; $len];
+                let offset = if s.starts_with("0x") {2} else {0};
+                hex::decode_to_slice(s.split_at(offset).1, &mut bytes)?;
+                Ok(Self { bytes })
             }
         }
         impl std::ops::Deref for $id {

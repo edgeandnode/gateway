@@ -543,9 +543,8 @@ impl Resolver for TopologyResolver {
         let blocks = &topology.networks.get(&query.network).unwrap().blocks;
         let matcher = Regex::new(r#"block: \{hash: \\"0x([[:xdigit:]]+)\\"}"#).unwrap();
         for capture in matcher.captures_iter(&query.query) {
-            let mut hash = [0u8; 32];
-            hex::decode_to_slice(capture.get(1).unwrap().as_str(), &mut hash).unwrap();
-            let number = blocks.iter().position(|block| *block.hash == hash).unwrap();
+            let hash = capture.get(1).unwrap().as_str().parse::<Bytes32>().unwrap();
+            let number = blocks.iter().position(|block| block.hash == hash).unwrap();
             if number > indexer.block(blocks.len()) {
                 todo!("block ahead of indexer")
             }
