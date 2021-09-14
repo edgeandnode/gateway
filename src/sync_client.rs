@@ -17,8 +17,14 @@ use tokio::{
     time::{sleep, Duration},
 };
 use tracing::{self, Instrument};
+use uuid::Uuid;
 
-pub fn create(agent_url: String, poll_interval: Duration, inputs: InputWriters) {
+pub fn create(
+    agent_url: String,
+    poll_interval: Duration,
+    signer_key: SecretKey,
+    inputs: InputWriters,
+) {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
     let InputWriters {
         indexer_inputs:
@@ -33,7 +39,10 @@ pub fn create(agent_url: String, poll_interval: Duration, inputs: InputWriters) 
     } = inputs;
     let indexings = Arc::new(Mutex::new(indexings));
 
+    let gateway_id = Uuid::new_v4();
+
     create_sync_client::<ConversionRates, _>(
+        gateway_id,
         agent_url.clone(),
         poll_interval,
         conversion_rates::OPERATION_NAME,
@@ -42,6 +51,7 @@ pub fn create(agent_url: String, poll_interval: Duration, inputs: InputWriters) 
         usd_to_grt_conversion,
     );
     create_sync_client::<NetworkParameters, _>(
+        gateway_id,
         agent_url.clone(),
         poll_interval,
         network_parameters::OPERATION_NAME,
@@ -52,6 +62,7 @@ pub fn create(agent_url: String, poll_interval: Duration, inputs: InputWriters) 
     handle_cost_models(
         indexings.clone(),
         create_sync_client_input::<CostModels, _>(
+            gateway_id,
             agent_url.clone(),
             poll_interval,
             cost_models::OPERATION_NAME,
@@ -63,6 +74,7 @@ pub fn create(agent_url: String, poll_interval: Duration, inputs: InputWriters) 
         indexers,
         deployments,
         create_sync_client_input::<CurrentDeployments, _>(
+            gateway_id,
             agent_url.clone(),
             poll_interval,
             current_deployments::OPERATION_NAME,
@@ -70,6 +82,7 @@ pub fn create(agent_url: String, poll_interval: Duration, inputs: InputWriters) 
             parse_current_deployments,
         ),
         create_sync_client_input::<Indexers, _>(
+            gateway_id,
             agent_url.clone(),
             poll_interval,
             indexers::OPERATION_NAME,
@@ -80,6 +93,7 @@ pub fn create(agent_url: String, poll_interval: Duration, inputs: InputWriters) 
     handle_indexing_statuses(
         indexer_selection.clone(),
         create_sync_client_input::<IndexingStatuses, _>(
+            gateway_id,
             agent_url.clone(),
             poll_interval,
             indexing_statuses::OPERATION_NAME,
@@ -87,9 +101,33 @@ pub fn create(agent_url: String, poll_interval: Duration, inputs: InputWriters) 
             parse_indexing_statuses,
         ),
     );
+    handle_transfers(
+        indexer_selection.clone(),
+        create_sync_client_input::<Transfers, _>(
+            gateway_id,
+            agent_url.clone(),
+            poll_interval,
+            transfers::OPERATION_NAME,
+            transfers::QUERY,
+            parse_transfers,
+        ),
+    );
+    handle_allocations(
+        indexer_selection.clone(),
+        signer_key,
+        create_sync_client_input::<UsableAllocations, _>(
+            gateway_id,
+            agent_url.clone(),
+            poll_interval,
+            usable_allocations::OPERATION_NAME,
+            usable_allocations::QUERY,
+            parse_usable_allocations,
+        ),
+    );
 }
 
 fn create_sync_client_input<Q, T>(
+    gateway_id: Uuid,
     agent_url: String,
     poll_interval: Duration,
     operation: &'static str,
@@ -103,6 +141,7 @@ where
 {
     let (writer, reader) = Eventual::new();
     create_sync_client::<Q, T>(
+        gateway_id,
         agent_url,
         poll_interval,
         operation,
@@ -114,6 +153,7 @@ where
 }
 
 fn create_sync_client<Q, T>(
+    gateway_id: Uuid,
     agent_url: String,
     poll_interval: Duration,
     operation: &'static str,
@@ -132,6 +172,7 @@ fn create_sync_client<Q, T>(
             let update_id_regex = Regex::new(r#"updateId":"([^"]*)""#).unwrap();
             loop {
                 if let Some(data) = execute_query::<Q, T>(
+                    gateway_id,
                     &agent_url,
                     operation,
                     query,
@@ -154,6 +195,7 @@ fn create_sync_client<Q, T>(
 }
 
 async fn execute_query<'f, Q, T>(
+    uuid: Uuid,
     agent_url: &'f str,
     operation: &'static str,
     query: &'static str,
@@ -167,13 +209,17 @@ where
     Q: GraphQLQuery,
     Q::ResponseData: 'static,
 {
+    let variables = if operation == transfers::OPERATION_NAME {
+        json!({"lastUpdateId": last_update_id, "gatewayId": uuid.to_string()})
+    } else {
+        json!({"lastUpdateId": last_update_id, })
+    };
     let body = json!({
         "operationName": operation,
         "query": query,
-        "variables": {
-           "lastUpdateId": last_update_id,
-        }
+        "variables": variables,
     });
+    tracing::trace!(%operation, op = %transfers::OPERATION_NAME, %variables);
     let response_start = match client.post(agent_url).json(&body).send().await {
         Ok(response_start) => response_start,
         Err(query_err) => {
@@ -435,7 +481,7 @@ fn parse_network_parameters(data: network_parameters::ResponseData) -> Option<PP
 )]
 struct Transfers;
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 struct ParsedTransfer {
     id: Bytes32,
     indexing: Indexing,
@@ -476,7 +522,36 @@ fn parse_transfers(data: transfers::ResponseData) -> Option<im::Vector<ParsedTra
 )]
 struct UsableAllocations;
 
-// TODO: parse_usable_allocations
+#[derive(Clone, Eq, PartialEq)]
+struct ParsedAllocation {
+    id: Address,
+    indexing: Indexing,
+}
+
+fn parse_usable_allocations(
+    data: usable_allocations::ResponseData,
+) -> Option<im::Vector<ParsedAllocation>> {
+    use usable_allocations::{ResponseData, UsableAllocationsData};
+    let usable_allocations = match data {
+        ResponseData {
+            data: Some(UsableAllocationsData { value, .. }),
+        } => value,
+        _ => return None,
+    };
+    let parsed = usable_allocations
+        .into_iter()
+        .filter_map(|value| {
+            Some(ParsedAllocation {
+                id: value.id.parse().ok()?,
+                indexing: Indexing {
+                    subgraph: SubgraphDeploymentID::from_ipfs_hash(&value.subgraph_deployment_id)?,
+                    indexer: value.indexer.id.parse().ok()?,
+                },
+            })
+        })
+        .collect();
+    Some(parsed)
+}
 
 #[tracing::instrument(skip(indexings, cost_models))]
 fn handle_cost_models(
@@ -574,6 +649,104 @@ fn handle_indexing_statuses(
                             .await;
                     }
                 }
+            }
+        }
+        .in_current_span(),
+    );
+}
+
+#[tracing::instrument(skip(indexer_selection, transfers))]
+fn handle_transfers(
+    indexer_selection: Arc<indexer_selection::Indexers>,
+    transfers: Eventual<im::Vector<ParsedTransfer>>,
+) {
+    let mut used_transfers = im::Vector::<ParsedTransfer>::new();
+    tokio::spawn(
+        async move {
+            let mut transfers = transfers.subscribe();
+            loop {
+                let transfers = match transfers.next().await {
+                    Ok(transfers) => transfers,
+                    Err(_) => break,
+                };
+                tracing::info!(transfers = %transfers.len());
+                // Add new transfers.
+                for transfer in transfers.iter() {
+                    if used_transfers.iter().any(|t| t.id == transfer.id) {
+                        continue;
+                    }
+                    indexer_selection
+                        .install_receipts_transfer(
+                            &transfer.indexing,
+                            transfer.id,
+                            &transfer.collateral,
+                            transfer.signer_key,
+                        )
+                        .await;
+                }
+                // Remove old transfers.
+                for transfer in used_transfers.iter() {
+                    if transfers.iter().any(|t| t.id == transfer.id) {
+                        continue;
+                    }
+                    // HOY (Hack Of the Year): Remove the old transfer in 5 minutes, to give new
+                    // allocations and replacement transfer some time to propagate through the
+                    // system and into indexer selection.
+                    let indexer_selection = indexer_selection.clone();
+                    let transfer = transfer.clone();
+                    tokio::spawn(async move {
+                        sleep(Duration::from_secs(5 * 60)).await;
+                        indexer_selection
+                            .remove_receipts_transfer(&transfer.indexing, &transfer.id)
+                            .await;
+                    });
+                }
+                used_transfers = transfers;
+            }
+        }
+        .in_current_span(),
+    );
+}
+
+#[tracing::instrument(skip(indexer_selection, allocations))]
+fn handle_allocations(
+    indexer_selection: Arc<indexer_selection::Indexers>,
+    signer_key: SecretKey,
+    allocations: Eventual<im::Vector<ParsedAllocation>>,
+) {
+    let mut used_allocations = im::Vector::<ParsedAllocation>::new();
+    tokio::spawn(
+        async move {
+            let mut allocations = allocations.subscribe();
+            loop {
+                let allocations = match allocations.next().await {
+                    Ok(allocations) => allocations,
+                    Err(_) => break,
+                };
+                tracing::info!(allocations = %allocations.len());
+                // Add new allocations.
+                for allocation in allocations.iter() {
+                    if used_allocations.iter().any(|t| t.id == allocation.id) {
+                        continue;
+                    }
+                    indexer_selection
+                        .install_receipts_allocation(
+                            &allocation.indexing,
+                            allocation.id,
+                            signer_key,
+                        )
+                        .await;
+                }
+                // Remove old allocations.
+                for allocation in used_allocations.iter() {
+                    if allocations.iter().any(|t| t.id == allocation.id) {
+                        continue;
+                    }
+                    indexer_selection
+                        .remove_receipts_allocation(&allocation.indexing, &allocation.id)
+                        .await;
+                }
+                used_allocations = allocations;
             }
         }
         .in_current_span(),

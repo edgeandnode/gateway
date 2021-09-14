@@ -254,6 +254,37 @@ impl Indexers {
             .await;
     }
 
+    pub async fn remove_receipts_transfer(&self, indexing: &Indexing, transfer_id: &Bytes32) {
+        let selection_factors = match self.indexings.get(indexing).await {
+            Some(selection_factors) => selection_factors,
+            None => return,
+        };
+        selection_factors.remove_transfer(transfer_id).await;
+    }
+
+    pub async fn install_receipts_allocation(
+        &self,
+        indexing: &Indexing,
+        allocation_id: Address,
+        secret: SecretKey,
+    ) {
+        let selection_factors = match self.indexings.get(indexing).await {
+            Some(selection_factors) => selection_factors,
+            None => return,
+        };
+        selection_factors
+            .add_allocation(allocation_id, secret)
+            .await;
+    }
+
+    pub async fn remove_receipts_allocation(&self, indexing: &Indexing, allocation_id: &Address) {
+        let selection_factors = match self.indexings.get(indexing).await {
+            Some(selection_factors) => selection_factors,
+            None => return,
+        };
+        selection_factors.remove_allocation(allocation_id).await;
+    }
+
     pub async fn observe_successful_query(
         &self,
         indexing: &Indexing,

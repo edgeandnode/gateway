@@ -6,6 +6,7 @@ mod sync_client;
 mod ws_client;
 
 use crate::{
+    indexer_selection::SecretKey,
     prelude::*,
     query_engine::{BlockHead, Inputs, QueryEngine, Resolver, Response},
 };
@@ -58,12 +59,22 @@ async fn main() {
     tracing::info!("Graph gateway starting...");
     tracing::trace!("{:#?}", opt);
 
+    // TODO: set from mnemonic env var
+    let signer_key =
+        SecretKey::from_str("244226452948404D635166546A576E5A7234753778217A25432A462D4A614E64")
+            .expect("Invalid mnemonic");
+
     let (input_writers, inputs) = Inputs::new();
 
     for (network, ws_url) in opt.ethereum_ws {
         alchemy_client::create(network, ws_url, input_writers.indexers.clone());
     }
-    sync_client::create(opt.sync_agent, Duration::from_secs(30), input_writers);
+    sync_client::create(
+        opt.sync_agent,
+        Duration::from_secs(30),
+        signer_key,
+        input_writers,
+    );
 
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
