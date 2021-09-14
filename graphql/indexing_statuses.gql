@@ -6,6 +6,7 @@ query IndexingStatuses($lastUpdateId: String!) {
       statuses {
         indexer {
           id
+          url
         }
         deployment
         network

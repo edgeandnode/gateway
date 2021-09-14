@@ -428,6 +428,7 @@ struct IndexingStatuses;
 struct ParsedIndexingStatus {
     indexing: Indexing,
     network: String,
+    url: String,
     block_number: Option<u64>,
 }
 
@@ -452,6 +453,7 @@ fn parse_indexing_statuses(
                         indexer: status.indexer.id.parse().ok()?,
                     },
                     network: status.network,
+                    url: status.indexer.url,
                     block_number: status.block.and_then(|b| b.hash.parse().ok()),
                 })
             })
