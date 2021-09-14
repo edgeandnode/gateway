@@ -49,6 +49,7 @@ pub type Context<'c> = cost_model::Context<'c, &'c str>;
 pub struct IndexerQuery {
     pub network: String,
     pub indexing: Indexing,
+    pub url: String,
     pub query: String,
     pub receipt: Receipt,
     pub fee: GRT,
@@ -145,6 +146,7 @@ pub struct UtilityConfig {
 
 #[derive(Debug)]
 pub struct IndexerScore {
+    url: String,
     fee: GRT,
     slashable: USD,
     utility: NotNan<f64>,
@@ -496,6 +498,7 @@ impl Indexers {
         Ok(Some(IndexerQuery {
             network: network.into(),
             indexing,
+            url: score.url,
             query: query.query,
             receipt: receipt.commitment.into(),
             fee: score.fee,
@@ -619,16 +622,20 @@ impl Indexers {
             .await
             .map(|data| {
                 (
+                    data.url.value_immediate(),
                     data.stake.value_immediate(),
                     data.delegated_stake.value_immediate(),
                 )
             })
             .unwrap_or_default();
-        let indexer_stake = indexer_data
+        let indexer_url = indexer_data
             .0
+            .ok_or(BadIndexerReason::MissingIndexingStatus)?;
+        let indexer_stake = indexer_data
+            .1
             .ok_or(BadIndexerReason::MissingIndexerStake)?;
         let delegated_stake = indexer_data
-            .1
+            .2
             .ok_or(BadIndexerReason::MissingIndexerDelegatedStake)?;
         let economic_security = self
             .network_params
@@ -690,6 +697,7 @@ impl Indexers {
         let utility = aggregator.crunch();
 
         Ok(IndexerScore {
+            url: indexer_url,
             fee,
             slashable: economic_security.slashable_usd,
             utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,

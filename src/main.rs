@@ -82,12 +82,19 @@ async fn main() {
         signer_key,
         input_writers,
     );
+    // TODO: argument for timeout
     let query_engine = QueryEngine::new(
         query_engine::Config {
             indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
             utility: UtilityConfig::default(),
         },
-        NetworkResolver { block_resolvers },
+        NetworkResolver {
+            block_resolvers,
+            client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .unwrap(),
+        },
         inputs,
     );
     panic!("TODO: handle queries");
@@ -95,6 +102,7 @@ async fn main() {
 
 struct NetworkResolver {
     block_resolvers: HashMap<String, mpsc::Sender<alchemy_client::Request>>,
+    client: reqwest::Client,
 }
 
 #[async_trait]
@@ -138,6 +146,19 @@ impl Resolver for NetworkResolver {
         &self,
         query: &IndexerQuery,
     ) -> Result<Response<String>, Box<dyn Error>> {
-        todo!()
+        let receipt = hex::encode(&query.receipt[0..(query.receipt.len() - 64)]);
+        self.client
+            .post(format!(
+                "{}/subgraphs/id/{:?}",
+                query.url, query.indexing.subgraph
+            ))
+            .header("X-Graph-Payment", &receipt)
+            .header("Scalar-Receipt", &receipt)
+            .body(query.query.clone())
+            .send()
+            .await?
+            .json::<Response<String>>()
+            .await
+            .map_err(|err| err.into())
     }
 }
