@@ -56,6 +56,13 @@ impl Receipts {
         }
     }
 
+    pub fn add_allocation(&mut self, allocation_id: Address, secret: SecretKey) {
+        let allocations = self
+            .allocations
+            .get_or_insert_with(|| ReceiptPoolAllocation::new());
+        allocations.add_allocation(secret, *allocation_id);
+    }
+
     pub fn add_transfer(
         &mut self,
         vector_transfer_id: Bytes32,

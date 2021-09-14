@@ -60,6 +60,21 @@ impl SelectionFactors {
         lock.receipts.add_transfer(transfer_id, collateral, secret);
     }
 
+    pub async fn remove_transfer(&self, transfer_id: &Bytes32) {
+        let mut lock = self.locked.write().await;
+        lock.receipts.remove_transfer(transfer_id);
+    }
+
+    pub async fn add_allocation(&self, allocation_id: Address, secret: SecretKey) {
+        let mut lock = self.locked.write().await;
+        lock.receipts.add_allocation(allocation_id, secret);
+    }
+
+    pub async fn remove_allocation(&self, allocation_id: &Address) {
+        let mut lock = self.locked.write().await;
+        lock.receipts.remove_allocation(allocation_id);
+    }
+
     pub async fn observe_successful_query(&self, duration: time::Duration, receipt: &[u8]) {
         let mut lock = self.locked.write().await;
         lock.performance.add_successful_query(duration);
