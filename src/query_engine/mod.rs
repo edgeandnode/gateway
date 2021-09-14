@@ -44,8 +44,8 @@ pub enum QueryEngineError {
 
 #[derive(Debug)]
 pub struct BlockHead {
-    block: BlockPointer,
-    uncles: Vec<Bytes32>,
+    pub block: BlockPointer,
+    pub uncles: Vec<Bytes32>,
 }
 
 #[async_trait]
