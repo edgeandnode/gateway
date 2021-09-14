@@ -1,6 +1,7 @@
 use crate::{
     indexer_selection::{Indexers, UnresolvedBlock},
     prelude::*,
+    query_engine::BlockHead,
     ws_client,
 };
 use reqwest;
@@ -15,7 +16,7 @@ use tokio::{
 use tracing::{self, Instrument};
 
 pub enum Request {
-    Block(UnresolvedBlock, oneshot::Sender<BlockPointer>),
+    Block(UnresolvedBlock, oneshot::Sender<BlockHead>),
 }
 
 enum Source {
@@ -112,8 +113,16 @@ impl Client {
             Some(Request::Block(unresolved, resolved)) => (unresolved, resolved),
             None => return,
         };
-        if let Some(APIBlockHead { hash, number, .. }) = self.fetch_block(Some(unresolved)).await {
-            let _ = resolved.send(BlockPointer { number, hash });
+        if let Some(APIBlockHead {
+            hash,
+            number,
+            uncles,
+        }) = self.fetch_block(Some(unresolved)).await
+        {
+            let _ = resolved.send(BlockHead {
+                block: BlockPointer { number, hash },
+                uncles,
+            });
         }
     }
 

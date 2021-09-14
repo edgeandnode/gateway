@@ -12,10 +12,13 @@ use crate::{
 };
 use async_trait::async_trait;
 use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
-use std::error::Error;
+use std::{collections::HashMap, error::Error};
 use structopt::StructOpt;
 use structopt_derive::StructOpt;
-use tokio::time::Duration;
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::Duration,
+};
 
 #[derive(StructOpt, Debug)]
 struct Opt {
@@ -63,44 +66,72 @@ async fn main() {
             .expect("Invalid mnemonic");
 
     let (input_writers, inputs) = Inputs::new();
-
-    for (network, url) in opt.ethereum_proviers {
-        alchemy_client::create(network, url, input_writers.indexers.clone());
-    }
+    let block_resolvers = opt
+        .ethereum_proviers
+        .into_iter()
+        .map(|(network, ws_url)| {
+            (
+                network.clone(),
+                alchemy_client::create(network, ws_url, input_writers.indexers.clone()),
+            )
+        })
+        .collect::<HashMap<String, mpsc::Sender<alchemy_client::Request>>>();
     sync_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
         signer_key,
         input_writers,
     );
-
-    loop {
-        tokio::time::sleep(Duration::from_secs(10)).await;
-    }
-    todo!("handle client queries");
-
-    // let resolver = NetworkResolver {};
-
-    // let query_engine = QueryEngine::new(
-    //     query_engine::Config {
-    //         indexer_selection_limit: opt.indexer_selection_retry_limit,
-    //         utility: UtilityConfig::default(),
-    //     },
-    //     resolver,
-    //     inputs,
-    // );
+    let query_engine = QueryEngine::new(
+        query_engine::Config {
+            indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
+            utility: UtilityConfig::default(),
+        },
+        NetworkResolver { block_resolvers },
+        inputs,
+    );
+    panic!("TODO: handle queries");
 }
 
-struct NetworkResolver {}
+struct NetworkResolver {
+    block_resolvers: HashMap<String, mpsc::Sender<alchemy_client::Request>>,
+}
 
 #[async_trait]
 impl Resolver for NetworkResolver {
+    #[tracing::instrument(skip(self, network, unresolved))]
     async fn resolve_blocks(
         &self,
         network: &str,
         unresolved: &[UnresolvedBlock],
     ) -> Vec<BlockHead> {
-        todo!()
+        use alchemy_client::Request;
+        let mut resolved_blocks = Vec::new();
+        let resolver = match self.block_resolvers.get(network) {
+            Some(resolver) => resolver,
+            None => {
+                tracing::error!(missing_network = network);
+                return resolved_blocks;
+            }
+        };
+        for unresolved_block in unresolved {
+            let (sender, receiver) = oneshot::channel();
+            if let Err(_) = resolver
+                .send(Request::Block(unresolved_block.clone(), sender))
+                .await
+            {
+                tracing::error!("block resolver connection closed");
+                return resolved_blocks;
+            }
+            match receiver.await {
+                Ok(resolved) => resolved_blocks.push(resolved),
+                Err(_) => {
+                    tracing::error!("block resolver connection closed");
+                    return resolved_blocks;
+                }
+            };
+        }
+        resolved_blocks
     }
 
     async fn query_indexer(
