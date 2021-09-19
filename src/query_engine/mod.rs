@@ -1,10 +1,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{
-    indexer_selection::{self, IndexerQuery, Indexers, SelectionError, UnresolvedBlock},
-    prelude::shared_lookup::{SharedLookup, SharedLookupWriter},
-};
+use crate::indexer_selection::{self, IndexerQuery, Indexers, SelectionError, UnresolvedBlock};
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
     prelude::*,
@@ -15,10 +12,10 @@ use im;
 use std::{error::Error, sync::Arc};
 use tokio::time::Instant;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct QualifiedSubgraph {
-    pub network: String,
-    pub subgraph: String,
+#[derive(Clone, Debug)]
+pub enum Subgraph {
+    Name(String),
+    Deployment(SubgraphDeploymentID),
 }
 
 #[derive(Clone, Debug)]
@@ -26,7 +23,8 @@ pub struct ClientQuery {
     pub id: u64,
     pub query: String,
     pub variables: Option<String>,
-    pub subgraph: QualifiedSubgraph,
+    pub network: String,
+    pub subgraph: Subgraph,
     pub budget: USD,
 }
 
@@ -91,29 +89,34 @@ impl Reader for Deployment {
 
 pub struct Inputs {
     indexers: Arc<Indexers>,
-    deployments: SharedLookup<QualifiedSubgraph, Deployment>,
+    deployments: Eventual<im::HashMap<String, SubgraphDeploymentID>>,
+    deployment_indexers: Eventual<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
 }
 
 pub struct InputWriters {
     pub indexer_inputs: indexer_selection::InputWriters,
     pub indexers: Arc<Indexers>,
-    pub deployments: SharedLookupWriter<QualifiedSubgraph, Deployment, DeploymentWriter>,
+    pub deployments: EventualWriter<im::HashMap<String, SubgraphDeploymentID>>,
+    pub deployment_indexers: EventualWriter<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
 }
 
 impl Inputs {
     pub fn new() -> (InputWriters, Self) {
         let (indexer_input_writers, indexer_inputs) = Indexers::inputs();
         let indexers = Arc::new(Indexers::new(indexer_inputs));
-        let (deployments_writer, deployments) = SharedLookup::new();
+        let (deployments_writer, deployments) = Eventual::new();
+        let (deployment_indexers_writer, deployment_indexers) = Eventual::new();
         (
             InputWriters {
                 indexer_inputs: indexer_input_writers,
                 indexers: indexers.clone(),
                 deployments: deployments_writer,
+                deployment_indexers: deployment_indexers_writer,
             },
             Inputs {
                 indexers,
                 deployments,
+                deployment_indexers,
             },
         )
     }
@@ -121,7 +124,8 @@ impl Inputs {
 
 pub struct QueryEngine<R: Resolver> {
     indexers: Arc<Indexers>,
-    deployments: SharedLookup<QualifiedSubgraph, Deployment>,
+    deployments: Eventual<im::HashMap<String, SubgraphDeploymentID>>,
+    deployment_indexers: Eventual<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
     resolver: R,
     config: Config,
 }
@@ -131,6 +135,7 @@ impl<R: Resolver> QueryEngine<R> {
         Self {
             indexers: inputs.indexers,
             deployments: inputs.deployments,
+            deployment_indexers: inputs.deployment_indexers,
             resolver,
             config,
         }
@@ -143,25 +148,30 @@ impl<R: Resolver> QueryEngine<R> {
     ) -> Result<QueryResponse, QueryEngineError> {
         use QueryEngineError::*;
         tracing::debug!(
-            query.network = %query.subgraph.network,
-            query.subgraph = %query.subgraph.subgraph,
+            query.network = %query.network,
+            query.subgraph = ?query.subgraph,
             indexer_selection_limit = ?self.config.indexer_selection_limit);
-        let deployment = self
-            .deployments
-            .get(&query.subgraph)
-            .await
-            .ok_or(SubgraphNotFound)?;
-        let deployment_id = deployment.id.value_immediate().ok_or(SubgraphNotFound)?;
-        let mut indexers = deployment.indexers.value_immediate().unwrap_or_default();
-        drop(deployment);
-        tracing::debug!(?deployment_id, deployment_indexers = indexers.len());
+        let deployment = match &query.subgraph {
+            Subgraph::Deployment(deployment) => deployment.clone(),
+            Subgraph::Name(name) => self
+                .deployments
+                .value_immediate()
+                .and_then(|map| map.get(name).cloned())
+                .ok_or(SubgraphNotFound)?,
+        };
+        let mut indexers = self
+            .deployment_indexers
+            .value_immediate()
+            .and_then(|map| map.get(&deployment).cloned())
+            .unwrap_or_default();
+        tracing::debug!(?deployment, deployment_indexers = indexers.len());
         for _ in 0..self.config.indexer_selection_limit {
             let selection_result = self
                 .indexers
                 .select_indexer(
                     &self.config.utility,
-                    &query.subgraph.network,
-                    &deployment_id,
+                    &query.network,
+                    &deployment,
                     &indexers,
                     query.query.clone(),
                     query.variables.clone(),
@@ -245,7 +255,7 @@ impl<R: Resolver> QueryEngine<R> {
         tracing::debug!(unresolved_blocks = ?unresolved);
         let heads = self
             .resolver
-            .resolve_blocks(&query.subgraph.network, &unresolved)
+            .resolve_blocks(&query.network, &unresolved)
             .await;
         for head in heads {
             unresolved.swap_remove(
@@ -257,13 +267,9 @@ impl<R: Resolver> QueryEngine<R> {
                     })
                     .unwrap(),
             );
-            self.indexers
-                .set_block(&query.subgraph.network, head.block)
-                .await;
+            self.indexers.set_block(&query.network, head.block).await;
             for uncle in head.uncles {
-                self.indexers
-                    .remove_block(&query.subgraph.network, &uncle)
-                    .await;
+                self.indexers.remove_block(&query.network, &uncle).await;
             }
         }
         if !unresolved.is_empty() {

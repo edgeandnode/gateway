@@ -4,7 +4,7 @@ use crate::{
         SecretKey, SelectionFactors,
     },
     prelude::{shared_lookup::SharedLookupWriter, *},
-    query_engine::{Deployment, DeploymentWriter, InputWriters, QualifiedSubgraph},
+    query_engine::{Deployment, DeploymentWriter, InputWriters, Subgraph},
 };
 use graphql_client::{GraphQLQuery, Response};
 use im;
@@ -35,6 +35,7 @@ pub fn create(
                 indexings,
             },
         deployments,
+        deployment_indexers,
         indexers: indexer_selection,
     } = inputs;
     let indexings = Arc::new(Mutex::new(indexings));
@@ -73,6 +74,7 @@ pub fn create(
     handle_deployments(
         indexers,
         deployments,
+        deployment_indexers,
         create_sync_client_input::<CurrentDeployments, _>(
             gateway_id,
             agent_url.clone(),
@@ -578,54 +580,66 @@ fn handle_cost_models(
     );
 }
 
-#[tracing::instrument(skip(indexers, deployments, current_deployments, indexer_statuses))]
+#[tracing::instrument(skip(
+    indexers,
+    deployments,
+    deployment_indexers,
+    current_deployments,
+    indexer_statuses
+))]
 fn handle_deployments(
     mut indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
-    mut deployments: SharedLookupWriter<QualifiedSubgraph, Deployment, DeploymentWriter>,
+    mut deployments: EventualWriter<im::HashMap<String, SubgraphDeploymentID>>,
+    mut deployment_indexers: EventualWriter<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
     current_deployments: Eventual<im::Vector<(String, SubgraphDeploymentID)>>,
     indexer_statuses: Eventual<im::Vector<(SubgraphDeploymentID, im::Vector<ParsedIndexerStatus>)>>,
 ) {
-    tokio::spawn(async move {
-        let mut update = eventuals::join((current_deployments, indexer_statuses)).subscribe();
-        loop {
-            let (current_deployments, indexer_statuses) = match update.next().await {
-                Ok(update) => update,
-                Err(_) => break,
-            };
-            let deployment_to_subgraph = HashMap::<SubgraphDeploymentID, String>::from_iter(
-                current_deployments
-                    .into_iter()
-                    .map(|(subgraph, deployment)| (deployment, subgraph)),
-            );
-            tracing::info!(current_deployments = %deployment_to_subgraph.len(), indexed_deployments = %indexer_statuses.len());
-            for (deployment, indexer_statuses) in indexer_statuses.iter() {
-                let subgraph = match deployment_to_subgraph.get(&deployment) {
-                    Some(subgraph) => subgraph.clone(),
-                    None => continue,
+    tokio::spawn(
+        async move {
+            let mut update = eventuals::join((current_deployments, indexer_statuses)).subscribe();
+            loop {
+                let (current_deployments, indexer_statuses) = match update.next().await {
+                    Ok(update) => update,
+                    Err(_) => break,
                 };
-                // TODO: We are assuming the network is mainnet for now.
-                let network = "mainnet".to_string();
-                tracing::trace!(
-                    %network,
-                    %subgraph,
-                    ?deployment,
-                    indexer_statuses = indexer_statuses.len(),
+                tracing::info!(
+                    current_deployments = %current_deployments.len(),
+                    indexed_deployments = %indexer_statuses.len(),
                 );
-                let writer = deployments
-                    .write(&QualifiedSubgraph { network, subgraph })
-                    .await;
-                writer.id.write(deployment.clone());
-                writer.indexers.write(indexer_statuses.iter().map(|status| status.id).collect());
-            }
-            let statuses = HashMap::<Address, ParsedIndexerStatus>::from_iter(indexer_statuses.into_iter().flat_map(|(_, statuses)| statuses.into_iter().map(|status| (status.id, status))));
-            tracing::info!(indexers = %statuses.len());
-            for (indexer, status)  in statuses {
-                let indexer = indexers.write(&indexer).await;
-                indexer.stake.write(status.staked);
-                indexer.delegated_stake.write(status.delegated);
+                deployments.write(current_deployments.into_iter().collect());
+                deployment_indexers.write(
+                    indexer_statuses
+                        .iter()
+                        .map(|(deployment, indexer_statuses)| {
+                            // TODO: We are assuming the network is mainnet for now.
+                            let network = "mainnet".to_string();
+                            tracing::trace!(
+                                %network,
+                                ?deployment,
+                                indexer_statuses = indexer_statuses.len(),
+                            );
+                            (
+                                deployment.clone(),
+                                indexer_statuses.iter().map(|status| status.id).collect(),
+                            )
+                        })
+                        .collect(),
+                );
+                let statuses = HashMap::<Address, ParsedIndexerStatus>::from_iter(
+                    indexer_statuses.into_iter().flat_map(|(_, statuses)| {
+                        statuses.into_iter().map(|status| (status.id, status))
+                    }),
+                );
+                tracing::info!(indexers = %statuses.len());
+                for (indexer, status) in statuses {
+                    let indexer = indexers.write(&indexer).await;
+                    indexer.stake.write(status.staked);
+                    indexer.delegated_stake.write(status.delegated);
+                }
             }
         }
-    }.in_current_span());
+        .in_current_span(),
+    );
 }
 
 #[tracing::instrument(skip(indexer_selection, indexing_statuses))]
