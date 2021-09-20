@@ -237,7 +237,9 @@ where
         }
     };
     tracing::trace!(%response_raw);
-    if let Some(update_id) = update_id_regex
+    if response_raw.contains(r#"{"data":{"data":null}}"#) {
+        tracing::trace!("up to date");
+    } else if let Some(update_id) = update_id_regex
         .captures(&response_raw)
         .and_then(|c| c.get(1))
     {
@@ -722,7 +724,7 @@ fn handle_transfers(
     );
 }
 
-#[tracing::instrument(skip(indexer_selection, allocations))]
+#[tracing::instrument(skip(indexer_selection, signer_key, allocations))]
 fn handle_allocations(
     indexer_selection: Arc<indexer_selection::Indexers>,
     signer_key: SecretKey,
