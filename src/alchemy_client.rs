@@ -3,112 +3,181 @@ use crate::{
     prelude::*,
     ws_client,
 };
+use reqwest;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
     self,
     sync::{mpsc, oneshot},
+    time::{interval, Duration, Interval},
 };
 use tracing::{self, Instrument};
 
 pub enum Request {
-    Block(UnresolvedBlock, oneshot::Receiver<BlockPointer>),
+    Block(UnresolvedBlock, oneshot::Sender<BlockPointer>),
+}
+
+enum Source {
+    WS(ws_client::Interface),
+    REST(Interval),
 }
 
 struct Client {
     network: String,
-    ws_url: String,
+    url: String,
     indexers: Arc<Indexers>,
+    rest_client: reqwest::Client,
+    source: Source,
     requests: mpsc::Receiver<Request>,
+    request_id: usize,
 }
 
-pub fn create(network: String, ws_url: String, indexers: Arc<Indexers>) -> mpsc::Sender<Request> {
+pub fn create(network: String, url: String, indexers: Arc<Indexers>) -> mpsc::Sender<Request> {
     let _trace = tracing::info_span!("Alchemy client", %network).entered();
     let buffer = 32;
-    let (mut ws_req_send, ws_req_recv) = mpsc::channel(8);
-    let (ws_msg_send, mut ws_msg_recv) = mpsc::channel(buffer);
     let (request_send, request_recv) = mpsc::channel::<Request>(buffer);
-    ws_client::create(ws_msg_send, ws_req_recv, ws_url.clone(), 3);
     let mut client = Client {
         network,
-        ws_url,
+        source: Source::WS(ws_client::create(buffer, format!("wss://{}", url), 3)),
+        url,
         indexers,
+        rest_client: reqwest::Client::new(),
         requests: request_recv,
+        request_id: 0,
     };
     tokio::spawn(
-        async move { while let Ok(()) = client.run(&mut ws_req_send, &mut ws_msg_recv).await {} }
-            .in_current_span(),
+        async move {
+            while let Ok(()) = client.run().await {}
+            tracing::error!("exit");
+        }
+        .in_current_span(),
     );
     request_send
 }
 
 impl Client {
-    async fn run(
-        &mut self,
-        ws_send: &mut mpsc::Sender<ws_client::Request>,
-        ws_recv: &mut mpsc::Receiver<ws_client::Msg>,
-    ) -> Result<(), ()> {
-        tokio::select! {
-            ws_result = ws_recv.recv() => match ws_result {
-                Some(msg) => self.handle_ws_msg(ws_send, msg).await,
-                None => {
-                    tracing::error!("TODO: fallback to REST when WS disconnects?");
-                    Err(())
+    async fn run(&mut self) -> Result<(), ()> {
+        match &mut self.source {
+            Source::WS(ws) => {
+                tokio::select! {
+                    msg = ws.recv.recv() => match msg {
+                        Some(msg) => self.handle_ws_msg(msg).await,
+                        None => self.fallback_to_rest(),
+                    },
+                    req = self.requests.recv() => self.handle_request(req).await,
                 }
-            },
-            Some(Request::Block(unresolved, resolved)) = self.requests.recv() => {
-                tracing::error!("TODO: handle unresolved: {:?}", unresolved);
-                Err(())
-            },
-            else => Err(()),
+            }
+            Source::REST(timer) => {
+                tokio::select! {
+                    _ = timer.tick() => {
+                        if let Some(head) = self.fetch_block(None).await {
+                            self.handle_head(head).await;
+                        }
+                    },
+                    req = self.requests.recv() => self.handle_request(req).await,
+                }
+            }
         }
+        Ok(())
     }
 
-    async fn handle_ws_msg(
-        &mut self,
-        ws_send: &mut mpsc::Sender<ws_client::Request>,
-        msg: ws_client::Msg,
-    ) -> Result<(), ()> {
+    async fn handle_ws_msg(&mut self, msg: ws_client::Msg) {
         match msg {
             ws_client::Msg::Connected => {
-                let sub = serde_json::to_string(&json!({
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "eth_subscribe",
-                    "params": ["newHeads"],
-                }))
-                .expect("Alchemy subscription should serialize to JSON");
-                if let Err(_) = ws_send.send(ws_client::Request::Send(sub)).await {
-                    tracing::error!("TODO: handle WS client exit");
-                    return Err(());
-                };
+                let sub =
+                    serde_json::to_string(&self.post_body("eth_subscribe", &["newHeads".into()]))
+                        .expect("Alchemy subscription should serialize to JSON");
+                if let Source::WS(ws) = &mut self.source {
+                    if let Err(_) = ws.send.send(ws_client::Request::Send(sub)).await {
+                        self.fallback_to_rest();
+                    };
+                } else {
+                    self.fallback_to_rest();
+                }
             }
             ws_client::Msg::Recv(msg) => {
                 match serde_json::from_str::<APIResponse<APIBlockHead>>(&msg) {
                     Ok(APIResponse {
                         params: Some(APIResult { result: head }),
                         ..
-                    }) => {
-                        tracing::info!(?head);
-                        let APIBlockHead {
-                            hash,
-                            number,
-                            uncles,
-                        } = head;
-                        self.indexers
-                            .set_block(&self.network, BlockPointer { number, hash })
-                            .await;
-                        for uncle in uncles {
-                            self.indexers.remove_block(&self.network, &uncle).await;
-                        }
-                    }
+                    }) => self.handle_head(head).await,
                     Ok(unexpected_response) => tracing::warn!(?unexpected_response),
                     Err(err) => tracing::error!(%err),
                 }
             }
         };
-        Ok(())
+    }
+
+    async fn handle_request(&mut self, request: Option<Request>) {
+        let (unresolved, resolved) = match request {
+            Some(Request::Block(unresolved, resolved)) => (unresolved, resolved),
+            None => return,
+        };
+        if let Some(APIBlockHead { hash, number, .. }) = self.fetch_block(Some(unresolved)).await {
+            let _ = resolved.send(BlockPointer { number, hash });
+        }
+    }
+
+    fn fallback_to_rest(&mut self) {
+        tracing::warn!("fallback to REST");
+        // TODO: Spawn a task to reconnect WS client after some time.
+        self.source = Source::REST(interval(Duration::from_secs(8)));
+    }
+
+    async fn fetch_block(&mut self, block: Option<UnresolvedBlock>) -> Option<APIBlockHead> {
+        let (method, param) = match block {
+            Some(UnresolvedBlock::WithHash(hash)) => {
+                ("eth_getBlockByNumber", format!("{:?}", hash).into())
+            }
+            Some(UnresolvedBlock::WithNumber(number)) => ("eth_getBlockByNumber", number.into()),
+            None => ("eth_getBlockByNumber", "latest".into()),
+        };
+        let response = match self
+            .rest_client
+            .post(format!("https://{}", self.url))
+            .json(&self.post_body(method, &[param, false.into()]))
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(post_err) => {
+                tracing::error!(%post_err);
+                return None;
+            }
+        };
+        match response.json::<APIResult<APIBlockHead>>().await {
+            Ok(msg) => Some(msg.result),
+            Err(post_body_err) => {
+                tracing::error!(%post_body_err);
+                None
+            }
+        }
+    }
+
+    async fn handle_head(&mut self, head: APIBlockHead) {
+        tracing::info!(?head);
+        let APIBlockHead {
+            hash,
+            number,
+            uncles,
+        } = head;
+        self.indexers
+            .set_block(&self.network, BlockPointer { number, hash })
+            .await;
+        for uncle in uncles {
+            self.indexers.remove_block(&self.network, &uncle).await;
+        }
+    }
+
+    fn post_body(&mut self, method: &str, params: &[JSON]) -> JSON {
+        self.request_id += 1;
+        json!({
+            "jsonrpc": "2.0",
+            "id": self.request_id,
+            "method": method,
+            "params": params,
+        })
     }
 }
 

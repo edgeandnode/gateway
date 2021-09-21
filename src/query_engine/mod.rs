@@ -62,31 +62,6 @@ pub struct Config {
     pub utility: UtilityConfig,
 }
 
-pub struct Deployment {
-    id: Eventual<SubgraphDeploymentID>,
-    indexers: Eventual<im::Vector<Address>>,
-}
-
-pub struct DeploymentWriter {
-    pub id: EventualWriter<SubgraphDeploymentID>,
-    pub indexers: EventualWriter<im::Vector<Address>>,
-}
-
-impl Reader for Deployment {
-    type Writer = DeploymentWriter;
-    fn new() -> (Self::Writer, Self) {
-        let (id_writer, id) = Eventual::new();
-        let (indexers_writer, indexers) = Eventual::new();
-        (
-            Self::Writer {
-                id: id_writer,
-                indexers: indexers_writer,
-            },
-            Self { id, indexers },
-        )
-    }
-}
-
 pub struct Inputs {
     indexers: Arc<Indexers>,
     deployments: Eventual<im::HashMap<String, SubgraphDeploymentID>>,

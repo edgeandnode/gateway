@@ -4,7 +4,7 @@ use crate::{
         SecretKey, SelectionFactors,
     },
     prelude::{shared_lookup::SharedLookupWriter, *},
-    query_engine::{Deployment, DeploymentWriter, InputWriters, Subgraph},
+    query_engine::InputWriters,
 };
 use graphql_client::{GraphQLQuery, Response};
 use im;
@@ -190,7 +190,6 @@ fn create_sync_client<Q, T>(
                 }
                 sleep(poll_interval).await;
             }
-            tracing::error!("{} handler closed", operation);
         }
         .instrument(tracing::info_span!("poller", query = operation)),
     );
