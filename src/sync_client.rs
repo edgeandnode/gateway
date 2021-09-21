@@ -8,9 +8,8 @@ use crate::{
 };
 use graphql_client::{GraphQLQuery, Response};
 use im;
-use regex::Regex;
 use reqwest;
-use serde_json::json;
+use serde_json::{json, Value as JSON};
 use std::{collections::HashMap, iter::FromIterator, sync::Arc};
 use tokio::{
     sync::Mutex,
@@ -171,7 +170,6 @@ fn create_sync_client<Q, T>(
         async move {
             let client = reqwest::Client::new();
             let mut last_update_id = "<none>".to_string();
-            let update_id_regex = Regex::new(r#"updateId":"([^"]*)""#).unwrap();
             loop {
                 if let Some(data) = execute_query::<Q, T>(
                     gateway_id,
@@ -181,7 +179,6 @@ fn create_sync_client<Q, T>(
                     parse_data,
                     &client,
                     &mut last_update_id,
-                    &update_id_regex,
                 )
                 .in_current_span()
                 .await
@@ -203,13 +200,13 @@ async fn execute_query<'f, Q, T>(
     parse_data: fn(Q::ResponseData) -> Option<T>,
     client: &'f reqwest::Client,
     last_update_id: &'f mut String,
-    update_id_regex: &'f Regex,
 ) -> Option<T>
 where
     T: 'static + Clone + Eq + Send,
     Q: GraphQLQuery,
     Q::ResponseData: 'static,
 {
+    // TODO: Don't use graphql_client and and just rely on graphql-parser. This is a bit more trouble than it's worth.
     let variables = if operation == transfers::OPERATION_NAME {
         json!({"lastUpdateId": last_update_id, "gatewayId": uuid.to_string()})
     } else {
@@ -236,14 +233,24 @@ where
         }
     };
     tracing::trace!(%response_raw);
-    if response_raw.contains(r#"{"data":{"data":null}}"#) {
-        tracing::trace!("up to date");
-    } else if let Some(update_id) = update_id_regex
-        .captures(&response_raw)
-        .and_then(|c| c.get(1))
+    let response_data = match serde_json::from_str::<JSON>(&response_raw) {
+        Ok(response_json) => response_json
+            .get("data")
+            .and_then(|data| data.get("data"))
+            .map(JSON::to_owned),
+        Err(err) => {
+            tracing::error!(%err, "response is invalid JSON");
+            return None;
+        }
+    };
+    if response_data.as_ref().map(JSON::is_null).unwrap_or(false) {
+        tracing::debug!("up to date");
+    } else if let Some(update_id) = response_data
+        .as_ref()
+        .and_then(|data| Some(data.get("updateId")?.as_str()?))
     {
-        *last_update_id = update_id.as_str().to_string();
-        tracing::trace!(update_id = %last_update_id);
+        *last_update_id = update_id.to_string();
+        tracing::debug!(update_id = %last_update_id);
     } else {
         tracing::warn!("updateId not found in {} response", operation);
     }
