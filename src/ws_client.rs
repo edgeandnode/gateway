@@ -1,6 +1,11 @@
 use futures_util::{SinkExt, StreamExt};
 use std::io;
-use tokio::{self, net::TcpStream, sync::mpsc};
+use tokio::{
+    self,
+    net::TcpStream,
+    sync::mpsc,
+    time::{sleep_until, Duration, Instant},
+};
 use tokio_tungstenite::{
     tungstenite::{self, error::Error as WSError},
     MaybeTlsStream, WebSocketStream,
@@ -25,6 +30,8 @@ struct Client {
     requests: mpsc::Receiver<Request>,
     server_url: String,
     retry_limit: usize,
+    last_ping: Instant,
+    timeouts: usize,
 }
 
 pub fn create(
@@ -38,6 +45,8 @@ pub fn create(
         requests,
         server_url,
         retry_limit,
+        last_ping: Instant::now(),
+        timeouts: 0,
     }
     .spawn()
 }
@@ -55,10 +64,14 @@ impl Client {
                 return Err(());
             }
         };
+        self.last_ping = Instant::now();
         if let Err(_) = self.notify.send(Msg::Connected).await {
             return Err(());
         }
         while let Ok(()) = self.handle_msgs(&mut conn).await {}
+        if self.timeouts >= self.retry_limit {
+            return Err(());
+        }
         Ok(())
     }
 
@@ -103,7 +116,7 @@ impl Client {
                     tracing::error!(%recv_err);
                     return Err(());
                 }
-                None => (),
+                None => return Err(()),
             },
             result = self.requests.recv() => match result {
                 Some(Request::Send(outgoing)) => {
@@ -114,8 +127,14 @@ impl Client {
                     }
                 }
                 None => return Err(()),
+            },
+            _ = sleep_until(self.last_ping + Duration::from_secs(30)) => {
+                self.timeouts += 1;
+                tracing::warn!(timeouts = %self.timeouts);
+                return Err(());
             }
         };
+        self.last_ping = Instant::now();
         Ok(())
     }
 }
