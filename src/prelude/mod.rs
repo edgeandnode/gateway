@@ -59,7 +59,7 @@ macro_rules! bytes_wrapper {
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 let mut bytes = [0u8; $len];
                 let offset = if s.starts_with("0x") {2} else {0};
-                hex::decode_to_slice(s.split_at(offset).1, &mut bytes)?;
+                hex::decode_to_slice(&s[offset..], &mut bytes)?;
                 Ok(Self { bytes })
             }
         }

@@ -20,7 +20,7 @@ struct Client {
     server_url: String,
     retry_limit: usize,
     last_ping: Instant,
-    timeouts: usize,
+    retries: usize,
 }
 
 #[derive(Debug)]
@@ -48,7 +48,7 @@ pub fn create(buffer: usize, server_url: String, retry_limit: usize) -> Interfac
         server_url,
         retry_limit,
         last_ping: Instant::now(),
-        timeouts: 0,
+        retries: 0,
     }
     .spawn();
     Interface { send, recv }
@@ -72,7 +72,9 @@ impl Client {
             return Err(());
         }
         while let Ok(()) = self.handle_msgs(&mut conn).await {}
-        if self.timeouts >= self.retry_limit {
+        self.retries += 1;
+        tracing::warn!(retries = %self.retries);
+        if self.retries >= self.retry_limit {
             return Err(());
         }
         Ok(())
@@ -126,16 +128,11 @@ impl Client {
                     tracing::trace!(?outgoing);
                     if let Err(err) = conn.send(tungstenite::Message::Text(outgoing)).await {
                         tracing::error!(send_err = %err);
-                        ();
                     }
                 }
                 None => return Err(()),
             },
-            _ = sleep_until(self.last_ping + Duration::from_secs(30)) => {
-                self.timeouts += 1;
-                tracing::warn!(timeouts = %self.timeouts);
-                return Err(());
-            }
+            _ = sleep_until(self.last_ping + Duration::from_secs(30)) => return Err(()),
         };
         self.last_ping = Instant::now();
         Ok(())

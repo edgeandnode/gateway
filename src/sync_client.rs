@@ -304,9 +304,7 @@ fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Option<USD> {
 )]
 struct CostModels;
 
-fn parse_cost_models(
-    data: cost_models::ResponseData,
-) -> Option<im::Vector<(Indexing, CostModelSource)>> {
+fn parse_cost_models(data: cost_models::ResponseData) -> Option<Vec<(Indexing, CostModelSource)>> {
     use cost_models::{CostModelsData, ResponseData};
     let values = match data {
         ResponseData {
@@ -331,7 +329,7 @@ fn parse_cost_models(
                 ))
             })
         })
-        .collect::<im::Vector<(Indexing, CostModelSource)>>();
+        .collect();
     Some(parsed)
 }
 
@@ -559,7 +557,7 @@ fn parse_usable_allocations(
 #[tracing::instrument(skip(indexings, cost_models))]
 fn handle_cost_models(
     indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
-    cost_models: Eventual<im::Vector<(Indexing, CostModelSource)>>,
+    cost_models: Eventual<Vec<(Indexing, CostModelSource)>>,
 ) {
     tokio::spawn(
         async move {

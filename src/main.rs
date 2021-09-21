@@ -35,11 +35,11 @@ struct Opt {
     #[structopt(help = "Format log output as JSON", long = "--log-json")]
     log_json: bool,
     #[structopt(
-        long = "--indexer-selection-limit",
+        long = "--indexer-selection-retry-limit",
         env = "INDEXER_SELECTION_LIMIT",
         default_value = "5"
     )]
-    indexer_selection_limit: usize,
+    indexer_selection_retry_limit: usize,
 }
 
 fn parse_networks(arg: &str) -> Result<(String, String), String> {
@@ -83,7 +83,7 @@ async fn main() {
 
     // let query_engine = QueryEngine::new(
     //     query_engine::Config {
-    //         indexer_selection_limit: opt.indexer_selection_limit,
+    //         indexer_selection_limit: opt.indexer_selection_retry_limit,
     //         utility: UtilityConfig::default(),
     //     },
     //     resolver,

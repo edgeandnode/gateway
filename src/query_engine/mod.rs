@@ -58,7 +58,7 @@ pub trait Resolver {
 }
 
 pub struct Config {
-    pub indexer_selection_limit: usize,
+    pub indexer_selection_retry_limit: usize,
     pub utility: UtilityConfig,
 }
 
@@ -125,7 +125,7 @@ impl<R: Resolver> QueryEngine<R> {
         tracing::debug!(
             query.network = %query.network,
             query.subgraph = ?query.subgraph,
-            indexer_selection_limit = ?self.config.indexer_selection_limit);
+            indexer_selection_retry_limit = ?self.config.indexer_selection_retry_limit);
         let deployment = match &query.subgraph {
             Subgraph::Deployment(deployment) => deployment.clone(),
             Subgraph::Name(name) => self
@@ -140,7 +140,7 @@ impl<R: Resolver> QueryEngine<R> {
             .and_then(|map| map.get(&deployment).cloned())
             .unwrap_or_default();
         tracing::debug!(?deployment, deployment_indexers = indexers.len());
-        for _ in 0..self.config.indexer_selection_limit {
+        for _ in 0..self.config.indexer_selection_retry_limit {
             let selection_result = self
                 .indexers
                 .select_indexer(
