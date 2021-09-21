@@ -16,8 +16,6 @@ use std::error::Error;
 use structopt::StructOpt;
 use structopt_derive::StructOpt;
 use tokio::time::Duration;
-use tracing;
-use tracing_subscriber;
 
 #[derive(StructOpt, Debug)]
 struct Opt {
@@ -28,12 +26,12 @@ struct Opt {
     )]
     sync_agent: String,
     #[structopt(
-        help = "Ethereum WebSocket provider URLs, format: '<network>=<url>,...'",
-        long = "--ethereum-ws",
-        env = "ETHEREUM_WS",
+        help = "Ethereum provider URLs, format: '<network>=<url>,...'\ne.g. rinkeby=eth-rinkeby.alchemyapi.io/v2/<api-key>",
+        long = "--ethereum-providers",
+        env = "ETHEREUM_PROVIDERS",
         parse(try_from_str = "parse_networks")
     )]
-    ethereum_ws: Vec<(String, String)>,
+    ethereum_proviers: Vec<(String, String)>,
     #[structopt(help = "Format log output as JSON", long = "--log-json")]
     log_json: bool,
     #[structopt(
@@ -66,8 +64,8 @@ async fn main() {
 
     let (input_writers, inputs) = Inputs::new();
 
-    for (network, ws_url) in opt.ethereum_ws {
-        alchemy_client::create(network, ws_url, input_writers.indexers.clone());
+    for (network, url) in opt.ethereum_proviers {
+        alchemy_client::create(network, url, input_writers.indexers.clone());
     }
     sync_client::create(
         opt.sync_agent,

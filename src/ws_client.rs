@@ -12,17 +12,6 @@ use tokio_tungstenite::{
 };
 use tracing::{self, Instrument};
 
-#[derive(Debug)]
-pub enum Request {
-    Send(String),
-}
-
-#[derive(Debug)]
-pub enum Msg {
-    Connected,
-    Recv(String),
-}
-
 type WSStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 struct Client {
@@ -34,12 +23,25 @@ struct Client {
     timeouts: usize,
 }
 
-pub fn create(
-    notify: mpsc::Sender<Msg>,
-    requests: mpsc::Receiver<Request>,
-    server_url: String,
-    retry_limit: usize,
-) {
+#[derive(Debug)]
+pub enum Request {
+    Send(String),
+}
+
+#[derive(Debug)]
+pub enum Msg {
+    Connected,
+    Recv(String),
+}
+
+pub struct Interface {
+    pub send: mpsc::Sender<Request>,
+    pub recv: mpsc::Receiver<Msg>,
+}
+
+pub fn create(buffer: usize, server_url: String, retry_limit: usize) -> Interface {
+    let (send, requests) = mpsc::channel(buffer);
+    let (notify, recv) = mpsc::channel(buffer);
     Client {
         notify,
         requests,
@@ -48,7 +50,8 @@ pub fn create(
         last_ping: Instant::now(),
         timeouts: 0,
     }
-    .spawn()
+    .spawn();
+    Interface { send, recv }
 }
 
 impl Client {
