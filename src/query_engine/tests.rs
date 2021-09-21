@@ -171,7 +171,8 @@ impl Topology {
             id: self.rng.next_u64(),
             query: query.into(),
             variables: None,
-            subgraph: QualifiedSubgraph { network, subgraph },
+            network,
+            subgraph: Subgraph::Name(subgraph),
             budget: 1u64.try_into().unwrap(),
         }
     }
@@ -288,10 +289,10 @@ impl Topology {
         }
     }
 
-    fn subgraph(&self, subgraph: &QualifiedSubgraph) -> Option<&SubgraphTopology> {
+    fn subgraph(&self, network: &str, subgraph: &str) -> Option<&SubgraphTopology> {
         self.networks
-            .get(&subgraph.network)
-            .and_then(|net| net.subgraphs.get(&subgraph.subgraph))
+            .get(network)
+            .and_then(|net| net.subgraphs.get(subgraph))
     }
 
     fn subgraphs(&self) -> Vec<(NetworkTopology, SubgraphTopology)> {
@@ -369,22 +370,22 @@ impl Topology {
                 )
                 .await;
         }
-        for (network, subgraph) in self.subgraphs() {
-            if let Some(current) = subgraph.deployments.last() {
-                let writer = self
-                    .inputs
-                    .deployments
-                    .write(&QualifiedSubgraph {
-                        network: network.name,
-                        subgraph: subgraph.name,
-                    })
-                    .await;
-                writer.id.write(current.id);
-                writer
-                    .indexers
-                    .write(current.indexings.iter().cloned().collect());
-            }
-        }
+        self.inputs.deployments.write(
+            self.subgraphs()
+                .into_iter()
+                .filter_map(|(_, subgraph)| Some((subgraph.name, subgraph.deployments.last()?.id)))
+                .collect(),
+        );
+        self.inputs.deployment_indexers.write(
+            self.subgraphs()
+                .into_iter()
+                .flat_map(|(_, subgraph)| subgraph.deployments)
+                .map(|deployment| {
+                    let indexings = deployment.indexings.iter().cloned().collect();
+                    (deployment.id, indexings)
+                })
+                .collect(),
+        );
         eventuals::idle().await;
     }
 
@@ -400,26 +401,33 @@ impl Topology {
         let mut trace = Vec::new();
         trace.push(format!("{:#?}", query));
         trace.push(format!("{:#?}", result));
+        let subgraph_name = match &query.subgraph {
+            Subgraph::Name(name) => name,
+            Subgraph::Deployment(_) => panic!("Unexpected SubgraphDeploymentID"),
+        };
         // Return SubgraphNotFound if the subgraph does not exist.
-        let subgraph = match self.subgraph(&query.subgraph) {
+        let subgraph = match self.subgraph(&query.network, subgraph_name) {
             Some(subgraph) => subgraph,
             None => {
                 if let Err(QueryEngineError::SubgraphNotFound) = result {
                     return Ok(());
                 }
+                // TODO: We currently assume that the network is mainnet, so these failures are not
+                // expected. In the future there must be a check that the query network matches
+                // with the expected network of the subgraph.
+                if self.subgraphs().iter().all(|(network, subgraph)| {
+                    (network.name != query.network) || (&subgraph.name != subgraph_name)
+                }) {
+                    return Ok(());
+                }
+
                 trace.push(format!("expected SubgraphNotFound, got {:#?}", result));
                 return Err(trace);
             }
         };
         // Return MissingBlocks if the network has no blocks.
         if let Err(QueryEngineError::MissingBlocks(_)) = result {
-            if self
-                .networks
-                .get(&query.subgraph.network)
-                .unwrap()
-                .blocks
-                .is_empty()
-            {
+            if self.networks.get(&query.network).unwrap().blocks.is_empty() {
                 return Ok(());
             }
             return err_with(trace, format!("expected MissingBlock, got {:?}", result));
@@ -482,13 +490,7 @@ impl Topology {
             return Ok(());
         }
         // Return MissingBlocks if the network has no blocks.
-        if self
-            .networks
-            .get(&query.subgraph.network)
-            .unwrap()
-            .blocks
-            .is_empty()
-        {
+        if self.networks.get(&query.network).unwrap().blocks.is_empty() {
             if let Err(QueryEngineError::MissingBlocks(_)) = result {
                 return Ok(());
             }
