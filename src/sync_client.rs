@@ -663,11 +663,13 @@ fn handle_indexing_statuses(
                 };
                 tracing::info!(indexing_statuses = %indexing_statuses.len());
                 for status in indexing_statuses {
-                    if let Some(block_number) = status.block_number {
-                        indexer_selection
-                            .set_indexing_status(&status.network, &status.indexing, block_number)
-                            .await;
-                    }
+                    indexer_selection
+                        .set_indexing_status(
+                            &status.network,
+                            &status.indexing,
+                            status.block_number.unwrap_or(0),
+                        )
+                        .await;
                 }
             }
         }
@@ -762,9 +764,17 @@ fn handle_allocations(
                     if allocations.iter().any(|t| t.id == allocation.id) {
                         continue;
                     }
-                    indexer_selection
-                        .remove_receipts_allocation(&allocation.indexing, &allocation.id)
-                        .await;
+                    // HOY (Hack Of the Year): Remove the old transfer in 5 minutes, to give new
+                    // allocations and replacement transfer some time to propagate through the
+                    // system and into indexer selection.
+                    let indexer_selection = indexer_selection.clone();
+                    let allocation = allocation.clone();
+                    tokio::spawn(async move {
+                        sleep(Duration::from_secs(5 * 60)).await;
+                        indexer_selection
+                            .remove_receipts_allocation(&allocation.indexing, &allocation.id)
+                            .await;
+                    });
                 }
                 used_allocations = allocations;
             }
