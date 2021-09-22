@@ -137,6 +137,7 @@ pub struct Snapshot {
     pub indexings: Vec<IndexingSnapshot>,
 }
 
+#[derive(Clone)]
 pub struct UtilityConfig {
     pub economic_security: f64,
     pub performance: f64,
