@@ -21,5 +21,5 @@ TODO
 
 These options should be considered once we can measure the "real world" performance impacts and determine if they are worth implementing.
 
-- Either merge gateway agent, or rewrite it to provide a WebSocket API and compress the payloads.
+- We will likely merge the gateway agent into network syncing.
 - Replace the Rust default allocator with snmalloc via [snmalloc-rs](https://github.com/SchrodingerZhu/snmalloc-rs).
