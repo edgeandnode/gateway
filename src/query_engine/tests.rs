@@ -195,8 +195,18 @@ impl Topology {
     }
 
     fn gen_subgraph(&mut self) -> SubgraphTopology {
+        let mut name = self.gen_str(log_2(*self.config.networks.end()));
+        // TODO: For now, subgraph names must be unique across networks
+        while self
+            .subgraphs()
+            .iter()
+            .any(|(_, subgraph)| subgraph.name == name)
+        {
+            name = self.gen_str(log_2(*self.config.networks.end()));
+        }
+
         let mut subgraph = SubgraphTopology {
-            name: self.gen_str(log_2(*self.config.networks.end())),
+            name,
             deployments: Vec::new(),
         };
         for _ in 1..self.gen_len(self.config.deployments.clone(), 32) {
@@ -593,7 +603,7 @@ async fn test() {
         )));
         let query_engine = QueryEngine::new(
             Config {
-                indexer_selection_limit: 3,
+                indexer_selection_retry_limit: 3,
                 utility: UtilityConfig::default(),
             },
             TopologyResolver {
