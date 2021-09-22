@@ -20,12 +20,11 @@ pub enum Subgraph {
 
 #[derive(Clone, Debug)]
 pub struct ClientQuery {
-    pub id: u64,
+    pub id: usize,
     pub query: String,
     pub variables: Option<String>,
     pub network: String,
     pub subgraph: Subgraph,
-    pub budget: USD,
 }
 
 #[derive(Debug)]
@@ -57,11 +56,14 @@ pub trait Resolver {
         -> Result<Response<String>, Box<dyn Error>>;
 }
 
+#[derive(Clone)]
 pub struct Config {
     pub indexer_selection_retry_limit: usize,
     pub utility: UtilityConfig,
+    pub query_budget: GRT,
 }
 
+#[derive(Clone)]
 pub struct Inputs {
     indexers: Arc<Indexers>,
     deployments: Eventual<im::HashMap<String, SubgraphDeploymentID>>,
@@ -150,7 +152,7 @@ impl<R: Resolver> QueryEngine<R> {
                     &indexers,
                     query.query.clone(),
                     query.variables.clone(),
-                    query.budget,
+                    self.config.query_budget,
                 )
                 .await;
             match &selection_result {

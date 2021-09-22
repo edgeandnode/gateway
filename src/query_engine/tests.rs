@@ -168,12 +168,11 @@ impl Topology {
         }
         let query = if self.flip_coin(32) { "?" } else { BASIC_QUERY };
         ClientQuery {
-            id: self.rng.next_u64(),
+            id: self.rng.next_u64() as usize,
             query: query.into(),
             variables: None,
             network,
             subgraph: Subgraph::Name(subgraph),
-            budget: 1u64.try_into().unwrap(),
         }
     }
 
@@ -606,6 +605,7 @@ async fn test() {
             Config {
                 indexer_selection_retry_limit: 3,
                 utility: UtilityConfig::default(),
+                query_budget: 1u64.try_into().unwrap(),
             },
             TopologyResolver {
                 topology: topology.clone(),

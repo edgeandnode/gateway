@@ -5,14 +5,25 @@ mod query_engine;
 mod sync_client;
 mod ws_client;
 
-use crate::{
-    indexer_selection::SecretKey,
-    prelude::*,
-    query_engine::{BlockHead, Inputs, QueryEngine, Resolver, Response},
+use crate::{indexer_selection::SecretKey, prelude::*, query_engine::*};
+use actix_web::{
+    error::ResponseError,
+    http::{header, StatusCode},
+    web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use async_trait::async_trait;
 use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
-use std::{collections::HashMap, error::Error};
+use serde::Deserialize;
+use serde_json::{json, value::RawValue};
+use std::{
+    collections::HashMap,
+    error::Error,
+    fmt,
+    sync::{
+        atomic::{AtomicUsize, Ordering as MemoryOrdering},
+        Arc,
+    },
+};
 use structopt::StructOpt;
 use structopt_derive::StructOpt;
 use tokio::{
@@ -43,6 +54,14 @@ struct Opt {
         default_value = "5"
     )]
     indexer_selection_retry_limit: usize,
+    #[structopt(
+        long = "--query-budget",
+        env = "QUERY_BUDGET",
+        default_value = "0.0005"
+    )]
+    query_budget: String,
+    #[structopt(long = "--port", env = "PORT", default_value = "6700")]
+    port: u16,
 }
 
 fn parse_networks(arg: &str) -> Result<(String, String), String> {
@@ -53,7 +72,7 @@ fn parse_networks(arg: &str) -> Result<(String, String), String> {
     Ok((kv[0].into(), kv[1].into()))
 }
 
-#[tokio::main]
+#[actix_web::main]
 async fn main() {
     let opt = Opt::from_args();
     init_tracing(opt.log_json);
@@ -82,26 +101,138 @@ async fn main() {
         signer_key,
         input_writers,
     );
+    let config = query_engine::Config {
+        indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
+        utility: UtilityConfig::default(),
+        query_budget: opt.query_budget.parse().expect("Invalid query budget"),
+    };
     // TODO: argument for timeout
-    let query_engine = QueryEngine::new(
-        query_engine::Config {
-            indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
-            utility: UtilityConfig::default(),
-        },
-        NetworkResolver {
-            block_resolvers,
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .unwrap(),
-        },
-        inputs,
-    );
-    panic!("TODO: handle queries");
+    let resolver = NetworkResolver {
+        block_resolvers: Arc::new(block_resolvers),
+        client: reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap(),
+    };
+    static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
+    // TODO: /network, /, /ready, metrics?
+    // TODO: rate limit API keys
+    // TODO: filter bad headers: https://github.com/graphprotocol/common-ts/blob/5544327c0388a73f4e627625d077b64352031f9f/packages/common-ts/src/security/index.ts
+    HttpServer::new(move || {
+        let api = web::scope("/api/{api_key}")
+            .app_data(web::Data::new((
+                config.clone(),
+                resolver.clone(),
+                inputs.clone(),
+                &QUERY_ID,
+            )))
+            .service(
+                web::resource("/subgraphs/id/{subgraph_id}")
+                    .route(web::post().to(handle_subgraph_query)),
+            )
+            .service(
+                web::resource("/deployments/id/{deployment_id}")
+                    .route(web::post().to(handle_subgraph_query)),
+            );
+        App::new().service(api)
+    })
+    .bind(("0.0.0.0", opt.port))
+    .expect("Failed to bind")
+    .run()
+    .await
+    .expect("Failed to start server");
 }
 
+#[derive(Deserialize, Debug)]
+struct QueryBody {
+    query: Box<RawValue>,
+    variables: Option<Box<RawValue>>,
+}
+
+#[tracing::instrument(skip(request, payload, data))]
+async fn handle_subgraph_query(
+    request: HttpRequest,
+    payload: web::Json<QueryBody>,
+    data: web::Data<(Config, NetworkResolver, Inputs, &'static AtomicUsize)>,
+) -> Result<String, ErrorResponse> {
+    let query_engine = QueryEngine::new(data.0.clone(), data.1.clone(), data.2.clone());
+    let url_params = request.match_info();
+    let subgraph = if let Some(name) = url_params.get("subgraph_id") {
+        Subgraph::Name(name.into())
+    } else if let Some(deployment) = url_params
+        .get("deployment_id")
+        .and_then(|id| id.parse::<SubgraphDeploymentID>().ok())
+    {
+        Subgraph::Deployment(deployment)
+    } else {
+        return Err(ErrorResponse::bad_request("Invalid subgraph identifier"));
+    };
+    let query = ClientQuery {
+        id: data.3.fetch_add(1, MemoryOrdering::Relaxed),
+        query: payload.query.to_string(),
+        variables: payload.variables.as_ref().map(ToString::to_string),
+        network: "mainnet".into(),
+        subgraph: subgraph,
+    };
+    match query_engine.execute_query(query).await {
+        Ok(result) => match serde_json::to_string(&result.response) {
+            Ok(response) => Ok(response),
+            Err(err) => Err(ErrorResponse::internal(err)),
+        },
+        Err(err) => Err(ErrorResponse::ok(format!("{:?}", err))),
+    }
+}
+
+#[derive(Debug)]
+struct ErrorResponse {
+    code: StatusCode,
+    message: String,
+}
+
+impl ErrorResponse {
+    fn ok<S: ToString>(message: S) -> Self {
+        Self {
+            code: StatusCode::OK,
+            message: message.to_string(),
+        }
+    }
+
+    fn bad_request<S: ToString>(message: S) -> Self {
+        Self {
+            code: StatusCode::BAD_REQUEST,
+            message: message.to_string(),
+        }
+    }
+
+    fn internal<S: ToString>(message: S) -> Self {
+        Self {
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+            message: message.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for ErrorResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl ResponseError for ErrorResponse {
+    fn status_code(&self) -> StatusCode {
+        self.code
+    }
+
+    fn error_response(&self) -> HttpResponse {
+        HttpResponseBuilder::new(self.status_code())
+            .insert_header(header::ContentType::json())
+            .body(json!({"errors": {"message": self.message}}).to_string())
+    }
+}
+
+#[derive(Clone)]
 struct NetworkResolver {
-    block_resolvers: HashMap<String, mpsc::Sender<alchemy_client::Request>>,
+    block_resolvers: Arc<HashMap<String, mpsc::Sender<alchemy_client::Request>>>,
     client: reqwest::Client,
 }
 
