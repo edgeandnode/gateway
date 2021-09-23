@@ -14,6 +14,7 @@ use actix_web::{
 };
 use async_trait::async_trait;
 use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
+use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
 use std::{
@@ -48,6 +49,12 @@ struct Opt {
         parse(try_from_str = "parse_networks")
     )]
     ethereum_proviers: Vec<(String, String)>,
+    #[structopt(
+        help = "Network subgraph URL",
+        long = "--network-subgraph",
+        env = "NETWORK_SUBGRAPH"
+    )]
+    network_subgraph: String,
     #[structopt(help = "Format log output as JSON", long = "--log-json")]
     log_json: bool,
     #[structopt(
@@ -108,19 +115,26 @@ async fn main() {
         utility: UtilityConfig::default(),
         query_budget: opt.query_budget.parse().expect("Invalid query budget"),
     };
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap();
     // TODO: argument for timeout
     let resolver = NetworkResolver {
         block_resolvers: Arc::new(block_resolvers),
-        client: reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap(),
+        client: http_client.clone(),
     };
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
-    // TODO: /network, /, /ready, metrics?
+    let network_subgraph = opt.network_subgraph;
+    // TODO: /, /ready, metrics?
     // TODO: rate limit API keys
     HttpServer::new(move || {
         let api = web::scope("/api/{api_key}")
+            .app_data(web::Data::new((
+                http_client.clone(),
+                network_subgraph.clone(),
+            )))
+            .route("/network", web::post().to(handle_network_query))
             .app_data(web::Data::new((
                 config.clone(),
                 resolver.clone(),
@@ -171,6 +185,35 @@ where
             None => Ok(err.unwrap()),
         }
     }
+}
+
+#[tracing::instrument(skip(payload, data))]
+async fn handle_network_query(
+    _: HttpRequest,
+    payload: String,
+    data: web::Data<(reqwest::Client, String)>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let post_request = |body: String| async {
+        let response = data
+            .0
+            .post(&data.1)
+            .body(body)
+            .header("Content-Type", "application/json")
+            .send()
+            .await?;
+        tracing::info!(network_subgraph_response = %response.status());
+        response.text().await
+    };
+    let result = match post_request(payload).await {
+        Ok(result) => result,
+        Err(network_subgraph_post_err) => {
+            tracing::error!(%network_subgraph_post_err);
+            return Err(ErrorResponse::ok(
+                "Failed to process network subgraph query",
+            ));
+        }
+    };
+    Ok(HttpResponseBuilder::new(StatusCode::OK).body(result))
 }
 
 #[derive(Deserialize, Debug)]
