@@ -7,6 +7,7 @@ mod ws_client;
 
 use crate::{indexer_selection::SecretKey, prelude::*, query_engine::*};
 use actix_web::{
+    dev::{Service, ServiceRequest, ServiceResponse},
     error::ResponseError,
     http::{header, StatusCode},
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
@@ -19,6 +20,7 @@ use std::{
     collections::HashMap,
     error::Error,
     fmt,
+    future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
         Arc,
@@ -117,7 +119,6 @@ async fn main() {
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
     // TODO: /network, /, /ready, metrics?
     // TODO: rate limit API keys
-    // TODO: filter bad headers: https://github.com/graphprotocol/common-ts/blob/5544327c0388a73f4e627625d077b64352031f9f/packages/common-ts/src/security/index.ts
     HttpServer::new(move || {
         let api = web::scope("/api/{api_key}")
             .app_data(web::Data::new((
@@ -126,21 +127,50 @@ async fn main() {
                 inputs.clone(),
                 &QUERY_ID,
             )))
-            .service(
-                web::resource("/subgraphs/id/{subgraph_id}")
-                    .route(web::post().to(handle_subgraph_query)),
+            .route(
+                "/subgraphs/id/{subgraph_id}",
+                web::post().to(handle_subgraph_query),
             )
-            .service(
-                web::resource("/deployments/id/{deployment_id}")
-                    .route(web::post().to(handle_subgraph_query)),
+            .route(
+                "/deployments/id/{deployment_id}",
+                web::post().to(handle_subgraph_query),
             );
-        App::new().service(api)
+        App::new().wrap_fn(reject_bad_headers).service(api)
     })
     .bind(("0.0.0.0", opt.port))
     .expect("Failed to bind")
     .run()
     .await
     .expect("Failed to start server");
+}
+
+fn reject_bad_headers<S>(
+    mut request: ServiceRequest,
+    service: &S,
+) -> impl Future<Output = Result<ServiceResponse, actix_web::Error>>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse, Error = actix_web::Error>,
+{
+    static BAD_HEADERS: &[&str] = &["challenge-bypass-token"];
+    let contains_bad_header = BAD_HEADERS
+        .iter()
+        .any(|&header| request.headers().contains_key(header));
+    // This mess is necessary since some side-effect of cloning the HTTP Request part of the
+    // ServiceRequest will result in a panic in actix-web if the service is called. An enum would be
+    // better, but the types involved cannot be expressed.
+    let (result, err) = if !contains_bad_header {
+        (Some(service.call(request)), None)
+    } else {
+        let http_req = request.parts_mut().0.clone();
+        let err = ServiceResponse::new(http_req, HttpResponse::BadRequest().finish());
+        (None, Some(err))
+    };
+    async move {
+        match result {
+            Some(result) => result.await,
+            None => Ok(err.unwrap()),
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
