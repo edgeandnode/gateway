@@ -8,6 +8,7 @@ pub mod test_utils;
 pub use crate::prelude::decimal::*;
 pub use eventuals::{Eventual, EventualWriter, Ptr};
 pub use std::{convert::TryInto, str::FromStr};
+pub use tokio::sync::{mpsc, oneshot};
 pub use tracing::{self, Instrument};
 
 pub fn init_tracing(json: bool) {

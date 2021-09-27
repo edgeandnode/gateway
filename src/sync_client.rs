@@ -9,6 +9,7 @@ use crate::{
 use eventuals::EventualExt as _;
 use graphql_client::{GraphQLQuery, Response};
 use im;
+use prometheus;
 use reqwest;
 use serde_json::{json, Value as JSON};
 use std::{collections::HashMap, iter::FromIterator, sync::Arc};
@@ -19,12 +20,18 @@ use tokio::{
 use tracing::{self, Instrument};
 use uuid::Uuid;
 
+#[derive(Clone)]
+pub struct Metrics {
+    pub allocations: prometheus::IntGauge,
+    pub transfers: prometheus::IntGauge,
+}
+
 pub fn create(
     agent_url: String,
     poll_interval: Duration,
     signer_key: SecretKey,
     inputs: InputWriters,
-) {
+) -> Metrics {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
     let InputWriters {
         indexer_inputs:
@@ -41,6 +48,11 @@ pub fn create(
     let indexings = Arc::new(Mutex::new(indexings));
 
     let gateway_id = Uuid::new_v4();
+
+    let metrics = Metrics {
+        allocations: prometheus::register_int_gauge!("allocations", "Total allocations").unwrap(),
+        transfers: prometheus::register_int_gauge!("transfers", "Total transfers").unwrap(),
+    };
 
     create_sync_client::<ConversionRates, _>(
         gateway_id,
@@ -105,6 +117,7 @@ pub fn create(
     );
     handle_transfers(
         indexer_selection.clone(),
+        metrics.clone(),
         create_sync_client_input::<Transfers, _>(
             gateway_id,
             agent_url.clone(),
@@ -117,6 +130,7 @@ pub fn create(
     handle_allocations(
         indexer_selection.clone(),
         signer_key,
+        metrics.clone(),
         create_sync_client_input::<UsableAllocations, _>(
             gateway_id,
             agent_url.clone(),
@@ -126,6 +140,7 @@ pub fn create(
             parse_usable_allocations,
         ),
     );
+    metrics
 }
 
 fn create_sync_client_input<Q, T>(
@@ -666,6 +681,7 @@ fn handle_indexing_statuses(
 
 fn handle_transfers(
     indexer_selection: Arc<indexer_selection::Indexers>,
+    metrics: Metrics,
     transfers: Eventual<im::Vector<ParsedTransfer>>,
 ) {
     let mut used_transfers = im::Vector::<ParsedTransfer>::new();
@@ -673,8 +689,10 @@ fn handle_transfers(
         .map(move |transfers| {
             let used_transfers = std::mem::replace(&mut used_transfers, transfers.clone());
             let indexer_selection = indexer_selection.clone();
+            let metrics = metrics.clone();
             async move {
                 tracing::info!(transfers = %transfers.len());
+                metrics.transfers.set(transfers.len() as i64);
                 // Add new transfers.
                 for transfer in transfers.iter() {
                     if used_transfers.iter().any(|t| t.id == transfer.id) {
@@ -716,6 +734,7 @@ fn handle_transfers(
 fn handle_allocations(
     indexer_selection: Arc<indexer_selection::Indexers>,
     signer_key: SecretKey,
+    metrics: Metrics,
     allocations: Eventual<im::Vector<ParsedAllocation>>,
 ) {
     let mut used_allocations = im::Vector::<ParsedAllocation>::new();
@@ -723,8 +742,10 @@ fn handle_allocations(
         .map(move |allocations| {
             let used_allocations = std::mem::replace(&mut used_allocations, allocations.clone());
             let indexer_selection = indexer_selection.clone();
+            let metrics = metrics.clone();
             async move {
                 tracing::info!(allocations = %allocations.len());
+                metrics.allocations.set(allocations.len() as i64);
                 // Add new allocations.
                 for allocation in allocations.iter() {
                     if used_allocations.iter().any(|t| t.id == allocation.id) {

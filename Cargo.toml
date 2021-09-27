@@ -22,6 +22,7 @@ neon-utils = "1.1" # TODO: replace marshalling and remove neon dependency
 num-traits = "0.2" 
 ordered-float = "2.5" 
 primitive-types = "0.8" 
+prometheus = "0.12.0" 
 rand = {version = "0.8", features = ["small_rng"]} 
 receipts-allocation = {package = "receipts", git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "ea0ffdd"} 
 receipts-transfer = {package = "receipts", git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "f4b756f"} 
