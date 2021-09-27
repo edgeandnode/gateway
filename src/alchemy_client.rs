@@ -30,7 +30,6 @@ struct Client {
     rest_client: reqwest::Client,
     source: Source,
     requests: mpsc::Receiver<Request>,
-    request_id: usize,
 }
 
 pub fn create(network: String, url: String, indexers: Arc<Indexers>) -> mpsc::Sender<Request> {
@@ -44,7 +43,6 @@ pub fn create(network: String, url: String, indexers: Arc<Indexers>) -> mpsc::Se
         indexers,
         rest_client: reqwest::Client::new(),
         requests: request_recv,
-        request_id: 0,
     };
     tokio::spawn(
         async move {
@@ -128,7 +126,7 @@ impl Client {
     async fn fetch_block(&mut self, block: Option<UnresolvedBlock>) -> Option<APIBlockHead> {
         let (method, param) = match block {
             Some(UnresolvedBlock::WithHash(hash)) => {
-                ("eth_getBlockByNumber", format!("{:?}", hash).into())
+                ("eth_getBlockByHash", format!("{:?}", hash).into())
             }
             Some(UnresolvedBlock::WithNumber(number)) => ("eth_getBlockByNumber", number.into()),
             None => ("eth_getBlockByNumber", "latest".into()),
@@ -170,11 +168,10 @@ impl Client {
         }
     }
 
-    fn post_body(&mut self, method: &str, params: &[JSON]) -> JSON {
-        self.request_id += 1;
+    fn post_body(&self, method: &str, params: &[JSON]) -> JSON {
         json!({
             "jsonrpc": "2.0",
-            "id": self.request_id,
+            "id": 0,
             "method": method,
             "params": params,
         })
