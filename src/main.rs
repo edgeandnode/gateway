@@ -29,10 +29,7 @@ use std::{
 };
 use structopt::StructOpt;
 use structopt_derive::StructOpt;
-use tokio::{
-    sync::{mpsc, oneshot},
-    time::Duration,
-};
+use tokio::time::Duration;
 
 #[derive(StructOpt, Debug)]
 struct Opt {
@@ -94,17 +91,20 @@ async fn main() {
             .expect("Invalid mnemonic");
 
     let (input_writers, inputs) = Inputs::new();
-    let block_resolvers = opt
+    // TODO: register metrics
+    let (block_resolvers, block_metrics): (
+        HashMap<String, mpsc::Sender<alchemy_client::Request>>,
+        Vec<alchemy_client::Metrics>,
+    ) = opt
         .ethereum_proviers
         .into_iter()
         .map(|(network, ws_url)| {
-            (
-                network.clone(),
-                alchemy_client::create(network, ws_url, input_writers.indexers.clone()),
-            )
+            let (send, metrics) =
+                alchemy_client::create(network.clone(), ws_url, input_writers.indexers.clone());
+            ((network, send), metrics)
         })
-        .collect::<HashMap<String, mpsc::Sender<alchemy_client::Request>>>();
-    sync_client::create(
+        .unzip();
+    let sync_metrics = sync_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
         signer_key,
@@ -126,7 +126,7 @@ async fn main() {
     };
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
     let network_subgraph = opt.network_subgraph;
-    // TODO: /, /ready, metrics?
+    // TODO: /collect-receipts, metrics endpoint?
     // TODO: rate limit API keys
     HttpServer::new(move || {
         let api = web::scope("/api/{api_key}")
@@ -149,7 +149,15 @@ async fn main() {
                 "/deployments/id/{deployment_id}",
                 web::post().to(handle_subgraph_query),
             );
-        App::new().wrap_fn(reject_bad_headers).service(api)
+        App::new()
+            .wrap_fn(reject_bad_headers)
+            .service(api)
+            .route("/", web::get().to(|| async { "Ready to roll!" }))
+            .app_data(web::Data::new((
+                block_metrics.clone(),
+                sync_metrics.clone(),
+            )))
+            .route("/ready", web::get().to(handle_ready))
     })
     .bind(("0.0.0.0", opt.port))
     .expect("Failed to bind")
@@ -184,6 +192,21 @@ where
             Some(result) => result.await,
             None => Ok(err.unwrap()),
         }
+    }
+}
+
+#[tracing::instrument(skip(data))]
+async fn handle_ready(
+    data: web::Data<(Vec<alchemy_client::Metrics>, sync_client::Metrics)>,
+) -> HttpResponse {
+    let ready = data.0.iter().all(|metrics| metrics.head_block.get() > 0)
+        && (data.1.allocations.get() > 0)
+        && (data.1.transfers.get() > 0);
+    if ready {
+        HttpResponseBuilder::new(StatusCode::OK).body("Ready")
+    } else {
+        // Respond with 425 Too Early
+        HttpResponseBuilder::new(StatusCode::from_u16(425).unwrap()).body("Not ready")
     }
 }
 

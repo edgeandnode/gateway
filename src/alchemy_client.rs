@@ -4,13 +4,13 @@ use crate::{
     query_engine::BlockHead,
     ws_client,
 };
+use prometheus;
 use reqwest;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
     self,
-    sync::{mpsc, oneshot},
     time::{interval, Duration, Interval},
 };
 use tracing::{self, Instrument};
@@ -28,13 +28,30 @@ struct Client {
     network: String,
     url: String,
     indexers: Arc<Indexers>,
+    metrics: Metrics,
     rest_client: reqwest::Client,
     source: Source,
     requests: mpsc::Receiver<Request>,
 }
 
-pub fn create(network: String, url: String, indexers: Arc<Indexers>) -> mpsc::Sender<Request> {
+#[derive(Clone)]
+pub struct Metrics {
+    pub head_block: prometheus::IntGauge,
+}
+
+pub fn create(
+    network: String,
+    url: String,
+    indexers: Arc<Indexers>,
+) -> (mpsc::Sender<Request>, Metrics) {
     let _trace = tracing::info_span!("Alchemy client", %network).entered();
+    let metrics = Metrics {
+        head_block: prometheus::register_int_gauge!(
+            format!("head_block_{}", network),
+            format!("{} head block number", network)
+        )
+        .unwrap(),
+    };
     let buffer = 32;
     let (request_send, request_recv) = mpsc::channel::<Request>(buffer);
     let mut client = Client {
@@ -42,6 +59,7 @@ pub fn create(network: String, url: String, indexers: Arc<Indexers>) -> mpsc::Se
         source: Source::WS(ws_client::create(buffer, format!("wss://{}", url), 3)),
         url,
         indexers,
+        metrics: metrics.clone(),
         rest_client: reqwest::Client::new(),
         requests: request_recv,
     };
@@ -52,7 +70,7 @@ pub fn create(network: String, url: String, indexers: Arc<Indexers>) -> mpsc::Se
         }
         .in_current_span(),
     );
-    request_send
+    (request_send, metrics)
 }
 
 impl Client {
@@ -169,6 +187,7 @@ impl Client {
             number,
             uncles,
         } = head;
+        self.metrics.head_block.set(number as i64);
         self.indexers
             .set_block(&self.network, BlockPointer { number, hash })
             .await;
