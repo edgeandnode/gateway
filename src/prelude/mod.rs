@@ -7,6 +7,10 @@ pub mod test_utils;
 
 pub use crate::prelude::decimal::*;
 pub use eventuals::{Eventual, EventualWriter, Ptr};
+pub use prometheus::{
+    self,
+    core::{MetricVec, MetricVecBuilder},
+};
 pub use std::{convert::TryInto, str::FromStr};
 pub use tokio::sync::{mpsc, oneshot};
 pub use tracing::{self, Instrument};
@@ -22,6 +26,17 @@ pub fn init_tracing(json: bool) {
         tracing::subscriber::set_global_default(logger.finish())
             .expect("Failed to set global default for tracing");
     };
+}
+
+pub fn with_metric<T, F, B>(metric_vec: &MetricVec<B>, label_values: &[&str], f: F) -> Option<T>
+where
+    B: MetricVecBuilder,
+    F: Fn(B::M) -> T,
+{
+    metric_vec
+        .get_metric_with_label_values(label_values)
+        .ok()
+        .map(f)
 }
 
 /// Decimal Parts-Per-Million with 6 fractional digits

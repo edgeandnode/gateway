@@ -14,6 +14,8 @@ use actix_web::{
 };
 use async_trait::async_trait;
 use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
+use lazy_static::lazy_static;
+use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
@@ -68,6 +70,8 @@ struct Opt {
     query_budget: String,
     #[structopt(long = "--port", env = "PORT", default_value = "6700")]
     port: u16,
+    #[structopt(long = "--metrics-port", env = "METRICS_PORT", default_value = "7300")]
+    metrics_port: u16,
 }
 
 fn parse_networks(arg: &str) -> Result<(String, String), String> {
@@ -126,7 +130,17 @@ async fn main() {
     };
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
     let network_subgraph = opt.network_subgraph;
-    // TODO: /collect-receipts, metrics endpoint?
+    let metrics_port = opt.metrics_port;
+    actix_web::rt::spawn(async move {
+        HttpServer::new(move || App::new().route("/metrics", web::get().to(handle_metrics)))
+            .bind(("0.0.0.0", metrics_port))
+            .expect("Failed to bind to metrics port")
+            .run()
+            .await
+            .expect("Failed to start metrics server");
+    });
+    // TODO: metrics endpoint
+    // TODO: /collect-receipts & metrics?
     // TODO: rate limit API keys
     HttpServer::new(move || {
         let api = web::scope("/api/{api_key}")
@@ -164,6 +178,17 @@ async fn main() {
     .run()
     .await
     .expect("Failed to start server");
+}
+
+#[tracing::instrument]
+async fn handle_metrics() -> HttpResponse {
+    let encoder = prometheus::TextEncoder::new();
+    let metric_families = prometheus::gather();
+    let mut buffer = vec![];
+    if let Err(metrics_encode_err) = encoder.encode(&metric_families, &mut buffer) {
+        tracing::error!(%metrics_encode_err);
+    }
+    HttpResponseBuilder::new(StatusCode::OK).body(buffer)
 }
 
 fn reject_bad_headers<S>(
@@ -216,6 +241,7 @@ async fn handle_network_query(
     payload: String,
     data: web::Data<(reqwest::Client, String)>,
 ) -> Result<HttpResponse, ErrorResponse> {
+    let timer = METRICS.network_subgraph_queries_duration.start_timer();
     let post_request = |body: String| async {
         let response = data
             .0
@@ -227,16 +253,21 @@ async fn handle_network_query(
         tracing::info!(network_subgraph_response = %response.status());
         response.text().await
     };
-    let result = match post_request(payload).await {
-        Ok(result) => result,
+    let result = post_request(payload).await;
+    timer.observe_duration();
+    match result {
+        Ok(result) => {
+            METRICS.network_subgraph_queries_ok.inc();
+            Ok(HttpResponseBuilder::new(StatusCode::OK).body(result))
+        }
         Err(network_subgraph_post_err) => {
             tracing::error!(%network_subgraph_post_err);
+            METRICS.network_subgraph_queries_failed.inc();
             return Err(ErrorResponse::ok(
                 "Failed to process network subgraph query",
             ));
         }
-    };
-    Ok(HttpResponseBuilder::new(StatusCode::OK).body(result))
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -253,6 +284,7 @@ async fn handle_subgraph_query(
 ) -> Result<String, ErrorResponse> {
     let query_engine = QueryEngine::new(data.0.clone(), data.1.clone(), data.2.clone());
     let url_params = request.match_info();
+    let api_key = url_params.get("api_key").unwrap_or_default();
     let subgraph = if let Some(name) = url_params.get("subgraph_id") {
         Subgraph::Name(name.into())
     } else if let Some(deployment) = url_params
@@ -265,18 +297,26 @@ async fn handle_subgraph_query(
     };
     let query = ClientQuery {
         id: data.3.fetch_add(1, MemoryOrdering::Relaxed),
+        api_key: api_key.to_string(),
         query: payload.query.to_string(),
         variables: payload.variables.as_ref().map(ToString::to_string),
         network: "mainnet".into(),
         subgraph: subgraph,
     };
-    match query_engine.execute_query(query).await {
+    let (query, body) = match query_engine.execute_query(query).await {
         Ok(result) => match serde_json::to_string(&result.response) {
-            Ok(response) => Ok(response),
-            Err(err) => Err(ErrorResponse::internal(err)),
+            Ok(body) => (result.query, body),
+            Err(err) => return Err(ErrorResponse::internal(err)),
         },
-        Err(err) => Err(ErrorResponse::ok(format!("{:?}", err))),
+        Err(err) => return Err(ErrorResponse::ok(format!("{:?}", err))),
+    };
+    if let Ok(hist) = METRICS
+        .query_result_size
+        .get_metric_with_label_values(&[&query.indexing.subgraph.ipfs_hash()])
+    {
+        hist.observe(body.len() as f64);
     }
+    Ok(body)
 }
 
 #[derive(Debug)]
@@ -387,5 +427,45 @@ impl Resolver for NetworkResolver {
             .json::<Response<String>>()
             .await
             .map_err(|err| err.into())
+    }
+}
+
+#[derive(Clone)]
+struct Metrics {
+    network_subgraph_queries_duration: prometheus::Histogram,
+    network_subgraph_queries_failed: prometheus::IntCounter,
+    network_subgraph_queries_ok: prometheus::IntCounter,
+    query_result_size: prometheus::HistogramVec,
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = Metrics::new();
+}
+
+impl Metrics {
+    fn new() -> Self {
+        Self {
+            network_subgraph_queries_duration: prometheus::register_histogram!(
+                "gateway_network_subgraph_query_duration",
+                "Duration of processing a network subgraph query"
+            )
+            .unwrap(),
+            network_subgraph_queries_failed: prometheus::register_int_counter!(
+                "gateway_network_subgraph_queries_failed",
+                "Network subgraph queries that failed executing"
+            )
+            .unwrap(),
+            network_subgraph_queries_ok: prometheus::register_int_counter!(
+                "gateway_network_subgraph_queries_ok",
+                "Successfully executed network subgraph queries"
+            )
+            .unwrap(),
+            query_result_size: prometheus::register_histogram_vec!(
+                "query_engine_query_result_size",
+                "Size of query result",
+                &["deployment"]
+            )
+            .unwrap(),
+        }
     }
 }

@@ -9,6 +9,8 @@ pub use crate::{
 use async_trait::async_trait;
 pub use graphql_client::Response;
 use im;
+use lazy_static::lazy_static;
+use prometheus;
 use std::{error::Error, sync::Arc};
 use tokio::time::Instant;
 
@@ -21,6 +23,7 @@ pub enum Subgraph {
 #[derive(Clone, Debug)]
 pub struct ClientQuery {
     pub id: usize,
+    pub api_key: String,
     pub query: String,
     pub variables: Option<String>,
     pub network: String,
@@ -45,6 +48,32 @@ pub enum QueryEngineError {
 pub struct BlockHead {
     pub block: BlockPointer,
     pub uncles: Vec<Bytes32>,
+}
+
+struct Metrics {
+    indexer_requests_duration: prometheus::HistogramVec,
+    indexer_requests_failed: prometheus::IntCounterVec,
+    indexer_requests_ok: prometheus::IntCounterVec,
+    indexer_selection: IndexerSelectionMetrics,
+    indexer_selection_duration: prometheus::HistogramVec,
+    queries_failed: prometheus::IntCounterVec,
+    queries_ok: prometheus::IntCounterVec,
+    queries_without_deployment: prometheus::IntCounterVec,
+    query_duration: prometheus::HistogramVec,
+    query_execution_duration: prometheus::HistogramVec,
+    subgraph_name_duration: prometheus::HistogramVec,
+}
+
+struct IndexerSelectionMetrics {
+    blocks_behind: prometheus::HistogramVec,
+    fee: prometheus::HistogramVec,
+    indexer_selected: prometheus::IntCounterVec,
+    slashable_dollars: prometheus::HistogramVec,
+    utility: prometheus::HistogramVec,
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = Metrics::new();
 }
 
 #[async_trait]
@@ -123,26 +152,84 @@ impl<R: Resolver> QueryEngine<R> {
         &self,
         query: ClientQuery,
     ) -> Result<QueryResponse, QueryEngineError> {
-        use QueryEngineError::*;
         tracing::debug!(
             query.network = %query.network,
             query.subgraph = ?query.subgraph,
-            indexer_selection_retry_limit = ?self.config.indexer_selection_retry_limit);
+            indexer_selection_retry_limit = ?self.config.indexer_selection_retry_limit
+        );
+        let api_key = query.api_key.clone();
+        let query_start = Instant::now();
+        let name_timer = if let Subgraph::Name(subgraph_name) = &query.subgraph {
+            with_metric(&METRICS.subgraph_name_duration, &[subgraph_name], |hist| {
+                hist.start_timer()
+            })
+        } else {
+            None
+        };
         let deployment = match &query.subgraph {
             Subgraph::Deployment(deployment) => deployment.clone(),
             Subgraph::Name(name) => self
                 .deployments
                 .value_immediate()
                 .and_then(|map| map.get(name).cloned())
-                .ok_or(SubgraphNotFound)?,
+                .ok_or_else(|| {
+                    with_metric(
+                        &METRICS.queries_without_deployment,
+                        &[&api_key],
+                        |counter| counter.inc(),
+                    );
+                    QueryEngineError::SubgraphNotFound
+                })?,
         };
+        name_timer.map(|t| t.observe_duration());
+        let deployment_ipfs = deployment.ipfs_hash();
+        let result = self
+            .execute_deployment_query(query, deployment, &deployment_ipfs)
+            .await;
+        let result_counter = if let Ok(_) = result {
+            &METRICS.queries_ok
+        } else {
+            &METRICS.queries_failed
+        };
+        with_metric(result_counter, &[&deployment_ipfs, &api_key], |counter| {
+            counter.inc()
+        });
+        with_metric(
+            &METRICS.query_duration,
+            &[&deployment_ipfs, &api_key],
+            |hist| {
+                let t = Instant::now() - query_start;
+                hist.observe(t.as_secs_f64());
+            },
+        );
+        result
+    }
+
+    #[tracing::instrument(skip(self, query, deployment_ipfs), fields(%query.id))]
+    async fn execute_deployment_query(
+        &self,
+        query: ClientQuery,
+        deployment: SubgraphDeploymentID,
+        deployment_ipfs: &str,
+    ) -> Result<QueryResponse, QueryEngineError> {
+        use QueryEngineError::*;
         let mut indexers = self
             .deployment_indexers
             .value_immediate()
             .and_then(|map| map.get(&deployment).cloned())
             .unwrap_or_default();
         tracing::debug!(?deployment, deployment_indexers = indexers.len());
+        let execution_timer = with_metric(
+            &METRICS.query_execution_duration,
+            &[&deployment_ipfs],
+            |hist| hist.start_timer(),
+        );
         for _ in 0..self.config.indexer_selection_retry_limit {
+            let selection_timer = with_metric(
+                &METRICS.indexer_selection_duration,
+                &[&deployment_ipfs],
+                |hist| hist.start_timer(),
+            );
             let selection_result = self
                 .indexers
                 .select_indexer(
@@ -155,6 +242,8 @@ impl<R: Resolver> QueryEngine<R> {
                     self.config.query_budget,
                 )
                 .await;
+
+            selection_timer.map(|t| t.observe_duration());
             match &selection_result {
                 Ok(None) => tracing::info!(err = ?NoIndexerSelected),
                 Err(err) => tracing::info!(?err),
@@ -171,11 +260,18 @@ impl<R: Resolver> QueryEngine<R> {
                     continue;
                 }
             };
-            tracing::info!(indexer = ?indexer_query.indexing.indexer);
+            let indexer_id = format!("{:?}", indexer_query.indexing.indexer);
+            tracing::info!(indexer = %indexer_id);
+            self.observe_indexer_selection_metrics(&deployment, &indexer_query);
             let t0 = Instant::now();
             let result = self.resolver.query_indexer(&indexer_query).await;
             let query_duration = Instant::now() - t0;
             tracing::debug!(query_duration = ?query_duration);
+            with_metric(
+                &METRICS.indexer_requests_duration,
+                &[&deployment_ipfs, &indexer_id],
+                |hist| hist.observe(query_duration.as_secs_f64()),
+            );
 
             let response = match result {
                 Ok(response) => response,
@@ -190,9 +286,19 @@ impl<R: Resolver> QueryEngine<R> {
                             .position(|indexer| indexer == &indexer_query.indexing.indexer)
                             .unwrap(),
                     );
+                    with_metric(
+                        &METRICS.indexer_requests_failed,
+                        &[&deployment_ipfs, &indexer_id],
+                        |counter| counter.inc(),
+                    );
                     continue;
                 }
             };
+            with_metric(
+                &METRICS.indexer_requests_ok,
+                &[&deployment_ipfs, &indexer_id],
+                |counter| counter.inc(),
+            );
             let indexer_behind_err =
                 "Failed to decode `block.hash` value: `no block with that hash found`";
             if response
@@ -216,6 +322,7 @@ impl<R: Resolver> QueryEngine<R> {
                     &indexer_query.receipt,
                 )
                 .await;
+            execution_timer.map(|t| t.observe_duration());
             return Ok(QueryResponse {
                 query: indexer_query,
                 response,
@@ -253,5 +360,139 @@ impl<R: Resolver> QueryEngine<R> {
             return Err(QueryEngineError::MissingBlocks(unresolved));
         }
         Ok(())
+    }
+
+    fn observe_indexer_selection_metrics(
+        &self,
+        deployment: &SubgraphDeploymentID,
+        selection: &IndexerQuery,
+    ) {
+        let deployment = deployment.ipfs_hash();
+        let metrics = &METRICS.indexer_selection;
+        if let Ok(hist) = metrics
+            .blocks_behind
+            .get_metric_with_label_values(&[&deployment])
+        {
+            if let Some(blocks_behind) = selection.blocks_behind {
+                hist.observe(blocks_behind as f64);
+            }
+        }
+        if let Ok(hist) = metrics.fee.get_metric_with_label_values(&[&deployment]) {
+            hist.observe(selection.fee.as_f64());
+        }
+        if let Ok(counter) = metrics.indexer_selected.get_metric_with_label_values(&[
+            &deployment,
+            &format!("{:?}", selection.indexing.indexer),
+        ]) {
+            counter.inc();
+        }
+        if let Ok(hist) = metrics
+            .slashable_dollars
+            .get_metric_with_label_values(&[&deployment])
+        {
+            hist.observe(selection.slashable_usd.as_f64());
+        }
+        if let Ok(hist) = metrics.utility.get_metric_with_label_values(&[&deployment]) {
+            hist.observe(*selection.utility);
+        }
+    }
+}
+
+impl Metrics {
+    fn new() -> Self {
+        Self {
+            indexer_requests_duration: prometheus::register_histogram_vec!(
+                "query_engine_indexer_request_duration",
+                "Duration of making a request to an indexer",
+                &["deployment", "indexer"]
+            )
+            .unwrap(),
+            indexer_requests_failed: prometheus::register_int_counter_vec!(
+                "query_engine_indexer_requests_failed",
+                "Number of failed queries made to an indexer",
+                &["deployment", "indexer"]
+            )
+            .unwrap(),
+            indexer_requests_ok: prometheus::register_int_counter_vec!(
+                "query_engine_indexer_requests_ok",
+                "Number of successful requests made to an indexer",
+                &["deployment", "indexer"]
+            )
+            .unwrap(),
+            indexer_selection: IndexerSelectionMetrics {
+                blocks_behind: prometheus::register_histogram_vec!(
+                    "indexer_selection_blocks_behind",
+                    "Number of blocks that indexers are behind",
+                    &["deployment"]
+                )
+                .unwrap(),
+                fee: prometheus::register_histogram_vec!(
+                    "indexer_selection_fee",
+                    "Query fee amount based on cost models",
+                    &["deployment"]
+                )
+                .unwrap(),
+                indexer_selected: prometheus::register_int_counter_vec!(
+                    "indexer_selection_indexer_selected",
+                    "Number of times an indexer was selected",
+                    &["deployment", "indexer"]
+                )
+                .unwrap(),
+                slashable_dollars: prometheus::register_histogram_vec!(
+                    "indexer_selection_slashable_dollars",
+                    "Slashable dollars of selected indexers",
+                    &["deployment"]
+                )
+                .unwrap(),
+                utility: prometheus::register_histogram_vec!(
+                    "indexer_selection_utility",
+                    "Combined overall utility",
+                    &["deployment"]
+                )
+                .unwrap(),
+            },
+            indexer_selection_duration: prometheus::register_histogram_vec!(
+                "query_engine_indexer_selection_duration",
+                "Duration of selecting an indexer for a query",
+                &["deployment"]
+            )
+            .unwrap(),
+            queries_failed: prometheus::register_int_counter_vec!(
+                "gateway_queries_failed",
+                "Queries that failed executing",
+                &["deployment", "apiKey"]
+            )
+            .unwrap(),
+            queries_ok: prometheus::register_int_counter_vec!(
+                "gateway_queries_ok",
+                "Successfully executed queries",
+                &["deployment", "apiKey"]
+            )
+            .unwrap(),
+            queries_without_deployment: prometheus::register_int_counter_vec!(
+                "gateway_queries_for_subgraph_without_deployment",
+                "Queries for a subgraph that has no version/deployment",
+                &["apiKey"]
+            )
+            .unwrap(),
+            query_duration: prometheus::register_histogram_vec!(
+                "gateway_query_execution_duration",
+                "Duration of processing a query",
+                &["deployment", "apiKey"]
+            )
+            .unwrap(),
+            query_execution_duration: prometheus::register_histogram_vec!(
+                "query_engine_query_execution_duration",
+                "Duration of executing the query for a deployment",
+                &["deployment"]
+            )
+            .unwrap(),
+            subgraph_name_duration: prometheus::register_histogram_vec!(
+                "query_engine_subgraph_name_duration",
+                "Duration of resolving a subgraph name to a deployment",
+                &["name"]
+            )
+            .unwrap(),
+        }
     }
 }
