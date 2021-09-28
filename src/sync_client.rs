@@ -6,6 +6,7 @@ use crate::{
     prelude::{shared_lookup::SharedLookupWriter, *},
     query_engine::InputWriters,
 };
+use eventuals::EventualExt as _;
 use graphql_client::{GraphQLQuery, Response};
 use im;
 use reqwest;
@@ -561,19 +562,14 @@ fn parse_usable_allocations(
     Some(parsed)
 }
 
-#[tracing::instrument(skip(indexings, cost_models))]
 fn handle_cost_models(
     indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
     cost_models: Eventual<Vec<(Indexing, CostModelSource)>>,
 ) {
-    tokio::spawn(
-        async move {
-            let mut cost_models = cost_models.subscribe();
-            loop {
-                let cost_models = match cost_models.next().await {
-                    Ok(cost_models) => cost_models,
-                    Err(_) => break,
-                };
+    cost_models
+        .map(move |cost_models| {
+            let indexings = indexings.clone();
+            async move {
                 tracing::info!(cost_models = %cost_models.len());
                 let mut locked = indexings.lock().await;
                 for (indexing, model) in cost_models {
@@ -581,86 +577,74 @@ fn handle_cost_models(
                     writer.cost_model.write(model);
                 }
             }
-        }
-        .in_current_span(),
-    );
+            .instrument(tracing::info_span!("handle_cost_models"))
+        })
+        .pipe(|_| ())
+        .forever();
 }
 
-#[tracing::instrument(skip(
-    indexers,
-    deployments,
-    deployment_indexers,
-    current_deployments,
-    indexer_statuses
-))]
 fn handle_deployments(
-    mut indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
+    indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
     mut deployments: EventualWriter<im::HashMap<String, SubgraphDeploymentID>>,
     mut deployment_indexers: EventualWriter<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
     current_deployments: Eventual<im::Vector<(String, SubgraphDeploymentID)>>,
     indexer_statuses: Eventual<im::Vector<(SubgraphDeploymentID, im::Vector<ParsedIndexerStatus>)>>,
 ) {
-    tokio::spawn(
-        async move {
-            let mut update = eventuals::join((current_deployments, indexer_statuses)).subscribe();
-            loop {
-                let (current_deployments, indexer_statuses) = match update.next().await {
-                    Ok(update) => update,
-                    Err(_) => break,
-                };
-                tracing::info!(
-                    current_deployments = %current_deployments.len(),
-                    indexed_deployments = %indexer_statuses.len(),
-                );
-                deployments.write(current_deployments.into_iter().collect());
-                deployment_indexers.write(
-                    indexer_statuses
-                        .iter()
-                        .map(|(deployment, indexer_statuses)| {
-                            // TODO: We are assuming the network is mainnet for now.
-                            let network = "mainnet".to_string();
-                            tracing::trace!(
-                                %network,
-                                ?deployment,
-                                indexer_statuses = indexer_statuses.len(),
-                            );
-                            (
-                                deployment.clone(),
-                                indexer_statuses.iter().map(|status| status.id).collect(),
-                            )
-                        })
-                        .collect(),
-                );
-                let statuses = HashMap::<Address, ParsedIndexerStatus>::from_iter(
-                    indexer_statuses.into_iter().flat_map(|(_, statuses)| {
-                        statuses.into_iter().map(|status| (status.id, status))
-                    }),
-                );
-                tracing::info!(indexers = %statuses.len());
+    let indexers = Arc::new(Mutex::new(indexers));
+    eventuals::join((current_deployments, indexer_statuses))
+        .map(move |(current_deployments, indexer_statuses)| {
+            let _span = tracing::info_span!("handle_deployments").entered();
+            tracing::info!(
+                current_deployments = %current_deployments.len(),
+                indexed_deployments = %indexer_statuses.len(),
+            );
+            deployments.write(current_deployments.into_iter().collect());
+            deployment_indexers.write(
+                indexer_statuses
+                    .iter()
+                    .map(|(deployment, indexer_statuses)| {
+                        // TODO: We are assuming the network is mainnet for now.
+                        let network = "mainnet".to_string();
+                        tracing::trace!(
+                            %network,
+                            ?deployment,
+                            indexer_statuses = indexer_statuses.len(),
+                        );
+                        (
+                            deployment.clone(),
+                            indexer_statuses.iter().map(|status| status.id).collect(),
+                        )
+                    })
+                    .collect(),
+            );
+            let statuses = HashMap::<Address, ParsedIndexerStatus>::from_iter(
+                indexer_statuses.into_iter().flat_map(|(_, statuses)| {
+                    statuses.into_iter().map(|status| (status.id, status))
+                }),
+            );
+            tracing::info!(indexers = %statuses.len());
+            let indexers = indexers.clone();
+            async move {
+                let mut indexers = indexers.lock().await;
                 for (indexer, status) in statuses {
                     let indexer = indexers.write(&indexer).await;
                     indexer.stake.write(status.staked);
                     indexer.delegated_stake.write(status.delegated);
                 }
             }
-        }
-        .in_current_span(),
-    );
+        })
+        .pipe(|_| ())
+        .forever();
 }
 
-#[tracing::instrument(skip(indexer_selection, indexing_statuses))]
 fn handle_indexing_statuses(
     indexer_selection: Arc<indexer_selection::Indexers>,
     indexing_statuses: Eventual<im::Vector<ParsedIndexingStatus>>,
 ) {
-    tokio::spawn(
-        async move {
-            let mut indexing_statuses = indexing_statuses.subscribe();
-            loop {
-                let indexing_statuses = match indexing_statuses.next().await {
-                    Ok(indexing_statuses) => indexing_statuses,
-                    Err(_) => break,
-                };
+    indexing_statuses
+        .map(move |indexing_statuses| {
+            let indexer_selection = indexer_selection.clone();
+            async move {
                 tracing::info!(indexing_statuses = %indexing_statuses.len());
                 for status in indexing_statuses {
                     indexer_selection
@@ -672,25 +656,22 @@ fn handle_indexing_statuses(
                         .await;
                 }
             }
-        }
-        .in_current_span(),
-    );
+            .instrument(tracing::info_span!("handle_indexing_statuses"))
+        })
+        .pipe(|_| ())
+        .forever();
 }
 
-#[tracing::instrument(skip(indexer_selection, transfers))]
 fn handle_transfers(
     indexer_selection: Arc<indexer_selection::Indexers>,
     transfers: Eventual<im::Vector<ParsedTransfer>>,
 ) {
     let mut used_transfers = im::Vector::<ParsedTransfer>::new();
-    tokio::spawn(
-        async move {
-            let mut transfers = transfers.subscribe();
-            loop {
-                let transfers = match transfers.next().await {
-                    Ok(transfers) => transfers,
-                    Err(_) => break,
-                };
+    transfers
+        .map(move |transfers| {
+            let used_transfers = std::mem::replace(&mut used_transfers, transfers.clone());
+            let indexer_selection = indexer_selection.clone();
+            async move {
                 tracing::info!(transfers = %transfers.len());
                 // Add new transfers.
                 for transfer in transfers.iter() {
@@ -723,28 +704,24 @@ fn handle_transfers(
                             .await;
                     });
                 }
-                used_transfers = transfers;
             }
-        }
-        .in_current_span(),
-    );
+            .instrument(tracing::info_span!("handle_transfers"))
+        })
+        .pipe(|_| ())
+        .forever();
 }
 
-#[tracing::instrument(skip(indexer_selection, signer_key, allocations))]
 fn handle_allocations(
     indexer_selection: Arc<indexer_selection::Indexers>,
     signer_key: SecretKey,
     allocations: Eventual<im::Vector<ParsedAllocation>>,
 ) {
     let mut used_allocations = im::Vector::<ParsedAllocation>::new();
-    tokio::spawn(
-        async move {
-            let mut allocations = allocations.subscribe();
-            loop {
-                let allocations = match allocations.next().await {
-                    Ok(allocations) => allocations,
-                    Err(_) => break,
-                };
+    allocations
+        .map(move |allocations| {
+            let used_allocations = std::mem::replace(&mut used_allocations, allocations.clone());
+            let indexer_selection = indexer_selection.clone();
+            async move {
                 tracing::info!(allocations = %allocations.len());
                 // Add new allocations.
                 for allocation in allocations.iter() {
@@ -764,7 +741,7 @@ fn handle_allocations(
                     if allocations.iter().any(|t| t.id == allocation.id) {
                         continue;
                     }
-                    // HOY (Hack Of the Year): Remove the old transfer in 5 minutes, to give new
+                    // HOY (Hack Of the Year): Remove the old allocation in 5 minutes, to give new
                     // allocations and replacement transfer some time to propagate through the
                     // system and into indexer selection.
                     let indexer_selection = indexer_selection.clone();
@@ -776,9 +753,9 @@ fn handle_allocations(
                             .await;
                     });
                 }
-                used_allocations = allocations;
             }
-        }
-        .in_current_span(),
-    );
+            .instrument(tracing::info_span!("handle_allocations"))
+        })
+        .pipe(|_| ())
+        .forever();
 }
