@@ -1,5 +1,8 @@
 use crate::{
-    indexer_selection::test_utils::{default_cost_model, TEST_KEY},
+    indexer_selection::{
+        self,
+        test_utils::{default_cost_model, TEST_KEY},
+    },
     prelude::{
         decimal,
         test_utils::{bytes_from_id, BASIC_QUERY},
@@ -514,6 +517,7 @@ impl Topology {
     }
 }
 
+#[derive(Clone)]
 struct TopologyResolver {
     topology: Arc<Mutex<Topology>>,
 }
@@ -566,6 +570,15 @@ impl Resolver for TopologyResolver {
             data: Some("success".into()),
             errors: None,
         })
+    }
+
+    async fn create_transfer(
+        &self,
+        indexers: &indexer_selection::Indexers,
+        indexing: Indexing,
+        fee: GRT,
+    ) -> Result<(), Box<dyn Error>> {
+        return Err("TODO: create_transfer".into());
     }
 }
 

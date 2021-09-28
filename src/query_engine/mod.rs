@@ -83,6 +83,13 @@ pub trait Resolver {
 
     async fn query_indexer(&self, query: &IndexerQuery)
         -> Result<Response<String>, Box<dyn Error>>;
+
+    async fn create_transfer(
+        &self,
+        indexers: &Indexers,
+        indexing: Indexing,
+        fee: GRT,
+    ) -> Result<(), Box<dyn Error>>;
 }
 
 #[derive(Clone)]
@@ -129,7 +136,7 @@ impl Inputs {
     }
 }
 
-pub struct QueryEngine<R: Resolver> {
+pub struct QueryEngine<R: Clone + Resolver + Send> {
     indexers: Arc<Indexers>,
     deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
@@ -137,7 +144,7 @@ pub struct QueryEngine<R: Resolver> {
     config: Config,
 }
 
-impl<R: Resolver> QueryEngine<R> {
+impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
     pub fn new(config: Config, resolver: R, inputs: Inputs) -> Self {
         Self {
             indexers: inputs.indexers,
@@ -260,7 +267,36 @@ impl<R: Resolver> QueryEngine<R> {
                     self.resolve_blocks(&query, unresolved).await?;
                     continue;
                 }
+                Err(SelectionError::InsufficientCollateral(indexing, fee)) => {
+                    match self
+                        .resolver
+                        .create_transfer(&self.indexers, indexing, fee)
+                        .await
+                    {
+                        Ok(()) => continue,
+                        Err(transfer_err) => {
+                            tracing::error!(%transfer_err);
+                            return Err(NoIndexerSelected);
+                        }
+                    };
+                }
             };
+            if indexer_query.low_collateral_warning {
+                let resolver = self.resolver.clone();
+                let indexers = self.indexers.clone();
+                let indexing = indexer_query.indexing.clone();
+                let fee = indexer_query.fee.clone();
+                tokio::spawn(
+                    async move {
+                        let res = resolver.create_transfer(&indexers, indexing, fee);
+                        if let Err(transfer_err) = res.await {
+                            tracing::error!(%transfer_err);
+                        }
+                    }
+                    .in_current_span(),
+                );
+            }
+
             let indexer_id = format!("{:?}", indexer_query.indexing.indexer);
             tracing::info!(indexer = %indexer_id);
             self.observe_indexer_selection_metrics(&deployment, &indexer_query);

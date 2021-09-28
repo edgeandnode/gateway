@@ -13,6 +13,7 @@ use actix_web::{
 use async_trait::async_trait;
 use bip39;
 use eventuals::EventualExt;
+use graphql_client::GraphQLQuery;
 use hdwallet::{self, KeyChain as _};
 use hex;
 use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
@@ -33,6 +34,7 @@ use structopt::StructOpt;
 use structopt_derive::StructOpt;
 use tokio::time::Duration;
 use tree_buf;
+use uuid::Uuid;
 
 #[derive(StructOpt, Debug)]
 struct Opt {
@@ -95,6 +97,8 @@ async fn main() {
     init_tracing(opt.log_json);
     tracing::info!("Graph gateway starting...");
     tracing::trace!("{:#?}", opt);
+    let gateway_id = Uuid::new_v4();
+    tracing::info!(%gateway_id);
 
     let wallet_seed = bip39::Seed::new(
         &bip39::Mnemonic::from_phrase(&opt.mnemonic, bip39::Language::English)
@@ -142,6 +146,7 @@ async fn main() {
     let sync_metrics = sync_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
+        gateway_id,
         signer_key.clone(),
         input_writers,
     );
@@ -158,6 +163,8 @@ async fn main() {
     let resolver = NetworkResolver {
         block_resolvers: Arc::new(block_resolvers),
         client: http_client.clone(),
+        network_subgraph_url: opt.network_subgraph.clone(),
+        gateway_id,
     };
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
     let network_subgraph = opt.network_subgraph;
@@ -394,6 +401,8 @@ fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> HttpRe
 struct NetworkResolver {
     block_resolvers: Arc<HashMap<String, mpsc::Sender<alchemy_client::Request>>>,
     client: reqwest::Client,
+    network_subgraph_url: String,
+    gateway_id: Uuid,
 }
 
 #[async_trait]
@@ -451,7 +460,94 @@ impl Resolver for NetworkResolver {
             .await
             .map_err(|err| err.into())
     }
+
+    #[tracing::instrument(skip(self, indexers, indexing, fee))]
+    async fn create_transfer(
+        &self,
+        indexers: &indexer_selection::Indexers,
+        indexing: Indexing,
+        fee: GRT,
+    ) -> Result<(), Box<dyn Error>> {
+        tracing::info!(
+            deployment = ?indexing.subgraph,
+            indexer = ?indexing.indexer,
+            fee = ?fee,
+            "Creating transfer to increase collateral",
+        );
+        let query = CreateTransfer::build_query(create_transfer::Variables {
+            gateway_id: self.gateway_id.to_string(),
+            deployment: indexing.subgraph.ipfs_hash(),
+            indexer: format!("{:?}", indexing.indexer),
+        });
+        let response = self
+            .client
+            .post(&self.network_subgraph_url)
+            .json(&query)
+            .send()
+            .await?
+            .json::<Response<create_transfer::ResponseData>>()
+            .await?;
+        if let Some(errors) = response.errors {
+            return Err(errors
+                .into_iter()
+                .map(|err| err.message)
+                .collect::<Vec<String>>()
+                .join(", ")
+                .into());
+        }
+        let transfer = match response.data {
+            Some(data) => data.create_transfer,
+            None => return Err("Empty transfer data".into()),
+        };
+        let transfer_id = transfer
+            .id
+            .parse::<Bytes32>()
+            .map_err(|_| "Malformed transfer ID")?;
+        let transfer_indexing = Indexing {
+            subgraph: transfer
+                .deployment
+                .parse()
+                .map_err(|_| "Malformed transfer deployment ID")?,
+            indexer: transfer
+                .indexer
+                .id
+                .parse()
+                .map_err(|_| "Malformed transfer indexer ID")?,
+        };
+        let transfer_collateral = transfer
+            .collateral
+            .parse::<GRT>()
+            .map_err(|_| "Malformed transfer collateral")?;
+        let signer_key = transfer
+            .signer_key
+            .parse::<SecretKey>()
+            .map_err(|_| "Malformed signer key")?;
+        tracing::trace!(
+            id = ?transfer_id,
+            deployment = ?transfer_indexing.subgraph,
+            indexer = ?transfer_indexing.indexer,
+            collateral = ?transfer_collateral,
+            "Successfully created transfer to increate collateral",
+        );
+        indexers
+            .install_receipts_transfer(
+                &transfer_indexing,
+                transfer_id,
+                &transfer_collateral,
+                signer_key,
+            )
+            .await;
+        Ok(())
+    }
 }
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "graphql/sync_agent_schema.gql",
+    query_path = "graphql/create_transfer.gql",
+    response_derives = "Debug"
+)]
+struct CreateTransfer;
 
 #[derive(Clone)]
 struct Metrics {

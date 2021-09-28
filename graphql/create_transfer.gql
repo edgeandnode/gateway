@@ -1,0 +1,23 @@
+mutation CreateTransfer(
+  $gatewayId: String!
+  $indexer: String!
+  $deployment: String!
+) {
+  createTransfer(
+    gatewayId: $gatewayId
+    indexer: $indexer
+    deployment: $deployment
+  ) {
+    id
+    indexer {
+      id
+      url
+      createdAt
+      stakedTokens
+      delegatedTokens
+    }
+    deployment
+    collateral
+    signerKey
+  }
+}

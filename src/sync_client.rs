@@ -29,6 +29,7 @@ pub struct Metrics {
 pub fn create(
     agent_url: String,
     poll_interval: Duration,
+    gateway_id: Uuid,
     signer_key: SecretKey,
     inputs: InputWriters,
 ) -> Metrics {
@@ -46,8 +47,6 @@ pub fn create(
         indexers: indexer_selection,
     } = inputs;
     let indexings = Arc::new(Mutex::new(indexings));
-
-    let gateway_id = Uuid::new_v4();
 
     let metrics = Metrics {
         allocations: prometheus::register_int_gauge!("allocations", "Total allocations").unwrap(),

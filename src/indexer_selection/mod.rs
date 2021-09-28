@@ -53,6 +53,7 @@ pub struct IndexerQuery {
     pub url: String,
     pub query: String,
     pub receipt: Receipt,
+    pub low_collateral_warning: bool,
     pub fee: GRT,
     pub slashable_usd: USD,
     pub utility: NotNan<f64>,
@@ -89,6 +90,7 @@ pub enum SelectionError {
     MissingNetworkParams,
     MissingBlocks(Vec<UnresolvedBlock>),
     BadIndexer(BadIndexerReason),
+    InsufficientCollateral(Indexing, GRT),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -100,16 +102,7 @@ pub enum BadIndexerReason {
     MissingCostModel,
     QueryNotCosted,
     FeeTooHigh,
-    InsufficientCollateral,
     NaN,
-}
-
-impl From<BorrowFail> for BadIndexerReason {
-    fn from(err: BorrowFail) -> Self {
-        match err {
-            BorrowFail::InsufficientCollateral => Self::InsufficientCollateral,
-        }
-    }
 }
 
 impl From<BadIndexerReason> for SelectionError {
@@ -482,9 +475,6 @@ impl Indexers {
                 )
                 .await
             {
-                Err(SelectionError::BadIndexer(BadIndexerReason::InsufficientCollateral)) => {
-                    continue
-                }
                 Ok(Some(result)) => break result,
                 Ok(None) => return Ok(None),
                 Err(err) => return Err(err),
@@ -503,6 +493,7 @@ impl Indexers {
             url: score.url,
             query: query.query,
             receipt: receipt.commitment.into(),
+            low_collateral_warning: receipt.low_collateral_warning,
             fee: score.fee,
             slashable_usd: score.slashable,
             utility: score.utility,
@@ -598,14 +589,15 @@ impl Indexers {
         // kick off resolutions (eg: getting block hashes, or adding collateral)
         // and at the same time try to use another Indexer.
 
+        let fee = score.fee.clone();
         self.indexings
             .get(&indexing)
             .await
-            .ok_or(BadIndexerReason::InsufficientCollateral)?
-            .commit(&score.fee)
+            .ok_or(BadIndexerReason::MissingIndexingStatus)?
+            .commit(&fee)
             .await
-            .map(move |receipt| Some((indexing, score, receipt)))
-            .map_err(|err| SelectionError::BadIndexer(err.into()))
+            .map(|receipt| Some((indexing.clone(), score, receipt)))
+            .map_err(|_| SelectionError::InsufficientCollateral(indexing.clone(), fee))
     }
 
     async fn score_indexer(
@@ -665,7 +657,10 @@ impl Indexers {
         aggregator.add(price_efficiency);
 
         if !selection_factors.has_collateral_for(&fee).await {
-            return Err(BadIndexerReason::InsufficientCollateral.into());
+            return Err(SelectionError::InsufficientCollateral(
+                indexing.clone(),
+                fee,
+            ));
         }
 
         aggregator.add(
