@@ -11,7 +11,9 @@ use actix_web::{
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use async_trait::async_trait;
+use bip39;
 use eventuals::EventualExt;
+use hdwallet::{self, KeyChain as _};
 use hex;
 use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
 use lazy_static::lazy_static;
@@ -33,6 +35,12 @@ use tokio::time::Duration;
 
 #[derive(StructOpt, Debug)]
 struct Opt {
+    #[structopt(
+        help = "Ethereum wallet mnemonic",
+        long = "--mnemonic",
+        env = "MNEMONIC"
+    )]
+    mnemonic: String,
     #[structopt(
         help = "URL of gateway agent syncing API",
         long = "--sync-agent",
@@ -87,10 +95,22 @@ async fn main() {
     tracing::info!("Graph gateway starting...");
     tracing::trace!("{:#?}", opt);
 
-    // TODO: set from mnemonic env var
-    let signer_key =
-        SecretKey::from_str("244226452948404D635166546A576E5A7234753778217A25432A462D4A614E64")
-            .expect("Invalid mnemonic");
+    let wallet_seed = bip39::Seed::new(
+        &bip39::Mnemonic::from_phrase(&opt.mnemonic, bip39::Language::English)
+            .expect("Invalid mnemonic"),
+        "",
+    );
+    let signer_key = hdwallet::DefaultKeyChain::new(
+        hdwallet::ExtendedPrivKey::with_seed(wallet_seed.as_bytes()).expect("Invalid mnemonic"),
+    )
+    .derive_private_key("m/scalar/allocations".into())
+    .expect("Failed to derive signer key")
+    .0
+    .private_key;
+    // Convert between versions of secp256k1 lib.
+    let signer_key = SecretKey::from_slice(signer_key.as_ref()).unwrap();
+    // Zeroize the wallet seed.
+    drop(wallet_seed);
 
     let (input_writers, inputs) = Inputs::new();
 

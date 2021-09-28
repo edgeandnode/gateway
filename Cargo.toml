@@ -16,6 +16,7 @@ futures = "0.3"
 futures-util = "0.3" 
 graphql-parser = {git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df"} 
 graphql_client = "0.10" 
+hdwallet = "0.3" 
 hex = "0.4" 
 im = "15.0" # Good vector implementation, CHAMP encoding should be added if we use a hash map/set
 lazy_static = "1.4" 
@@ -33,6 +34,7 @@ serde = "1.0"
 serde_json = {version = "1.0", features = ["raw_value"]} 
 structopt = "0.1" 
 structopt-derive = "0.1" 
+tiny-bip39 = "0.8" 
 tokio = {version = "1.10", features = ["sync", "time", "macros", "rt-multi-thread", "parking_lot"]} 
 tokio-tungstenite = {version = "0.14", features = ["native-tls"]} 
 tracing = "0.1" 
