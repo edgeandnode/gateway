@@ -6,6 +6,12 @@ pub enum ParseStrError {
     InvalidInput,
 }
 
+impl ToString for ParseStrError {
+    fn to_string(&self) -> String {
+        "Failed to parse decimal value".into()
+    }
+}
+
 /// Represents a positive decimal value with some fractional digit precision, P.
 /// Using U256 as storage.
 #[derive(Copy, Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]

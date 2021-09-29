@@ -8,8 +8,7 @@ mod ws_client;
 use crate::{indexer_selection::SecretKey, prelude::*, query_engine::*};
 use actix_web::{
     dev::{Service, ServiceRequest, ServiceResponse},
-    error::ResponseError,
-    http::{header, StatusCode},
+    http::{header, HeaderName, StatusCode},
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use async_trait::async_trait;
@@ -23,7 +22,6 @@ use serde_json::{json, value::RawValue};
 use std::{
     collections::HashMap,
     error::Error,
-    fmt,
     future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
@@ -68,7 +66,7 @@ struct Opt {
         env = "QUERY_BUDGET",
         default_value = "0.0005"
     )]
-    query_budget: String,
+    query_budget: GRT,
     #[structopt(long = "--port", env = "PORT", default_value = "6700")]
     port: u16,
     #[structopt(long = "--metrics-port", env = "METRICS_PORT", default_value = "7300")]
@@ -117,7 +115,7 @@ async fn main() {
     let config = query_engine::Config {
         indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
         utility: UtilityConfig::default(),
-        query_budget: opt.query_budget.parse().expect("Invalid query budget"),
+        query_budget: opt.query_budget,
     };
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -131,8 +129,10 @@ async fn main() {
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
     let network_subgraph = opt.network_subgraph;
     let metrics_port = opt.metrics_port;
+    // Host metrics on a separate server with a port that isn't open to public requests.
     actix_web::rt::spawn(async move {
         HttpServer::new(move || App::new().route("/metrics", web::get().to(handle_metrics)))
+            .workers(1)
             .bind(("0.0.0.0", metrics_port))
             .expect("Failed to bind to metrics port")
             .run()
@@ -198,6 +198,8 @@ async fn handle_metrics() -> HttpResponse {
     let mut buffer = vec![];
     if let Err(metrics_encode_err) = encoder.encode(&metric_families, &mut buffer) {
         tracing::error!(%metrics_encode_err);
+        return HttpResponseBuilder::new(StatusCode::INTERNAL_SERVER_ERROR)
+            .body("Failed to encode metrics");
     }
     HttpResponseBuilder::new(StatusCode::OK).body(buffer)
 }
@@ -209,10 +211,13 @@ fn reject_bad_headers<S>(
 where
     S: Service<ServiceRequest, Response = ServiceResponse, Error = actix_web::Error>,
 {
-    static BAD_HEADERS: &[&str] = &["challenge-bypass-token"];
+    lazy_static! {
+        static ref BAD_HEADERS: [HeaderName; 1] =
+            [HeaderName::from_lowercase(b"challenge-bypass-token").unwrap()];
+    }
     let contains_bad_header = BAD_HEADERS
         .iter()
-        .any(|&header| request.headers().contains_key(header));
+        .any(|header| request.headers().contains_key(header));
     // This mess is necessary since some side-effect of cloning the HTTP Request part of the
     // ServiceRequest will result in a panic in actix-web if the service is called. An enum would be
     // better, but the types involved cannot be expressed.
@@ -273,8 +278,7 @@ async fn handle_collect_receipts(data: web::Data<SecretKey>, payload: String) ->
         Err(voucher_err) => {
             METRICS.collect_receipts_failed.inc();
             tracing::info!(%voucher_err);
-            HttpResponseBuilder::new(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(voucher_err.to_string())
+            HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body(voucher_err.to_string())
         }
     }
 }
@@ -284,31 +288,28 @@ async fn handle_network_query(
     _: HttpRequest,
     payload: String,
     data: web::Data<(reqwest::Client, String)>,
-) -> Result<HttpResponse, ErrorResponse> {
+) -> HttpResponse {
     let _timer = METRICS.network_subgraph_queries_duration.start_timer();
     let post_request = |body: String| async {
         let response = data
             .0
             .post(&data.1)
             .body(body)
-            .header("Content-Type", "application/json")
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
             .send()
             .await?;
         tracing::info!(network_subgraph_response = %response.status());
         response.text().await
     };
-    let result = post_request(payload).await;
-    match result {
+    match post_request(payload).await {
         Ok(result) => {
             METRICS.network_subgraph_queries_ok.inc();
-            Ok(HttpResponseBuilder::new(StatusCode::OK).body(result))
+            HttpResponseBuilder::new(StatusCode::OK).body(result)
         }
         Err(network_subgraph_post_err) => {
             tracing::error!(%network_subgraph_post_err);
             METRICS.network_subgraph_queries_failed.inc();
-            return Err(ErrorResponse::ok(
-                "Failed to process network subgraph query",
-            ));
+            graphql_error_response(StatusCode::OK, "Failed to process network subgraph query")
         }
     }
 }
@@ -324,7 +325,7 @@ async fn handle_subgraph_query(
     request: HttpRequest,
     payload: web::Json<QueryBody>,
     data: web::Data<(Config, NetworkResolver, Inputs, &'static AtomicUsize)>,
-) -> Result<String, ErrorResponse> {
+) -> HttpResponse {
     let query_engine = QueryEngine::new(data.0.clone(), data.1.clone(), data.2.clone());
     let url_params = request.match_info();
     let api_key = url_params.get("api_key").unwrap_or_default();
@@ -336,22 +337,23 @@ async fn handle_subgraph_query(
     {
         Subgraph::Deployment(deployment)
     } else {
-        return Err(ErrorResponse::bad_request("Invalid subgraph identifier"));
+        return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier");
     };
     let query = ClientQuery {
-        id: data.3.fetch_add(1, MemoryOrdering::Relaxed),
+        id: data.3.fetch_add(1, MemoryOrdering::Relaxed) as u64,
         api_key: api_key.to_string(),
         query: payload.query.to_string(),
         variables: payload.variables.as_ref().map(ToString::to_string),
+        // TODO: We are assuming mainnet for now.
         network: "mainnet".into(),
         subgraph: subgraph,
     };
     let (query, body) = match query_engine.execute_query(query).await {
         Ok(result) => match serde_json::to_string(&result.response) {
             Ok(body) => (result.query, body),
-            Err(err) => return Err(ErrorResponse::internal(err)),
+            Err(err) => return graphql_error_response(StatusCode::INTERNAL_SERVER_ERROR, err),
         },
-        Err(err) => return Err(ErrorResponse::ok(format!("{:?}", err))),
+        Err(err) => return graphql_error_response(StatusCode::OK, format!("{:?}", err)),
     };
     if let Ok(hist) = METRICS
         .query_result_size
@@ -359,54 +361,15 @@ async fn handle_subgraph_query(
     {
         hist.observe(body.len() as f64);
     }
-    Ok(body)
+    HttpResponseBuilder::new(StatusCode::OK)
+        .insert_header(header::ContentType::json())
+        .body(body)
 }
 
-#[derive(Debug)]
-struct ErrorResponse {
-    code: StatusCode,
-    message: String,
-}
-
-impl ErrorResponse {
-    fn ok<S: ToString>(message: S) -> Self {
-        Self {
-            code: StatusCode::OK,
-            message: message.to_string(),
-        }
-    }
-
-    fn bad_request<S: ToString>(message: S) -> Self {
-        Self {
-            code: StatusCode::BAD_REQUEST,
-            message: message.to_string(),
-        }
-    }
-
-    fn internal<S: ToString>(message: S) -> Self {
-        Self {
-            code: StatusCode::INTERNAL_SERVER_ERROR,
-            message: message.to_string(),
-        }
-    }
-}
-
-impl fmt::Display for ErrorResponse {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl ResponseError for ErrorResponse {
-    fn status_code(&self) -> StatusCode {
-        self.code
-    }
-
-    fn error_response(&self) -> HttpResponse {
-        HttpResponseBuilder::new(self.status_code())
-            .insert_header(header::ContentType::json())
-            .body(json!({"errors": {"message": self.message}}).to_string())
-    }
+fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> HttpResponse {
+    HttpResponseBuilder::new(status)
+        .insert_header(header::ContentType::json())
+        .body(json!({"errors": {"message": message.to_string()}}).to_string())
 }
 
 #[derive(Clone)]
@@ -462,7 +425,6 @@ impl Resolver for NetworkResolver {
                 "{}/subgraphs/id/{:?}",
                 query.url, query.indexing.subgraph
             ))
-            .header("X-Graph-Payment", &receipt)
             .header("Scalar-Receipt", &receipt)
             .body(query.query.clone())
             .send()
