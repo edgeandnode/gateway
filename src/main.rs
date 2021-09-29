@@ -96,7 +96,6 @@ async fn main() {
             .expect("Invalid mnemonic");
 
     let (input_writers, inputs) = Inputs::new();
-    // TODO: register metrics
     let (block_resolvers, block_metrics): (
         HashMap<String, mpsc::Sender<alchemy_client::Request>>,
         Vec<alchemy_client::Metrics>,
@@ -140,8 +139,6 @@ async fn main() {
             .await
             .expect("Failed to start metrics server");
     });
-    // TODO: metrics endpoint
-    // TODO: /collect-receipts & metrics?
     // TODO: rate limit API keys
     // TODO: rate limit without API keys
     HttpServer::new(move || {
