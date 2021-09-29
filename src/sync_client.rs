@@ -327,7 +327,9 @@ fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Option<USD> {
 )]
 struct CostModels;
 
-fn parse_cost_models(data: cost_models::ResponseData) -> Option<Vec<(Indexing, CostModelSource)>> {
+fn parse_cost_models(
+    data: cost_models::ResponseData,
+) -> Option<Ptr<Vec<(Indexing, CostModelSource)>>> {
     use cost_models::{CostModelsData, ResponseData};
     let values = match data {
         ResponseData {
@@ -353,7 +355,7 @@ fn parse_cost_models(data: cost_models::ResponseData) -> Option<Vec<(Indexing, C
             })
         })
         .collect();
-    Some(parsed)
+    Some(Ptr::new(parsed))
 }
 
 #[derive(GraphQLQuery)]
@@ -366,7 +368,7 @@ struct CurrentDeployments;
 
 fn parse_current_deployments(
     data: current_deployments::ResponseData,
-) -> Option<im::Vector<(String, SubgraphDeploymentID)>> {
+) -> Option<Ptr<Vec<(String, SubgraphDeploymentID)>>> {
     use current_deployments::{CurrentDeploymentsData, ResponseData};
     let values = match data {
         ResponseData {
@@ -383,7 +385,7 @@ fn parse_current_deployments(
             ))
         })
         .collect();
-    Some(parsed)
+    Some(Ptr::new(parsed))
 }
 
 #[derive(GraphQLQuery)]
@@ -403,7 +405,7 @@ struct ParsedIndexerStatus {
 
 fn parse_indexers(
     data: indexers::ResponseData,
-) -> Option<im::Vector<(SubgraphDeploymentID, im::Vector<ParsedIndexerStatus>)>> {
+) -> Option<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerStatus>)>>> {
     use indexers::{IndexersData, IndexersDataValue, ResponseData};
     let value = match data {
         ResponseData {
@@ -413,7 +415,7 @@ fn parse_indexers(
     };
     fn parse_value(
         value: IndexersDataValue,
-    ) -> Option<(SubgraphDeploymentID, im::Vector<ParsedIndexerStatus>)> {
+    ) -> Option<(SubgraphDeploymentID, Vec<ParsedIndexerStatus>)> {
         let deployment = SubgraphDeploymentID::from_ipfs_hash(&value.deployment)?;
         let indexers = value
             .indexers
@@ -428,7 +430,9 @@ fn parse_indexers(
             .collect();
         Some((deployment, indexers))
     }
-    Some(value.into_iter().filter_map(parse_value).collect())
+    Some(Ptr::new(
+        value.into_iter().filter_map(parse_value).collect(),
+    ))
 }
 
 #[derive(GraphQLQuery)]
@@ -449,7 +453,7 @@ struct ParsedIndexingStatus {
 
 fn parse_indexing_statuses(
     data: indexing_statuses::ResponseData,
-) -> Option<im::Vector<ParsedIndexingStatus>> {
+) -> Option<Ptr<Vec<ParsedIndexingStatus>>> {
     use indexing_statuses::{IndexingStatusesData, ResponseData};
     let values = match data {
         ResponseData {
@@ -473,8 +477,8 @@ fn parse_indexing_statuses(
                 })
             })
         })
-        .collect::<im::Vector<ParsedIndexingStatus>>();
-    Some(parsed)
+        .collect();
+    Some(Ptr::new(parsed))
 }
 
 #[derive(GraphQLQuery)]
@@ -515,7 +519,7 @@ struct ParsedTransfer {
     signer_key: SecretKey,
 }
 
-fn parse_transfers(data: transfers::ResponseData) -> Option<im::Vector<ParsedTransfer>> {
+fn parse_transfers(data: transfers::ResponseData) -> Option<Ptr<Vec<ParsedTransfer>>> {
     use transfers::{ResponseData, TransfersData};
     let transfers = match data {
         ResponseData {
@@ -537,7 +541,7 @@ fn parse_transfers(data: transfers::ResponseData) -> Option<im::Vector<ParsedTra
             })
         })
         .collect();
-    Some(parsed)
+    Some(Ptr::new(parsed))
 }
 
 #[derive(GraphQLQuery)]
@@ -556,7 +560,7 @@ struct ParsedAllocation {
 
 fn parse_usable_allocations(
     data: usable_allocations::ResponseData,
-) -> Option<im::Vector<ParsedAllocation>> {
+) -> Option<Ptr<Vec<ParsedAllocation>>> {
     use usable_allocations::{ResponseData, UsableAllocationsData};
     let usable_allocations = match data {
         ResponseData {
@@ -576,12 +580,12 @@ fn parse_usable_allocations(
             })
         })
         .collect();
-    Some(parsed)
+    Some(Ptr::new(parsed))
 }
 
 fn handle_cost_models(
     indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
-    cost_models: Eventual<Vec<(Indexing, CostModelSource)>>,
+    cost_models: Eventual<Ptr<Vec<(Indexing, CostModelSource)>>>,
 ) {
     cost_models
         .map(move |cost_models| {
@@ -589,9 +593,9 @@ fn handle_cost_models(
             async move {
                 tracing::info!(cost_models = %cost_models.len());
                 let mut locked = indexings.lock().await;
-                for (indexing, model) in cost_models {
+                for (indexing, model) in cost_models.iter() {
                     let writer = locked.write(&indexing).await;
-                    writer.cost_model.write(model);
+                    writer.cost_model.write(model.clone());
                 }
             }
             .instrument(tracing::info_span!("handle_cost_models"))
@@ -602,10 +606,12 @@ fn handle_cost_models(
 
 fn handle_deployments(
     indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
-    mut deployments: EventualWriter<im::HashMap<String, SubgraphDeploymentID>>,
-    mut deployment_indexers: EventualWriter<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
-    current_deployments: Eventual<im::Vector<(String, SubgraphDeploymentID)>>,
-    indexer_statuses: Eventual<im::Vector<(SubgraphDeploymentID, im::Vector<ParsedIndexerStatus>)>>,
+    mut deployments: EventualWriter<Ptr<HashMap<String, SubgraphDeploymentID>>>,
+    mut deployment_indexers: EventualWriter<
+        Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
+    >,
+    current_deployments: Eventual<Ptr<Vec<(String, SubgraphDeploymentID)>>>,
+    indexer_statuses: Eventual<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerStatus>)>>>,
 ) {
     let indexers = Arc::new(Mutex::new(indexers));
     eventuals::join((current_deployments, indexer_statuses))
@@ -615,8 +621,8 @@ fn handle_deployments(
                 current_deployments = %current_deployments.len(),
                 indexed_deployments = %indexer_statuses.len(),
             );
-            deployments.write(current_deployments.into_iter().collect());
-            deployment_indexers.write(
+            deployments.write(Ptr::new(current_deployments.iter().cloned().collect()));
+            deployment_indexers.write(Ptr::new(
                 indexer_statuses
                     .iter()
                     .map(|(deployment, indexer_statuses)| {
@@ -633,10 +639,10 @@ fn handle_deployments(
                         )
                     })
                     .collect(),
-            );
+            ));
             let statuses = HashMap::<Address, ParsedIndexerStatus>::from_iter(
-                indexer_statuses.into_iter().flat_map(|(_, statuses)| {
-                    statuses.into_iter().map(|status| (status.id, status))
+                indexer_statuses.iter().flat_map(|(_, statuses)| {
+                    statuses.iter().cloned().map(|status| (status.id, status))
                 }),
             );
             tracing::info!(indexers = %statuses.len());
@@ -656,14 +662,14 @@ fn handle_deployments(
 
 fn handle_indexing_statuses(
     indexer_selection: Arc<indexer_selection::Indexers>,
-    indexing_statuses: Eventual<im::Vector<ParsedIndexingStatus>>,
+    indexing_statuses: Eventual<Ptr<Vec<ParsedIndexingStatus>>>,
 ) {
     indexing_statuses
         .map(move |indexing_statuses| {
             let indexer_selection = indexer_selection.clone();
             async move {
                 tracing::info!(indexing_statuses = %indexing_statuses.len());
-                for status in indexing_statuses {
+                for status in indexing_statuses.iter() {
                     indexer_selection
                         .set_indexing_status(
                             &status.network,
@@ -682,9 +688,9 @@ fn handle_indexing_statuses(
 fn handle_transfers(
     indexer_selection: Arc<indexer_selection::Indexers>,
     metrics: Metrics,
-    transfers: Eventual<im::Vector<ParsedTransfer>>,
+    transfers: Eventual<Ptr<Vec<ParsedTransfer>>>,
 ) {
-    let mut used_transfers = im::Vector::<ParsedTransfer>::new();
+    let mut used_transfers = Ptr::<Vec<ParsedTransfer>>::default();
     transfers
         .map(move |transfers| {
             let used_transfers = std::mem::replace(&mut used_transfers, transfers.clone());
@@ -735,9 +741,9 @@ fn handle_allocations(
     indexer_selection: Arc<indexer_selection::Indexers>,
     signer_key: SecretKey,
     metrics: Metrics,
-    allocations: Eventual<im::Vector<ParsedAllocation>>,
+    allocations: Eventual<Ptr<Vec<ParsedAllocation>>>,
 ) {
-    let mut used_allocations = im::Vector::<ParsedAllocation>::new();
+    let mut used_allocations = Ptr::<Vec<ParsedAllocation>>::default();
     allocations
         .map(move |allocations| {
             let used_allocations = std::mem::replace(&mut used_allocations, allocations.clone());
