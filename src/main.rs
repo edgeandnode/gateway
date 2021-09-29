@@ -13,6 +13,7 @@ use actix_web::{
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use async_trait::async_trait;
+use hex;
 use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
 use lazy_static::lazy_static;
 use prometheus::{self, Encoder as _};
@@ -111,7 +112,7 @@ async fn main() {
     let sync_metrics = sync_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
-        signer_key,
+        signer_key.clone(),
         input_writers,
     );
     let config = query_engine::Config {
@@ -163,16 +164,29 @@ async fn main() {
             .wrap_fn(reject_bad_headers)
             .service(api)
             .route("/", web::get().to(|| async { "Ready to roll!" }))
-            .app_data(web::Data::new((
-                block_metrics.clone(),
-                sync_metrics.clone(),
-            )))
             .route("/ready", web::get().to(handle_ready))
-            .app_data(web::Data::new((
-                http_client.clone(),
-                network_subgraph.clone(),
-            )))
-            .route("/network", web::post().to(handle_network_query))
+            .service(
+                web::resource("/ready")
+                    .app_data(web::Data::new((
+                        block_metrics.clone(),
+                        sync_metrics.clone(),
+                    )))
+                    .route(web::get().to(handle_ready)),
+            )
+            .service(
+                web::resource("/network")
+                    .app_data(web::Data::new((
+                        http_client.clone(),
+                        network_subgraph.clone(),
+                    )))
+                    .route(web::post().to(handle_network_query)),
+            )
+            .service(
+                web::resource("/collect-receipts")
+                    .app_data(web::PayloadConfig::new(16_000_000))
+                    .app_data(web::Data::new(signer_key.clone()))
+                    .route(web::post().to(handle_collect_receipts)),
+            )
     })
     .bind(("0.0.0.0", opt.port))
     .expect("Failed to bind")
@@ -236,13 +250,46 @@ async fn handle_ready(
     }
 }
 
+#[tracing::instrument(skip(payload))]
+async fn handle_collect_receipts(data: web::Data<SecretKey>, payload: String) -> HttpResponse {
+    let _timer = METRICS.collect_receipts_duration.start_timer();
+    let bytes = payload.into_bytes();
+    if bytes.len() < 20 {
+        return HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body("Invalid receipt data");
+    }
+    let mut allocation_id = [0u8; 20];
+    allocation_id.copy_from_slice(&bytes[..20]);
+    let result = indexer_selection::Receipts::receipts_to_voucher(
+        &allocation_id.into(),
+        data.as_ref(),
+        &bytes[20..],
+    );
+    match result {
+        Ok(voucher) => {
+            METRICS.collect_receipts_ok.inc();
+            tracing::info!(request_size = %bytes.len(), "Collect receipts");
+            HttpResponseBuilder::new(StatusCode::OK).json(json!({
+                "allocation_id": voucher.allocation_id,
+                "fees": voucher.fees.to_string(),
+                "signature": format!("0x{}", hex::encode(voucher.signature)),
+            }))
+        }
+        Err(voucher_err) => {
+            METRICS.collect_receipts_failed.inc();
+            tracing::info!(%voucher_err);
+            HttpResponseBuilder::new(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(voucher_err.to_string())
+        }
+    }
+}
+
 #[tracing::instrument(skip(payload, data))]
 async fn handle_network_query(
     _: HttpRequest,
     payload: String,
     data: web::Data<(reqwest::Client, String)>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let timer = METRICS.network_subgraph_queries_duration.start_timer();
+    let _timer = METRICS.network_subgraph_queries_duration.start_timer();
     let post_request = |body: String| async {
         let response = data
             .0
@@ -255,7 +302,6 @@ async fn handle_network_query(
         response.text().await
     };
     let result = post_request(payload).await;
-    timer.observe_duration();
     match result {
         Ok(result) => {
             METRICS.network_subgraph_queries_ok.inc();
@@ -433,6 +479,9 @@ impl Resolver for NetworkResolver {
 
 #[derive(Clone)]
 struct Metrics {
+    collect_receipts_duration: prometheus::Histogram,
+    collect_receipts_failed: prometheus::IntCounter,
+    collect_receipts_ok: prometheus::IntCounter,
     network_subgraph_queries_duration: prometheus::Histogram,
     network_subgraph_queries_failed: prometheus::IntCounter,
     network_subgraph_queries_ok: prometheus::IntCounter,
@@ -446,6 +495,23 @@ lazy_static! {
 impl Metrics {
     fn new() -> Self {
         Self {
+            collect_receipts_duration: prometheus::register_histogram!(
+                "gateway_collect_receipts_duration",
+                "Duration of processing requests to collect receipts"
+            )
+            .unwrap(),
+            // TODO: should be renamed to gateway_collect_receipt_requests_failed
+            collect_receipts_failed: prometheus::register_int_counter!(
+                "gateway_failed_collect_receipt_requests",
+                "Failed requests to collect receipts"
+            )
+            .unwrap(),
+            // TODO: should be renamed to gateway_collect_receipt_requests_ok
+            collect_receipts_ok: prometheus::register_int_counter!(
+                "gateway_collect_receipt_requests",
+                "Incoming requests to collect receipts"
+            )
+            .unwrap(),
             network_subgraph_queries_duration: prometheus::register_histogram!(
                 "gateway_network_subgraph_query_duration",
                 "Duration of processing a network subgraph query"
