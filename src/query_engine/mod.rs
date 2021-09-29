@@ -261,24 +261,14 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 Ok(Some(indexer_query)) => indexer_query,
                 Ok(None)
                 | Err(SelectionError::MissingNetworkParams)
-                | Err(SelectionError::BadIndexer(_)) => return Err(NoIndexerSelected),
+                | Err(SelectionError::BadIndexer(_))
+                | Err(SelectionError::InsufficientCollateral(_, _)) => {
+                    return Err(NoIndexerSelected)
+                }
                 Err(SelectionError::BadInput) => return Err(MalformedQuery),
                 Err(SelectionError::MissingBlocks(unresolved)) => {
                     self.resolve_blocks(&query, unresolved).await?;
                     continue;
-                }
-                Err(SelectionError::InsufficientCollateral(indexing, fee)) => {
-                    match self
-                        .resolver
-                        .create_transfer(&self.indexers, indexing, fee)
-                        .await
-                    {
-                        Ok(()) => continue,
-                        Err(transfer_err) => {
-                            tracing::error!(%transfer_err);
-                            return Err(NoIndexerSelected);
-                        }
-                    };
                 }
             };
             if indexer_query.low_collateral_warning {

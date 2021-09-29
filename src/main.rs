@@ -468,6 +468,8 @@ impl Resolver for NetworkResolver {
         indexing: Indexing,
         fee: GRT,
     ) -> Result<(), Box<dyn Error>> {
+        // TODO: We need to limit the total number of transfers to 2, if/when we can potentially
+        // create multiple transfers.
         tracing::info!(
             deployment = ?indexing.subgraph,
             indexer = ?indexing.indexer,
@@ -527,7 +529,7 @@ impl Resolver for NetworkResolver {
             deployment = ?transfer_indexing.subgraph,
             indexer = ?transfer_indexing.indexer,
             collateral = ?transfer_collateral,
-            "Successfully created transfer to increate collateral",
+            "Successfully created transfer to increase collateral",
         );
         indexers
             .install_receipts_transfer(
