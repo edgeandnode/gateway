@@ -32,6 +32,7 @@ use std::{
 use structopt::StructOpt;
 use structopt_derive::StructOpt;
 use tokio::time::Duration;
+use tree_buf;
 
 #[derive(StructOpt, Debug)]
 struct Opt {
@@ -161,15 +162,24 @@ async fn main() {
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
     let network_subgraph = opt.network_subgraph;
     let metrics_port = opt.metrics_port;
+    let indexer_selection = inputs.indexers.clone();
     // Host metrics on a separate server with a port that isn't open to public requests.
     actix_web::rt::spawn(async move {
-        HttpServer::new(move || App::new().route("/metrics", web::get().to(handle_metrics)))
-            .workers(1)
-            .bind(("0.0.0.0", metrics_port))
-            .expect("Failed to bind to metrics port")
-            .run()
-            .await
-            .expect("Failed to start metrics server");
+        HttpServer::new(move || {
+            App::new()
+                .route("/metrics", web::get().to(handle_metrics))
+                .service(
+                    web::resource("/snapshot")
+                        .app_data(web::Data::new(indexer_selection.clone()))
+                        .route(web::get().to(handle_snapshot)),
+                )
+        })
+        .workers(1)
+        .bind(("0.0.0.0", metrics_port))
+        .expect("Failed to bind to metrics port")
+        .run()
+        .await
+        .expect("Failed to start metrics server")
     });
     // TODO: rate limit API keys
     // TODO: rate limit without API keys
@@ -233,6 +243,15 @@ async fn handle_metrics() -> HttpResponse {
             .body("Failed to encode metrics");
     }
     HttpResponseBuilder::new(StatusCode::OK).body(buffer)
+}
+
+#[tracing::instrument(skip(data))]
+async fn handle_snapshot(data: web::Data<indexer_selection::Indexers>) -> HttpResponse {
+    let snapshot = tree_buf::encode(&data.snapshot().await);
+    tracing::info!(snapshot_size = %snapshot.len());
+    HttpResponseBuilder::new(StatusCode::OK)
+        .insert_header(header::ContentType::octet_stream())
+        .body(snapshot)
 }
 
 #[tracing::instrument(skip(data))]
