@@ -11,7 +11,7 @@ pub use graphql_client::Response;
 use im;
 use lazy_static::lazy_static;
 use prometheus;
-use std::{error::Error, sync::Arc};
+use std::{collections::HashMap, error::Error, sync::Arc};
 use tokio::time::Instant;
 
 #[derive(Clone, Debug)]
@@ -95,15 +95,16 @@ pub struct Config {
 #[derive(Clone)]
 pub struct Inputs {
     pub indexers: Arc<Indexers>,
-    pub deployments: Eventual<im::HashMap<String, SubgraphDeploymentID>>,
-    pub deployment_indexers: Eventual<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
+    pub deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
+    pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
 }
 
 pub struct InputWriters {
     pub indexer_inputs: indexer_selection::InputWriters,
     pub indexers: Arc<Indexers>,
-    pub deployments: EventualWriter<im::HashMap<String, SubgraphDeploymentID>>,
-    pub deployment_indexers: EventualWriter<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
+    pub deployments: EventualWriter<Ptr<HashMap<String, SubgraphDeploymentID>>>,
+    pub deployment_indexers:
+        EventualWriter<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
 }
 
 impl Inputs {
@@ -130,8 +131,8 @@ impl Inputs {
 
 pub struct QueryEngine<R: Resolver> {
     indexers: Arc<Indexers>,
-    deployments: Eventual<im::HashMap<String, SubgraphDeploymentID>>,
-    deployment_indexers: Eventual<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
+    deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
+    deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
     resolver: R,
     config: Config,
 }
