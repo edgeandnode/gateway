@@ -161,7 +161,6 @@ async fn main() {
             .wrap_fn(reject_bad_headers)
             .service(api)
             .route("/", web::get().to(|| async { "Ready to roll!" }))
-            .route("/ready", web::get().to(handle_ready))
             .service(
                 web::resource("/ready")
                     .app_data(web::Data::new((
