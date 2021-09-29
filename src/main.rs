@@ -11,6 +11,7 @@ use actix_web::{
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use async_trait::async_trait;
+use eventuals::EventualExt;
 use hex;
 use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
 use lazy_static::lazy_static;
@@ -92,6 +93,19 @@ async fn main() {
             .expect("Invalid mnemonic");
 
     let (input_writers, inputs) = Inputs::new();
+
+    // Trigger decay every 20 minutes.
+    let indexer_selection = inputs.indexers.clone();
+    eventuals::timer(Duration::from_secs(20 * 60))
+        .map(move |_| {
+            let indexer_selection = indexer_selection.clone();
+            async move {
+                indexer_selection.decay().await;
+            }
+        })
+        .pipe(|_| ())
+        .forever();
+
     let (block_resolvers, block_metrics): (
         HashMap<String, mpsc::Sender<alchemy_client::Request>>,
         Vec<alchemy_client::Metrics>,
