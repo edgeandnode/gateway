@@ -142,13 +142,9 @@ async fn main() {
     // TODO: metrics endpoint
     // TODO: /collect-receipts & metrics?
     // TODO: rate limit API keys
+    // TODO: rate limit without API keys
     HttpServer::new(move || {
         let api = web::scope("/api/{api_key}")
-            .app_data(web::Data::new((
-                http_client.clone(),
-                network_subgraph.clone(),
-            )))
-            .route("/network", web::post().to(handle_network_query))
             .app_data(web::Data::new((
                 config.clone(),
                 resolver.clone(),
@@ -172,6 +168,11 @@ async fn main() {
                 sync_metrics.clone(),
             )))
             .route("/ready", web::get().to(handle_ready))
+            .app_data(web::Data::new((
+                http_client.clone(),
+                network_subgraph.clone(),
+            )))
+            .route("/network", web::post().to(handle_network_query))
     })
     .bind(("0.0.0.0", opt.port))
     .expect("Failed to bind")
