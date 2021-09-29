@@ -11,21 +11,24 @@ pub use prometheus::{
     self,
     core::{MetricVec, MetricVecBuilder},
 };
-pub use std::{convert::TryInto, str::FromStr};
+pub use std::{convert::TryInto, str::FromStr, sync::Once};
 pub use tokio::sync::{mpsc, oneshot};
 pub use tracing::{self, Instrument};
 
 pub fn init_tracing(json: bool) {
-    let logger = tracing_subscriber::fmt::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env());
-    if json {
-        tracing::subscriber::set_global_default(logger.json().finish())
-            .expect("Failed to set global default for tracing");
-    } else {
-        tracing::subscriber::set_global_default(logger.finish())
-            .expect("Failed to set global default for tracing");
-    };
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let logger = tracing_subscriber::fmt::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env());
+        if json {
+            tracing::subscriber::set_global_default(logger.json().finish())
+                .expect("Failed to set global default for tracing");
+        } else {
+            tracing::subscriber::set_global_default(logger.finish())
+                .expect("Failed to set global default for tracing");
+        };
+    })
 }
 
 pub fn with_metric<T, F, B>(metric_vec: &MetricVec<B>, label_values: &[&str], f: F) -> Option<T>
