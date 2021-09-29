@@ -7,8 +7,7 @@ mod ws_client;
 
 use crate::{indexer_selection::SecretKey, prelude::*, query_engine::*};
 use actix_web::{
-    dev::{Service, ServiceRequest, ServiceResponse},
-    http::{header, HeaderName, StatusCode},
+    http::{header, StatusCode},
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use async_trait::async_trait;
@@ -22,7 +21,6 @@ use serde_json::{json, value::RawValue};
 use std::{
     collections::HashMap,
     error::Error,
-    future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
         Arc,
@@ -158,7 +156,6 @@ async fn main() {
                 web::post().to(handle_subgraph_query),
             );
         App::new()
-            .wrap_fn(reject_bad_headers)
             .service(api)
             .route("/", web::get().to(|| async { "Ready to roll!" }))
             .service(
@@ -202,38 +199,6 @@ async fn handle_metrics() -> HttpResponse {
             .body("Failed to encode metrics");
     }
     HttpResponseBuilder::new(StatusCode::OK).body(buffer)
-}
-
-fn reject_bad_headers<S>(
-    mut request: ServiceRequest,
-    service: &S,
-) -> impl Future<Output = Result<ServiceResponse, actix_web::Error>>
-where
-    S: Service<ServiceRequest, Response = ServiceResponse, Error = actix_web::Error>,
-{
-    lazy_static! {
-        static ref BAD_HEADERS: [HeaderName; 1] =
-            [HeaderName::from_lowercase(b"challenge-bypass-token").unwrap()];
-    }
-    let contains_bad_header = BAD_HEADERS
-        .iter()
-        .any(|header| request.headers().contains_key(header));
-    // This mess is necessary since some side-effect of cloning the HTTP Request part of the
-    // ServiceRequest will result in a panic in actix-web if the service is called. An enum would be
-    // better, but the types involved cannot be expressed.
-    let (result, err) = if !contains_bad_header {
-        (Some(service.call(request)), None)
-    } else {
-        let http_req = request.parts_mut().0.clone();
-        let err = ServiceResponse::new(http_req, HttpResponse::BadRequest().finish());
-        (None, Some(err))
-    };
-    async move {
-        match result {
-            Some(result) => result.await,
-            None => Ok(err.unwrap()),
-        }
-    }
 }
 
 #[tracing::instrument(skip(data))]
