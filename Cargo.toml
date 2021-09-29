@@ -4,7 +4,8 @@ name = "graph-gateway"
 resolver = "2"
 version = "0.1.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release]
+lto = "thin"
 
 [dependencies]
 actix-web = "4.0.0-beta.9" 
