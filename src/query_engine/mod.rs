@@ -94,9 +94,9 @@ pub struct Config {
 
 #[derive(Clone)]
 pub struct Inputs {
-    indexers: Arc<Indexers>,
-    deployments: Eventual<im::HashMap<String, SubgraphDeploymentID>>,
-    deployment_indexers: Eventual<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
+    pub indexers: Arc<Indexers>,
+    pub deployments: Eventual<im::HashMap<String, SubgraphDeploymentID>>,
+    pub deployment_indexers: Eventual<im::HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
 }
 
 pub struct InputWriters {
@@ -219,7 +219,7 @@ impl<R: Resolver> QueryEngine<R> {
             .and_then(|map| map.get(&deployment).cloned())
             .unwrap_or_default();
         tracing::debug!(?deployment, deployment_indexers = indexers.len());
-        let execution_timer = with_metric(
+        let _execution_timer = with_metric(
             &METRICS.query_execution_duration,
             &[&deployment_ipfs],
             |hist| hist.start_timer(),
@@ -322,7 +322,6 @@ impl<R: Resolver> QueryEngine<R> {
                     &indexer_query.receipt,
                 )
                 .await;
-            execution_timer.map(|t| t.observe_duration());
             return Ok(QueryResponse {
                 query: indexer_query,
                 response,

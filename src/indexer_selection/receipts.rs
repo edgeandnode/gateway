@@ -1,8 +1,11 @@
 use crate::{indexer_selection::SecretKey, prelude::*};
+use lazy_static::lazy_static;
 pub use receipts_allocation::QueryStatus;
 use receipts_allocation::ReceiptPool as ReceiptPoolAllocation;
+pub use receipts_allocation::{Voucher, VoucherError};
 use receipts_transfer::ReceiptPool as ReceiptPoolTransfer;
 pub use receipts_transfer::{BorrowFail, ReceiptBorrow};
+use secp256k1::{PublicKey, Secp256k1};
 use std::convert::TryFrom;
 
 #[derive(Default)]
@@ -89,6 +92,23 @@ impl Receipts {
         if let Some(transfers) = &mut self.transfers {
             transfers.remove_transfer(vector_transfer_id);
         }
+    }
+
+    pub fn receipts_to_voucher(
+        allocation_id: &Address,
+        signer: &SecretKey,
+        receipts: &[u8],
+    ) -> Result<Voucher, VoucherError> {
+        lazy_static! {
+            static ref SECP256K1: Secp256k1<secp256k1::All> = Secp256k1::new();
+        }
+        let allocation_signer = PublicKey::from_secret_key(&SECP256K1, signer);
+        receipts_allocation::receipts_to_voucher(
+            allocation_id,
+            &allocation_signer,
+            signer,
+            receipts,
+        )
     }
 
     pub fn recommended_collateral(&self) -> GRT {

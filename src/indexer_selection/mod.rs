@@ -15,6 +15,7 @@ mod tests;
 
 pub use crate::indexer_selection::{
     indexers::{IndexerDataReader, IndexerDataWriter},
+    receipts::Receipts,
     selection_factors::{IndexingData, SelectionFactors},
 };
 use crate::prelude::{
