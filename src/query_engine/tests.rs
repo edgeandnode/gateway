@@ -384,13 +384,13 @@ impl Topology {
                 )
                 .await;
         }
-        self.inputs.deployments.write(
+        self.inputs.deployments.write(Ptr::new(
             self.subgraphs()
                 .into_iter()
                 .filter_map(|(_, subgraph)| Some((subgraph.name, subgraph.deployments.last()?.id)))
                 .collect(),
-        );
-        self.inputs.deployment_indexers.write(
+        ));
+        self.inputs.deployment_indexers.write(Ptr::new(
             self.subgraphs()
                 .into_iter()
                 .flat_map(|(_, subgraph)| subgraph.deployments)
@@ -399,7 +399,7 @@ impl Topology {
                     (deployment.id, indexings)
                 })
                 .collect(),
-        );
+        ));
         eventuals::idle().await;
     }
 
@@ -574,9 +574,9 @@ impl Resolver for TopologyResolver {
 
     async fn create_transfer(
         &self,
-        indexers: &indexer_selection::Indexers,
-        indexing: Indexing,
-        fee: GRT,
+        _indexers: &indexer_selection::Indexers,
+        _indexing: Indexing,
+        _fee: GRT,
     ) -> Result<(), Box<dyn Error>> {
         return Err("TODO: create_transfer".into());
     }
