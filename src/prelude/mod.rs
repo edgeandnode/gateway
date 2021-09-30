@@ -14,20 +14,20 @@ pub use prometheus::{
 pub use std::{convert::TryInto, str::FromStr, sync::Once};
 pub use tokio::sync::{mpsc, oneshot};
 pub use tracing::{self, Instrument};
+use tracing_subscriber::{self, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub fn init_tracing(json: bool) {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        let logger = tracing_subscriber::fmt::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env());
+        let filter_layer = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or(tracing_subscriber::EnvFilter::try_new("info,graph_gateway=debug").unwrap());
+        let defaults = tracing_subscriber::registry().with(filter_layer);
+        let fmt_layer = tracing_subscriber::fmt::layer();
         if json {
-            tracing::subscriber::set_global_default(logger.json().finish())
-                .expect("Failed to set global default for tracing");
+            defaults.with(fmt_layer.json()).init();
         } else {
-            tracing::subscriber::set_global_default(logger.finish())
-                .expect("Failed to set global default for tracing");
-        };
+            defaults.with(fmt_layer).init();
+        }
     })
 }
 
