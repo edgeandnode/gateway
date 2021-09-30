@@ -39,6 +39,7 @@ tracing = "0.1"
 tracing-subscriber = {version = "0.2", features = ["parking_lot", "json"]} 
 tree-buf = "0.10" 
 uuid = {version = "0.8", features = ["v4"]} 
+single = "1"
 
 [dev-dependencies]
 eventuals = {version = "0.6", features = ["trace"]}

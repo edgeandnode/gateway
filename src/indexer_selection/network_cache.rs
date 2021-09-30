@@ -5,11 +5,12 @@ use crate::indexer_selection::{
 use crate::prelude::*;
 use codecs::Encode as _;
 use cost_model::QueryVariables;
-use graphql_parser::query as q;
+use graphql_parser::query::{self as q, Number};
 use neon_utils::marshalling::codecs;
 use serde::{Deserialize, Serialize};
+use single::Single as _;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::TryFrom,
 };
 use tree_buf;
@@ -58,6 +59,29 @@ pub struct SerializableQuery {
     pub variables: QueryVariables,
 }
 
+impl BlockRequirements {
+    fn parse_minimum_block(&mut self, number: &Number) -> Result<(), SelectionError> {
+        let number = number.as_i64().ok_or(SelectionError::BadInput)?;
+        let number = u64::try_from(number).map_err(|_| SelectionError::BadInput)?;
+        self.minimum_block = Some(self.minimum_block.unwrap_or_default().max(number));
+        Ok(())
+    }
+}
+
+// Creates this: { hash: "0xFF" }
+// I tried to do this with the following method signature:
+// fn block_hash_field(hash: &Bytes32) -> BTreeMap<&'static str, q::Value<'static, &'static str>> { .. }
+// but the compiler was very upset about lifetimes.
+macro_rules! block_hash_field {
+    ($hash:expr) => {{
+        let mut fields = BTreeMap::new();
+        let hash = $hash.encode();
+        let hash = q::Value::String(hash);
+        fields.insert("hash", hash);
+        fields
+    }};
+}
+
 impl NetworkCache {
     // TODO: test
     pub fn make_query_deterministic(
@@ -69,16 +93,16 @@ impl NetworkCache {
         let mut latest = None;
         // TODO: Ugh this code is a mess, and it's not even doing fragments yet.
         let ops = &mut context.operations[..];
-        let mut unresolved_blocks = Vec::new();
+        let mut unresolved_blocks = HashSet::new();
         for top_level_field in Self::top_level_fields(ops)? {
             let mut require_latest = true;
             for arg in top_level_field.arguments.iter_mut() {
                 match arg {
                     ("block", block) => {
                         match block {
-                            q::Value::Object(fields) => match fields.iter_mut().next() {
-                                Some((&"hash", _)) => require_latest = false,
-                                Some((&"number", number)) => {
+                            q::Value::Object(fields) => match fields.iter_mut().single() {
+                                Ok((&"hash", _)) => require_latest = false,
+                                Ok((&"number", number)) => {
                                     let number = Self::number(number, &context.variables)?;
                                     // Some, but not all, duplicated code
                                     // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
@@ -88,15 +112,33 @@ impl NetworkCache {
                                             Some(hash) => hash,
                                             None => {
                                                 unresolved_blocks
-                                                    .push(UnresolvedBlock::WithNumber(number));
+                                                    .insert(UnresolvedBlock::WithNumber(number));
                                                 continue;
                                             }
                                         };
                                     require_latest = false;
-                                    *fields = BTreeMap::new();
-                                    let hash = hash.encode();
-                                    let hash = q::Value::String(hash);
-                                    fields.insert("hash", hash);
+                                    *fields = block_hash_field!(hash);
+                                }
+                                Ok((&"number_gte", number)) => {
+                                    let number = Self::number(number, &context.variables)?;
+                                    latest.get_or_insert_with(|| {
+                                        self.latest_block(network, blocks_behind)
+                                    });
+                                    let block = match latest.clone().unwrap() {
+                                        Ok(block) => block,
+                                        Err(unresolved) => {
+                                            unresolved_blocks.insert(unresolved);
+                                            continue;
+                                        }
+                                    };
+
+                                    if block.number < number {
+                                        return Err(SelectionError::BadIndexer(
+                                            BadIndexerReason::BehindMinimumBlock,
+                                        ));
+                                    }
+                                    *fields = block_hash_field!(&block.hash);
+                                    require_latest = false;
                                 }
                                 _ => return Err(SelectionError::BadInput),
                             },
@@ -106,11 +148,11 @@ impl NetworkCache {
                                     .get(name)
                                     .ok_or(SelectionError::BadInput)?;
                                 match var {
-                                    q::Value::Object(fields) => match fields.iter().next() {
-                                        Some((name, _)) if name.as_str() == "hash" => {
+                                    q::Value::Object(fields) => match fields.iter().single() {
+                                        Ok((name, _)) if name.as_str() == "hash" => {
                                             require_latest = false
                                         }
-                                        Some((name, number)) if name.as_str() == "number" => {
+                                        Ok((name, number)) if name.as_str() == "number" => {
                                             let number = Self::number(number, &context.variables)?;
                                             // Some, but not all, duplicated code
                                             // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
@@ -121,20 +163,43 @@ impl NetworkCache {
                                             {
                                                 Some(hash) => hash,
                                                 None => {
-                                                    unresolved_blocks
-                                                        .push(UnresolvedBlock::WithNumber(number));
+                                                    unresolved_blocks.insert(
+                                                        UnresolvedBlock::WithNumber(number),
+                                                    );
                                                     continue;
                                                 }
                                             };
                                             require_latest = false;
-                                            let mut fields = BTreeMap::new();
-                                            let hash = hash.encode();
-                                            let hash = q::Value::String(hash);
-                                            fields.insert("hash", hash);
+                                            let fields = block_hash_field!(hash);
                                             // This is different then the above which just replaces the
                                             // fields in the existing object, because we must not modify
                                             // the variable in case it's used elsewhere.
                                             *arg = (arg.0, q::Value::Object(fields));
+                                        }
+                                        Ok((name, number)) if name.as_str() == "number_gte" => {
+                                            let number = Self::number(number, &context.variables)?;
+                                            latest.get_or_insert_with(|| {
+                                                self.latest_block(network, blocks_behind)
+                                            });
+                                            let block = match latest.clone().unwrap() {
+                                                Ok(block) => block,
+                                                Err(unresolved) => {
+                                                    unresolved_blocks.insert(unresolved);
+                                                    continue;
+                                                }
+                                            };
+
+                                            if block.number < number {
+                                                return Err(SelectionError::BadIndexer(
+                                                    BadIndexerReason::BehindMinimumBlock,
+                                                ));
+                                            }
+                                            let fields = block_hash_field!(block.hash);
+                                            // This is different then the above which just replaces the
+                                            // fields in the existing object, because we must not modify
+                                            // the variable in case it's used elsewhere.
+                                            *arg = (arg.0, q::Value::Object(fields));
+                                            require_latest = false;
                                         }
                                         _ => return Err(SelectionError::BadInput),
                                     },
@@ -153,18 +218,19 @@ impl NetworkCache {
                 let block = match latest.clone().unwrap() {
                     Ok(block) => block,
                     Err(unresolved) => {
-                        unresolved_blocks.push(unresolved);
+                        unresolved_blocks.insert(unresolved);
                         continue;
                     }
                 };
-                let mut fields = BTreeMap::new();
-                fields.insert("hash", q::Value::String(block.hash.encode()));
+                let fields = block_hash_field!(&block.hash);
                 let arg = ("block", q::Value::Object(fields));
                 top_level_field.arguments.push(arg);
             }
         }
         if !unresolved_blocks.is_empty() {
-            return Err(SelectionError::MissingBlocks(unresolved_blocks));
+            return Err(SelectionError::MissingBlocks(
+                unresolved_blocks.into_iter().collect(),
+            ));
         }
 
         let mut definitions = Vec::new();
@@ -202,16 +268,15 @@ impl NetworkCache {
             let mut has_latest = true;
             for arg in top_level_field.arguments.iter() {
                 match arg {
-                    ("block", q::Value::Object(fields)) => match fields.iter().next() {
-                        Some((&"number", q::Value::Int(number))) => {
-                            let number = number.as_i64().ok_or(SelectionError::BadInput)?;
-                            let number =
-                                u64::try_from(number).map_err(|_| SelectionError::BadInput)?;
-                            requirements.minimum_block =
-                                Some(requirements.minimum_block.unwrap_or_default().max(number));
+                    ("block", q::Value::Object(fields)) => match fields.iter().single() {
+                        Ok((&"number", q::Value::Int(number))) => {
+                            requirements.parse_minimum_block(number)?;
                             has_latest = false;
                         }
-                        Some((&"hash", q::Value::String(hash))) => {
+                        Ok((&"number_gte", q::Value::Int(number))) => {
+                            requirements.parse_minimum_block(number)?;
+                        }
+                        Ok((&"hash", q::Value::String(hash))) => {
                             let hash_bytes: [u8; 32] = codecs::decode(hash.as_str())
                                 .map_err(|_| SelectionError::BadInput)?;
                             let hash = hash_bytes.into();
@@ -528,6 +593,33 @@ mod tests {
                 minimum_block: Some(50),
                 has_latest: false,
             },
+        );
+    }
+
+    #[test]
+    fn block_number_gte_requirements() {
+        requirements_test(
+            &NetworkCache::default(),
+            "query { a(block: { number_gte: 10}) }",
+            "",
+            BlockRequirements {
+                minimum_block: Some(10),
+                has_latest: true,
+            },
+        );
+    }
+
+    #[test]
+    fn block_number_gte_determinism() {
+        let mut cache = cache_with("mainnet", &gen_blocks(&[0, 1, 2, 3, 4, 5, 6, 7]));
+        let context = Context::new("query { a(block: { number_gte: 4}) }", "").unwrap();
+        let result = cache.make_query_deterministic("mainnet", context, 2);
+        assert_eq!(
+            result,
+            Ok(DeterministicQuery {
+                blocks_behind: Some(2),
+                query: "{\"query\":\"query {\\n  a(block: {hash: \\\"0x0500000000000000000000000000000000000000000000000000000000000000\\\"})\\n}\\n\",\"variables\":{}}".to_owned()
+            })
         );
     }
 
