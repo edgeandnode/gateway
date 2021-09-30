@@ -3,11 +3,7 @@ use crate::{
         self,
         test_utils::{default_cost_model, TEST_KEY},
     },
-    prelude::{
-        decimal,
-        test_utils::{bytes_from_id, BASIC_QUERY},
-        *,
-    },
+    prelude::{decimal, test_utils::*, *},
     query_engine::*,
 };
 use async_trait::async_trait;
@@ -594,7 +590,7 @@ impl fmt::Debug for Topology {
 
 #[tokio::test]
 async fn test() {
-    init_tracing(false);
+    init_test_tracing();
     let seed = env::vars()
         .find(|(k, _)| k == "TEST_SEED")
         .and_then(|(_, v)| v.parse::<u64>().ok())
