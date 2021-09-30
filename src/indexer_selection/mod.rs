@@ -111,7 +111,7 @@ impl From<BadIndexerReason> for SelectionError {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum UnresolvedBlock {
     WithNumber(u64),
     WithHash(Bytes32),
