@@ -105,14 +105,10 @@ async fn main() {
             .expect("Invalid mnemonic"),
         "",
     );
-    let key_path = std::iter::once("m".to_string())
-        .chain("scalar/allocations".bytes().map(|b| b.to_string()))
-        .collect::<Vec<String>>()
-        .join("/");
     let signer_key = hdwallet::DefaultKeyChain::new(
         hdwallet::ExtendedPrivKey::with_seed(wallet_seed.as_bytes()).expect("Invalid mnemonic"),
     )
-    .derive_private_key(key_path.into())
+    .derive_private_key(key_path("scalar/allocations").into())
     .expect("Failed to derive signer key")
     .0
     .private_key;
