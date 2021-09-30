@@ -62,26 +62,18 @@ pub struct SerializableQuery {
 impl BlockRequirements {
     fn parse_minimum_block(&mut self, number: &Number) -> Result<(), SelectionError> {
         let number = number
-          .as_i64()
-          .and_then(|n| u64::try_from(n).ok())
-          .ok_or(SelectionError::BadInput)?;
+            .as_i64()
+            .and_then(|n| u64::try_from(n).ok())
+            .ok_or(SelectionError::BadInput)?;
         self.minimum_block = Some(self.minimum_block.unwrap_or_default().max(number));
         Ok(())
     }
 }
 
 // Creates this: { hash: "0xFF" }
-// I tried to do this with the following method signature:
-// fn block_hash_field(hash: &Bytes32) -> BTreeMap<&'static str, q::Value<'static, &'static str>> { .. }
-// but the compiler was very upset about lifetimes.
-macro_rules! block_hash_field {
-    ($hash:expr) => {{
-        let mut fields = BTreeMap::new();
-        let hash = $hash.encode();
-        let hash = q::Value::String(hash);
-        fields.insert("hash", hash);
-        fields
-    }};
+fn block_hash_field<'a, T: q::Text<'a>>(hash: &Bytes32) -> BTreeMap<&'static str, q::Value<'a, T>> {
+    use std::iter::FromIterator;
+    BTreeMap::from_iter(std::iter::once(("hash", q::Value::String(hash.encode()))))
 }
 
 impl NetworkCache {
@@ -119,7 +111,7 @@ impl NetworkCache {
                                             }
                                         };
                                     require_latest = false;
-                                    *fields = block_hash_field!(hash);
+                                    *fields = block_hash_field(hash);
                                 }
                                 Ok((&"number_gte", number)) => {
                                     let number = Self::number(number, &context.variables)?;
@@ -139,7 +131,7 @@ impl NetworkCache {
                                             BadIndexerReason::BehindMinimumBlock,
                                         ));
                                     }
-                                    *fields = block_hash_field!(&block.hash);
+                                    *fields = block_hash_field(&block.hash);
                                     require_latest = false;
                                 }
                                 _ => return Err(SelectionError::BadInput),
@@ -172,7 +164,7 @@ impl NetworkCache {
                                                 }
                                             };
                                             require_latest = false;
-                                            let fields = block_hash_field!(hash);
+                                            let fields = block_hash_field(hash);
                                             // This is different then the above which just replaces the
                                             // fields in the existing object, because we must not modify
                                             // the variable in case it's used elsewhere.
@@ -196,7 +188,7 @@ impl NetworkCache {
                                                     BadIndexerReason::BehindMinimumBlock,
                                                 ));
                                             }
-                                            let fields = block_hash_field!(block.hash);
+                                            let fields = block_hash_field(&block.hash);
                                             // This is different then the above which just replaces the
                                             // fields in the existing object, because we must not modify
                                             // the variable in case it's used elsewhere.
@@ -224,7 +216,7 @@ impl NetworkCache {
                         continue;
                     }
                 };
-                let fields = block_hash_field!(&block.hash);
+                let fields = block_hash_field(&block.hash);
                 let arg = ("block", q::Value::Object(fields));
                 top_level_field.arguments.push(arg);
             }
@@ -573,7 +565,7 @@ mod tests {
     fn requirements_multiple_block_numbers() {
         requirements_test(
             &NetworkCache::default(),
-            "query { a(block: { number: 10}) a(block: { number: 20}) }",
+            "query { a(block: { number: 10 }) a(block: { number: 20 }) }",
             "",
             BlockRequirements {
                 minimum_block: Some(20),
@@ -602,7 +594,7 @@ mod tests {
     fn block_number_gte_requirements() {
         requirements_test(
             &NetworkCache::default(),
-            "query { a(block: { number_gte: 10}) }",
+            "query { a(block: { number_gte: 10 }) }",
             "",
             BlockRequirements {
                 minimum_block: Some(10),
@@ -614,7 +606,7 @@ mod tests {
     #[test]
     fn block_number_gte_determinism() {
         let mut cache = cache_with("mainnet", &gen_blocks(&[0, 1, 2, 3, 4, 5, 6, 7]));
-        let context = Context::new("query { a(block: { number_gte: 4}) }", "").unwrap();
+        let context = Context::new("query { a(block: { number_gte: 4 }) }", "").unwrap();
         let result = cache.make_query_deterministic("mainnet", context, 2);
         assert_eq!(
             result,
