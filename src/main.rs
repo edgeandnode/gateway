@@ -55,9 +55,9 @@ struct Opt {
         help = "Ethereum provider URLs, format: '<network>=<url>,...'\ne.g. rinkeby=eth-rinkeby.alchemyapi.io/v2/<api-key>",
         long = "--ethereum-providers",
         env = "ETHEREUM_PROVIDERS",
-        parse(try_from_str = "parse_networks")
+        raw(use_delimiter = "true")
     )]
-    ethereum_proviers: Vec<(String, String)>,
+    ethereum_proviers: EthereumProviders,
     #[structopt(
         help = "Network subgraph URL",
         long = "--network-subgraph",
@@ -98,12 +98,30 @@ struct Opt {
     ip_rate_limit: u8,
 }
 
-fn parse_networks(arg: &str) -> Result<(String, String), String> {
-    let kv = arg.split("=").collect::<Vec<&str>>();
-    if kv.len() != 2 {
-        return Err("networks syntax: <network>=<url>,...".into());
+#[derive(Debug)]
+struct EthereumProviders(Vec<(String, String)>);
+
+impl FromStr for EthereumProviders {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let err_usage = "networks syntax: <network>=<url>,...";
+        let pairs = s.split(",").collect::<Vec<&str>>();
+        if pairs.is_empty() {
+            return Err(err_usage.into());
+        }
+        pairs
+            .into_iter()
+            .map(|provider| {
+                let kv = provider.split("=").collect::<Vec<&str>>();
+                if kv.len() != 2 {
+                    return None;
+                }
+                Some((kv[0].into(), kv[1].into()))
+            })
+            .collect::<Option<Vec<(String, String)>>>()
+            .map(|providers| EthereumProviders(providers))
+            .ok_or::<String>(err_usage.into())
     }
-    Ok((kv[0].into(), kv[1].into()))
 }
 
 #[actix_web::main]
@@ -150,10 +168,11 @@ async fn main() {
         Vec<alchemy_client::Metrics>,
     ) = opt
         .ethereum_proviers
+        .0
         .into_iter()
-        .map(|(network, ws_url)| {
+        .map(|(network, url)| {
             let (send, metrics) =
-                alchemy_client::create(network.clone(), ws_url, input_writers.indexers.clone());
+                alchemy_client::create(network.clone(), url, input_writers.indexers.clone());
             ((network, send), metrics)
         })
         .unzip();
