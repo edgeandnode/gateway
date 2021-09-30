@@ -54,8 +54,7 @@ struct Opt {
     #[structopt(
         help = "Ethereum provider URLs, format: '<network>=<url>,...'\ne.g. rinkeby=eth-rinkeby.alchemyapi.io/v2/<api-key>",
         long = "--ethereum-providers",
-        env = "ETHEREUM_PROVIDERS",
-        raw(use_delimiter = "true")
+        env = "ETHEREUM_PROVIDERS"
     )]
     ethereum_proviers: EthereumProviders,
     #[structopt(
