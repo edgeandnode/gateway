@@ -61,8 +61,10 @@ pub struct SerializableQuery {
 
 impl BlockRequirements {
     fn parse_minimum_block(&mut self, number: &Number) -> Result<(), SelectionError> {
-        let number = number.as_i64().ok_or(SelectionError::BadInput)?;
-        let number = u64::try_from(number).map_err(|_| SelectionError::BadInput)?;
+        let number = number
+          .as_i64()
+          .and_then(|n| u64::try_from(n).ok())
+          .ok_or(SelectionError::BadInput)?;
         self.minimum_block = Some(self.minimum_block.unwrap_or_default().max(number));
         Ok(())
     }
