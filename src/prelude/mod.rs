@@ -11,24 +11,21 @@ pub use prometheus::{
     self,
     core::{MetricVec, MetricVecBuilder},
 };
-pub use std::{convert::TryInto, str::FromStr, sync::Once};
+pub use std::{convert::TryInto, str::FromStr};
 pub use tokio::sync::{mpsc, oneshot};
 pub use tracing::{self, Instrument};
 use tracing_subscriber::{self, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub fn init_tracing(json: bool) {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        let filter_layer = tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or(tracing_subscriber::EnvFilter::try_new("info,graph_gateway=debug").unwrap());
-        let defaults = tracing_subscriber::registry().with(filter_layer);
-        let fmt_layer = tracing_subscriber::fmt::layer();
-        if json {
-            defaults.with(fmt_layer.json()).init();
-        } else {
-            defaults.with(fmt_layer).init();
-        }
-    })
+    let filter_layer = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or(tracing_subscriber::EnvFilter::try_new("info,graph_gateway=debug").unwrap());
+    let defaults = tracing_subscriber::registry().with(filter_layer);
+    let fmt_layer = tracing_subscriber::fmt::layer();
+    if json {
+        defaults.with(fmt_layer.json()).init();
+    } else {
+        defaults.with(fmt_layer).init();
+    }
 }
 
 pub fn with_metric<T, F, B>(metric_vec: &MetricVec<B>, label_values: &[&str], f: F) -> Option<T>
