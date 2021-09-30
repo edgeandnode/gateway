@@ -15,7 +15,29 @@ More details on evironment variable filtering: https://docs.rs/tracing-subscribe
 
 ### Metrics
 
-TODO
+Prometheus metrics are served at `:${METRICS_PORT}/metrics`
+
+## Deployment
+
+```bash
+docker build . \
+  --build-arg "GH_USER=${GH_USER}" \
+  --build-arg "GH_TOKEN=${GH_TOKEN}" \
+  -t edgeandnode/graph-gateway:latest
+```
+
+```bash
+docker run --rm --name graph-gateway \
+  -p "${PORT}:${PORT}" \
+  -p "${METRICS_PORT}:${METRICS_PORT}" \
+  -e "PORT=${PORT}" \
+  -e "METRICS_PORT=${METRICS_PORT}" \
+  -e "MNEMONIC=${MNEMONIC}" \
+  -e "SYNC_AGENT=${SYNC_AGENT}" \
+  -e "ETHEREUM_PROVIDERS=mainnet=eth-mainnet.alchemyapi.io/v2/${ALCHEMY_KEY},rinkeby=eth-rinkeby.alchemyapi.io/v2/${ALCHEMY_KEY}" \
+  -e "NETWORK_SUBGRAPH=${NETWORK_SUBGRAPH}" \
+  edgeandnode/graph-gateway
+```
 
 ## Future performance considerations
 
