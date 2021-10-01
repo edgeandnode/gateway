@@ -115,8 +115,8 @@ struct RateLimiter {
 
 impl RateLimiter {
     fn new(window: Duration, limit: usize) -> Arc<Self> {
-        let slot_time = Duration::from_millis(200);
-        let slots = (window.as_millis() as usize) / (slot_time.as_millis() as usize);
+        let slots: usize = 10;
+        let slot_time = Duration::from_millis((window.as_millis() / (slots as u128)) as u64);
         let rate_limiter = Arc::new(Self {
             limit,
             slots: RwLock::new(VecDeque::from_iter(
@@ -155,6 +155,13 @@ impl RateLimiter {
     }
 
     async fn check_limited(&self, key: String) -> bool {
+        // We want to avoid a situation where a maliciously overactive client can degrade the
+        // ability for the gateway to serve other clients. So we limit the contention and mutually
+        // exclusive locking that can be caused by such a client. A malicious client will most
+        // often be limited based on their count from prior slots, which are infrequently modified.
+        // If we need to check the current slot, then the malicious client will only be able to
+        // trigger a write lock acquisition up to `limit` times in the worst case for the entire
+        // window.
         let mut sum: usize = self
             .slots
             .read()
