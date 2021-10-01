@@ -82,6 +82,20 @@ struct Opt {
     port: u16,
     #[structopt(long = "--metrics-port", env = "METRICS_PORT", default_value = "7300")]
     metrics_port: u16,
+    #[structopt(
+        help = "Duration of IP rate limiting window in seconds",
+        long = "--ip-rate-limit-window",
+        env = "IP_RATE_LIMIT_WINDOW",
+        default_value = "10"
+    )]
+    ip_rate_limit_window_secs: u8,
+    #[structopt(
+        help = "IP rate limit per window",
+        long = "--ip-rate-limit",
+        env = "IP_RATE_LIMIT",
+        default_value = "250"
+    )]
+    ip_rate_limit: u8,
 }
 
 fn parse_networks(arg: &str) -> Result<(String, String), String> {
@@ -189,9 +203,10 @@ async fn main() {
         .await
         .expect("Failed to start metrics server")
     });
-    // TODO: rate limit API keys
-    // TODO: rate limit without API keys
+    let ip_rate_limit_window = Duration::from_secs(opt.ip_rate_limit_window_secs as u64);
+    let ip_rate_limit = opt.ip_rate_limit as usize;
     HttpServer::new(move || {
+        // TODO: rate limit using API keys in this scope
         let api = web::scope("/api/{api_key}")
             .app_data(web::Data::new((
                 config.clone(),
@@ -208,7 +223,10 @@ async fn main() {
                 web::post().to(handle_subgraph_query),
             );
         App::new()
-            .wrap(RateLimiterMiddleware)
+            .wrap(RateLimiterMiddleware::new(
+                ip_rate_limit_window,
+                ip_rate_limit,
+            ))
             .service(api)
             .route("/", web::get().to(|| async { "Ready to roll!" }))
             .service(
