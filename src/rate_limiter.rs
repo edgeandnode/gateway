@@ -11,7 +11,6 @@ use std::{
     future::{self, Ready},
     iter::{self, FromIterator as _},
     mem,
-    net::IpAddr,
     ops::DerefMut,
     rc::Rc,
     sync::{
@@ -80,11 +79,16 @@ where
         let service = Rc::clone(&self.service);
         let rate_limiter = self.rate_limiter.clone();
         async move {
-            let rate_limited = match request.peer_addr() {
-                Some(addr) => rate_limiter.check_limited(addr.ip()).await,
+            let client_addr = request
+                .connection_info()
+                .realip_remote_addr()
+                // Trim port number
+                .map(|addr| String::from(&addr[0..addr.rfind(":").unwrap_or(addr.len())]));
+            let rate_limited = match client_addr.clone() {
+                Some(client_addr) => rate_limiter.check_limited(client_addr).await,
                 None => false,
             };
-            tracing::trace!(addr = ?request.peer_addr(), %rate_limited);
+            tracing::info!(addr = ?client_addr, %rate_limited);
             if rate_limited {
                 return Ok(ServiceResponse::new(
                     request.into_parts().0,
@@ -103,14 +107,10 @@ where
 // 2. Shard the `current_slot` map by chunks of the IP address space to facilitate parallel writes
 //    to the current slot.
 
-// Replacing IpAddr with a type constrained by the following caused horrible lifetime issues. This
-// problem should be resolved when this is used for rate limiting API keys as well.
-// pub trait RateLimiterKey: Hash + Eq + Copy + Send + Sync {}
-
 struct RateLimiter {
     limit: usize,
-    slots: RwLock<VecDeque<HashMap<IpAddr, AtomicUsize>>>,
-    current_slot: RwLock<HashMap<IpAddr, AtomicUsize>>,
+    slots: RwLock<VecDeque<HashMap<String, AtomicUsize>>>,
+    current_slot: RwLock<HashMap<String, AtomicUsize>>,
 }
 
 impl RateLimiter {
@@ -154,7 +154,7 @@ impl RateLimiter {
         rate_limiter
     }
 
-    async fn check_limited(&self, key: IpAddr) -> bool {
+    async fn check_limited(&self, key: String) -> bool {
         let mut sum: usize = self
             .slots
             .read()
@@ -174,7 +174,7 @@ impl RateLimiter {
         sum >= self.limit
     }
 
-    async fn increment(&self, key: IpAddr) -> usize {
+    async fn increment(&self, key: String) -> usize {
         if let Ok(map) = self.current_slot.try_read() {
             if let Some(counter) = map.get(&key) {
                 return counter.fetch_add(1, MemoryOrdering::Relaxed);
