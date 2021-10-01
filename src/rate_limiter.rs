@@ -16,16 +16,33 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
-        Arc,
+        Arc, Mutex,
     },
     task::{Context, Poll},
 };
 use tokio::{sync::RwLock, time::Duration};
 
-pub struct RateLimiterMiddleware;
+pub struct RateLimiterMiddleware {
+    rate_limiter: Arc<RateLimiter>,
+}
+
+impl RateLimiterMiddleware {
+    pub fn new(window: Duration, limit: usize) -> Self {
+        lazy_static! {
+            static ref RATE_LIMITER: Mutex<Option<Arc<RateLimiter>>> = Mutex::new(None);
+        }
+        let mut locked = RATE_LIMITER.lock().unwrap();
+        let rate_limiter = locked.as_ref().cloned().unwrap_or_else(|| {
+            *locked = Some(RateLimiter::new(window, limit));
+            locked.as_ref().cloned().unwrap()
+        });
+        Self { rate_limiter }
+    }
+}
 
 pub struct RateLimiterService<S> {
     service: Rc<S>,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl<S> Transform<S, ServiceRequest> for RateLimiterMiddleware
@@ -41,6 +58,7 @@ where
     fn new_transform(&self, service: S) -> Self::Future {
         future::ready(Ok(RateLimiterService {
             service: Rc::new(service),
+            rate_limiter: self.rate_limiter.clone(),
         }))
     }
 }
@@ -59,14 +77,11 @@ where
 
     #[tracing::instrument(skip(self, request))]
     fn call(&self, request: ServiceRequest) -> Self::Future {
-        lazy_static! {
-            static ref RATE_LIMITER: Arc<RateLimiter> =
-                RateLimiter::new(Duration::from_secs(10), 250);
-        }
         let service = Rc::clone(&self.service);
+        let rate_limiter = self.rate_limiter.clone();
         async move {
             let rate_limited = match request.peer_addr() {
-                Some(addr) => RATE_LIMITER.check_limited(addr.ip()).await,
+                Some(addr) => rate_limiter.check_limited(addr.ip()).await,
                 None => false,
             };
             tracing::trace!(addr = ?request.peer_addr(), %rate_limited);
@@ -100,7 +115,7 @@ struct RateLimiter {
 
 impl RateLimiter {
     fn new(window: Duration, limit: usize) -> Arc<Self> {
-        let slot_time = Duration::from_millis(50);
+        let slot_time = Duration::from_millis(200);
         let slots = (window.as_millis() as usize) / (slot_time.as_millis() as usize);
         let rate_limiter = Arc::new(Self {
             limit,
@@ -118,10 +133,18 @@ impl RateLimiter {
                         // Take the current slot data. Rotate the previous slots and place the
                         // current slot at the back.
                         // This automatically prunes IPs that are infrequently used.
-                        let current =
-                            mem::take(rate_limiter.current_slot.write().await.deref_mut());
                         let mut slots = rate_limiter.slots.write().await;
-                        slots.pop_front();
+                        let front = slots
+                            .pop_front()
+                            .map(|mut front| {
+                                front.clear();
+                                front
+                            })
+                            .unwrap_or_default();
+                        let current = mem::replace(
+                            rate_limiter.current_slot.write().await.deref_mut(),
+                            front,
+                        );
                         slots.push_back(current);
                     }
                 })
@@ -152,8 +175,10 @@ impl RateLimiter {
     }
 
     async fn increment(&self, key: IpAddr) -> usize {
-        if let Some(counter) = self.current_slot.read().await.get(&key) {
-            return counter.fetch_add(1, MemoryOrdering::Relaxed);
+        if let Ok(map) = self.current_slot.try_read() {
+            if let Some(counter) = map.get(&key) {
+                return counter.fetch_add(1, MemoryOrdering::Relaxed);
+            }
         }
         match self.current_slot.write().await.entry(key) {
             Entry::Occupied(entry) => entry.get().fetch_add(1, MemoryOrdering::Relaxed),
