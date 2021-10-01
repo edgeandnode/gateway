@@ -2,10 +2,11 @@ mod alchemy_client;
 mod indexer_selection;
 mod prelude;
 mod query_engine;
+mod rate_limiter;
 mod sync_client;
 mod ws_client;
 
-use crate::{indexer_selection::SecretKey, prelude::*, query_engine::*};
+use crate::{indexer_selection::SecretKey, prelude::*, query_engine::*, rate_limiter::*};
 use actix_web::{
     http::{header, StatusCode},
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
@@ -207,6 +208,7 @@ async fn main() {
                 web::post().to(handle_subgraph_query),
             );
         App::new()
+            .wrap(RateLimiterMiddleware)
             .service(api)
             .route("/", web::get().to(|| async { "Ready to roll!" }))
             .service(
@@ -391,7 +393,7 @@ async fn handle_subgraph_query(
         .body(body)
 }
 
-fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> HttpResponse {
+pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> HttpResponse {
     HttpResponseBuilder::new(status)
         .insert_header(header::ContentType::json())
         .body(json!({"errors": {"message": message.to_string()}}).to_string())
