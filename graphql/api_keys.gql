@@ -1,0 +1,25 @@
+query APIKeys($lastUpdateId: String!) {
+  data: apiKeys(lastUpdateId: $lastUpdateId) {
+    updateId
+    value {
+      apiKey {
+        id
+        key
+      }
+      user {
+        id
+        ethAddress
+        queriesActivated
+      }
+      deployments
+      subgraphs {
+        id
+        networkId
+      }
+      domains {
+        id
+        name
+      }
+    }
+  }
+}

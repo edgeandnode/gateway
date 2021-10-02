@@ -168,7 +168,7 @@ impl Topology {
         let query = if self.flip_coin(32) { "?" } else { BASIC_QUERY };
         ClientQuery {
             id: self.rng.next_u64(),
-            api_key: "".into(),
+            api_key: None,
             query: query.into(),
             variables: None,
             network,
