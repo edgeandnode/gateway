@@ -175,12 +175,14 @@ async fn main() {
             ((network, send), metrics)
         })
         .unzip();
+    let (api_keys_writer, api_keys) = Eventual::new();
     let sync_metrics = sync_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
         gateway_id,
         signer_key.clone(),
         input_writers,
+        api_keys_writer,
     );
     let config = query_engine::Config {
         indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
@@ -225,12 +227,13 @@ async fn main() {
     HttpServer::new(move || {
         // TODO: rate limit using API keys in this scope
         let api = web::scope("/api/{api_key}")
-            .app_data(web::Data::new((
-                config.clone(),
-                resolver.clone(),
-                inputs.clone(),
-                &QUERY_ID,
-            )))
+            .app_data(web::Data::new(SubgraphQueryData {
+                config: config.clone(),
+                resolver: resolver.clone(),
+                inputs: inputs.clone(),
+                api_keys: api_keys.clone(),
+                query_id: &QUERY_ID,
+            }))
             .route(
                 "/subgraphs/id/{subgraph_id}",
                 web::post().to(handle_subgraph_query),
@@ -382,15 +385,26 @@ struct QueryBody {
     variables: Option<Box<RawValue>>,
 }
 
+struct SubgraphQueryData {
+    config: Config,
+    resolver: NetworkResolver,
+    inputs: Inputs,
+    api_keys: Eventual<Ptr<HashMap<String, APIKey>>>,
+    query_id: &'static AtomicUsize,
+}
+
 #[tracing::instrument(skip(request, payload, data))]
 async fn handle_subgraph_query(
     request: HttpRequest,
     payload: web::Json<QueryBody>,
-    data: web::Data<(Config, NetworkResolver, Inputs, &'static AtomicUsize)>,
+    data: web::Data<SubgraphQueryData>,
 ) -> HttpResponse {
-    let query_engine = QueryEngine::new(data.0.clone(), data.1.clone(), data.2.clone());
+    let query_engine = QueryEngine::new(
+        data.config.clone(),
+        data.resolver.clone(),
+        data.inputs.clone(),
+    );
     let url_params = request.match_info();
-    let api_key = url_params.get("api_key").unwrap_or_default();
     let subgraph = if let Some(name) = url_params.get("subgraph_id") {
         Subgraph::Name(name.into())
     } else if let Some(deployment) = url_params
@@ -401,14 +415,19 @@ async fn handle_subgraph_query(
     } else {
         return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier");
     };
+    let api_keys = data.api_keys.value_immediate().unwrap_or_default();
+    let api_key = url_params
+        .get("api_key")
+        .and_then(|k| api_keys.get(k))
+        .cloned();
     let query = ClientQuery {
-        id: data.3.fetch_add(1, MemoryOrdering::Relaxed) as u64,
-        api_key: api_key.to_string(),
+        id: data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64,
+        api_key,
         query: payload.query.to_string(),
         variables: payload.variables.as_ref().map(ToString::to_string),
         // TODO: We are assuming mainnet for now.
         network: "mainnet".into(),
-        subgraph: subgraph,
+        subgraph,
     };
     let (query, body) = match query_engine.execute_query(query).await {
         Ok(result) => match serde_json::to_string(&result.response) {

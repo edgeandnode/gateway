@@ -23,11 +23,20 @@ pub enum Subgraph {
 #[derive(Clone, Debug)]
 pub struct ClientQuery {
     pub id: u64,
-    pub api_key: String,
+    pub api_key: Option<APIKey>,
     pub query: String,
     pub variables: Option<String>,
     pub network: String,
     pub subgraph: Subgraph,
+}
+
+#[derive(Clone, Debug)]
+pub struct APIKey {
+    pub key: String,
+    pub user_address: Address,
+    pub queries_activated: bool,
+    pub deployments: Vec<SubgraphDeploymentID>,
+    pub domains: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -165,7 +174,11 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             query.subgraph = ?query.subgraph,
             indexer_selection_retry_limit = ?self.config.indexer_selection_retry_limit
         );
-        let api_key = query.api_key.clone();
+        let api_key = query
+            .api_key
+            .as_ref()
+            .map(|k| k.key.clone())
+            .unwrap_or("unknown".into());
         let query_start = Instant::now();
         let name_timer = if let Subgraph::Name(subgraph_name) = &query.subgraph {
             with_metric(&METRICS.subgraph_name_duration, &[subgraph_name], |hist| {

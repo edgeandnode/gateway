@@ -1,9 +1,9 @@
 query ConversionRates($lastUpdateId: String!) {
-    data: conversionRates(lastUpdateId: $lastUpdateId) {
-        updateId
-        value {
-            daiToGrt
-            grtToDai
-        }
+  data: conversionRates(lastUpdateId: $lastUpdateId) {
+    updateId
+    value {
+      daiToGrt
+      grtToDai
     }
+  }
 }

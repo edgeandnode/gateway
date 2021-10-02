@@ -4,7 +4,7 @@ use crate::{
         SecretKey, SelectionFactors,
     },
     prelude::{shared_lookup::SharedLookupWriter, *},
-    query_engine::InputWriters,
+    query_engine::{APIKey, InputWriters},
 };
 use eventuals::EventualExt as _;
 use graphql_client::{GraphQLQuery, Response};
@@ -32,6 +32,7 @@ pub fn create(
     gateway_id: Uuid,
     signer_key: SecretKey,
     inputs: InputWriters,
+    api_keys: EventualWriter<Ptr<HashMap<String, APIKey>>>,
 ) -> Metrics {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
     let InputWriters {
@@ -53,6 +54,15 @@ pub fn create(
         transfers: prometheus::register_int_gauge!("transfers", "Total transfers").unwrap(),
     };
 
+    create_sync_client::<APIKeys, _>(
+        gateway_id,
+        agent_url.clone(),
+        poll_interval,
+        api_keys::OPERATION_NAME,
+        api_keys::QUERY,
+        parse_api_keys,
+        api_keys,
+    );
     create_sync_client::<ConversionRates, _>(
         gateway_id,
         agent_url.clone(),
@@ -287,6 +297,48 @@ where
     }
     tracing::error!("malformed response data");
     None
+}
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "graphql/sync_agent_schema.gql",
+    query_path = "graphql/api_keys.gql",
+    response_derives = "Debug"
+)]
+struct APIKeys;
+
+fn parse_api_keys(data: api_keys::ResponseData) -> Option<Ptr<HashMap<String, APIKey>>> {
+    match data {
+        api_keys::ResponseData {
+            data: Some(api_keys::ApiKeysData { value, .. }),
+        } => {
+            let parsed = value
+                .into_iter()
+                .filter_map(|value| {
+                    Some(APIKey {
+                        key: value.api_key.key,
+                        user_address: value.user.eth_address.parse().ok()?,
+                        queries_activated: value.user.queries_activated,
+                        deployments: value
+                            .deployments
+                            .into_iter()
+                            .filter_map(|id| id.parse::<SubgraphDeploymentID>().ok())
+                            .collect(),
+                        domains: value
+                            .domains
+                            .into_iter()
+                            .map(|domain| domain.name)
+                            .collect(),
+                    })
+                })
+                .collect::<Vec<APIKey>>();
+            tracing::info!(api_keys = %parsed.len());
+            Some(Ptr::new(HashMap::from_iter(
+                parsed.into_iter().map(|v| (v.key.clone(), v)),
+            )))
+        }
+        _ => None,
+    }
 }
 
 #[derive(GraphQLQuery)]
