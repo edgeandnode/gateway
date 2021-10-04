@@ -137,13 +137,12 @@ async fn main() {
     // Trigger decay every 20 minutes.
     let indexer_selection = inputs.indexers.clone();
     eventuals::timer(Duration::from_secs(20 * 60))
-        .map(move |_| {
+        .pipe_async(move |_| {
             let indexer_selection = indexer_selection.clone();
             async move {
                 indexer_selection.decay().await;
             }
         })
-        .pipe(|_| ())
         .forever();
 
     let (block_resolvers, block_metrics): (

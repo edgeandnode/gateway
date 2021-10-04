@@ -587,7 +587,7 @@ fn handle_cost_models(
     cost_models: Eventual<Ptr<Vec<(Indexing, CostModelSource)>>>,
 ) {
     cost_models
-        .map(move |cost_models| {
+        .pipe_async(move |cost_models| {
             let indexings = indexings.clone();
             async move {
                 tracing::info!(cost_models = %cost_models.len());
@@ -599,7 +599,6 @@ fn handle_cost_models(
             }
             .instrument(tracing::info_span!("handle_cost_models"))
         })
-        .pipe(|_| ())
         .forever();
 }
 
@@ -614,7 +613,7 @@ fn handle_deployments(
 ) {
     let indexers = Arc::new(Mutex::new(indexers));
     eventuals::join((current_deployments, indexer_statuses))
-        .map(move |(current_deployments, indexer_statuses)| {
+        .pipe_async(move |(current_deployments, indexer_statuses)| {
             let _span = tracing::info_span!("handle_deployments").entered();
             tracing::info!(
                 current_deployments = %current_deployments.len(),
@@ -655,7 +654,6 @@ fn handle_deployments(
                 }
             }
         })
-        .pipe(|_| ())
         .forever();
 }
 
@@ -664,7 +662,7 @@ fn handle_indexing_statuses(
     indexing_statuses: Eventual<Ptr<Vec<ParsedIndexingStatus>>>,
 ) {
     indexing_statuses
-        .map(move |indexing_statuses| {
+        .pipe_async(move |indexing_statuses| {
             let indexer_selection = indexer_selection.clone();
             async move {
                 tracing::info!(indexing_statuses = %indexing_statuses.len());
@@ -680,7 +678,6 @@ fn handle_indexing_statuses(
             }
             .instrument(tracing::info_span!("handle_indexing_statuses"))
         })
-        .pipe(|_| ())
         .forever();
 }
 
@@ -691,7 +688,7 @@ fn handle_transfers(
 ) {
     let mut used_transfers = Ptr::<Vec<ParsedTransfer>>::default();
     transfers
-        .map(move |transfers| {
+        .pipe_async(move |transfers| {
             let used_transfers = std::mem::replace(&mut used_transfers, transfers.clone());
             let indexer_selection = indexer_selection.clone();
             let metrics = metrics.clone();
@@ -732,7 +729,6 @@ fn handle_transfers(
             }
             .instrument(tracing::info_span!("handle_transfers"))
         })
-        .pipe(|_| ())
         .forever();
 }
 
@@ -744,7 +740,7 @@ fn handle_allocations(
 ) {
     let mut used_allocations = Ptr::<Vec<ParsedAllocation>>::default();
     allocations
-        .map(move |allocations| {
+        .pipe_async(move |allocations| {
             let used_allocations = std::mem::replace(&mut used_allocations, allocations.clone());
             let indexer_selection = indexer_selection.clone();
             let metrics = metrics.clone();
@@ -784,6 +780,5 @@ fn handle_allocations(
             }
             .instrument(tracing::info_span!("handle_allocations"))
         })
-        .pipe(|_| ())
         .forever();
 }
