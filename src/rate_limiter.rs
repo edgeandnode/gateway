@@ -127,7 +127,7 @@ impl RateLimiter {
         {
             let rate_limiter = rate_limiter.clone();
             eventuals::timer(slot_time)
-                .map(move |_| {
+                .pipe_async(move |_| {
                     let rate_limiter = rate_limiter.clone();
                     async move {
                         // Take the current slot data. Rotate the previous slots and place the
@@ -148,7 +148,6 @@ impl RateLimiter {
                         slots.push_back(current);
                     }
                 })
-                .pipe(|_| ())
                 .forever();
         }
         rate_limiter
