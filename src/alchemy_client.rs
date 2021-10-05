@@ -155,7 +155,9 @@ impl Client {
             Some(UnresolvedBlock::WithHash(hash)) => {
                 ("eth_getBlockByHash", format!("{:?}", hash).into())
             }
-            Some(UnresolvedBlock::WithNumber(number)) => ("eth_getBlockByNumber", number.into()),
+            Some(UnresolvedBlock::WithNumber(number)) => {
+                ("eth_getBlockByNumber", format!("0x{:x}", number).into())
+            }
             None => ("eth_getBlockByNumber", "latest".into()),
         };
         let response = match self
