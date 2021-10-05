@@ -5,7 +5,6 @@ use actix_web::{
 };
 use eventuals::{self, EventualExt as _};
 use futures_util::future::{FutureExt as _, LocalBoxFuture};
-use lazy_static::lazy_static;
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
     future::{self, Ready},
@@ -15,29 +14,15 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
-        Arc, Mutex,
+        Arc,
     },
     task::{Context, Poll},
 };
 use tokio::{sync::RwLock, time::Duration};
 
 pub struct RateLimiterMiddleware {
-    rate_limiter: Arc<RateLimiter>,
-    key: fn(&ServiceRequest) -> Option<String>,
-}
-
-impl RateLimiterMiddleware {
-    pub fn new(window: Duration, limit: usize, key: fn(&ServiceRequest) -> Option<String>) -> Self {
-        lazy_static! {
-            static ref RATE_LIMITER: Mutex<Option<Arc<RateLimiter>>> = Mutex::new(None);
-        }
-        let mut locked = RATE_LIMITER.lock().unwrap();
-        let rate_limiter = locked.as_ref().cloned().unwrap_or_else(|| {
-            *locked = Some(RateLimiter::new(window, limit));
-            locked.as_ref().cloned().unwrap()
-        });
-        Self { rate_limiter, key }
-    }
+    pub rate_limiter: Arc<RateLimiter>,
+    pub key: fn(&ServiceRequest) -> Option<String>,
 }
 
 pub struct RateLimiterService<S> {
@@ -114,14 +99,14 @@ where
 // 2. Shard the `current_slot` map by chunks of the IP address space to facilitate parallel writes
 //    to the current slot.
 
-struct RateLimiter {
+pub struct RateLimiter {
     limit: usize,
     slots: RwLock<VecDeque<HashMap<String, AtomicUsize>>>,
     current_slot: RwLock<HashMap<String, AtomicUsize>>,
 }
 
 impl RateLimiter {
-    fn new(window: Duration, limit: usize) -> Arc<Self> {
+    pub fn new(window: Duration, limit: usize) -> Arc<Self> {
         let slots: usize = 10;
         let slot_time = Duration::from_millis((window.as_millis() / (slots as u128)) as u64);
         let rate_limiter = Arc::new(Self {

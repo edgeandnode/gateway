@@ -237,17 +237,20 @@ async fn main() {
         .await
         .expect("Failed to start metrics server")
     });
-    let ip_rate_limit_window = Duration::from_secs(opt.ip_rate_limit_window_secs as u64);
-    let ip_rate_limit = opt.ip_rate_limit as usize;
-    let api_rate_limit_window_secs = Duration::from_secs(opt.api_rate_limit_window_secs as u64);
-    let api_rate_limit = opt.api_rate_limit as usize;
+    let ip_rate_limiter = RateLimiter::new(
+        Duration::from_secs(opt.ip_rate_limit_window_secs as u64),
+        opt.ip_rate_limit as usize,
+    );
+    let api_rate_limiter = RateLimiter::new(
+        Duration::from_secs(opt.api_rate_limit_window_secs as u64),
+        opt.api_rate_limit as usize,
+    );
     HttpServer::new(move || {
         let api = web::scope("/api/{api_key}")
-            .wrap(RateLimiterMiddleware::new(
-                api_rate_limit_window_secs,
-                api_rate_limit,
-                request_api_key,
-            ))
+            .wrap(RateLimiterMiddleware {
+                rate_limiter: api_rate_limiter.clone(),
+                key: request_api_key,
+            })
             .app_data(web::Data::new(SubgraphQueryData {
                 config: config.clone(),
                 resolver: resolver.clone(),
@@ -264,11 +267,10 @@ async fn main() {
                 web::post().to(handle_subgraph_query),
             );
         let other = web::scope("/")
-            .wrap(RateLimiterMiddleware::new(
-                ip_rate_limit_window,
-                ip_rate_limit,
-                request_ip,
-            ))
+            .wrap(RateLimiterMiddleware {
+                rate_limiter: ip_rate_limiter.clone(),
+                key: request_ip,
+            })
             .route("/", web::get().to(|| async { "Ready to roll!" }))
             .service(
                 web::resource("/ready")
