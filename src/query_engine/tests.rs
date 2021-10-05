@@ -7,6 +7,7 @@ use crate::{
     query_engine::*,
 };
 use async_trait::async_trait;
+use graphql_client;
 use rand::{
     distributions,
     rngs::{OsRng, SmallRng},
@@ -475,15 +476,18 @@ impl Topology {
                 Ok(response) => response,
                 Err(err) => return err_with(trace, format!("expected response, got {:?}", err)),
             };
-            let success = Response {
-                data: Some("success".into()),
-                errors: None,
-            };
             // The test resolver only gives the following response for successful queries.
-            if response.response != success {
+            if response
+                .response
+                .graphql_response
+                .data
+                .as_ref()
+                .map(|data| data.get() == "success")
+                .unwrap_or(false)
+            {
                 return err_with(
                     trace,
-                    format!("expected {:?}, got {:#?}", success, response.response,),
+                    format!("expected success, got {:#?}", response.response),
                 );
             }
             // The response is from a valid indexer.
@@ -543,10 +547,7 @@ impl Resolver for TopologyResolver {
             .collect()
     }
 
-    async fn query_indexer(
-        &self,
-        query: &IndexerQuery,
-    ) -> Result<Response<String>, Box<dyn Error>> {
+    async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>> {
         use regex::Regex;
         let topology = self.topology.lock().await;
         let indexer = topology.indexers.get(&query.indexing.indexer).unwrap();
@@ -562,9 +563,19 @@ impl Resolver for TopologyResolver {
                 todo!("block ahead of indexer")
             }
         }
-        Ok(Response {
-            data: Some("success".into()),
-            errors: None,
+        Ok(IndexerResponse {
+            graphql_response: graphql_client::Response {
+                data: Some(RawValue::from_string("success".into()).unwrap()),
+                errors: None,
+            },
+            attestation: Attestation {
+                request_cid: "".into(),
+                response_cid: "".into(),
+                deployment: query.indexing.subgraph.clone(),
+                v: 0,
+                r: "".into(),
+                s: "".into(),
+            },
         })
     }
 

@@ -11,7 +11,8 @@ pub use prometheus::{
     self,
     core::{MetricVec, MetricVecBuilder},
 };
-pub use std::{convert::TryInto, str::FromStr};
+use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
+pub use std::{convert::TryInto, fmt, str::FromStr};
 pub use tokio::sync::{mpsc, oneshot};
 pub use tracing::{self, Instrument};
 use tracing_subscriber::{self, layer::SubscriberExt as _, util::SubscriberInitExt as _};
@@ -78,6 +79,26 @@ macro_rules! bytes_wrapper {
                 Self { bytes }
             }
         }
+        impl std::ops::Deref for $id {
+            type Target = [u8; $len];
+            fn deref(&self) -> &Self::Target {
+                &self.bytes
+            }
+        }
+        impl<'de> Deserialize<'de> for $id {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let input: &str = Deserialize::deserialize(deserializer)?;
+                input.parse::<Self>().map_err(serde::de::Error::custom)
+            }
+        }
+        impl Serialize for $id {
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(&self.to_string())
+            }
+        }
+    };
+    ($vis:vis, $id:ident, $len:expr, "HexStr") => {
+        bytes_wrapper!($vis, $id, $len);
         impl FromStr for $id {
             type Err = hex::FromHexError;
             fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -87,25 +108,21 @@ macro_rules! bytes_wrapper {
                 Ok(Self { bytes })
             }
         }
-        impl std::ops::Deref for $id {
-            type Target = [u8; $len];
-            fn deref(&self) -> &Self::Target {
-                &self.bytes
+        impl fmt::Debug for $id {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "0x{}", hex::encode(self.bytes))
             }
         }
-    };
-    ($vis:vis, $id:ident, $len:expr, "HexDebug") => {
-        bytes_wrapper!($vis, $id, $len);
-        impl std::fmt::Debug for $id {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "0x{}", hex::encode(self.bytes))
+        impl fmt::Display for $id {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "{:?}", self)
             }
         }
     };
 }
 
-bytes_wrapper!(pub, Address, 20, "HexDebug");
-bytes_wrapper!(pub, Bytes32, 32, "HexDebug");
+bytes_wrapper!(pub, Address, 20, "HexStr");
+bytes_wrapper!(pub, Bytes32, 32, "HexStr");
 bytes_wrapper!(pub, SubgraphDeploymentID, 32);
 
 impl SubgraphDeploymentID {
@@ -122,9 +139,31 @@ impl SubgraphDeploymentID {
     }
 }
 
-impl std::fmt::Debug for SubgraphDeploymentID {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl FromStr for SubgraphDeploymentID {
+    type Err = BadIPFSHash;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_ipfs_hash(s).ok_or(BadIPFSHash)
+    }
+}
+
+impl fmt::Debug for SubgraphDeploymentID {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.ipfs_hash())
+    }
+}
+
+impl fmt::Display for SubgraphDeploymentID {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct BadIPFSHash;
+
+impl fmt::Display for BadIPFSHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Invalid IPFS hash")
     }
 }
 
