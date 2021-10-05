@@ -322,7 +322,7 @@ fn parse_api_keys(data: api_keys::ResponseData) -> Option<Ptr<HashMap<String, AP
                         deployments: value
                             .deployments
                             .into_iter()
-                            .filter_map(|id| id.parse::<SubgraphDeploymentID>().ok())
+                            .filter_map(|id| SubgraphDeploymentID::from_ipfs_hash(&id))
                             .collect(),
                         domains: value
                             .domains

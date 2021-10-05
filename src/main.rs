@@ -443,7 +443,7 @@ async fn handle_subgraph_query(
         Subgraph::Name(name.into())
     } else if let Some(deployment) = url_params
         .get("deployment_id")
-        .and_then(|id| id.parse::<SubgraphDeploymentID>().ok())
+        .and_then(|id| SubgraphDeploymentID::from_ipfs_hash(&id))
     {
         Subgraph::Deployment(deployment)
     } else {
