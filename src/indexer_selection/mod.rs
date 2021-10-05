@@ -610,6 +610,11 @@ impl Indexers {
         freshness_requirements: &BlockRequirements,
     ) -> Result<IndexerScore, SelectionError> {
         let mut aggregator = UtilityAggregator::new();
+        tracing::trace!(
+            "Scoring: subgraph {:?}, indexer {:?}",
+            indexing.subgraph,
+            indexing.indexer
+        );
         let indexer_data = self
             .indexers
             .get(&indexing.indexer)
@@ -622,6 +627,12 @@ impl Indexers {
                 )
             })
             .unwrap_or_default();
+        tracing::trace!(
+            indexer = ?indexing.indexer,
+            url = ?indexer_data.0,
+            stake = ?indexer_data.1,
+            delegated_stake = ?indexer_data.2,
+        );
         let indexer_url = indexer_data
             .0
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
@@ -637,11 +648,13 @@ impl Indexers {
             .ok_or(SelectionError::MissingNetworkParams)?;
         aggregator.add(economic_security.utility.clone());
 
-        let selection_factors = self
-            .indexings
-            .get(&indexing)
-            .await
-            .ok_or(BadIndexerReason::MissingIndexingStatus)?;
+        let selection_factors = self.indexings.get(&indexing).await;
+        let snapshot = match &selection_factors {
+            Some(selection_factors) => Some(selection_factors.snapshot(&indexing).await),
+            None => None,
+        };
+        tracing::trace!(?snapshot);
+        let selection_factors = selection_factors.ok_or(BadIndexerReason::MissingIndexingStatus)?;
 
         let blocks_behind = selection_factors.blocks_behind().await?;
         let latest_block = self

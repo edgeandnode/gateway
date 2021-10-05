@@ -337,11 +337,13 @@ async fn handle_metrics() -> HttpResponse {
 
 #[tracing::instrument(skip(data))]
 async fn handle_snapshot(data: web::Data<Arc<indexer_selection::Indexers>>) -> HttpResponse {
-    let snapshot = tree_buf::encode(&data.snapshot().await);
-    tracing::info!(snapshot_size = %snapshot.len());
+    let snapshot = data.snapshot().await;
+    tracing::trace!(?snapshot);
+    let encoded = tree_buf::encode(&snapshot);
+    tracing::info!(snapshot_size = %encoded.len());
     HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::octet_stream())
-        .body(snapshot)
+        .body(encoded)
 }
 
 #[tracing::instrument(skip(data))]
