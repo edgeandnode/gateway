@@ -32,7 +32,7 @@ pub fn create(
     gateway_id: Uuid,
     signer_key: SecretKey,
     inputs: InputWriters,
-    api_keys: EventualWriter<Ptr<HashMap<String, APIKey>>>,
+    api_keys: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
 ) -> Metrics {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
     let InputWriters {
@@ -307,7 +307,7 @@ where
 )]
 struct APIKeys;
 
-fn parse_api_keys(data: api_keys::ResponseData) -> Option<Ptr<HashMap<String, APIKey>>> {
+fn parse_api_keys(data: api_keys::ResponseData) -> Option<Ptr<HashMap<String, Arc<APIKey>>>> {
     match data {
         api_keys::ResponseData {
             data: Some(api_keys::ApiKeysData { value, .. }),
@@ -334,7 +334,7 @@ fn parse_api_keys(data: api_keys::ResponseData) -> Option<Ptr<HashMap<String, AP
                 .collect::<Vec<APIKey>>();
             tracing::info!(api_keys = %parsed.len());
             Some(Ptr::new(HashMap::from_iter(
-                parsed.into_iter().map(|v| (v.key.clone(), v)),
+                parsed.into_iter().map(|v| (v.key.clone(), Arc::new(v))),
             )))
         }
         _ => None,

@@ -23,7 +23,7 @@ pub enum Subgraph {
 #[derive(Clone, Debug)]
 pub struct ClientQuery {
     pub id: u64,
-    pub api_key: APIKey,
+    pub api_key: Arc<APIKey>,
     pub query: String,
     pub variables: Option<String>,
     pub network: String,

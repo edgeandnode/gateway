@@ -432,7 +432,7 @@ struct SubgraphQueryData {
     config: Config,
     resolver: NetworkResolver,
     inputs: Inputs,
-    api_keys: Eventual<Ptr<HashMap<String, APIKey>>>,
+    api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     query_id: &'static AtomicUsize,
 }
 
