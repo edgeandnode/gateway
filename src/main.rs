@@ -486,7 +486,7 @@ async fn handle_subgraph_query(
         subgraph,
     };
     let (query, body) = match query_engine.execute_query(query).await {
-        Ok(result) => match serde_json::to_string(&result.response) {
+        Ok(result) => match serde_json::to_string(&result.response.graphql_response) {
             Ok(body) => (result.query, body),
             Err(err) => return graphql_error_response(StatusCode::INTERNAL_SERVER_ERROR, err),
         },
@@ -554,10 +554,7 @@ impl Resolver for NetworkResolver {
         resolved_blocks
     }
 
-    async fn query_indexer(
-        &self,
-        query: &IndexerQuery,
-    ) -> Result<Response<String>, Box<dyn Error>> {
+    async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>> {
         let receipt = hex::encode(&query.receipt[0..(query.receipt.len() - 64)]);
         self.client
             .post(format!(
@@ -568,7 +565,7 @@ impl Resolver for NetworkResolver {
             .body(query.query.clone())
             .send()
             .await?
-            .json::<Response<String>>()
+            .json::<IndexerResponse>()
             .await
             .map_err(|err| err.into())
     }
@@ -591,7 +588,7 @@ impl Resolver for NetworkResolver {
         let query = CreateTransfer::build_query(create_transfer::Variables {
             gateway_id: self.gateway_id.to_string(),
             deployment: indexing.subgraph.ipfs_hash(),
-            indexer: format!("{:?}", indexing.indexer),
+            indexer: indexing.indexer.to_string(),
         });
         let response = self
             .client

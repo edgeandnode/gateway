@@ -6,9 +6,9 @@ pub enum ParseStrError {
     InvalidInput,
 }
 
-impl ToString for ParseStrError {
-    fn to_string(&self) -> String {
-        "Failed to parse decimal value".into()
+impl fmt::Display for ParseStrError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Failed to parse decimal value")
     }
 }
 

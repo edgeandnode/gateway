@@ -153,7 +153,7 @@ impl Client {
     async fn fetch_block(&mut self, block: Option<UnresolvedBlock>) -> Option<APIBlockHead> {
         let (method, param) = match block {
             Some(UnresolvedBlock::WithHash(hash)) => {
-                ("eth_getBlockByHash", format!("{:?}", hash).into())
+                ("eth_getBlockByHash", hash.to_string().into())
             }
             Some(UnresolvedBlock::WithNumber(number)) => {
                 ("eth_getBlockByNumber", format!("0x{:x}", number).into())
@@ -224,15 +224,10 @@ struct APIResult<T> {
 
 #[derive(Debug, Deserialize)]
 struct APIBlockHead {
-    #[serde(deserialize_with = "deserialize_hash")]
     hash: Bytes32,
     #[serde(deserialize_with = "deserialize_u64")]
     number: u64,
-    #[serde(
-        deserialize_with = "deserialize_hashes",
-        skip_serializing_if = "Vec::is_empty",
-        default
-    )]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     uncles: Vec<Bytes32>,
 }
 
@@ -242,23 +237,4 @@ where
 {
     let input = String::deserialize(deserializer)?;
     u64::from_str_radix(input.split_at(2).1, 16).map_err(D::Error::custom)
-}
-
-fn deserialize_hash<'de, D>(deserializer: D) -> Result<Bytes32, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let input = String::deserialize(deserializer)?;
-    input.parse::<Bytes32>().map_err(Error::custom)
-}
-
-fn deserialize_hashes<'de, D>(deserializer: D) -> Result<Vec<Bytes32>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let inputs = Vec::deserialize(deserializer)?;
-    inputs
-        .into_iter()
-        .map(|input: &str| input.parse::<Bytes32>().map_err(Error::custom))
-        .collect()
 }

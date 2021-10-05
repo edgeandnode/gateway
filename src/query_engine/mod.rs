@@ -11,6 +11,8 @@ pub use graphql_client::Response;
 use im;
 use lazy_static::lazy_static;
 use prometheus;
+use serde::{self, Deserialize, Deserializer, Serialize};
+use serde_json::value::RawValue;
 use std::{collections::HashMap, error::Error, sync::Arc};
 use tokio::time::Instant;
 
@@ -42,7 +44,27 @@ pub struct APIKey {
 #[derive(Debug)]
 pub struct QueryResponse {
     pub query: IndexerQuery,
-    pub response: Response<String>,
+    pub response: IndexerResponse,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IndexerResponse {
+    #[serde(
+        rename(deserialize = "graphQLResponse"),
+        deserialize_with = "deserialize_indexer_response"
+    )]
+    pub graphql_response: Response<Box<RawValue>>,
+    pub attestation: Attestation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Attestation {
+    request_cid: String,
+    response_cid: String,
+    deployment: SubgraphDeploymentID,
+    v: i64,
+    r: String,
+    s: String,
 }
 
 #[derive(Debug)]
@@ -91,8 +113,7 @@ pub trait Resolver {
     async fn resolve_blocks(&self, network: &str, unresolved: &[UnresolvedBlock])
         -> Vec<BlockHead>;
 
-    async fn query_indexer(&self, query: &IndexerQuery)
-        -> Result<Response<String>, Box<dyn Error>>;
+    async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>>;
 
     async fn create_transfer(
         &self,
@@ -301,7 +322,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 );
             }
 
-            let indexer_id = format!("{:?}", indexer_query.indexing.indexer);
+            let indexer_id = indexer_query.indexing.indexer.to_string();
             tracing::info!(indexer = %indexer_id);
             self.observe_indexer_selection_metrics(&deployment, &indexer_query);
             let t0 = Instant::now();
@@ -343,6 +364,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             let indexer_behind_err =
                 "Failed to decode `block.hash` value: `no block with that hash found`";
             if response
+                .graphql_response
                 .errors
                 .as_ref()
                 .map(|errs| errs.iter().any(|err| err.message == indexer_behind_err))
@@ -420,10 +442,10 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
         if let Ok(hist) = metrics.fee.get_metric_with_label_values(&[&deployment]) {
             hist.observe(selection.fee.as_f64());
         }
-        if let Ok(counter) = metrics.indexer_selected.get_metric_with_label_values(&[
-            &deployment,
-            &format!("{:?}", selection.indexing.indexer),
-        ]) {
+        if let Ok(counter) = metrics
+            .indexer_selected
+            .get_metric_with_label_values(&[&deployment, &selection.indexing.indexer.to_string()])
+        {
             counter.inc();
         }
         if let Ok(hist) = metrics
@@ -436,6 +458,16 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             hist.observe(*selection.utility);
         }
     }
+}
+
+fn deserialize_indexer_response<'de, D>(
+    deserializer: D,
+) -> Result<Response<Box<RawValue>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let input = String::deserialize(deserializer)?;
+    serde_json::from_str::<Response<Box<RawValue>>>(&input).map_err(serde::de::Error::custom)
 }
 
 impl Metrics {
