@@ -336,7 +336,7 @@ async fn handle_metrics() -> HttpResponse {
 }
 
 #[tracing::instrument(skip(data))]
-async fn handle_snapshot(data: web::Data<indexer_selection::Indexers>) -> HttpResponse {
+async fn handle_snapshot(data: web::Data<Arc<indexer_selection::Indexers>>) -> HttpResponse {
     let snapshot = tree_buf::encode(&data.snapshot().await);
     tracing::info!(snapshot_size = %snapshot.len());
     HttpResponseBuilder::new(StatusCode::OK)
@@ -424,7 +424,7 @@ async fn handle_network_query(
 
 #[derive(Deserialize, Debug)]
 struct QueryBody {
-    query: Box<RawValue>,
+    query: String,
     variables: Option<Box<RawValue>>,
 }
 
@@ -477,7 +477,7 @@ async fn handle_subgraph_query(
     let query = ClientQuery {
         id: data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64,
         api_key,
-        query: payload.query.to_string(),
+        query: payload.query.clone(),
         variables: payload.variables.as_ref().map(ToString::to_string),
         // TODO: We are assuming mainnet for now.
         network: "mainnet".into(),
