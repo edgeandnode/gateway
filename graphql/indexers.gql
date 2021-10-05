@@ -5,6 +5,7 @@ query Indexers($lastUpdateId: String!) {
       deployment
       indexers {
         id
+        url
         stakedTokens
         delegatedTokens
       }
