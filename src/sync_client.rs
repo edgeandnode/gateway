@@ -448,15 +448,16 @@ fn parse_current_deployments(
 struct Indexers;
 
 #[derive(Clone, Eq, PartialEq)]
-struct ParsedIndexerStatus {
+struct ParsedIndexerInfo {
     id: Address,
+    url: String,
     staked: GRT,
     delegated: GRT,
 }
 
 fn parse_indexers(
     data: indexers::ResponseData,
-) -> Option<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerStatus>)>>> {
+) -> Option<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)>>> {
     use indexers::{IndexersData, IndexersDataValue, ResponseData};
     let value = match data {
         ResponseData {
@@ -466,14 +467,16 @@ fn parse_indexers(
     };
     fn parse_value(
         value: IndexersDataValue,
-    ) -> Option<(SubgraphDeploymentID, Vec<ParsedIndexerStatus>)> {
+    ) -> Option<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)> {
         let deployment = SubgraphDeploymentID::from_ipfs_hash(&value.deployment)?;
         let indexers = value
             .indexers
             .into_iter()
             .filter_map(|indexer| {
-                Some(ParsedIndexerStatus {
+                Some(ParsedIndexerInfo {
                     id: indexer.id.parse::<Address>().ok()?,
+                    // TODO: parse URL
+                    url: indexer.url.trim_end_matches('/').into(),
                     staked: indexer.staked_tokens.parse().ok()?,
                     delegated: indexer.delegated_tokens.parse().ok()?,
                 })
@@ -498,7 +501,6 @@ struct IndexingStatuses;
 struct ParsedIndexingStatus {
     indexing: Indexing,
     network: String,
-    url: String,
     block_number: Option<u64>,
 }
 
@@ -523,7 +525,6 @@ fn parse_indexing_statuses(
                         indexer: status.indexer.id.parse().ok()?,
                     },
                     network: status.network,
-                    url: status.indexer.url,
                     block_number: status.block.and_then(|b| b.hash.parse().ok()),
                 })
             })
@@ -661,7 +662,7 @@ fn handle_deployments(
         Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
     >,
     current_deployments: Eventual<Ptr<Vec<(String, SubgraphDeploymentID)>>>,
-    indexer_statuses: Eventual<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerStatus>)>>>,
+    indexer_statuses: Eventual<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)>>>,
 ) {
     let indexers = Arc::new(Mutex::new(indexers));
     eventuals::join((current_deployments, indexer_statuses))
@@ -690,17 +691,17 @@ fn handle_deployments(
                     })
                     .collect(),
             ));
-            let statuses = HashMap::<Address, ParsedIndexerStatus>::from_iter(
-                indexer_statuses.iter().flat_map(|(_, statuses)| {
-                    statuses.iter().cloned().map(|status| (status.id, status))
-                }),
-            );
+            let statuses =
+                HashMap::<Address, ParsedIndexerInfo>::from_iter(indexer_statuses.iter().flat_map(
+                    |(_, statuses)| statuses.iter().cloned().map(|status| (status.id, status)),
+                ));
             tracing::info!(indexers = %statuses.len());
             let indexers = indexers.clone();
             async move {
                 let mut indexers = indexers.lock().await;
                 for (indexer, status) in statuses {
                     let indexer = indexers.write(&indexer).await;
+                    indexer.url.write(status.url);
                     indexer.stake.write(status.staked);
                     indexer.delegated_stake.write(status.delegated);
                 }
