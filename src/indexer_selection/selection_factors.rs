@@ -163,6 +163,7 @@ impl SelectionFactors {
         }
     }
 
+    #[cfg(test)]
     pub async fn restore(snapshot: IndexingSnapshot) -> (Indexing, SelectionFactors, IndexingData) {
         let (mut writer, reader) = SelectionFactors::new();
         if let Some(model_src) = snapshot.cost_model {

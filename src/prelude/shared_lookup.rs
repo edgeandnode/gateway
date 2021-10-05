@@ -71,20 +71,7 @@ where
         }
     }
 
-    pub async fn read(&mut self, key: &K) -> Arc<R> {
-        if let Some(r) = self.readers.read().await.get(key) {
-            return r.clone();
-        }
-        let (writer, reader) = R::new();
-        self.writers.insert(key.clone(), writer);
-        let reader = Arc::new(reader);
-        self.readers
-            .write()
-            .await
-            .insert(key.clone(), reader.clone());
-        reader
-    }
-
+    #[cfg(test)]
     pub async fn restore<S>(&mut self, snapshot: Vec<S>)
     where
         S: Into<(K, R, W)>,
