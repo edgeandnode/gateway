@@ -420,6 +420,17 @@ async fn handle_subgraph_query(
         .get("api_key")
         .and_then(|k| api_keys.get(k))
         .cloned();
+    if let (Some(api_key), Some(addr)) = (&api_key, request.connection_info().realip_remote_addr())
+    {
+        if !api_key.domains.is_empty()
+            && !api_key
+                .domains
+                .iter()
+                .any(|domain| addr.starts_with(domain))
+        {
+            return graphql_error_response(StatusCode::OK, "Domain not authorized by API key");
+        }
+    }
     let query = ClientQuery {
         id: data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64,
         api_key,

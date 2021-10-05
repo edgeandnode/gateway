@@ -49,6 +49,7 @@ pub struct QueryResponse {
 pub enum QueryEngineError {
     SubgraphNotFound,
     NoIndexerSelected,
+    APIKeySubgraphNotAuthorized,
     MalformedQuery,
     MissingBlocks(Vec<UnresolvedBlock>),
 }
@@ -202,6 +203,11 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                     QueryEngineError::SubgraphNotFound
                 })?,
         };
+        if let Some(api_key) = &query.api_key {
+            if !api_key.deployments.is_empty() && !api_key.deployments.contains(&deployment) {
+                return Err(QueryEngineError::APIKeySubgraphNotAuthorized);
+            }
+        }
         name_timer.map(|t| t.observe_duration());
         let deployment_ipfs = deployment.ipfs_hash();
         let result = self
