@@ -23,10 +23,11 @@ use tokio::{sync::RwLock, time::Duration};
 
 pub struct RateLimiterMiddleware {
     rate_limiter: Arc<RateLimiter>,
+    key: fn(&ServiceRequest) -> Option<String>,
 }
 
 impl RateLimiterMiddleware {
-    pub fn new(window: Duration, limit: usize) -> Self {
+    pub fn new(window: Duration, limit: usize, key: fn(&ServiceRequest) -> Option<String>) -> Self {
         lazy_static! {
             static ref RATE_LIMITER: Mutex<Option<Arc<RateLimiter>>> = Mutex::new(None);
         }
@@ -35,13 +36,14 @@ impl RateLimiterMiddleware {
             *locked = Some(RateLimiter::new(window, limit));
             locked.as_ref().cloned().unwrap()
         });
-        Self { rate_limiter }
+        Self { rate_limiter, key }
     }
 }
 
 pub struct RateLimiterService<S> {
     service: Rc<S>,
     rate_limiter: Arc<RateLimiter>,
+    key: fn(&ServiceRequest) -> Option<String>,
 }
 
 impl<S> Transform<S, ServiceRequest> for RateLimiterMiddleware
@@ -58,6 +60,7 @@ where
         future::ready(Ok(RateLimiterService {
             service: Rc::new(service),
             rate_limiter: self.rate_limiter.clone(),
+            key: self.key,
         }))
     }
 }
@@ -78,17 +81,21 @@ where
     fn call(&self, request: ServiceRequest) -> Self::Future {
         let service = Rc::clone(&self.service);
         let rate_limiter = self.rate_limiter.clone();
+        let f = self.key;
         async move {
-            let client_addr = request
-                .connection_info()
-                .realip_remote_addr()
-                // Trim port number
-                .map(|addr| String::from(&addr[0..addr.rfind(":").unwrap_or(addr.len())]));
-            let rate_limited = match client_addr.clone() {
-                Some(client_addr) => rate_limiter.check_limited(client_addr).await,
-                None => false,
+            let key = f(&request);
+            let rate_limited = match key.clone() {
+                Some(key) => rate_limiter.check_limited(key).await,
+                None => {
+                    tracing::warn!(
+                        client_addr = request.connection_info().realip_remote_addr(),
+                        client_host = request.connection_info().host(),
+                        "Failed to extract key for rate limiter"
+                    );
+                    false
+                }
             };
-            tracing::info!(addr = ?client_addr, %rate_limited);
+            tracing::info!(?key, %rate_limited);
             if rate_limited {
                 return Ok(ServiceResponse::new(
                     request.into_parts().0,

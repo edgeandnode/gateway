@@ -8,6 +8,7 @@ mod ws_client;
 
 use crate::{indexer_selection::SecretKey, prelude::*, query_engine::*, rate_limiter::*};
 use actix_web::{
+    dev::ServiceRequest,
     http::{header, StatusCode},
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
@@ -94,7 +95,21 @@ struct Opt {
         env = "IP_RATE_LIMIT",
         default_value = "250"
     )]
-    ip_rate_limit: u8,
+    ip_rate_limit: u16,
+    #[structopt(
+        help = "Duration of API rate limiting window in seconds",
+        long = "--api-rate-limit-window",
+        env = "API_RATE_LIMIT_WINDOW",
+        default_value = "10"
+    )]
+    api_rate_limit_window_secs: u8,
+    #[structopt(
+        help = "API rate limit per window",
+        long = "--api-rate-limit",
+        env = "API_RATE_LIMIT",
+        default_value = "1000"
+    )]
+    api_rate_limit: u16,
 }
 
 #[derive(Debug)]
@@ -225,8 +240,12 @@ async fn main() {
     let ip_rate_limit_window = Duration::from_secs(opt.ip_rate_limit_window_secs as u64);
     let ip_rate_limit = opt.ip_rate_limit as usize;
     HttpServer::new(move || {
-        // TODO: rate limit using API keys in this scope
         let api = web::scope("/api/{api_key}")
+            .wrap(RateLimiterMiddleware::new(
+                ip_rate_limit_window,
+                ip_rate_limit,
+                request_api_key,
+            ))
             .app_data(web::Data::new(SubgraphQueryData {
                 config: config.clone(),
                 resolver: resolver.clone(),
@@ -242,12 +261,12 @@ async fn main() {
                 "/deployments/id/{deployment_id}",
                 web::post().to(handle_subgraph_query),
             );
-        App::new()
+        let other = web::scope("/")
             .wrap(RateLimiterMiddleware::new(
                 ip_rate_limit_window,
                 ip_rate_limit,
+                request_ip,
             ))
-            .service(api)
             .route("/", web::get().to(|| async { "Ready to roll!" }))
             .service(
                 web::resource("/ready")
@@ -270,13 +289,28 @@ async fn main() {
                     .app_data(web::PayloadConfig::new(16_000_000))
                     .app_data(web::Data::new(signer_key.clone()))
                     .route(web::post().to(handle_collect_receipts)),
-            )
+            );
+        App::new().service(api).service(other)
     })
     .bind(("0.0.0.0", opt.port))
     .expect("Failed to bind")
     .run()
     .await
     .expect("Failed to start server");
+}
+
+fn request_api_key(request: &ServiceRequest) -> Option<String> {
+    let info = request.connection_info();
+    let api_key = request.match_info().get("api_key")?;
+    Some(format!("{}/{}", info.host(), api_key))
+}
+
+fn request_ip(request: &ServiceRequest) -> Option<String> {
+    request
+        .connection_info()
+        .realip_remote_addr()
+        // Trim port number
+        .map(|addr| String::from(&addr[0..addr.rfind(":").unwrap_or(addr.len())]))
 }
 
 #[tracing::instrument]
