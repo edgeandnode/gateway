@@ -238,11 +238,11 @@ async fn main() {
         .expect("Failed to start metrics server")
     });
     let ip_rate_limiter = RateLimiter::new(
-        Duration::from_secs(opt.ip_rate_limit_window_secs as u64),
+        Duration::from_secs(opt.ip_rate_limit_window_secs.into()),
         opt.ip_rate_limit as usize,
     );
     let api_rate_limiter = RateLimiter::new(
-        Duration::from_secs(opt.api_rate_limit_window_secs as u64),
+        Duration::from_secs(opt.api_rate_limit_window_secs.into()),
         opt.api_rate_limit as usize,
     );
     HttpServer::new(move || {
@@ -269,7 +269,7 @@ async fn main() {
         let other = web::scope("/")
             .wrap(RateLimiterMiddleware {
                 rate_limiter: ip_rate_limiter.clone(),
-                key: request_ip,
+                key: request_host,
             })
             .route("/", web::get().to(|| async { "Ready to roll!" }))
             .service(
@@ -303,18 +303,23 @@ async fn main() {
     .expect("Failed to start server");
 }
 
-fn request_api_key(request: &ServiceRequest) -> Option<String> {
-    let info = request.connection_info();
-    let api_key = request.match_info().get("api_key")?;
-    Some(format!("{}/{}", info.host(), api_key))
+fn request_api_key(request: &ServiceRequest) -> String {
+    format!(
+        "{}/{}",
+        request_host(request),
+        request.match_info().get("api_key").unwrap_or("")
+    )
 }
 
-fn request_ip(request: &ServiceRequest) -> Option<String> {
-    request
-        .connection_info()
-        .realip_remote_addr()
+fn request_host(request: &ServiceRequest) -> String {
+    let info = request.connection_info();
+    info.realip_remote_addr()
+        .map(|addr|
         // Trim port number
-        .map(|addr| String::from(&addr[0..addr.rfind(":").unwrap_or(addr.len())]))
+        &addr[0..addr.rfind(":").unwrap_or(addr.len())])
+        // Fallback to hostname
+        .unwrap_or_else(|| info.host())
+        .to_string()
 }
 
 #[tracing::instrument]
@@ -458,17 +463,17 @@ async fn handle_subgraph_query(
         Some(api_key) => api_key.clone(),
         None => return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid API key"),
     };
-
-    if let Some(addr) = request.connection_info().realip_remote_addr() {
-        if !api_key.domains.is_empty()
-            && !api_key
-                .domains
-                .iter()
-                .any(|domain| addr.starts_with(domain))
-        {
-            return graphql_error_response(StatusCode::OK, "Domain not authorized by API key");
-        }
+    let connection_info = request.connection_info();
+    let host = connection_info.host();
+    if !api_key.domains.is_empty()
+        && !api_key
+            .domains
+            .iter()
+            .any(|domain| host.starts_with(domain))
+    {
+        return graphql_error_response(StatusCode::OK, "Domain not authorized by API key");
     }
+
     let query = ClientQuery {
         id: data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64,
         api_key,
