@@ -386,6 +386,7 @@ impl Indexers {
             .await
     }
 
+    #[cfg(test)]
     pub async fn restore(&self, inputs: &mut InputWriters, snapshot: Snapshot) {
         inputs
             .slashing_percentage
@@ -400,6 +401,7 @@ impl Indexers {
             .await;
     }
 
+    #[cfg(test)]
     async fn restore_indexings(
         &self,
         snapshots: Vec<IndexingSnapshot>,

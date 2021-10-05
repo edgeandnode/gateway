@@ -6,7 +6,6 @@ pub use receipts_allocation::{Voucher, VoucherError};
 use receipts_transfer::ReceiptPool as ReceiptPoolTransfer;
 pub use receipts_transfer::{BorrowFail, ReceiptBorrow};
 use secp256k1::{PublicKey, Secp256k1};
-use std::convert::TryFrom;
 
 #[derive(Default)]
 pub struct Receipts {
@@ -109,15 +108,5 @@ impl Receipts {
             signer,
             receipts,
         )
-    }
-
-    pub fn recommended_collateral(&self) -> GRT {
-        if let Some(transfers) = &self.transfers {
-            GRTWei::try_from(transfers.recommended_collateral())
-                .unwrap()
-                .shift()
-        } else {
-            GRT::zero()
-        }
     }
 }
