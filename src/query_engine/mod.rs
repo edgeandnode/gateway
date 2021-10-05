@@ -23,14 +23,14 @@ pub enum Subgraph {
 #[derive(Clone, Debug)]
 pub struct ClientQuery {
     pub id: u64,
-    pub api_key: Option<APIKey>,
+    pub api_key: APIKey,
     pub query: String,
     pub variables: Option<String>,
     pub network: String,
     pub subgraph: Subgraph,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct APIKey {
     pub key: String,
     pub user_address: Address,
@@ -175,11 +175,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             query.subgraph = ?query.subgraph,
             indexer_selection_retry_limit = ?self.config.indexer_selection_retry_limit
         );
-        let api_key = query
-            .api_key
-            .as_ref()
-            .map(|k| k.key.clone())
-            .unwrap_or("unknown".into());
+        let api_key = query.api_key.key.clone();
         let query_start = Instant::now();
         let name_timer = if let Subgraph::Name(subgraph_name) = &query.subgraph {
             with_metric(&METRICS.subgraph_name_duration, &[subgraph_name], |hist| {
@@ -203,10 +199,9 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                     QueryEngineError::SubgraphNotFound
                 })?,
         };
-        if let Some(api_key) = &query.api_key {
-            if !api_key.deployments.is_empty() && !api_key.deployments.contains(&deployment) {
-                return Err(QueryEngineError::APIKeySubgraphNotAuthorized);
-            }
+        if !query.api_key.deployments.is_empty() && !query.api_key.deployments.contains(&deployment)
+        {
+            return Err(QueryEngineError::APIKeySubgraphNotAuthorized);
         }
         name_timer.map(|t| t.observe_duration());
         let deployment_ipfs = deployment.ipfs_hash();

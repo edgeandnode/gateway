@@ -239,11 +239,13 @@ async fn main() {
     });
     let ip_rate_limit_window = Duration::from_secs(opt.ip_rate_limit_window_secs as u64);
     let ip_rate_limit = opt.ip_rate_limit as usize;
+    let api_rate_limit_window_secs = Duration::from_secs(opt.api_rate_limit_window_secs as u64);
+    let api_rate_limit = opt.api_rate_limit as usize;
     HttpServer::new(move || {
         let api = web::scope("/api/{api_key}")
             .wrap(RateLimiterMiddleware::new(
-                ip_rate_limit_window,
-                ip_rate_limit,
+                api_rate_limit_window_secs,
+                api_rate_limit,
                 request_api_key,
             ))
             .app_data(web::Data::new(SubgraphQueryData {
@@ -450,12 +452,12 @@ async fn handle_subgraph_query(
         return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier");
     };
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();
-    let api_key = url_params
-        .get("api_key")
-        .and_then(|k| api_keys.get(k))
-        .cloned();
-    if let (Some(api_key), Some(addr)) = (&api_key, request.connection_info().realip_remote_addr())
-    {
+    let api_key = match url_params.get("api_key").and_then(|k| api_keys.get(k)) {
+        Some(api_key) => api_key.clone(),
+        None => return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid API key"),
+    };
+
+    if let Some(addr) = request.connection_info().realip_remote_addr() {
         if !api_key.domains.is_empty()
             && !api_key
                 .domains
