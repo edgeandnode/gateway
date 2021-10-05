@@ -22,13 +22,13 @@ use tokio::{sync::RwLock, time::Duration};
 
 pub struct RateLimiterMiddleware {
     pub rate_limiter: Arc<RateLimiter>,
-    pub key: fn(&ServiceRequest) -> Option<String>,
+    pub key: fn(&ServiceRequest) -> String,
 }
 
 pub struct RateLimiterService<S> {
     service: Rc<S>,
     rate_limiter: Arc<RateLimiter>,
-    key: fn(&ServiceRequest) -> Option<String>,
+    key: fn(&ServiceRequest) -> String,
 }
 
 impl<S> Transform<S, ServiceRequest> for RateLimiterMiddleware
@@ -69,18 +69,8 @@ where
         let f = self.key;
         async move {
             let key = f(&request);
-            let rate_limited = match key.clone() {
-                Some(key) => rate_limiter.check_limited(key).await,
-                None => {
-                    tracing::warn!(
-                        client_addr = request.connection_info().realip_remote_addr(),
-                        client_host = request.connection_info().host(),
-                        "Failed to extract key for rate limiter"
-                    );
-                    false
-                }
-            };
-            tracing::info!(?key, %rate_limited);
+            let rate_limited = rate_limiter.check_limited(key.clone()).await;
+            tracing::info!(%key, %rate_limited);
             if rate_limited {
                 return Ok(ServiceResponse::new(
                     request.into_parts().0,
