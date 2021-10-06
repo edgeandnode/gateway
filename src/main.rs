@@ -555,13 +555,14 @@ impl Resolver for NetworkResolver {
     }
 
     async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>> {
-        let receipt = hex::encode(&query.receipt[0..(query.receipt.len() - 64)]);
+        let receipt = hex::encode(&query.receipt.commitment);
+        let receipt = &receipt[0..(receipt.len() - 64)];
         self.client
             .post(format!(
                 "{}/subgraphs/id/{:?}",
                 query.url, query.indexing.subgraph
             ))
-            .header("Scalar-Receipt", &receipt)
+            .header("Scalar-Receipt", receipt)
             .body(query.query.clone())
             .send()
             .await?
