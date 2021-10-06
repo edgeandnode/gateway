@@ -169,7 +169,7 @@ impl Topology {
         let query = if self.flip_coin(32) { "?" } else { BASIC_QUERY };
         ClientQuery {
             id: self.rng.next_u64(),
-            api_key: APIKey::default(),
+            api_key: Arc::new(APIKey::default()),
             query: query.into(),
             variables: None,
             network,
