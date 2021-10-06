@@ -565,7 +565,7 @@ impl Resolver for TopologyResolver {
         }
         Ok(IndexerResponse {
             graphql_response: graphql_client::Response {
-                data: Some(RawValue::from_string("success".into()).unwrap()),
+                data: Some(RawValue::from_string("\"success\"".into()).unwrap()),
                 errors: None,
             },
             attestation: Attestation {
