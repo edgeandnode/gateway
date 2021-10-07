@@ -1,7 +1,7 @@
 use crate::{
     indexer_selection::{
         self, CostModelSource, IndexerDataReader, IndexerDataWriter, Indexing, IndexingData,
-        SecretKey, SelectionFactors,
+        IndexingStatus, SecretKey, SelectionFactors,
     },
     prelude::{shared_lookup::SharedLookupWriter, *},
     query_engine::{APIKey, InputWriters},
@@ -12,7 +12,11 @@ use im;
 use prometheus;
 use reqwest;
 use serde_json::{json, Value as JSON};
-use std::{collections::HashMap, iter::FromIterator, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    iter::FromIterator,
+    sync::Arc,
+};
 use tokio::{
     sync::Mutex,
     time::{sleep, Duration},
@@ -115,6 +119,7 @@ pub fn create(
     );
     handle_indexing_statuses(
         indexer_selection.clone(),
+        indexings.clone(),
         create_sync_client_input::<IndexingStatuses, _>(
             gateway_id,
             agent_url.clone(),
@@ -125,7 +130,7 @@ pub fn create(
         ),
     );
     handle_transfers(
-        indexer_selection.clone(),
+        indexings.clone(),
         metrics.clone(),
         create_sync_client_input::<Transfers, _>(
             gateway_id,
@@ -137,7 +142,7 @@ pub fn create(
         ),
     );
     handle_allocations(
-        indexer_selection.clone(),
+        indexings.clone(),
         signer_key,
         metrics.clone(),
         create_sync_client_input::<UsableAllocations, _>(
@@ -712,21 +717,36 @@ fn handle_deployments(
 
 fn handle_indexing_statuses(
     indexer_selection: Arc<indexer_selection::Indexers>,
+    indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
     indexing_statuses: Eventual<Ptr<Vec<ParsedIndexingStatus>>>,
 ) {
     indexing_statuses
         .pipe_async(move |indexing_statuses| {
             let indexer_selection = indexer_selection.clone();
+            let indexings = indexings.clone();
             async move {
                 tracing::info!(indexing_statuses = %indexing_statuses.len());
+                let mut latest_blocks = HashMap::<String, u64>::new();
+                let mut indexings = indexings.lock().await;
                 for status in indexing_statuses.iter() {
-                    indexer_selection
-                        .set_indexing_status(
-                            &status.network,
-                            &status.indexing,
-                            status.block_number.unwrap_or(0),
-                        )
-                        .await;
+                    let latest = match latest_blocks.entry(status.network.clone()) {
+                        Entry::Occupied(entry) => *entry.get(),
+                        Entry::Vacant(entry) => *entry.insert(
+                            indexer_selection
+                                .latest_block(&status.network)
+                                .await
+                                .map(|block| block.number)
+                                .unwrap_or(0),
+                        ),
+                    };
+                    indexings
+                        .write(&status.indexing)
+                        .await
+                        .status
+                        .write(IndexingStatus {
+                            block: status.block_number.unwrap_or(0),
+                            latest,
+                        });
                 }
             }
             .instrument(tracing::info_span!("handle_indexing_statuses"))
@@ -735,7 +755,7 @@ fn handle_indexing_statuses(
 }
 
 fn handle_transfers(
-    indexer_selection: Arc<indexer_selection::Indexers>,
+    indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
     metrics: Metrics,
     transfers: Eventual<Ptr<Vec<ParsedTransfer>>>,
 ) {
@@ -743,25 +763,23 @@ fn handle_transfers(
     transfers
         .pipe_async(move |transfers| {
             let used_transfers = std::mem::replace(&mut used_transfers, transfers.clone());
-            let indexer_selection = indexer_selection.clone();
             let metrics = metrics.clone();
+            let indexings = indexings.clone();
             async move {
                 tracing::info!(transfers = %transfers.len());
                 metrics.transfers.set(transfers.len() as i64);
                 // Add new transfers.
+                let mut lock = indexings.lock().await;
                 for transfer in transfers.iter() {
                     if used_transfers.iter().any(|t| t.id == transfer.id) {
                         continue;
                     }
-                    indexer_selection
-                        .install_receipts_transfer(
-                            &transfer.indexing,
-                            transfer.id,
-                            &transfer.collateral,
-                            transfer.signer_key,
-                        )
+                    lock.write(&transfer.indexing)
+                        .await
+                        .add_transfer(transfer.id, &transfer.collateral, transfer.signer_key)
                         .await;
                 }
+                drop(lock);
                 // Remove old transfers.
                 for transfer in used_transfers.iter() {
                     if transfers.iter().any(|t| t.id == transfer.id) {
@@ -770,12 +788,15 @@ fn handle_transfers(
                     // HOY (Hack Of the Year): Remove the old transfer in 5 minutes, to give new
                     // allocations and replacement transfer some time to propagate through the
                     // system and into indexer selection.
-                    let indexer_selection = indexer_selection.clone();
+                    let indexings = indexings.clone();
                     let transfer = transfer.clone();
                     tokio::spawn(async move {
                         sleep(Duration::from_secs(5 * 60)).await;
-                        indexer_selection
-                            .remove_receipts_transfer(&transfer.indexing, &transfer.id)
+                        let mut indexings = indexings.lock().await;
+                        indexings
+                            .write(&transfer.indexing)
+                            .await
+                            .remove_transfer(&transfer.id)
                             .await;
                     });
                 }
@@ -786,7 +807,7 @@ fn handle_transfers(
 }
 
 fn handle_allocations(
-    indexer_selection: Arc<indexer_selection::Indexers>,
+    indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
     signer_key: SecretKey,
     metrics: Metrics,
     allocations: Eventual<Ptr<Vec<ParsedAllocation>>>,
@@ -795,24 +816,23 @@ fn handle_allocations(
     allocations
         .pipe_async(move |allocations| {
             let used_allocations = std::mem::replace(&mut used_allocations, allocations.clone());
-            let indexer_selection = indexer_selection.clone();
             let metrics = metrics.clone();
+            let indexings = indexings.clone();
             async move {
                 tracing::info!(allocations = %allocations.len());
                 metrics.allocations.set(allocations.len() as i64);
                 // Add new allocations.
+                let mut lock = indexings.lock().await;
                 for allocation in allocations.iter() {
                     if used_allocations.iter().any(|t| t.id == allocation.id) {
                         continue;
                     }
-                    indexer_selection
-                        .install_receipts_allocation(
-                            &allocation.indexing,
-                            allocation.id,
-                            signer_key,
-                        )
+                    lock.write(&allocation.indexing)
+                        .await
+                        .add_allocation(allocation.id, signer_key)
                         .await;
                 }
+                drop(lock);
                 // Remove old allocations.
                 for allocation in used_allocations.iter() {
                     if allocations.iter().any(|t| t.id == allocation.id) {
@@ -821,12 +841,15 @@ fn handle_allocations(
                     // HOY (Hack Of the Year): Remove the old allocation in 5 minutes, to give new
                     // allocations and replacement transfer some time to propagate through the
                     // system and into indexer selection.
-                    let indexer_selection = indexer_selection.clone();
+                    let indexings = indexings.clone();
                     let allocation = allocation.clone();
                     tokio::spawn(async move {
                         sleep(Duration::from_secs(5 * 60)).await;
-                        indexer_selection
-                            .remove_receipts_allocation(&allocation.indexing, &allocation.id)
+                        let mut indexings = indexings.lock().await;
+                        indexings
+                            .write(&allocation.indexing)
+                            .await
+                            .remove_allocation(&allocation.id)
                             .await;
                     });
                 }

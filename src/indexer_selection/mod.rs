@@ -16,7 +16,7 @@ mod tests;
 pub use crate::indexer_selection::{
     indexers::{IndexerDataReader, IndexerDataWriter},
     receipts::Receipts,
-    selection_factors::{IndexingData, SelectionFactors},
+    selection_factors::{IndexingData, IndexingStatus, SelectionFactors},
 };
 use crate::prelude::{
     shared_lookup::{SharedLookup, SharedLookupWriter},
@@ -217,25 +217,11 @@ impl Indexers {
             .remove_block(network, block_hash);
     }
 
-    pub async fn set_indexing_status(&self, network: &str, indexing: &Indexing, block_number: u64) {
-        let latest = self
-            .network_cache
-            .read()
-            .await
-            .latest_block(network, 0)
-            .map(|block| block.number)
-            .unwrap_or_default();
-        let behind = latest.saturating_sub(block_number);
-        let selection_factors = match self.indexings.get(indexing).await {
-            Some(selection_factors) => selection_factors,
-            None => return,
-        };
-        selection_factors
-            .set_blocks_behind(behind, block_number)
-            .await;
+    pub async fn latest_block(&self, network: &str) -> Result<BlockPointer, UnresolvedBlock> {
+        self.network_cache.read().await.latest_block(network, 0)
     }
 
-    pub async fn install_receipts_transfer(
+    pub async fn add_transfer(
         &self,
         indexing: &Indexing,
         transfer_id: Bytes32,
@@ -249,37 +235,6 @@ impl Indexers {
         selection_factors
             .add_transfer(transfer_id, collateral, secret)
             .await;
-    }
-
-    pub async fn remove_receipts_transfer(&self, indexing: &Indexing, transfer_id: &Bytes32) {
-        let selection_factors = match self.indexings.get(indexing).await {
-            Some(selection_factors) => selection_factors,
-            None => return,
-        };
-        selection_factors.remove_transfer(transfer_id).await;
-    }
-
-    pub async fn install_receipts_allocation(
-        &self,
-        indexing: &Indexing,
-        allocation_id: Address,
-        secret: SecretKey,
-    ) {
-        let selection_factors = match self.indexings.get(indexing).await {
-            Some(selection_factors) => selection_factors,
-            None => return,
-        };
-        selection_factors
-            .add_allocation(allocation_id, secret)
-            .await;
-    }
-
-    pub async fn remove_receipts_allocation(&self, indexing: &Indexing, allocation_id: &Address) {
-        let selection_factors = match self.indexings.get(indexing).await {
-            Some(selection_factors) => selection_factors,
-            None => return,
-        };
-        selection_factors.remove_allocation(allocation_id).await;
     }
 
     pub async fn observe_successful_query(

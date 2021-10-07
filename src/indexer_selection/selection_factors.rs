@@ -5,12 +5,14 @@ use crate::{
     },
     prelude::*,
 };
+use eventuals::EventualExt;
+use std::sync::Arc;
 use tokio::{sync::RwLock, time};
 use tree_buf::{Decode, Encode};
 
 pub struct SelectionFactors {
     price_efficiency: PriceEfficiency,
-    locked: RwLock<LockedState>,
+    locked: Arc<RwLock<LockedState>>,
 }
 
 #[derive(Default)]
@@ -23,6 +25,14 @@ struct LockedState {
 
 pub struct IndexingData {
     pub cost_model: EventualWriter<CostModelSource>,
+    pub status: EventualWriter<IndexingStatus>,
+    locked: Arc<RwLock<LockedState>>,
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct IndexingStatus {
+    pub block: u64,
+    pub latest: u64,
 }
 
 #[derive(Debug, Decode, Encode)]
@@ -38,21 +48,40 @@ impl Reader for SelectionFactors {
     type Writer = IndexingData;
     fn new() -> (Self::Writer, Self) {
         let (cost_model_writer, cost_model) = Eventual::new();
+        let locked = Arc::new(RwLock::default());
         let reader = Self {
             price_efficiency: PriceEfficiency::new(cost_model),
-            locked: RwLock::default(),
+            locked: locked.clone(),
         };
+        let (status_writer, status) = Eventual::new();
         let writer = Self::Writer {
             cost_model: cost_model_writer,
+            status: status_writer,
+            locked: locked.clone(),
         };
+        status
+            .pipe_async(move |status| {
+                let locked = locked.clone();
+                async move {
+                    let mut lock = locked.write().await;
+                    let behind = status.latest.saturating_sub(status.block);
+                    lock.freshness.set_blocks_behind(behind, status.latest);
+                }
+            })
+            .forever();
         (writer, reader)
     }
 }
 
-impl SelectionFactors {
-    pub async fn set_blocks_behind(&self, behind: u64, latest: u64) {
+impl IndexingData {
+    pub async fn add_allocation(&self, allocation_id: Address, secret: SecretKey) {
         let mut lock = self.locked.write().await;
-        lock.freshness.set_blocks_behind(behind, latest);
+        lock.receipts.add_allocation(allocation_id, secret);
+    }
+
+    pub async fn remove_allocation(&self, allocation_id: &Address) {
+        let mut lock = self.locked.write().await;
+        lock.receipts.remove_allocation(allocation_id);
     }
 
     pub async fn add_transfer(&self, transfer_id: Bytes32, collateral: &GRT, secret: SecretKey) {
@@ -64,15 +93,12 @@ impl SelectionFactors {
         let mut lock = self.locked.write().await;
         lock.receipts.remove_transfer(transfer_id);
     }
+}
 
-    pub async fn add_allocation(&self, allocation_id: Address, secret: SecretKey) {
+impl SelectionFactors {
+    pub async fn add_transfer(&self, transfer_id: Bytes32, collateral: &GRT, secret: SecretKey) {
         let mut lock = self.locked.write().await;
-        lock.receipts.add_allocation(allocation_id, secret);
-    }
-
-    pub async fn remove_allocation(&self, allocation_id: &Address) {
-        let mut lock = self.locked.write().await;
-        lock.receipts.remove_allocation(allocation_id);
+        lock.receipts.add_transfer(transfer_id, collateral, secret);
     }
 
     pub async fn observe_successful_query(&self, duration: time::Duration, receipt: &[u8]) {

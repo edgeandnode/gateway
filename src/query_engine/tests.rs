@@ -2,12 +2,12 @@ use crate::{
     indexer_selection::{
         self,
         test_utils::{default_cost_model, TEST_KEY},
+        IndexingStatus,
     },
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
 };
 use async_trait::async_trait;
-use graphql_client;
 use rand::{
     distributions,
     rngs::{OsRng, SmallRng},
@@ -347,6 +347,14 @@ impl Topology {
         indexer_inputs
             .usd_to_grt_conversion
             .write("1.0".parse().unwrap());
+        for (_, network) in self.networks.iter() {
+            if let Some(latest) = network.blocks.last() {
+                self.inputs
+                    .indexers
+                    .set_block(&network.name, latest.clone())
+                    .await;
+            }
+        }
         for indexer in self.indexers.values() {
             let indexer_writer = indexer_inputs.indexers.write(&indexer.id).await;
             let stake_table = [0.0, 50e3, 100e3, 150e3];
@@ -364,17 +372,16 @@ impl Topology {
                 indexer: indexer.id,
             };
             let fee = indexer.fee.as_udecimal(&[0.0, 0.1, 1.0, 2.0]);
-            let block = indexer.block(network.blocks.len()) as u64;
             let indexing_writer = indexer_inputs.indexings.write(&indexing).await;
             indexing_writer.cost_model.write(default_cost_model(fee));
-            self.inputs
-                .indexers
-                .set_indexing_status(&network.name, &indexing, block)
-                .await;
-            self.inputs
-                .indexers
-                .install_receipts_transfer(
-                    &indexing,
+            if let Ok(latest) = self.inputs.indexers.latest_block(&network.name).await {
+                indexing_writer.status.write(IndexingStatus {
+                    block: indexer.block(network.blocks.len()) as u64,
+                    latest: latest.number,
+                });
+            }
+            indexing_writer
+                .add_transfer(
                     bytes_from_id(1).into(),
                     &1_000_000_000u64.try_into().unwrap(),
                     TEST_KEY.parse().unwrap(),
@@ -477,14 +484,7 @@ impl Topology {
                 Err(err) => return err_with(trace, format!("expected response, got {:?}", err)),
             };
             // The test resolver only gives the following response for successful queries.
-            if response
-                .response
-                .graphql_response
-                .data
-                .as_ref()
-                .map(|data| data.get() == "success")
-                .unwrap_or(false)
-            {
+            if !response.response.graphql_response.contains("success") {
                 return err_with(
                     trace,
                     format!("expected success, got {:#?}", response.response),
@@ -534,7 +534,7 @@ impl Resolver for TopologyResolver {
             Some(network) => &network.blocks,
             None => return vec![],
         };
-        unresolved
+        let resolved = unresolved
             .into_iter()
             .filter_map(|unresolved| {
                 let block = match unresolved {
@@ -544,7 +544,9 @@ impl Resolver for TopologyResolver {
                 let uncles = vec![];
                 Some(BlockHead { block, uncles })
             })
-            .collect()
+            .collect();
+        tracing::warn!(?resolved);
+        resolved
     }
 
     async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>> {
@@ -564,17 +566,14 @@ impl Resolver for TopologyResolver {
             }
         }
         Ok(IndexerResponse {
-            graphql_response: graphql_client::Response {
-                data: Some(RawValue::from_string("\"success\"".into()).unwrap()),
-                errors: None,
-            },
+            graphql_response: r#"{"data": "success"}"#.into(),
             attestation: Attestation {
-                request_cid: "".into(),
-                response_cid: "".into(),
-                deployment: query.indexing.subgraph.clone(),
+                request_cid: Bytes32::default(),
+                response_cid: Bytes32::default(),
+                deployment: Bytes32::from(*query.indexing.subgraph),
                 v: 0,
-                r: "".into(),
-                s: "".into(),
+                r: Bytes32::default(),
+                s: Bytes32::default(),
             },
         })
     }
