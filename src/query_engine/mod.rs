@@ -59,12 +59,12 @@ pub struct IndexerResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Attestation {
-    request_cid: String,
-    response_cid: String,
-    deployment: SubgraphDeploymentID,
-    v: i64,
-    r: String,
-    s: String,
+    request_cid: Bytes32,
+    response_cid: Bytes32,
+    deployment: Bytes32,
+    v: u8,
+    r: Bytes32,
+    s: Bytes32,
 }
 
 #[derive(Debug)]
