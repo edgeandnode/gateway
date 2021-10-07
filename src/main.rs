@@ -486,10 +486,7 @@ async fn handle_subgraph_query(
         subgraph,
     };
     let (query, body) = match query_engine.execute_query(query).await {
-        Ok(result) => match serde_json::to_string(&result.response.graphql_response) {
-            Ok(body) => (result.query, body),
-            Err(err) => return graphql_error_response(StatusCode::INTERNAL_SERVER_ERROR, err),
-        },
+        Ok(result) => (result.query, result.response.graphql_response),
         Err(err) => return graphql_error_response(StatusCode::OK, format!("{:?}", err)),
     };
     if let Ok(hist) = METRICS
@@ -562,6 +559,7 @@ impl Resolver for NetworkResolver {
                 "{}/subgraphs/id/{:?}",
                 query.url, query.indexing.subgraph
             ))
+            .header("Content-Type", "application/json")
             .header("Scalar-Receipt", receipt)
             .body(query.query.clone())
             .send()

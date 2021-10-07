@@ -49,18 +49,18 @@ pub struct QueryResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct IndexerResponse {
-    #[serde(
-        rename(deserialize = "graphQLResponse"),
-        deserialize_with = "deserialize_indexer_response"
-    )]
-    pub graphql_response: Response<Box<RawValue>>,
+    #[serde(rename(deserialize = "graphQLResponse"))]
+    pub graphql_response: String,
     pub attestation: Attestation,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Attestation {
+    #[serde(rename(deserialize = "requestCID"))]
     request_cid: Bytes32,
+    #[serde(rename(deserialize = "responseCID"))]
     response_cid: Bytes32,
+    #[serde(rename(deserialize = "subgraphDeploymentID"))]
     deployment: Bytes32,
     v: u8,
     r: Bytes32,
@@ -363,8 +363,8 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             );
             let indexer_behind_err =
                 "Failed to decode `block.hash` value: `no block with that hash found`";
-            if response
-                .graphql_response
+            if serde_json::from_str::<Response<Box<RawValue>>>(dbg!(&response.graphql_response))
+                .map_err(|_| QueryEngineError::NoIndexerSelected)?
                 .errors
                 .as_ref()
                 .map(|errs| errs.iter().any(|err| err.message == indexer_behind_err))
@@ -458,16 +458,6 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             hist.observe(*selection.utility);
         }
     }
-}
-
-fn deserialize_indexer_response<'de, D>(
-    deserializer: D,
-) -> Result<Response<Box<RawValue>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let input = String::deserialize(deserializer)?;
-    serde_json::from_str::<Response<Box<RawValue>>>(&input).map_err(serde::de::Error::custom)
 }
 
 impl Metrics {
