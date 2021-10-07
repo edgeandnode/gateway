@@ -70,7 +70,7 @@ where
         async move {
             let key = f(&request);
             let rate_limited = rate_limiter.check_limited(key.clone()).await;
-            tracing::info!(%key, %rate_limited);
+            tracing::debug!(%key, %rate_limited);
             if rate_limited {
                 return Ok(ServiceResponse::new(
                     request.into_parts().0,
