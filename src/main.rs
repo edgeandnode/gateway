@@ -266,7 +266,7 @@ async fn main() {
                 "/deployments/id/{deployment_id}",
                 web::post().to(handle_subgraph_query),
             );
-        let other = web::scope("/")
+        let other = web::scope("")
             .wrap(RateLimiterMiddleware {
                 rate_limiter: ip_rate_limiter.clone(),
                 key: request_host,
