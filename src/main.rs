@@ -640,7 +640,7 @@ impl Resolver for NetworkResolver {
             "Successfully created transfer to increase collateral",
         );
         indexers
-            .install_receipts_transfer(
+            .add_transfer(
                 &transfer_indexing,
                 transfer_id,
                 &transfer_collateral,

@@ -1,7 +1,7 @@
 use crate::{
     indexer_selection::{
         test_utils::{default_cost_model, gen_blocks, TEST_KEY},
-        Indexers, Indexing, UtilityConfig,
+        Indexers, Indexing, IndexingStatus, UtilityConfig,
     },
     prelude::{test_utils::*, *},
 };
@@ -143,14 +143,20 @@ async fn battle_high_and_low() {
             indexer: bytes_from_id(indexer_ids.len()).into(),
             subgraph,
         };
-        input_writers
-            .indexings
-            .write(&indexing)
-            .await
+        let indexing_writer = input_writers.indexings.write(&indexing).await;
+        indexing_writer
             .cost_model
             .write(default_cost_model(indexer.price));
-        indexers
-            .set_indexing_status(network, &indexing, latest.number - indexer.blocks_behind)
+        indexing_writer.status.write(IndexingStatus {
+            block: latest.number - indexer.blocks_behind,
+            latest: latest.number,
+        });
+        indexing_writer
+            .add_transfer(
+                bytes_from_id(1).into(),
+                &1_000_000_000_000_000u64.try_into().unwrap(),
+                TEST_KEY.parse().unwrap(),
+            )
             .await;
         let indexer_writer = input_writers.indexers.write(&indexing.indexer).await;
         indexer_writer.stake.write(indexer.stake);
@@ -159,14 +165,6 @@ async fn battle_high_and_low() {
             .write(indexer.delegated_stake);
         data.insert(indexing.indexer, indexer);
         indexer_ids.push_back(indexing.indexer);
-        indexers
-            .install_receipts_transfer(
-                &indexing,
-                bytes_from_id(1).into(),
-                &1_000_000_000_000_000u64.try_into().unwrap(),
-                TEST_KEY.parse().unwrap(),
-            )
-            .await;
     }
 
     eventuals::idle().await;

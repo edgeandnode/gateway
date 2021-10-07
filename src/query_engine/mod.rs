@@ -11,7 +11,7 @@ pub use graphql_client::Response;
 use im;
 use lazy_static::lazy_static;
 use prometheus;
-use serde::{self, Deserialize, Deserializer, Serialize};
+use serde::{self, Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::{collections::HashMap, error::Error, sync::Arc};
 use tokio::time::Instant;
@@ -337,8 +337,8 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
 
             let response = match result {
                 Ok(response) => response,
-                Err(err) => {
-                    tracing::info!(%err);
+                Err(indexer_response_err) => {
+                    tracing::info!(%indexer_response_err);
                     self.indexers
                         .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
                         .await;
@@ -363,7 +363,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             );
             let indexer_behind_err =
                 "Failed to decode `block.hash` value: `no block with that hash found`";
-            if serde_json::from_str::<Response<Box<RawValue>>>(dbg!(&response.graphql_response))
+            if serde_json::from_str::<Response<Box<RawValue>>>(&response.graphql_response)
                 .map_err(|_| QueryEngineError::NoIndexerSelected)?
                 .errors
                 .as_ref()
