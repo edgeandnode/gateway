@@ -525,7 +525,7 @@ fn parse_indexing_statuses(
                         indexer: status.indexer.id.parse().ok()?,
                     },
                     network: status.network,
-                    block_number: status.block.and_then(|b| b.hash.parse().ok()),
+                    block_number: status.block.map(|b| b.number as u64),
                 })
             })
         })
