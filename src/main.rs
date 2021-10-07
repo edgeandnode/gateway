@@ -551,10 +551,12 @@ impl Resolver for NetworkResolver {
         resolved_blocks
     }
 
+    #[tracing::instrument(skip(self, query))]
     async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>> {
         let receipt = hex::encode(&query.receipt.commitment);
         let receipt = &receipt[0..(receipt.len() - 64)];
-        self.client
+        let response = self
+            .client
             .post(format!(
                 "{}/subgraphs/id/{:?}",
                 query.url, query.indexing.subgraph
@@ -563,7 +565,9 @@ impl Resolver for NetworkResolver {
             .header("Scalar-Receipt", receipt)
             .body(query.query.clone())
             .send()
-            .await?
+            .await?;
+        tracing::info!(response_status = %response.status());
+        response
             .json::<IndexerResponse>()
             .await
             .map_err(|err| err.into())
