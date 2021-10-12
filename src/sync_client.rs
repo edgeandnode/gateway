@@ -400,7 +400,7 @@ fn parse_cost_models(
             value.cost_models.into_iter().filter_map(move |model| {
                 Some((
                     Indexing {
-                        subgraph: deployment?,
+                        deployment: deployment?,
                         indexer: model.indexer.id.parse().ok()?,
                     },
                     CostModelSource {
@@ -522,11 +522,11 @@ fn parse_indexing_statuses(
     let parsed = values
         .into_iter()
         .flat_map(|value| {
-            let subgraph = SubgraphDeploymentID::from_ipfs_hash(&value.deployment);
+            let deployment = SubgraphDeploymentID::from_ipfs_hash(&value.deployment);
             value.statuses.into_iter().filter_map(move |status| {
                 Some(ParsedIndexingStatus {
                     indexing: Indexing {
-                        subgraph: subgraph?,
+                        deployment: deployment?,
                         indexer: status.indexer.id.parse().ok()?,
                     },
                     network: status.network,
@@ -590,7 +590,7 @@ fn parse_transfers(data: transfers::ResponseData) -> Option<Ptr<Vec<ParsedTransf
             Some(ParsedTransfer {
                 id: value.id.parse().ok()?,
                 indexing: Indexing {
-                    subgraph: SubgraphDeploymentID::from_ipfs_hash(&value.deployment)?,
+                    deployment: SubgraphDeploymentID::from_ipfs_hash(&value.deployment)?,
                     indexer: value.indexer.id.parse().ok()?,
                 },
                 collateral: value.collateral.parse().ok()?,
@@ -631,7 +631,9 @@ fn parse_usable_allocations(
             Some(ParsedAllocation {
                 id: value.id.parse().ok()?,
                 indexing: Indexing {
-                    subgraph: SubgraphDeploymentID::from_ipfs_hash(&value.subgraph_deployment_id)?,
+                    deployment: SubgraphDeploymentID::from_ipfs_hash(
+                        &value.subgraph_deployment_id,
+                    )?,
                     indexer: value.indexer.id.parse().ok()?,
                 },
             })

@@ -373,7 +373,7 @@ async fn handle_subgraph_query(
     };
     if let Ok(hist) = METRICS
         .query_result_size
-        .get_metric_with_label_values(&[&query.indexing.subgraph.ipfs_hash()])
+        .get_metric_with_label_values(&[&query.indexing.deployment.ipfs_hash()])
     {
         hist.observe(body.len() as f64);
     }
@@ -441,7 +441,7 @@ impl Resolver for NetworkResolver {
             .client
             .post(format!(
                 "{}/subgraphs/id/{:?}",
-                query.url, query.indexing.subgraph
+                query.url, query.indexing.deployment
             ))
             .header("Content-Type", "application/json")
             .header("Scalar-Receipt", receipt)
@@ -465,14 +465,14 @@ impl Resolver for NetworkResolver {
         // TODO: We need to limit the total number of transfers to 2, if/when we can potentially
         // create multiple transfers.
         tracing::info!(
-            deployment = ?indexing.subgraph,
+            deployment = ?indexing.deployment,
             indexer = ?indexing.indexer,
             fee = ?fee,
             "Creating transfer to increase collateral",
         );
         let query = CreateTransfer::build_query(create_transfer::Variables {
             gateway_id: self.gateway_id.to_string(),
-            deployment: indexing.subgraph.ipfs_hash(),
+            deployment: indexing.deployment.ipfs_hash(),
             indexer: indexing.indexer.to_string(),
         });
         let response = self
@@ -500,7 +500,7 @@ impl Resolver for NetworkResolver {
             .parse::<Bytes32>()
             .map_err(|_| "Malformed transfer ID")?;
         let transfer_indexing = Indexing {
-            subgraph: transfer
+            deployment: transfer
                 .deployment
                 .parse()
                 .map_err(|_| "Malformed transfer deployment ID")?,
@@ -520,7 +520,7 @@ impl Resolver for NetworkResolver {
             .map_err(|_| "Malformed signer key")?;
         tracing::trace!(
             id = ?transfer_id,
-            deployment = ?transfer_indexing.subgraph,
+            deployment = ?transfer_indexing.deployment,
             indexer = ?transfer_indexing.indexer,
             collateral = ?transfer_collateral,
             "Successfully created transfer to increase collateral",
