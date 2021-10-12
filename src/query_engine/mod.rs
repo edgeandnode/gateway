@@ -89,7 +89,7 @@ struct Metrics {
     indexer_selection_duration: prometheus::HistogramVec,
     queries_failed: prometheus::IntCounterVec,
     queries_ok: prometheus::IntCounterVec,
-    queries_without_deployment: prometheus::IntCounterVec,
+    queries_unauthorized_deployment: prometheus::IntCounterVec,
     query_duration: prometheus::HistogramVec,
     query_execution_duration: prometheus::HistogramVec,
     subgraph_name_duration: prometheus::HistogramVec,
@@ -210,17 +210,15 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 .deployments
                 .value_immediate()
                 .and_then(|map| map.get(name).cloned())
-                .ok_or_else(|| {
-                    with_metric(
-                        &METRICS.queries_without_deployment,
-                        &[&api_key],
-                        |counter| counter.inc(),
-                    );
-                    QueryEngineError::SubgraphNotFound
-                })?,
+                .ok_or_else(|| QueryEngineError::SubgraphNotFound)?,
         };
         if !query.api_key.deployments.is_empty() && !query.api_key.deployments.contains(&deployment)
         {
+            with_metric(
+                &METRICS.queries_unauthorized_deployment,
+                &[&api_key],
+                |counter| counter.inc(),
+            );
             return Err(QueryEngineError::APIKeySubgraphNotAuthorized);
         }
         name_timer.map(|t| t.observe_duration());
@@ -530,9 +528,9 @@ impl Metrics {
                 &["deployment", "apiKey"]
             )
             .unwrap(),
-            queries_without_deployment: prometheus::register_int_counter_vec!(
-                "gateway_queries_for_subgraph_without_deployment",
-                "Queries for a subgraph that has no version/deployment",
+            queries_unauthorized_deployment: prometheus::register_int_counter_vec!(
+                "gateway_queries_for_excluded_deployment",
+                "Queries for a subgraph deployment not included in an API key",
                 &["apiKey"]
             )
             .unwrap(),

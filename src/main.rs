@@ -344,7 +344,10 @@ async fn handle_subgraph_query(
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();
     let api_key = match url_params.get("api_key").and_then(|k| api_keys.get(k)) {
         Some(api_key) => api_key.clone(),
-        None => return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid API key"),
+        None => {
+            METRICS.unknown_api_key.inc();
+            return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid API key");
+        }
     };
     let connection_info = request.connection_info();
     let host = connection_info.host();
@@ -354,6 +357,7 @@ async fn handle_subgraph_query(
             .iter()
             .any(|domain| host.starts_with(domain))
     {
+        with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
         return graphql_error_response(StatusCode::OK, "Domain not authorized by API key");
     }
 
@@ -553,6 +557,8 @@ struct Metrics {
     network_subgraph_queries_failed: prometheus::IntCounter,
     network_subgraph_queries_ok: prometheus::IntCounter,
     query_result_size: prometheus::HistogramVec,
+    unauthorized_domain: prometheus::IntCounterVec,
+    unknown_api_key: prometheus::IntCounter,
 }
 
 lazy_static! {
@@ -598,6 +604,17 @@ impl Metrics {
                 "query_engine_query_result_size",
                 "Size of query result",
                 &["deployment"]
+            )
+            .unwrap(),
+            unauthorized_domain: prometheus::register_int_counter_vec!(
+                "gateway_queries_from_unauthorized_domain",
+                "Queries from a domain not authorized in the API key",
+                &["apiKey"],
+            )
+            .unwrap(),
+            unknown_api_key: prometheus::register_int_counter!(
+                "gateway_queries_for_unknown_api_key",
+                "Queries made against an unknown API key",
             )
             .unwrap(),
         }

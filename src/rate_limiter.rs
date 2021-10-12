@@ -5,6 +5,8 @@ use actix_web::{
 };
 use eventuals::{self, EventualExt as _};
 use futures_util::future::{FutureExt as _, LocalBoxFuture};
+use lazy_static::lazy_static;
+use prometheus;
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
     future::{self, Ready},
@@ -72,6 +74,7 @@ where
             let rate_limited = rate_limiter.check_limited(key.clone()).await;
             tracing::debug!(%key, %rate_limited);
             if rate_limited {
+                with_metric(&METRICS.rate_limited, &[&key], |c| c.inc());
                 return Ok(ServiceResponse::new(
                     request.into_parts().0,
                     graphql_error_response(StatusCode::OK, "Too many requests, try again later"),
@@ -174,6 +177,28 @@ impl RateLimiter {
                 entry.insert(AtomicUsize::new(1));
                 1
             }
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Metrics {
+    rate_limited: prometheus::IntCounterVec,
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = Metrics::new();
+}
+
+impl Metrics {
+    fn new() -> Self {
+        Self {
+            rate_limited: prometheus::register_int_counter_vec!(
+                "gateway_rate_limited_queries",
+                "Rate limited queries",
+                &["key"]
+            )
+            .unwrap(),
         }
     }
 }
