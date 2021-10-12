@@ -17,10 +17,7 @@ use std::{
     iter::FromIterator,
     sync::Arc,
 };
-use tokio::{
-    sync::Mutex,
-    time::{sleep, Duration},
-};
+use tokio::{sync::Mutex, time::sleep};
 use tracing::{self, Instrument};
 use uuid::Uuid;
 

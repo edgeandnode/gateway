@@ -21,9 +21,11 @@
 // expected performance which enables making the utility function
 // a parameter without obscene loss to performance.
 
-use crate::indexer_selection::utility::{concave_utility, SelectionFactor};
+use crate::{
+    indexer_selection::utility::{concave_utility, SelectionFactor},
+    prelude::*,
+};
 use ordered_float::NotNan;
-use std::time::Duration;
 use tree_buf;
 
 #[derive(Clone, Debug, Default, tree_buf::Decode, tree_buf::Encode)]

@@ -7,7 +7,6 @@ use crate::{
 };
 use rand::{thread_rng, Rng as _};
 use std::collections::{BTreeMap, HashMap};
-use tokio::time;
 
 struct IndexerCharacteristics {
     stake: GRT,
@@ -172,7 +171,7 @@ async fn battle_high_and_low() {
     let config = UtilityConfig::default();
     let mut results = BTreeMap::<Address, IndexerResults>::new();
 
-    let query_time = time::Instant::now();
+    let query_time = Instant::now();
     const COUNT: usize = 86400;
     const QPS: u64 = 2000;
     for i in 0..COUNT {
@@ -210,7 +209,7 @@ async fn battle_high_and_low() {
             indexer: query.indexing.indexer,
         };
         if data.reliability > thread_rng().gen() {
-            let duration = time::Duration::from_millis(data.latency_ms);
+            let duration = Duration::from_millis(data.latency_ms);
             let receipt = &query.receipt;
             let fees: GRTWei =
                 primitive_types::U256::from_big_endian(&receipt[(receipt.len() - 32)..])
@@ -227,7 +226,7 @@ async fn battle_high_and_low() {
         }
     }
 
-    let query_time = time::Instant::now() - query_time;
+    let query_time = Instant::now() - query_time;
     println!("Thoughput: {} /s", COUNT as f64 / query_time.as_secs_f64());
     println!(
     "| ID | Stake | Blocks Behind | Price | Latency | Reliability | Daily Fees | Queries Served |"
@@ -257,18 +256,18 @@ async fn battle_high_and_low() {
     println!("Total Fees: {}", (total_fees * QPS.try_into().unwrap()));
 
     // Demonstrate snapshot restore.
-    let mut start = time::Instant::now();
+    let mut start = Instant::now();
     let snapshot = indexers.snapshot().await;
     let serialized = tree_buf::encode(&snapshot);
     println!(
         "Snapshot taken in {:?}. Used {}B.",
-        time::Instant::now() - start,
+        Instant::now() - start,
         serialized.len()
     );
 
-    start = time::Instant::now();
+    start = Instant::now();
     indexers
         .restore(&mut input_writers, tree_buf::decode(&serialized).unwrap())
         .await;
-    println!("Snapshot restored in {:?}.", time::Instant::now() - start,);
+    println!("Snapshot restored in {:?}.", Instant::now() - start,);
 }

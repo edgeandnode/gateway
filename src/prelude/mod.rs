@@ -14,7 +14,10 @@ pub use prometheus::{
     core::{MetricVec, MetricVecBuilder},
 };
 pub use std::{convert::TryInto, fmt, str::FromStr};
-pub use tokio::sync::{mpsc, oneshot};
+pub use tokio::{
+    sync::{mpsc, oneshot},
+    time::{Duration, Instant},
+};
 pub use tracing::{self, Instrument};
 use tracing_subscriber::{self, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 

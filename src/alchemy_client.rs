@@ -11,7 +11,7 @@ use serde_json::{json, Value as JSON};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
     self,
-    time::{interval, Duration, Interval},
+    time::{interval, Interval},
 };
 use tracing::{self, Instrument};
 
