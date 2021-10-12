@@ -42,7 +42,7 @@ async fn battle_high_and_low() {
         indexers.set_block(network, block.clone()).await;
     }
     let latest = blocks.last().unwrap();
-    let subgraph: SubgraphDeploymentID = bytes_from_id(99).into();
+    let deployment: SubgraphDeploymentID = bytes_from_id(99).into();
     let tests = [
         // Great!
         IndexerCharacteristics {
@@ -141,7 +141,7 @@ async fn battle_high_and_low() {
     for indexer in tests.iter() {
         let indexing = Indexing {
             indexer: bytes_from_id(indexer_ids.len()).into(),
-            subgraph,
+            deployment,
         };
         let indexing_writer = input_writers.indexings.write(&indexing).await;
         indexing_writer
@@ -183,7 +183,7 @@ async fn battle_high_and_low() {
             .select_indexer(
                 &config,
                 network,
-                &subgraph,
+                &deployment,
                 &indexer_ids,
                 query,
                 Some(variables),
@@ -206,7 +206,7 @@ async fn battle_high_and_low() {
         entry.queries_received += 1;
         let data = data.get(&query.indexing.indexer).unwrap();
         let indexing = Indexing {
-            subgraph,
+            deployment,
             indexer: query.indexing.indexer,
         };
         if data.reliability > thread_rng().gen() {

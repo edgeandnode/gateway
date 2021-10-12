@@ -120,7 +120,7 @@ pub enum UnresolvedBlock {
 #[derive(Clone, Debug, Decode, Eq, Hash, Encode, Ord, PartialEq, PartialOrd)]
 pub struct Indexing {
     pub indexer: Address,
-    pub subgraph: SubgraphDeploymentID,
+    pub deployment: SubgraphDeploymentID,
 }
 
 #[derive(Debug, Default, Decode, Encode)]
@@ -464,7 +464,7 @@ impl Indexers {
         &self,
         config: &UtilityConfig,
         network: &str,
-        subgraph: &SubgraphDeploymentID,
+        deployment: &SubgraphDeploymentID,
         context: &mut Context<'_>,
         indexers: &im::Vector<Address>,
         budget: USD,
@@ -474,7 +474,7 @@ impl Indexers {
         for indexer in indexers {
             let indexing = Indexing {
                 indexer: *indexer,
-                subgraph: *subgraph,
+                deployment: *deployment,
             };
             let result = self
                 .score_indexer(
@@ -486,7 +486,7 @@ impl Indexers {
                     freshness_requirements,
                 )
                 .await;
-            tracing::trace!(subgraph = ?indexing.subgraph, indexer = ?indexing.indexer);
+            tracing::trace!(deployment = ?indexing.deployment, indexer = ?indexing.indexer);
             match &result {
                 Ok(score) => tracing::trace!(
                     ?score.fee,

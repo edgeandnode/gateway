@@ -368,7 +368,7 @@ impl Topology {
         }
         for (network, _, deployment, indexer) in indexings.iter() {
             let indexing = Indexing {
-                subgraph: deployment.id,
+                deployment: deployment.id,
                 indexer: indexer.id,
             };
             let fee = indexer.fee.as_udecimal(&[0.0, 0.1, 1.0, 2.0]);
@@ -570,7 +570,7 @@ impl Resolver for TopologyResolver {
             attestation: Attestation {
                 request_cid: Bytes32::default(),
                 response_cid: Bytes32::default(),
-                deployment: Bytes32::from(*query.indexing.subgraph),
+                deployment: Bytes32::from(*query.indexing.deployment),
                 v: 0,
                 r: Bytes32::default(),
                 s: Bytes32::default(),
