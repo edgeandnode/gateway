@@ -1,4 +1,4 @@
-use crate::graphql_error_response;
+use crate::{graphql_error_response, prelude::*};
 use actix_web::{
     dev::{Service, ServiceRequest, ServiceResponse, Transform},
     http::StatusCode,
@@ -18,7 +18,7 @@ use std::{
     },
     task::{Context, Poll},
 };
-use tokio::{sync::RwLock, time::Duration};
+use tokio::sync::RwLock;
 
 pub struct RateLimiterMiddleware {
     pub rate_limiter: Arc<RateLimiter>,

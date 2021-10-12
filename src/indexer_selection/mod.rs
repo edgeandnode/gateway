@@ -375,7 +375,7 @@ impl Indexers {
             Ok(log) => log,
             Err(_) => return,
         };
-        let time = time::Instant::now();
+        let time = Instant::now();
         let last_decay = match log.replace(time) {
             Some(last_decay) => last_decay,
             None => return,

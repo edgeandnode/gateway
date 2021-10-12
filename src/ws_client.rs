@@ -1,11 +1,7 @@
 use crate::prelude::*;
 use futures_util::{SinkExt, StreamExt};
 use std::io;
-use tokio::{
-    self,
-    net::TcpStream,
-    time::{sleep_until, Duration, Instant},
-};
+use tokio::{self, net::TcpStream, time::sleep_until};
 use tokio_tungstenite::{
     tungstenite::{self, error::Error as WSError},
     MaybeTlsStream, WebSocketStream,

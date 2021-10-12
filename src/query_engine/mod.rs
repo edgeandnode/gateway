@@ -14,7 +14,6 @@ use prometheus;
 use serde::{self, Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::{collections::HashMap, error::Error, sync::Arc};
-use tokio::time::Instant;
 
 #[derive(Clone, Debug)]
 pub enum Subgraph {
