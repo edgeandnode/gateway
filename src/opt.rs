@@ -30,6 +30,12 @@ pub struct Opt {
         env = "NETWORK_SUBGRAPH"
     )]
     pub network_subgraph: String,
+    #[structopt(
+        help = "Network subgraph auth token",
+        long = "--network-subgraph-auth-token",
+        env = "NETWORK_SUBGRAPH_AUTH_TOKEN"
+    )]
+    pub network_subgraph_auth_token: String,
     #[structopt(help = "Format log output as JSON", long = "--log-json")]
     pub log_json: bool,
     #[structopt(
