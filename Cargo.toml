@@ -38,6 +38,7 @@ structopt = "0.1"
 structopt-derive = "0.1" 
 tiny-bip39 = "0.8" 
 tokio = {version = "1.10", features = ["sync", "time", "macros", "rt-multi-thread", "parking_lot"]} 
+tokio-postgres = {version = "0.7", features = ["runtime"]} 
 tokio-tungstenite = {version = "0.14", features = ["native-tls"]} 
 tracing = "0.1" 
 tracing-subscriber = {version = "0.2", features = ["parking_lot", "json"]} 

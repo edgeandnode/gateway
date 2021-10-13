@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests;
 
-use crate::indexer_selection::{self, IndexerQuery, Indexers, SelectionError, UnresolvedBlock};
+use crate::{
+    indexer_selection::{self, IndexerQuery, Indexers, SelectionError, UnresolvedBlock},
+    stats_db,
+};
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
     prelude::*,
@@ -33,7 +36,9 @@ pub struct ClientQuery {
 
 #[derive(Clone, Debug, Default)]
 pub struct APIKey {
+    pub id: i64,
     pub key: String,
+    pub user_id: i64,
     pub user_address: Address,
     pub queries_activated: bool,
     pub deployments: Vec<SubgraphDeploymentID>,
@@ -172,16 +177,23 @@ pub struct QueryEngine<R: Clone + Resolver + Send> {
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
     resolver: R,
     config: Config,
+    stats_db: mpsc::UnboundedSender<stats_db::Msg>,
 }
 
 impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
-    pub fn new(config: Config, resolver: R, inputs: Inputs) -> Self {
+    pub fn new(
+        config: Config,
+        resolver: R,
+        inputs: Inputs,
+        stats_db: mpsc::UnboundedSender<stats_db::Msg>,
+    ) -> Self {
         Self {
             indexers: inputs.indexers,
             deployments: inputs.deployments,
             deployment_indexers: inputs.deployment_indexers,
             resolver,
             config,
+            stats_db,
         }
     }
 
@@ -358,6 +370,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 &[&deployment_ipfs, &indexer_id],
                 |counter| counter.inc(),
             );
+
             let indexer_behind_err =
                 "Failed to decode `block.hash` value: `no block with that hash found`";
             if serde_json::from_str::<Response<Box<RawValue>>>(&response.graphql_response)
@@ -382,6 +395,10 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                     &indexer_query.receipt,
                 )
                 .await;
+            let _ = self.stats_db.send(stats_db::Msg::AddQuery {
+                api_key: query.api_key.clone(),
+                fee: indexer_query.fee.clone(),
+            });
             return Ok(QueryResponse {
                 query: indexer_query,
                 response,

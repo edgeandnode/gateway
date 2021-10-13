@@ -6,8 +6,7 @@ pub mod weighted_sample;
 #[cfg(test)]
 pub mod test_utils;
 
-pub use crate::prelude::decimal::*;
-pub use bytes::*;
+pub use crate::prelude::{bytes::*, decimal::*};
 pub use eventuals::{Eventual, EventualWriter, Ptr};
 pub use prometheus::{
     self,

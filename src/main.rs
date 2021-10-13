@@ -4,6 +4,7 @@ mod opt;
 mod prelude;
 mod query_engine;
 mod rate_limiter;
+mod stats_db;
 mod sync_client;
 mod ws_client;
 
@@ -57,6 +58,17 @@ async fn main() {
         })
         .forever();
 
+    let stats_db = match stats_db::create(
+        &opt.stats_db_host,
+        &opt.stats_db_name,
+        &opt.stats_db_user,
+        &opt.stats_db_password,
+    )
+    .await
+    {
+        Some(stats_db) => stats_db,
+        None => return,
+    };
     let (block_resolvers, block_metrics): (
         HashMap<String, mpsc::Sender<alchemy_client::Request>>,
         Vec<alchemy_client::Metrics>,
@@ -101,6 +113,7 @@ async fn main() {
         inputs: inputs.clone(),
         api_keys,
         query_id: &QUERY_ID,
+        stats_db,
     };
     let network_subgraph_query_data = NetworkSubgraphQueryData {
         http_client,
@@ -329,6 +342,7 @@ struct SubgraphQueryData {
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     query_id: &'static AtomicUsize,
+    stats_db: mpsc::UnboundedSender<stats_db::Msg>,
 }
 
 #[tracing::instrument(skip(request, payload, data))]
@@ -341,6 +355,7 @@ async fn handle_subgraph_query(
         data.config.clone(),
         data.resolver.clone(),
         data.inputs.clone(),
+        data.stats_db.clone(),
     );
     let url_params = request.match_info();
     let subgraph = if let Some(name) = url_params.get("subgraph_id") {
