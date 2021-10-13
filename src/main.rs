@@ -72,6 +72,7 @@ async fn main() {
         .unzip();
     let signer_key = opt.signer_key.0;
     let (api_keys_writer, api_keys) = Eventual::new();
+    // TODO: argument for timeout
     let sync_metrics = sync_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
@@ -80,24 +81,32 @@ async fn main() {
         input_writers,
         api_keys_writer,
     );
-    let config = query_engine::Config {
-        indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
-        utility: UtilityConfig::default(),
-        query_budget: opt.query_budget,
-    };
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
         .unwrap();
-    // TODO: argument for timeout
-    let resolver = NetworkResolver {
-        block_resolvers: Arc::new(block_resolvers),
-        client: http_client.clone(),
-        network_subgraph_url: opt.network_subgraph.clone(),
-        gateway_id,
-    };
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
-    let network_subgraph = opt.network_subgraph;
+    let subgraph_query_data = SubgraphQueryData {
+        config: query_engine::Config {
+            indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
+            utility: UtilityConfig::default(),
+            query_budget: opt.query_budget,
+        },
+        resolver: NetworkResolver {
+            block_resolvers: Arc::new(block_resolvers),
+            client: http_client.clone(),
+            network_subgraph_url: opt.network_subgraph.clone(),
+            gateway_id,
+        },
+        inputs: inputs.clone(),
+        api_keys,
+        query_id: &QUERY_ID,
+    };
+    let network_subgraph_query_data = NetworkSubgraphQueryData {
+        http_client,
+        network_subgraph: opt.network_subgraph,
+        network_subgraph_auth_token: opt.network_subgraph_auth_token,
+    };
     let metrics_port = opt.metrics_port;
     let indexer_selection = inputs.indexers.clone();
     // Host metrics on a separate server with a port that isn't open to public requests.
@@ -132,13 +141,7 @@ async fn main() {
                 rate_limiter: api_rate_limiter.clone(),
                 key: request_api_key,
             })
-            .app_data(web::Data::new(SubgraphQueryData {
-                config: config.clone(),
-                resolver: resolver.clone(),
-                inputs: inputs.clone(),
-                api_keys: api_keys.clone(),
-                query_id: &QUERY_ID,
-            }))
+            .app_data(web::Data::new(subgraph_query_data.clone()))
             .route(
                 "/subgraphs/id/{subgraph_id}",
                 web::post().to(handle_subgraph_query),
@@ -163,10 +166,7 @@ async fn main() {
             )
             .service(
                 web::resource("/network")
-                    .app_data(web::Data::new((
-                        http_client.clone(),
-                        network_subgraph.clone(),
-                    )))
+                    .app_data(web::Data::new(network_subgraph_query_data.clone()))
                     .route(web::post().to(handle_network_query)),
             )
             .service(
@@ -274,19 +274,30 @@ async fn handle_collect_receipts(data: web::Data<SecretKey>, payload: String) ->
     }
 }
 
+#[derive(Clone)]
+struct NetworkSubgraphQueryData {
+    http_client: reqwest::Client,
+    network_subgraph: String,
+    network_subgraph_auth_token: String,
+}
+
 #[tracing::instrument(skip(payload, data))]
 async fn handle_network_query(
     _: HttpRequest,
     payload: String,
-    data: web::Data<(reqwest::Client, String)>,
+    data: web::Data<NetworkSubgraphQueryData>,
 ) -> HttpResponse {
     let _timer = METRICS.network_subgraph_queries_duration.start_timer();
     let post_request = |body: String| async {
         let response = data
-            .0
-            .post(&data.1)
+            .http_client
+            .post(&data.network_subgraph)
             .body(body)
             .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .header(
+                "Authorization",
+                format!("Bearer {}", data.network_subgraph_auth_token),
+            )
             .send()
             .await?;
         tracing::info!(network_subgraph_response = %response.status());
@@ -311,6 +322,7 @@ struct QueryBody {
     variables: Option<Box<RawValue>>,
 }
 
+#[derive(Clone)]
 struct SubgraphQueryData {
     config: Config,
     resolver: NetworkResolver,
