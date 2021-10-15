@@ -29,7 +29,7 @@ RUN cargo build --release
 FROM debian:buster-slim
 
 RUN apt-get update && apt-get install -y \
-  libssl-dev \
+  libssl1.1 \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /opt/gateway/target/release/graph-gateway /opt/gateway/target/release/graph-gateway
