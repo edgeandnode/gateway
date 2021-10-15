@@ -19,6 +19,7 @@ struct Client {
     msgs: mpsc::UnboundedReceiver<Msg>,
     flush_interval: Interval,
     api_key_stats: HashMap<String, APIKeyStats>,
+    api_key_update: tokio_postgres::Statement,
 }
 
 pub async fn create(
@@ -67,12 +68,42 @@ pub async fn create(
         tracing::error!(%create_table_err);
         return None;
     };
+    let api_key_update = match client
+        .prepare_typed(
+            r#"
+            INSERT INTO api_key_stats
+                (id, key, "userId", "ethAddress", queries, fees, time)
+            VALUES
+                ($1, $2, $3, $4, $5, CAST($6 AS NUMERIC), $7)
+            ON CONFLICT (time, id) DO UPDATE SET
+                queries = api_key_stats.queries + EXCLUDED.queries,
+                fees = api_key_stats.fees + EXCLUDED.fees;
+            "#,
+            &[
+                Type::INT4,
+                Type::TEXT,
+                Type::INT4,
+                Type::BPCHAR,
+                Type::INT8,
+                Type::TEXT,
+                Type::TIMESTAMPTZ,
+            ],
+        )
+        .await
+    {
+        Ok(statement) => statement,
+        Err(prepare_statement_err) => {
+            tracing::error!(%prepare_statement_err);
+            return None;
+        }
+    };
     let (send, recv) = mpsc::unbounded_channel();
     let mut client = Client {
         client,
         msgs: recv,
         api_key_stats: HashMap::new(),
         flush_interval: interval(Duration::from_secs(30)),
+        api_key_update,
     };
     tokio::spawn(async move { while let Ok(()) = client.run().await {} });
     Some(send)
@@ -126,42 +157,11 @@ impl Client {
         if self.api_key_stats.is_empty() {
             return;
         }
-        const TYPES: [Type; 7] = [
-            Type::INT4,
-            Type::TEXT,
-            Type::INT4,
-            Type::BPCHAR,
-            Type::INT8,
-            Type::TEXT,
-            Type::TIMESTAMPTZ,
-        ];
-        let statement = match self
-            .client
-            .prepare_typed(
-                r#"
-                INSERT INTO api_key_stats
-                    (id, key, "userId", "ethAddress", queries, fees, time)
-                VALUES
-                    ($1, $2, $3, $4, $5, CAST($6 AS NUMERIC), $7)
-                ON CONFLICT (time, id) DO UPDATE SET
-                    queries = api_key_stats.queries + EXCLUDED.queries,
-                    fees = api_key_stats.fees + EXCLUDED.fees;
-                "#,
-                &TYPES,
-            )
-            .await
-        {
-            Ok(statement) => statement,
-            Err(prepare_statement_err) => {
-                tracing::error!(%prepare_statement_err);
-                return;
-            }
-        };
         for (key, stats) in &self.api_key_stats {
             if let Err(execute_err) = self
                 .client
                 .execute(
-                    &statement,
+                    &self.api_key_update,
                     &[
                         &(stats.api_key.id as i32),
                         key,
