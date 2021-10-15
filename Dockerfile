@@ -1,17 +1,16 @@
-FROM rust:1.55-alpine3.14 AS build
+FROM rust:1.55-buster AS build
 
 ARG GH_USER
 ARG GH_TOKEN
 
 # TODO: g++, make, and python are only required for neon-sys dependencies
-RUN apk update && apk add --no-cache \
+RUN apt-get update && apt-get install -y \
+  build-essential \
   git \
-  g++ \
-  make \
-  musl-dev \
+  libssl-dev \
   npm \
-  openssl-dev \
-  python3
+  python3 \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/gateway
 COPY Cargo.toml .
@@ -27,7 +26,11 @@ RUN npm install -g git-credential-env \
 
 RUN cargo build --release
 
-FROM alpine:3.14
+FROM debian:buster-slim
+
+RUN apt-get update && apt-get install -y \
+  libssl1.1 \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /opt/gateway/target/release/graph-gateway /opt/gateway/target/release/graph-gateway
 
