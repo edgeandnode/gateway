@@ -355,7 +355,6 @@ async fn handle_subgraph_query(
         data.config.clone(),
         data.resolver.clone(),
         data.inputs.clone(),
-        data.stats_db.clone(),
     );
     let url_params = request.match_info();
     let subgraph = if let Some(name) = url_params.get("subgraph_id") {
@@ -382,7 +381,7 @@ async fn handle_subgraph_query(
         && !api_key
             .domains
             .iter()
-            .any(|domain| host.starts_with(domain))
+            .any(|(domain, _)| host.starts_with(domain))
     {
         with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
         return graphql_error_response(StatusCode::OK, "Domain not authorized by API key");
@@ -390,12 +389,12 @@ async fn handle_subgraph_query(
 
     let query = ClientQuery {
         id: data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64,
-        api_key,
+        api_key: api_key.clone(),
         query: payload.query.clone(),
         variables: payload.variables.as_ref().map(ToString::to_string),
         // TODO: We are assuming mainnet for now.
         network: "mainnet".into(),
-        subgraph,
+        subgraph: subgraph.clone(),
     };
     let (query, body) = match query_engine.execute_query(query).await {
         Ok(result) => (result.query, result.response.graphql_response),
@@ -407,6 +406,15 @@ async fn handle_subgraph_query(
     {
         hist.observe(body.len() as f64);
     }
+    let _ = data.stats_db.send(stats_db::Msg::AddQuery {
+        api_key,
+        fee: query.fee,
+        domain: host.to_string(),
+        subgraph: match subgraph {
+            Subgraph::Name(name) => Some(name),
+            Subgraph::Deployment(_) => None,
+        },
+    });
     HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
         .body(body)

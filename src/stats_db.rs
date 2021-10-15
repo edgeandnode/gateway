@@ -1,6 +1,8 @@
 use crate::{prelude::*, query_engine::APIKey};
 use std::{
     collections::{hash_map::Entry, HashMap},
+    error::Error,
+    iter::FromIterator as _,
     sync::Arc,
     time::SystemTime,
 };
@@ -11,7 +13,12 @@ use tokio::{
 use tokio_postgres::{self, types::Type, NoTls};
 
 pub enum Msg {
-    AddQuery { api_key: Arc<APIKey>, fee: GRT },
+    AddQuery {
+        api_key: Arc<APIKey>,
+        fee: GRT,
+        domain: String,
+        subgraph: Option<String>,
+    },
 }
 
 struct Client {
@@ -19,7 +26,42 @@ struct Client {
     msgs: mpsc::UnboundedReceiver<Msg>,
     flush_interval: Interval,
     api_key_stats: HashMap<String, APIKeyStats>,
-    api_key_update: tokio_postgres::Statement,
+    update_statements: [tokio_postgres::Statement; 3],
+}
+
+struct APIKeyStats {
+    api_key: Arc<APIKey>,
+    stats: Stats,
+    domains: HashMap<i32, Stats>,
+    subgraphs: HashMap<i32, Stats>,
+}
+
+struct Stats {
+    queries: u64,
+    fees: GRT,
+    time: SystemTime,
+}
+
+impl Default for Stats {
+    fn default() -> Self {
+        Self::new(GRT::zero())
+    }
+}
+
+impl Stats {
+    fn new(fee: GRT) -> Self {
+        Self {
+            queries: 1,
+            fees: fee,
+            time: SystemTime::now(),
+        }
+    }
+
+    fn add(&mut self, fee: GRT) {
+        self.queries += 1;
+        self.fees += fee;
+        self.time = SystemTime::now();
+    }
 }
 
 pub async fn create(
@@ -44,56 +86,10 @@ pub async fn create(
             tracing::error!(%connection_err);
         }
     });
-    if let Err(create_table_err) = client
-        .batch_execute(
-            r#"
-            CREATE TABLE IF NOT EXISTS api_key_stats (
-                id INT4,
-                key CHAR(255),
-                "userId" INT4,
-                "ethAddress" CHAR(42),
-                queries INT8,
-                fees NUMERIC,
-                time TIMESTAMPTZ PRIMARY KEY,
-                UNIQUE (time, id));
-            SELECT create_hypertable('api_key_stats', 'time', if_not_exists => TRUE);
-            CREATE INDEX IF NOT EXISTS api_key_stats_id_time_idx
-                ON api_key_stats (id, time DESC);
-            CREATE INDEX IF NOT EXISTS api_key_stats_user_id_time_idx
-                ON api_key_stats ("userId", time DESC);
-            "#,
-        )
-        .await
-    {
-        tracing::error!(%create_table_err);
-        return None;
-    };
-    let api_key_update = match client
-        .prepare_typed(
-            r#"
-            INSERT INTO api_key_stats
-                (id, key, "userId", "ethAddress", queries, fees, time)
-            VALUES
-                ($1, $2, $3, $4, $5, CAST($6 AS NUMERIC), $7)
-            ON CONFLICT (time, id) DO UPDATE SET
-                queries = api_key_stats.queries + EXCLUDED.queries,
-                fees = api_key_stats.fees + EXCLUDED.fees;
-            "#,
-            &[
-                Type::INT4,
-                Type::TEXT,
-                Type::INT4,
-                Type::BPCHAR,
-                Type::INT8,
-                Type::TEXT,
-                Type::TIMESTAMPTZ,
-            ],
-        )
-        .await
-    {
-        Ok(statement) => statement,
-        Err(prepare_statement_err) => {
-            tracing::error!(%prepare_statement_err);
+    let update_statements = match init_tables(&client).await {
+        Ok(statements) => statements,
+        Err(init_tables_err) => {
+            tracing::error!(%init_tables_err);
             return None;
         }
     };
@@ -101,19 +97,84 @@ pub async fn create(
     let mut client = Client {
         client,
         msgs: recv,
-        api_key_stats: HashMap::new(),
         flush_interval: interval(Duration::from_secs(30)),
-        api_key_update,
+        api_key_stats: HashMap::new(),
+        update_statements,
     };
     tokio::spawn(async move { while let Ok(()) = client.run().await {} });
     Some(send)
 }
 
-pub struct APIKeyStats {
-    api_key: Arc<APIKey>,
-    queries: u64,
-    fees: GRT,
-    time: SystemTime,
+async fn init_tables(
+    client: &tokio_postgres::Client,
+) -> Result<[tokio_postgres::Statement; 3], Box<dyn Error>> {
+    let table_specs = [
+        ("api_key_stats", "userId"),
+        ("authorized_domain_stats", "apiKeyId"),
+        ("authorized_subgraph_stats", "apiKeyId"),
+    ];
+    let init_tables_sql = table_specs
+        .iter()
+        .map(|(table_name, id2)| {
+            format!(
+                r#"
+                CREATE TABLE IF NOT EXISTS {0} (
+                    id INT4,
+                    "{1}" INT4,
+                    key CHAR(255),
+                    "ethAddress" CHAR(42),
+                    queries INT8,
+                    fees NUMERIC,
+                    time TIMESTAMPTZ PRIMARY KEY,
+                    UNIQUE (time, id));
+                SELECT create_hypertable('{0}', 'time', if_not_exists => TRUE);
+                CREATE INDEX IF NOT EXISTS {0}_id_time_idx ON {0} (id, time DESC);
+                CREATE INDEX IF NOT EXISTS {0}_user_id_time_idx ON {0} ("{1}", time DESC);
+                "#,
+                table_name, id2,
+            )
+        })
+        .collect::<Vec<String>>()
+        .join("");
+    client.batch_execute(&init_tables_sql).await?;
+    Ok([
+        prepare_statement(client, table_specs[0]).await?,
+        prepare_statement(client, table_specs[1]).await?,
+        prepare_statement(client, table_specs[2]).await?,
+    ])
+}
+
+async fn prepare_statement(
+    client: &tokio_postgres::Client,
+    spec: (&str, &str),
+) -> Result<tokio_postgres::Statement, Box<dyn Error>> {
+    let sql = format!(
+        r#"
+            INSERT INTO {0}
+                (id, "{1}", key, "ethAddress", queries, fees, time)
+            VALUES
+                ($1, $2, $3, $4, $5, CAST($6 AS NUMERIC), $7)
+            ON CONFLICT (time, id) DO UPDATE SET
+                queries = {0}.queries + EXCLUDED.queries,
+                fees = {0}.fees + EXCLUDED.fees;
+            "#,
+        spec.0, spec.1,
+    );
+    client
+        .prepare_typed(
+            &sql,
+            &[
+                Type::INT4,
+                Type::INT4,
+                Type::BPCHAR,
+                Type::BPCHAR,
+                Type::INT8,
+                Type::TEXT,
+                Type::TIMESTAMPTZ,
+            ],
+        )
+        .await
+        .map_err(|err| err.into())
 }
 
 impl Client {
@@ -123,28 +184,55 @@ impl Client {
                 Some(msg) => self.handle_msg(msg).await,
                 None => return Err(()),
             },
-            _ = self.flush_interval.tick() => self.flush().await,
+            _ = self.flush_interval.tick() => {
+                let _ = self.flush().await;
+            },
         };
         Ok(())
     }
 
     async fn handle_msg(&mut self, msg: Msg) {
         match msg {
-            Msg::AddQuery { api_key, fee, .. } => {
+            Msg::AddQuery {
+                api_key,
+                fee,
+                domain,
+                subgraph,
+            } => {
+                let domain_id = api_key
+                    .domains
+                    .iter()
+                    .find(|(d, _)| d == &domain)
+                    .map(|(_, id)| *id);
+                let subgraph_id = subgraph.and_then(|subgraph| {
+                    api_key
+                        .subgraphs
+                        .iter()
+                        .find(|(s, _)| s == &subgraph)
+                        .map(|(_, id)| *id)
+                });
                 match self.api_key_stats.entry(api_key.key.clone()) {
                     Entry::Vacant(entry) => {
                         entry.insert(APIKeyStats {
                             api_key,
-                            queries: 1,
-                            fees: fee,
-                            time: SystemTime::now(),
+                            stats: Stats::new(fee),
+                            domains: HashMap::from_iter(
+                                domain_id.into_iter().map(|d| (d, Stats::new(fee))),
+                            ),
+                            subgraphs: HashMap::from_iter(
+                                subgraph_id.into_iter().map(|s| (s, Stats::new(fee))),
+                            ),
                         });
                     }
                     Entry::Occupied(entry) => {
                         let entry = entry.into_mut();
-                        entry.queries += 1;
-                        entry.fees += fee;
-                        entry.time = SystemTime::now();
+                        entry.stats.add(fee);
+                        if let Some(domain_id) = domain_id {
+                            entry.domains.entry(domain_id).or_default().add(fee);
+                        }
+                        if let Some(subgraph_id) = subgraph_id {
+                            entry.subgraphs.entry(subgraph_id).or_default().add(fee);
+                        }
                     }
                 };
             }
@@ -152,32 +240,74 @@ impl Client {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn flush(&mut self) {
+    async fn flush(&mut self) -> Result<(), ()> {
         tracing::info!(api_key_stats_updates = %self.api_key_stats.len());
         if self.api_key_stats.is_empty() {
-            return;
+            return Ok(());
         }
-        for (key, stats) in &self.api_key_stats {
-            if let Err(execute_err) = self
-                .client
-                .execute(
-                    &self.api_key_update,
-                    &[
-                        &(stats.api_key.id as i32),
-                        key,
-                        &(stats.api_key.user_id as i32),
-                        &stats.api_key.user_address.to_string(),
-                        &(stats.queries as i64),
-                        &stats.fees.to_string(),
-                        &stats.time,
-                    ],
+        for (_, api_key_stats) in &self.api_key_stats {
+            let api_key_id = api_key_stats.api_key.id as i32;
+            self.execute_update(
+                &self.update_statements[0],
+                &api_key_stats.api_key,
+                &api_key_stats.stats,
+                api_key_id,
+                api_key_stats.api_key.user_id as i32,
+            )
+            .await?;
+            for (domain, stats) in &api_key_stats.domains {
+                self.execute_update(
+                    &self.update_statements[1],
+                    &api_key_stats.api_key,
+                    stats,
+                    *domain,
+                    api_key_id,
                 )
-                .await
-            {
-                tracing::error!(%execute_err);
-                break;
-            };
+                .await?;
+            }
+            for (subgraph, stats) in &api_key_stats.subgraphs {
+                self.execute_update(
+                    &self.update_statements[1],
+                    &api_key_stats.api_key,
+                    stats,
+                    *subgraph,
+                    api_key_id,
+                )
+                .await?;
+            }
         }
         self.api_key_stats.clear();
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, statement, stats, key1, key2))]
+    async fn execute_update(
+        &self,
+        statement: &tokio_postgres::Statement,
+        api_key: &APIKey,
+        stats: &Stats,
+        key1: i32,
+        key2: i32,
+    ) -> Result<(), ()> {
+        if let Err(execute_update_err) = self
+            .client
+            .execute(
+                statement,
+                &[
+                    &key1,
+                    &key2,
+                    &api_key.key,
+                    &api_key.user_address.to_string(),
+                    &(stats.queries as i64),
+                    &stats.fees.to_string(),
+                    &stats.time,
+                ],
+            )
+            .await
+        {
+            tracing::error!(%execute_update_err);
+            return Err(());
+        }
+        Ok(())
     }
 }
