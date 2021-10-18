@@ -9,6 +9,7 @@ use crate::{
 use eventuals::EventualExt as _;
 use graphql_client::{GraphQLQuery, Response};
 use im;
+use lazy_static::lazy_static;
 use prometheus;
 use reqwest;
 use serde_json::{json, Value as JSON};
@@ -21,12 +22,6 @@ use tokio::{sync::Mutex, time::sleep};
 use tracing::{self, Instrument};
 use uuid::Uuid;
 
-#[derive(Clone)]
-pub struct Metrics {
-    pub allocations: prometheus::IntGauge,
-    pub transfers: prometheus::IntGauge,
-}
-
 pub fn create(
     agent_url: String,
     poll_interval: Duration,
@@ -34,7 +29,7 @@ pub fn create(
     signer_key: SecretKey,
     inputs: InputWriters,
     api_keys: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
-) -> Metrics {
+) -> &'static Metrics {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
     let InputWriters {
         indexer_inputs:
@@ -49,11 +44,6 @@ pub fn create(
         indexers: indexer_selection,
     } = inputs;
     let indexings = Arc::new(Mutex::new(indexings));
-
-    let metrics = Metrics {
-        allocations: prometheus::register_int_gauge!("allocations", "Total allocations").unwrap(),
-        transfers: prometheus::register_int_gauge!("transfers", "Total transfers").unwrap(),
-    };
 
     create_sync_client::<APIKeys, _>(
         gateway_id,
@@ -128,7 +118,6 @@ pub fn create(
     );
     handle_transfers(
         indexings.clone(),
-        metrics.clone(),
         create_sync_client_input::<Transfers, _>(
             gateway_id,
             agent_url.clone(),
@@ -141,7 +130,6 @@ pub fn create(
     handle_allocations(
         indexings.clone(),
         signer_key,
-        metrics.clone(),
         create_sync_client_input::<UsableAllocations, _>(
             gateway_id,
             agent_url.clone(),
@@ -151,7 +139,7 @@ pub fn create(
             parse_usable_allocations,
         ),
     );
-    metrics
+    &METRICS
 }
 
 fn create_sync_client_input<Q, T>(
@@ -198,7 +186,7 @@ fn create_sync_client<Q, T>(
             let client = reqwest::Client::new();
             let mut last_update_id = "<none>".to_string();
             loop {
-                if let Some(data) = execute_query::<Q, T>(
+                let result = execute_query::<Q, T>(
                     gateway_id,
                     &agent_url,
                     operation,
@@ -208,10 +196,16 @@ fn create_sync_client<Q, T>(
                     &mut last_update_id,
                 )
                 .in_current_span()
-                .await
-                {
-                    writer.write(data);
-                }
+                .await;
+                match result {
+                    Some(data) => {
+                        with_metric(&METRICS.queries_ok, &[operation], |c| c.inc());
+                        writer.write(data);
+                    }
+                    None => {
+                        with_metric(&METRICS.queries_failed, &[operation], |c| c.inc());
+                    }
+                };
                 sleep(poll_interval).await;
             }
         }
@@ -755,18 +749,16 @@ fn handle_indexing_statuses(
 
 fn handle_transfers(
     indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
-    metrics: Metrics,
     transfers: Eventual<Ptr<Vec<ParsedTransfer>>>,
 ) {
     let mut used_transfers = Ptr::<Vec<ParsedTransfer>>::default();
     transfers
         .pipe_async(move |transfers| {
             let used_transfers = std::mem::replace(&mut used_transfers, transfers.clone());
-            let metrics = metrics.clone();
             let indexings = indexings.clone();
             async move {
                 tracing::info!(transfers = %transfers.len());
-                metrics.transfers.set(transfers.len() as i64);
+                METRICS.transfers.set(transfers.len() as i64);
                 // Add new transfers.
                 let mut lock = indexings.lock().await;
                 for transfer in transfers.iter() {
@@ -808,18 +800,16 @@ fn handle_transfers(
 fn handle_allocations(
     indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
     signer_key: SecretKey,
-    metrics: Metrics,
     allocations: Eventual<Ptr<Vec<ParsedAllocation>>>,
 ) {
     let mut used_allocations = Ptr::<Vec<ParsedAllocation>>::default();
     allocations
         .pipe_async(move |allocations| {
             let used_allocations = std::mem::replace(&mut used_allocations, allocations.clone());
-            let metrics = metrics.clone();
             let indexings = indexings.clone();
             async move {
                 tracing::info!(allocations = %allocations.len());
-                metrics.allocations.set(allocations.len() as i64);
+                METRICS.allocations.set(allocations.len() as i64);
                 // Add new allocations.
                 let mut lock = indexings.lock().await;
                 for allocation in allocations.iter() {
@@ -856,4 +846,31 @@ fn handle_allocations(
             .instrument(tracing::info_span!("handle_allocations"))
         })
         .forever();
+}
+
+#[derive(Clone)]
+pub struct Metrics {
+    pub allocations: prometheus::IntGauge,
+    pub transfers: prometheus::IntGauge,
+    pub queries_ok: prometheus::IntCounterVec,
+    pub queries_failed: prometheus::IntCounterVec,
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = Metrics {
+        allocations: prometheus::register_int_gauge!("allocations", "Total allocations").unwrap(),
+        transfers: prometheus::register_int_gauge!("transfers", "Total transfers").unwrap(),
+        queries_ok: prometheus::register_int_counter_vec!(
+            "gateway_network_subgraph_client_successful_queries",
+            "Successful network subgraph queries",
+            &["tag"],
+        )
+        .unwrap(),
+        queries_failed: prometheus::register_int_counter_vec!(
+            "gateway_network_subgraph_client_failed_queries",
+            "Failed network subgraph queries",
+            &["tag"],
+        )
+        .unwrap(),
+    };
 }
