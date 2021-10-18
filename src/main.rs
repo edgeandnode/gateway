@@ -361,6 +361,12 @@ async fn handle_subgraph_query(
             return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid API key");
         }
     };
+    if !api_key.queries_activated {
+        return graphql_error_response(
+            StatusCode::OK,
+            "Querying not activated yet; make sure to add some GRT to your balance in the studio",
+        );
+    }
     let connection_info = request.connection_info();
     let host = connection_info.host();
     if !api_key.domains.is_empty()
