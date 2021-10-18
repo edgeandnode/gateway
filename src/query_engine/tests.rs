@@ -388,7 +388,7 @@ impl Topology {
                 )
                 .await;
         }
-        self.inputs.deployments.write(Ptr::new(
+        self.inputs.current_deployments.write(Ptr::new(
             self.subgraphs()
                 .into_iter()
                 .filter_map(|(_, subgraph)| Some((subgraph.name, subgraph.deployments.last()?.id)))

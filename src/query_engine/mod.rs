@@ -132,14 +132,14 @@ pub struct Config {
 #[derive(Clone)]
 pub struct Inputs {
     pub indexers: Arc<Indexers>,
-    pub deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
+    pub current_deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
     pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
 }
 
 pub struct InputWriters {
     pub indexer_inputs: indexer_selection::InputWriters,
     pub indexers: Arc<Indexers>,
-    pub deployments: EventualWriter<Ptr<HashMap<String, SubgraphDeploymentID>>>,
+    pub current_deployments: EventualWriter<Ptr<HashMap<String, SubgraphDeploymentID>>>,
     pub deployment_indexers:
         EventualWriter<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
 }
@@ -148,18 +148,18 @@ impl Inputs {
     pub fn new() -> (InputWriters, Self) {
         let (indexer_input_writers, indexer_inputs) = Indexers::inputs();
         let indexers = Arc::new(Indexers::new(indexer_inputs));
-        let (deployments_writer, deployments) = Eventual::new();
+        let (current_deployments_writer, current_deployments) = Eventual::new();
         let (deployment_indexers_writer, deployment_indexers) = Eventual::new();
         (
             InputWriters {
                 indexer_inputs: indexer_input_writers,
                 indexers: indexers.clone(),
-                deployments: deployments_writer,
+                current_deployments: current_deployments_writer,
                 deployment_indexers: deployment_indexers_writer,
             },
             Inputs {
                 indexers,
-                deployments,
+                current_deployments,
                 deployment_indexers,
             },
         )
@@ -168,7 +168,7 @@ impl Inputs {
 
 pub struct QueryEngine<R: Clone + Resolver + Send> {
     indexers: Arc<Indexers>,
-    deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
+    current_deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
     resolver: R,
     config: Config,
@@ -178,7 +178,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
     pub fn new(config: Config, resolver: R, inputs: Inputs) -> Self {
         Self {
             indexers: inputs.indexers,
-            deployments: inputs.deployments,
+            current_deployments: inputs.current_deployments,
             deployment_indexers: inputs.deployment_indexers,
             resolver,
             config,
@@ -207,7 +207,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
         let deployment = match &query.subgraph {
             Subgraph::Deployment(deployment) => deployment.clone(),
             Subgraph::Name(name) => self
-                .deployments
+                .current_deployments
                 .value_immediate()
                 .and_then(|map| map.get(name).cloned())
                 .ok_or_else(|| QueryEngineError::SubgraphNotFound)?,

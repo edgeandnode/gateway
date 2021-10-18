@@ -39,7 +39,7 @@ pub fn create(
                 indexers,
                 indexings,
             },
-        deployments,
+        current_deployments,
         deployment_indexers,
         indexers: indexer_selection,
     } = inputs;
@@ -83,18 +83,18 @@ pub fn create(
             parse_cost_models,
         ),
     );
-    handle_deployments(
+    create_sync_client::<CurrentDeployments, _>(
+        gateway_id,
+        agent_url.clone(),
+        poll_interval,
+        current_deployments::OPERATION_NAME,
+        current_deployments::QUERY,
+        parse_current_deployments,
+        current_deployments,
+    );
+    handle_indexers(
         indexers,
-        deployments,
         deployment_indexers,
-        create_sync_client_input::<CurrentDeployments, _>(
-            gateway_id,
-            agent_url.clone(),
-            poll_interval,
-            current_deployments::OPERATION_NAME,
-            current_deployments::QUERY,
-            parse_current_deployments,
-        ),
         create_sync_client_input::<Indexers, _>(
             gateway_id,
             agent_url.clone(),
@@ -415,7 +415,7 @@ struct CurrentDeployments;
 
 fn parse_current_deployments(
     data: current_deployments::ResponseData,
-) -> Option<Ptr<Vec<(String, SubgraphDeploymentID)>>> {
+) -> Option<Ptr<HashMap<String, SubgraphDeploymentID>>> {
     use current_deployments::{CurrentDeploymentsData, ResponseData};
     let values = match data {
         ResponseData {
@@ -423,16 +423,13 @@ fn parse_current_deployments(
         } => value,
         _ => return None,
     };
-    let parsed = values
-        .into_iter()
-        .filter_map(|value| {
-            Some((
-                value.subgraph,
-                SubgraphDeploymentID::from_ipfs_hash(&value.deployment)?,
-            ))
-        })
-        .collect();
-    Some(Ptr::new(parsed))
+    let parsed = values.into_iter().filter_map(|value| {
+        Some((
+            value.subgraph,
+            SubgraphDeploymentID::from_ipfs_hash(&value.deployment)?,
+        ))
+    });
+    Some(Ptr::new(HashMap::from_iter(parsed)))
 }
 
 #[derive(GraphQLQuery)]
@@ -653,24 +650,18 @@ fn handle_cost_models(
         .forever();
 }
 
-fn handle_deployments(
+fn handle_indexers(
     indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
-    mut deployments: EventualWriter<Ptr<HashMap<String, SubgraphDeploymentID>>>,
     mut deployment_indexers: EventualWriter<
         Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
     >,
-    current_deployments: Eventual<Ptr<Vec<(String, SubgraphDeploymentID)>>>,
     indexer_statuses: Eventual<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)>>>,
 ) {
     let indexers = Arc::new(Mutex::new(indexers));
-    eventuals::join((current_deployments, indexer_statuses))
-        .pipe_async(move |(current_deployments, indexer_statuses)| {
-            let _span = tracing::info_span!("handle_deployments").entered();
-            tracing::info!(
-                current_deployments = %current_deployments.len(),
-                indexed_deployments = %indexer_statuses.len(),
-            );
-            deployments.write(Ptr::new(current_deployments.iter().cloned().collect()));
+    indexer_statuses
+        .pipe_async(move |indexer_statuses| {
+            let _span = tracing::info_span!("handle_indexers").entered();
+            tracing::info!(indexed_deployments = %indexer_statuses.len());
             deployment_indexers.write(Ptr::new(
                 indexer_statuses
                     .iter()
