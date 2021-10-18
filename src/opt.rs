@@ -4,6 +4,8 @@ use hdwallet::{self, KeyChain as _};
 use std::error::Error;
 use structopt_derive::StructOpt;
 
+// TODO: Consider the security implications of passing mnemonics, passwords, etc. via environment variables or CLI arguments.
+
 #[derive(StructOpt, Debug)]
 pub struct Opt {
     #[structopt(

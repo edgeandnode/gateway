@@ -66,8 +66,11 @@ async fn main() {
     )
     .await
     {
-        Some(stats_db) => stats_db,
-        None => return,
+        Ok(stats_db) => stats_db,
+        Err(stats_db_create_err) => {
+            tracing::error!(%stats_db_create_err);
+            return;
+        }
     };
     let (block_resolvers, block_metrics): (
         HashMap<String, mpsc::Sender<alchemy_client::Request>>,

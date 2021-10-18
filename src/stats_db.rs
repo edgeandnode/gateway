@@ -69,30 +69,20 @@ pub async fn create(
     dbname: &str,
     user: &str,
     password: &str,
-) -> Option<mpsc::UnboundedSender<Msg>> {
+) -> Result<mpsc::UnboundedSender<Msg>, Box<dyn Error>> {
     let config = format!(
         "host={} user={} password={} dbname={}",
         host, user, password, dbname
     );
-    let (client, connection) = match tokio_postgres::connect(&config, NoTls).await {
-        Ok(result) => result,
-        Err(postgres_connect_err) => {
-            tracing::error!(%postgres_connect_err);
-            return None;
-        }
-    };
+    let (client, connection) = tokio_postgres::connect(&config, NoTls).await?;
+    // The connection object performs the actual communication with the database and is intended to
+    // be executed on its own spawned task.
     tokio::spawn(async move {
         if let Err(connection_err) = connection.await {
             tracing::error!(%connection_err);
         }
     });
-    let update_statements = match init_tables(&client).await {
-        Ok(statements) => statements,
-        Err(init_tables_err) => {
-            tracing::error!(%init_tables_err);
-            return None;
-        }
-    };
+    let update_statements = init_tables(&client).await?;
     let (send, recv) = mpsc::unbounded_channel();
     let mut client = Client {
         client,
@@ -102,7 +92,7 @@ pub async fn create(
         update_statements,
     };
     tokio::spawn(async move { while let Ok(()) = client.run().await {} });
-    Some(send)
+    Ok(send)
 }
 
 async fn init_tables(
@@ -180,12 +170,12 @@ async fn prepare_statement(
 impl Client {
     async fn run(&mut self) -> Result<(), ()> {
         tokio::select! {
-            msg = self.msgs.recv() => match msg {
-                Some(msg) => self.handle_msg(msg).await,
-                None => return Err(()),
-            },
+            msg = self.msgs.recv() => self.handle_msg(msg.ok_or(())?).await,
             _ = self.flush_interval.tick() => {
                 let _ = self.flush().await;
+                // Clear this batch of stats, regardless of flush success. Worst case is we fail
+                // to make an update and discard the remaining stats in this batch.
+                self.api_key_stats.clear();
             },
         };
         Ok(())
@@ -276,7 +266,6 @@ impl Client {
                 .await?;
             }
         }
-        self.api_key_stats.clear();
         Ok(())
     }
 
