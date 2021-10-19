@@ -73,7 +73,7 @@ impl Stats {
 
 pub async fn create(
     host: &str,
-    port: &str,
+    port: u16,
     dbname: &str,
     user: &str,
     password: &str,
