@@ -92,9 +92,16 @@ pub struct Opt {
     )]
     pub stats_db_host: String,
     #[structopt(
+        help = "Stats database port",
+        long = "--stats-db-port",
+        env = "STATS_DB_PORT",
+        default_value = "5432"
+    )]
+    pub stats_db_port: u16,
+    #[structopt(
         help = "Stats database name",
         long = "--stats-db-name",
-        env = "STATS_DB_HOST",
+        env = "STATS_DB_NAME",
         default_value = "dev"
     )]
     pub stats_db_name: String,

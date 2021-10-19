@@ -73,13 +73,14 @@ impl Stats {
 
 pub async fn create(
     host: &str,
+    port: u16,
     dbname: &str,
     user: &str,
     password: &str,
 ) -> Result<mpsc::UnboundedSender<Msg>, Box<dyn Error>> {
     let config = format!(
-        "host={} user={} password={} dbname={} sslmode=prefer",
-        host, user, password, dbname
+        "host={} port={} user={} password={} dbname={} sslmode=prefer",
+        host, port, user, password, dbname
     );
     let connector = MakeTlsConnector::new(TlsConnector::new().unwrap());
     let (client, connection) = tokio_postgres::connect(&config, connector).await?;
