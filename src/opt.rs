@@ -4,6 +4,8 @@ use hdwallet::{self, KeyChain as _};
 use std::error::Error;
 use structopt_derive::StructOpt;
 
+// TODO: Consider the security implications of passing mnemonics, passwords, etc. via environment variables or CLI arguments.
+
 #[derive(StructOpt, Debug)]
 pub struct Opt {
     #[structopt(
@@ -82,6 +84,34 @@ pub struct Opt {
         default_value = "1000"
     )]
     pub api_rate_limit: u16,
+    #[structopt(
+        help = "Stats database hostname",
+        long = "--stats-db-host",
+        env = "STATS_DB_HOST",
+        default_value = "localhost"
+    )]
+    pub stats_db_host: String,
+    #[structopt(
+        help = "Stats database name",
+        long = "--stats-db-name",
+        env = "STATS_DB_HOST",
+        default_value = "dev"
+    )]
+    pub stats_db_name: String,
+    #[structopt(
+        help = "Stats database username",
+        long = "--stats-db-user",
+        env = "STATS_DB_USER",
+        default_value = "dev"
+    )]
+    pub stats_db_user: String,
+    #[structopt(
+        help = "Stats database password",
+        long = "--stats-db-password",
+        env = "STATS_DB_PASSWORD",
+        default_value = "dev"
+    )]
+    pub stats_db_password: String,
 }
 
 #[derive(Debug)]

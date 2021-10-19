@@ -4,6 +4,7 @@ mod opt;
 mod prelude;
 mod query_engine;
 mod rate_limiter;
+mod stats_db;
 mod sync_client;
 mod ws_client;
 
@@ -57,6 +58,20 @@ async fn main() {
         })
         .forever();
 
+    let stats_db = match stats_db::create(
+        &opt.stats_db_host,
+        &opt.stats_db_name,
+        &opt.stats_db_user,
+        &opt.stats_db_password,
+    )
+    .await
+    {
+        Ok(stats_db) => stats_db,
+        Err(stats_db_create_err) => {
+            tracing::error!(%stats_db_create_err);
+            return;
+        }
+    };
     let (block_resolvers, block_metrics): (
         HashMap<String, mpsc::Sender<alchemy_client::Request>>,
         Vec<alchemy_client::Metrics>,
@@ -101,6 +116,7 @@ async fn main() {
         inputs: inputs.clone(),
         api_keys,
         query_id: &QUERY_ID,
+        stats_db,
     };
     let network_subgraph_query_data = NetworkSubgraphQueryData {
         http_client,
@@ -329,6 +345,7 @@ struct SubgraphQueryData {
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     query_id: &'static AtomicUsize,
+    stats_db: mpsc::UnboundedSender<stats_db::Msg>,
 }
 
 #[tracing::instrument(skip(request, payload, data))]
@@ -373,7 +390,7 @@ async fn handle_subgraph_query(
         && !api_key
             .domains
             .iter()
-            .any(|domain| host.starts_with(domain))
+            .any(|(domain, _)| host.starts_with(domain))
     {
         with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
         return graphql_error_response(StatusCode::OK, "Domain not authorized by API key");
@@ -381,12 +398,12 @@ async fn handle_subgraph_query(
 
     let query = ClientQuery {
         id: data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64,
-        api_key,
+        api_key: api_key.clone(),
         query: payload.query.clone(),
         variables: payload.variables.as_ref().map(ToString::to_string),
         // TODO: We are assuming mainnet for now.
         network: "mainnet".into(),
-        subgraph,
+        subgraph: subgraph.clone(),
     };
     let (query, body) = match query_engine.execute_query(query).await {
         Ok(result) => (result.query, result.response.graphql_response),
@@ -398,6 +415,15 @@ async fn handle_subgraph_query(
     {
         hist.observe(body.len() as f64);
     }
+    let _ = data.stats_db.send(stats_db::Msg::AddQuery {
+        api_key,
+        fee: query.fee,
+        domain: host.to_string(),
+        subgraph: match subgraph {
+            Subgraph::Name(name) => Some(name),
+            Subgraph::Deployment(_) => None,
+        },
+    });
     HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
         .body(body)

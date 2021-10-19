@@ -312,9 +312,16 @@ fn parse_api_keys(data: api_keys::ResponseData) -> Option<Ptr<HashMap<String, Ar
                 .into_iter()
                 .filter_map(|value| {
                     Some(APIKey {
+                        id: value.api_key.id,
                         key: value.api_key.key,
+                        user_id: value.user.id,
                         user_address: value.user.eth_address.parse().ok()?,
                         queries_activated: value.user.queries_activated,
+                        subgraphs: value
+                            .subgraphs
+                            .into_iter()
+                            .map(|subgraph| (subgraph.network_id, subgraph.id as i32))
+                            .collect(),
                         deployments: value
                             .deployments
                             .into_iter()
@@ -323,7 +330,7 @@ fn parse_api_keys(data: api_keys::ResponseData) -> Option<Ptr<HashMap<String, Ar
                         domains: value
                             .domains
                             .into_iter()
-                            .map(|domain| domain.name)
+                            .map(|domain| (domain.name, domain.id as i32))
                             .collect(),
                     })
                 })

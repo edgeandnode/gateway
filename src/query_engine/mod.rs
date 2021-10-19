@@ -33,11 +33,14 @@ pub struct ClientQuery {
 
 #[derive(Clone, Debug, Default)]
 pub struct APIKey {
+    pub id: i64,
     pub key: String,
+    pub user_id: i64,
     pub user_address: Address,
     pub queries_activated: bool,
     pub deployments: Vec<SubgraphDeploymentID>,
-    pub domains: Vec<String>,
+    pub subgraphs: Vec<(String, i32)>,
+    pub domains: Vec<(String, i32)>,
 }
 
 #[derive(Debug)]
@@ -358,6 +361,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 &[&deployment_ipfs, &indexer_id],
                 |counter| counter.inc(),
             );
+
             let indexer_behind_err =
                 "Failed to decode `block.hash` value: `no block with that hash found`";
             if serde_json::from_str::<Response<Box<RawValue>>>(&response.graphql_response)
