@@ -248,8 +248,7 @@ async fn handle_ready(
     data: web::Data<(Vec<alchemy_client::Metrics>, sync_client::Metrics)>,
 ) -> HttpResponse {
     let ready = data.0.iter().all(|metrics| metrics.head_block.get() > 0)
-        && (data.1.allocations.get() > 0)
-        && (data.1.transfers.get() > 0);
+        && ((data.1.allocations.get() > 0) || (data.1.transfers.get() > 0));
     if ready {
         HttpResponseBuilder::new(StatusCode::OK).body("Ready")
     } else {
