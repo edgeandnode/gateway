@@ -1,4 +1,6 @@
 use crate::{prelude::*, query_engine::APIKey};
+use native_tls::TlsConnector;
+use postgres_native_tls::MakeTlsConnector;
 use std::{
     collections::{hash_map::Entry, HashMap},
     error::Error,
@@ -10,7 +12,7 @@ use tokio::{
     self,
     time::{interval, Interval},
 };
-use tokio_postgres::{self, types::Type, NoTls};
+use tokio_postgres::{self, types::Type};
 
 pub enum Msg {
     AddQuery {
@@ -76,10 +78,11 @@ pub async fn create(
     password: &str,
 ) -> Result<mpsc::UnboundedSender<Msg>, Box<dyn Error>> {
     let config = format!(
-        "host={} user={} password={} dbname={}",
+        "host={} user={} password={} dbname={} sslmode=prefer",
         host, user, password, dbname
     );
-    let (client, connection) = tokio_postgres::connect(&config, NoTls).await?;
+    let connector = MakeTlsConnector::new(TlsConnector::new().unwrap());
+    let (client, connection) = tokio_postgres::connect(&config, connector).await?;
     // The connection object performs the actual communication with the database and is intended to
     // be executed on its own spawned task.
     tokio::spawn(async move {
