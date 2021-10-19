@@ -94,7 +94,7 @@ pub struct Opt {
     #[structopt(
         help = "Stats database name",
         long = "--stats-db-name",
-        env = "STATS_DB_HOST",
+        env = "STATS_DB_NAME",
         default_value = "dev"
     )]
     pub stats_db_name: String,
