@@ -120,11 +120,12 @@ impl Client {
                         ..
                     }) => self.handle_head(head).await,
                     // Ignore subscription confirmation (hex code response)
+                    // See https://docs.alchemy.com/alchemy/guides/using-websockets#4.-newheads
                     Ok(APIResponse {
                         result: Some(text),
                         error: None,
                         ..
-                    }) if hex::decode(&text[2..]).is_ok() => (),
+                    }) if text.starts_with("0x") && hex::decode(&text[2..]).is_ok() => (),
                     Ok(unexpected_response) => tracing::warn!(?unexpected_response),
                     Err(err) => tracing::error!(%err),
                 }
