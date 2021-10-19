@@ -60,6 +60,7 @@ async fn main() {
 
     let stats_db = match stats_db::create(
         &opt.stats_db_host,
+        &opt.stats_db_port,
         &opt.stats_db_name,
         &opt.stats_db_user,
         &opt.stats_db_password,
