@@ -62,6 +62,11 @@ impl Stats {
         self.fees += fee;
         self.time = SystemTime::now();
     }
+
+    fn clear(&mut self) {
+        self.queries = 0;
+        self.fees = GRT::zero();
+    }
 }
 
 pub async fn create(
@@ -173,9 +178,6 @@ impl Client {
             msg = self.msgs.recv() => self.handle_msg(msg.ok_or(())?).await,
             _ = self.flush_interval.tick() => {
                 let _ = self.flush().await;
-                // Clear this batch of stats, regardless of flush success. Worst case is we fail
-                // to make an update and discard the remaining stats in this batch.
-                self.api_key_stats.clear();
             },
         };
         Ok(())
@@ -235,9 +237,10 @@ impl Client {
         if self.api_key_stats.is_empty() {
             return Ok(());
         }
-        for (_, api_key_stats) in &self.api_key_stats {
+        for (_, api_key_stats) in &mut self.api_key_stats {
             let api_key_id = api_key_stats.api_key.id as i32;
-            self.execute_update(
+            Self::execute_update(
+                &self.client,
                 &self.update_statements[0],
                 &api_key_stats.api_key,
                 &api_key_stats.stats,
@@ -245,8 +248,11 @@ impl Client {
                 api_key_stats.api_key.user_id as i32,
             )
             .await?;
-            for (domain, stats) in &api_key_stats.domains {
-                self.execute_update(
+            // Clear stats to avoid double counting if future updates fail.
+            api_key_stats.stats.clear();
+            for (domain, stats) in &mut api_key_stats.domains {
+                Self::execute_update(
+                    &self.client,
                     &self.update_statements[1],
                     &api_key_stats.api_key,
                     stats,
@@ -254,32 +260,35 @@ impl Client {
                     api_key_id,
                 )
                 .await?;
+                stats.clear();
             }
-            for (subgraph, stats) in &api_key_stats.subgraphs {
-                self.execute_update(
-                    &self.update_statements[1],
+            for (subgraph, stats) in &mut api_key_stats.subgraphs {
+                Self::execute_update(
+                    &self.client,
+                    &self.update_statements[2],
                     &api_key_stats.api_key,
                     stats,
                     *subgraph,
                     api_key_id,
                 )
                 .await?;
+                stats.clear();
             }
         }
+        self.api_key_stats.clear();
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, statement, stats, key1, key2))]
+    #[tracing::instrument(skip(client, statement, stats, key1, key2))]
     async fn execute_update(
-        &self,
+        client: &tokio_postgres::Client,
         statement: &tokio_postgres::Statement,
         api_key: &APIKey,
         stats: &Stats,
         key1: i32,
         key2: i32,
     ) -> Result<(), ()> {
-        if let Err(execute_update_err) = self
-            .client
+        if let Err(execute_update_err) = client
             .execute(
                 statement,
                 &[
