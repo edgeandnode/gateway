@@ -42,20 +42,22 @@ struct Stats {
     queries: u64,
     fees: GRT,
     time: SystemTime,
+    value: String,
 }
 
 impl Default for Stats {
     fn default() -> Self {
-        Self::new(GRT::zero())
+        Self::new(GRT::zero(), String::default())
     }
 }
 
 impl Stats {
-    fn new(fee: GRT) -> Self {
+    fn new(fee: GRT, value: String) -> Self {
         Self {
             queries: 1,
             fees: fee,
             time: SystemTime::now(),
+            value,
         }
     }
 
@@ -84,8 +86,9 @@ pub async fn create(
     );
     let mut ssl_builder = SslConnector::builder(SslMethod::tls()).unwrap();
     ssl_builder.set_verify(SslVerifyMode::NONE);
-    let connector = MakeTlsConnector::new(ssl_builder.build());
-    let (client, connection) = tokio_postgres::connect(&config, connector).await?;
+    let ssl_connector = ssl_builder.build();
+    let (client, connection) =
+        tokio_postgres::connect(&config, MakeTlsConnector::new(ssl_connector)).await?;
     // The connection object performs the actual communication with the database and is intended to
     // be executed on its own spawned task.
     tokio::spawn(async move {
@@ -110,20 +113,20 @@ async fn init_tables(
     client: &tokio_postgres::Client,
 ) -> Result<[tokio_postgres::Statement; 3], Box<dyn Error>> {
     let table_specs = [
-        ("api_key_stats", "userId"),
-        ("authorized_domain_stats", "apiKeyId"),
-        ("authorized_subgraph_stats", "apiKeyId"),
+        ("api_key_stats", "userId", "ethAddress", 42),
+        ("authorized_domain_stats", "apiKeyId", "domain", 255),
+        ("authorized_subgraph_stats", "apiKeyId", "subgraph", 255),
     ];
     let init_tables_sql = table_specs
         .iter()
-        .map(|(table_name, id2)| {
+        .map(|(table_name, id2, id3, size)| {
             format!(
                 r#"
                 CREATE TABLE IF NOT EXISTS {0} (
                     id INT4,
                     "{1}" INT4,
                     key CHAR(255),
-                    "ethAddress" CHAR(42),
+                    "{2}" CHAR({3}),
                     queries INT8,
                     fees NUMERIC,
                     time TIMESTAMPTZ PRIMARY KEY,
@@ -132,7 +135,7 @@ async fn init_tables(
                 CREATE INDEX IF NOT EXISTS {0}_id_time_idx ON {0} (id, time DESC);
                 CREATE INDEX IF NOT EXISTS {0}_user_id_time_idx ON {0} ("{1}", time DESC);
                 "#,
-                table_name, id2,
+                table_name, id2, id3, size
             )
         })
         .collect::<Vec<String>>()
@@ -147,19 +150,19 @@ async fn init_tables(
 
 async fn prepare_statement(
     client: &tokio_postgres::Client,
-    spec: (&str, &str),
+    spec: (&str, &str, &str, usize),
 ) -> Result<tokio_postgres::Statement, Box<dyn Error>> {
     let sql = format!(
         r#"
             INSERT INTO {0}
-                (id, "{1}", key, "ethAddress", queries, fees, time)
+                (id, "{1}", key, "{2}", queries, fees, time)
             VALUES
                 ($1, $2, $3, $4, $5, CAST($6 AS NUMERIC), $7)
             ON CONFLICT (time, id) DO UPDATE SET
                 queries = {0}.queries + EXCLUDED.queries,
                 fees = {0}.fees + EXCLUDED.fees;
             "#,
-        spec.0, spec.1,
+        spec.0, spec.1, spec.2,
     );
     client
         .prepare_typed(
@@ -202,24 +205,24 @@ impl Client {
                     .iter()
                     .find(|(d, _)| d == &domain)
                     .map(|(_, id)| *id);
-                let subgraph_id = subgraph.and_then(|subgraph| {
-                    api_key
-                        .subgraphs
-                        .iter()
-                        .find(|(s, _)| s == &subgraph)
-                        .map(|(_, id)| *id)
-                });
+                let subgraph_id = subgraph
+                    .as_ref()
+                    .and_then(|subgraph| api_key.subgraphs.iter().find(|(s, _)| s == subgraph));
                 match self.api_key_stats.entry(api_key.key.clone()) {
                     Entry::Vacant(entry) => {
                         entry.insert(APIKeyStats {
-                            api_key,
-                            stats: Stats::new(fee),
+                            stats: Stats::new(fee, api_key.user_address.to_string()),
                             domains: HashMap::from_iter(
-                                domain_id.into_iter().map(|d| (d, Stats::new(fee))),
+                                domain_id
+                                    .into_iter()
+                                    .map(|id| (id, Stats::new(fee, domain.clone()))),
                             ),
                             subgraphs: HashMap::from_iter(
-                                subgraph_id.into_iter().map(|s| (s, Stats::new(fee))),
+                                subgraph_id
+                                    .into_iter()
+                                    .map(|(v, id)| (*id, Stats::new(fee, v.clone()))),
                             ),
+                            api_key,
                         });
                     }
                     Entry::Occupied(entry) => {
@@ -228,8 +231,8 @@ impl Client {
                         if let Some(domain_id) = domain_id {
                             entry.domains.entry(domain_id).or_default().add(fee);
                         }
-                        if let Some(subgraph_id) = subgraph_id {
-                            entry.subgraphs.entry(subgraph_id).or_default().add(fee);
+                        if let Some((_, subgraph_id)) = subgraph_id {
+                            entry.subgraphs.entry(*subgraph_id).or_default().add(fee);
                         }
                     }
                 };
@@ -301,7 +304,7 @@ impl Client {
                     &key1,
                     &key2,
                     &api_key.key,
-                    &api_key.user_address.to_string(),
+                    &stats.value,
                     &(stats.queries as i64),
                     &stats.fees.to_string(),
                     &stats.time,
