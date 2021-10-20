@@ -21,11 +21,11 @@ hdwallet = "0.3"
 hex = "0.4" 
 im = "15.0" # Good vector implementation, CHAMP encoding should be added if we use a hash map/set
 lazy_static = "1.4" 
-native-tls = "0.2" 
 neon-utils = "1.1" # TODO: replace marshalling and remove neon dependency
 num-traits = "0.2" 
+openssl = "0.10" 
 ordered-float = "2.5" 
-postgres-native-tls = "0.5" 
+postgres-openssl = "0.5" 
 primitive-types = "0.8" 
 prometheus = "0.13" 
 rand = {version = "0.8", features = ["small_rng"]} 

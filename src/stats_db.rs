@@ -1,6 +1,6 @@
 use crate::{prelude::*, query_engine::APIKey};
-use native_tls::TlsConnector;
-use postgres_native_tls::MakeTlsConnector;
+use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
+use postgres_openssl::MakeTlsConnector;
 use std::{
     collections::{hash_map::Entry, HashMap},
     error::Error,
@@ -82,7 +82,9 @@ pub async fn create(
         "host={} port={} user={} password={} dbname={} sslmode=prefer",
         host, port, user, password, dbname
     );
-    let connector = MakeTlsConnector::new(TlsConnector::new().unwrap());
+    let mut ssl_builder = SslConnector::builder(SslMethod::tls()).unwrap();
+    ssl_builder.set_verify(SslVerifyMode::NONE);
+    let connector = MakeTlsConnector::new(ssl_builder.build());
     let (client, connection) = tokio_postgres::connect(&config, connector).await?;
     // The connection object performs the actual communication with the database and is intended to
     // be executed on its own spawned task.
