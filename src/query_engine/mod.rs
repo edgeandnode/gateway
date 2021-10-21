@@ -85,6 +85,9 @@ pub struct BlockHead {
 }
 
 struct Metrics {
+    block_resolution_duration: prometheus::HistogramVec,
+    block_resolution_requests_failed: prometheus::IntCounterVec,
+    block_resolution_requests_ok: prometheus::IntCounterVec,
     indexer_requests_duration: prometheus::HistogramVec,
     indexer_requests_failed: prometheus::IntCounterVec,
     indexer_requests_ok: prometheus::IntCounterVec,
@@ -399,6 +402,11 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
         query: &ClientQuery,
         mut unresolved: Vec<UnresolvedBlock>,
     ) -> Result<(), QueryEngineError> {
+        let _execution_timer = with_metric(
+            &METRICS.block_resolution_duration,
+            &[&query.network],
+            |hist| hist.start_timer(),
+        );
         tracing::debug!(unresolved_blocks = ?unresolved);
         let heads = self
             .resolver
@@ -420,8 +428,18 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             }
         }
         if !unresolved.is_empty() {
+            with_metric(
+                &METRICS.block_resolution_requests_failed,
+                &[&query.network],
+                |counter| counter.inc(),
+            );
             return Err(QueryEngineError::MissingBlocks(unresolved));
         }
+        with_metric(
+            &METRICS.block_resolution_requests_ok,
+            &[&query.network],
+            |counter| counter.inc(),
+        );
         Ok(())
     }
 
@@ -464,6 +482,24 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
 impl Metrics {
     fn new() -> Self {
         Self {
+            block_resolution_duration: prometheus::register_histogram_vec!(
+                "block_resolution_duration",
+                "Duration of block requests",
+                &["network"]
+            )
+            .unwrap(),
+            block_resolution_requests_failed: prometheus::register_int_counter_vec!(
+                "block_resolution_requests_failed",
+                "Number of failed block requests",
+                &["network"]
+            )
+            .unwrap(),
+            block_resolution_requests_ok: prometheus::register_int_counter_vec!(
+                "block_resolution_requests_ok",
+                "Number of successful block requests",
+                &["network"]
+            )
+            .unwrap(),
             indexer_requests_duration: prometheus::register_histogram_vec!(
                 "query_engine_indexer_request_duration",
                 "Duration of making a request to an indexer",
