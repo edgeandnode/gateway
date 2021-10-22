@@ -59,7 +59,7 @@ pub fn create(
     let (msg_send, msg_recv) = mpsc::channel::<Msg>(buffer);
     let mut client = Client {
         network,
-        source: Source::REST(interval(Duration::from_secs(8))),
+        source: Source::WS(ws_client::create(buffer, format!("wss://{}", url), 3)),
         url,
         indexers,
         metrics: metrics.clone(),
