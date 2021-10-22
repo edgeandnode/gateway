@@ -20,7 +20,7 @@ pub struct PriceEfficiency {
 
 impl PriceEfficiency {
     pub fn new(model_src: Eventual<CostModelSource>) -> Self {
-        let model = model_src.clone().map(|src| async {
+        let model = model_src.clone().map(|src| async move {
             CostModel::compile(src.model, &src.globals)
                 .map(Ptr::new)
                 .map_err(Ptr::new)

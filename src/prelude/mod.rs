@@ -12,7 +12,7 @@ pub use prometheus::{
     self,
     core::{MetricVec, MetricVecBuilder},
 };
-pub use std::{convert::TryInto, fmt, str::FromStr};
+pub use std::{fmt, str::FromStr};
 pub use tokio::{
     sync::{mpsc, oneshot},
     time::{Duration, Instant},

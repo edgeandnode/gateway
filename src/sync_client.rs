@@ -15,7 +15,6 @@ use reqwest;
 use serde_json::{json, Value as JSON};
 use std::{
     collections::{hash_map::Entry, HashMap},
-    iter::FromIterator,
     sync::Arc,
 };
 use tokio::{sync::Mutex, time::sleep};

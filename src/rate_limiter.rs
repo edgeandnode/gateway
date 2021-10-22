@@ -10,8 +10,7 @@ use prometheus;
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
     future::{self, Ready},
-    iter::{self, FromIterator as _},
-    mem,
+    iter, mem,
     ops::DerefMut,
     rc::Rc,
     sync::{

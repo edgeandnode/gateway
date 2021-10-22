@@ -1,14 +1,13 @@
 [package]
-edition = "2018"
+edition = "2021"
 name = "graph-gateway"
-resolver = "2"
 version = "0.1.0"
 
 [profile.release]
 lto = "thin"
 
 [dependencies]
-actix-web = "4.0.0-beta.9" 
+actix-web = "4.0.0-beta.10" 
 async-trait = "0.1" 
 bs58 = "0.4" 
 cost-model = {git = "ssh://git@github.com/graphprotocol/agora.git", rev = "48bf329"} 

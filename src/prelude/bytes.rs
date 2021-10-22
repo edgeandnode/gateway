@@ -1,5 +1,5 @@
 use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
-pub use std::{convert::TryInto, fmt, str::FromStr};
+pub use std::{fmt, str::FromStr};
 
 macro_rules! bytes_wrapper {
     ($vis:vis, $id:ident, $len:expr) => {
