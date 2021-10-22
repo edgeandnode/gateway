@@ -15,8 +15,10 @@ use tokio::{
 };
 use tracing::{self, Instrument};
 
-pub enum Request {
-    Block(UnresolvedBlock, oneshot::Sender<BlockHead>),
+#[derive(Debug)]
+pub enum Msg {
+    Request(UnresolvedBlock, oneshot::Sender<BlockHead>),
+    Resolved(Option<UnresolvedBlock>, BlockHead),
 }
 
 enum Source {
@@ -31,7 +33,8 @@ struct Client {
     metrics: Metrics,
     rest_client: reqwest::Client,
     source: Source,
-    requests: mpsc::Receiver<Request>,
+    msgs: (mpsc::Sender<Msg>, mpsc::Receiver<Msg>),
+    resolving: HashMap<UnresolvedBlock, Vec<oneshot::Sender<BlockHead>>>,
 }
 
 #[derive(Clone)]
@@ -43,7 +46,7 @@ pub fn create(
     network: String,
     url: String,
     indexers: Arc<Indexers>,
-) -> (mpsc::Sender<Request>, Metrics) {
+) -> (mpsc::Sender<Msg>, Metrics) {
     let _trace = tracing::info_span!("Alchemy client", %network).entered();
     let metrics = Metrics {
         head_block: prometheus::register_int_gauge!(
@@ -53,15 +56,16 @@ pub fn create(
         .unwrap(),
     };
     let buffer = 32;
-    let (request_send, request_recv) = mpsc::channel::<Request>(buffer);
+    let (msg_send, msg_recv) = mpsc::channel::<Msg>(buffer);
     let mut client = Client {
         network,
-        source: Source::WS(ws_client::create(buffer, format!("wss://{}", url), 3)),
+        source: Source::REST(interval(Duration::from_secs(8))),
         url,
         indexers,
         metrics: metrics.clone(),
         rest_client: reqwest::Client::new(),
-        requests: request_recv,
+        msgs: (msg_send.clone(), msg_recv),
+        resolving: HashMap::new(),
     };
     tokio::spawn(
         async move {
@@ -70,10 +74,11 @@ pub fn create(
         }
         .in_current_span(),
     );
-    (request_send, metrics)
+    (msg_send, metrics)
 }
 
 impl Client {
+    #[tracing::instrument(skip(self))]
     async fn run(&mut self) -> Result<(), ()> {
         match &mut self.source {
             Source::WS(ws) => {
@@ -82,17 +87,13 @@ impl Client {
                         Some(msg) => self.handle_ws_msg(msg).await,
                         None => self.fallback_to_rest(),
                     },
-                    req = self.requests.recv() => self.handle_request(req).await,
+                    msg = self.msgs.1.recv() => self.handle_msg(msg).await,
                 }
             }
             Source::REST(timer) => {
                 tokio::select! {
-                    _ = timer.tick() => {
-                        if let Some(head) = self.fetch_block(None).await {
-                            self.handle_head(head).await;
-                        }
-                    },
-                    req = self.requests.recv() => self.handle_request(req).await,
+                    _ = timer.tick() => self.fetch_block(None),
+                    msg = self.msgs.1.recv() => self.handle_msg(msg).await,
                 }
             }
         }
@@ -103,7 +104,7 @@ impl Client {
         match msg {
             ws_client::Msg::Connected => {
                 let sub =
-                    serde_json::to_string(&self.post_body("eth_subscribe", &["newHeads".into()]))
+                    serde_json::to_string(&Self::post_body("eth_subscribe", &["newHeads".into()]))
                         .expect("Alchemy subscription should serialize to JSON");
                 if let Source::WS(ws) = &mut self.source {
                     if let Err(_) = ws.send.send(ws_client::Request::Send(sub)).await {
@@ -118,7 +119,7 @@ impl Client {
                     Ok(APIResponse {
                         params: Some(APIResult { result: head }),
                         ..
-                    }) => self.handle_head(head).await,
+                    }) => self.handle_head(head.into(), true).await,
                     // Ignore subscription confirmation (hex code response)
                     // See https://docs.alchemy.com/alchemy/guides/using-websockets#4.-newheads
                     Ok(APIResponse {
@@ -133,21 +134,31 @@ impl Client {
         };
     }
 
-    async fn handle_request(&mut self, request: Option<Request>) {
-        let (unresolved, resolved) = match request {
-            Some(Request::Block(unresolved, resolved)) => (unresolved, resolved),
+    #[tracing::instrument(skip(self, msg))]
+    async fn handle_msg(&mut self, msg: Option<Msg>) {
+        match msg {
+            Some(Msg::Request(unresolved, notify)) => {
+                let notifies = self
+                    .resolving
+                    .entry(unresolved.clone())
+                    .or_insert_with(move || Vec::with_capacity(1));
+                let first = notifies.is_empty();
+                notifies.push(notify);
+                if first {
+                    self.fetch_block(Some(unresolved));
+                }
+            }
+            Some(Msg::Resolved(key, head)) => {
+                self.handle_head(head.clone(), key.is_none()).await;
+                if let Some(key) = key {
+                    if let Some(notifies) = self.resolving.remove(&key) {
+                        for notify in notifies {
+                            let _ = notify.send(head.clone());
+                        }
+                    }
+                }
+            }
             None => return,
-        };
-        if let Some(APIBlockHead {
-            hash,
-            number,
-            uncles,
-        }) = self.fetch_block(Some(unresolved)).await
-        {
-            let _ = resolved.send(BlockHead {
-                block: BlockPointer { number, hash },
-                uncles,
-            });
         }
     }
 
@@ -157,55 +168,60 @@ impl Client {
         self.source = Source::REST(interval(Duration::from_secs(8)));
     }
 
-    async fn fetch_block(&mut self, block: Option<UnresolvedBlock>) -> Option<APIBlockHead> {
-        let (method, param) = match block {
-            Some(UnresolvedBlock::WithHash(hash)) => {
-                ("eth_getBlockByHash", hash.to_string().into())
+    #[tracing::instrument(skip(self))]
+    fn fetch_block(&self, block: Option<UnresolvedBlock>) {
+        let rest_client = self.rest_client.clone();
+        let url = self.url.clone();
+        let msg_send = self.msgs.0.clone();
+        tokio::spawn(
+            async move {
+                let (method, param) = match &block {
+                    Some(UnresolvedBlock::WithHash(hash)) => {
+                        ("eth_getBlockByHash", hash.to_string().into())
+                    }
+                    Some(UnresolvedBlock::WithNumber(number)) => {
+                        ("eth_getBlockByNumber", format!("0x{:x}", number).into())
+                    }
+                    None => ("eth_getBlockByNumber", "latest".into()),
+                };
+                tracing::debug!(%method, %param);
+                let response = match rest_client
+                    .post(format!("https://{}", url))
+                    .json(&Self::post_body(method, &[param, false.into()]))
+                    .send()
+                    .await
+                {
+                    Ok(response) => response,
+                    Err(post_err) => {
+                        tracing::error!(%post_err);
+                        return;
+                    }
+                };
+                let head = match response.json::<APIResult<APIBlockHead>>().await {
+                    Ok(msg) => msg.result,
+                    Err(post_body_err) => {
+                        tracing::error!(%post_body_err);
+                        return;
+                    }
+                };
+                let _ = msg_send.send(Msg::Resolved(block, head.into())).await;
             }
-            Some(UnresolvedBlock::WithNumber(number)) => {
-                ("eth_getBlockByNumber", format!("0x{:x}", number).into())
-            }
-            None => ("eth_getBlockByNumber", "latest".into()),
-        };
-        let response = match self
-            .rest_client
-            .post(format!("https://{}", self.url))
-            .json(&self.post_body(method, &[param, false.into()]))
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(post_err) => {
-                tracing::error!(%post_err);
-                return None;
-            }
-        };
-        match response.json::<APIResult<APIBlockHead>>().await {
-            Ok(msg) => Some(msg.result),
-            Err(post_body_err) => {
-                tracing::error!(%post_body_err);
-                None
-            }
-        }
+            .in_current_span(),
+        );
     }
 
-    async fn handle_head(&mut self, head: APIBlockHead) {
+    async fn handle_head(&mut self, head: BlockHead, latest: bool) {
         tracing::info!(?head);
-        let APIBlockHead {
-            hash,
-            number,
-            uncles,
-        } = head;
-        self.metrics.head_block.set(number as i64);
-        self.indexers
-            .set_block(&self.network, BlockPointer { number, hash })
-            .await;
-        for uncle in uncles {
+        if latest {
+            self.metrics.head_block.set(head.block.number as i64);
+        }
+        self.indexers.set_block(&self.network, head.block).await;
+        for uncle in head.uncles {
             self.indexers.remove_block(&self.network, &uncle).await;
         }
     }
 
-    fn post_body(&self, method: &str, params: &[JSON]) -> JSON {
+    fn post_body(method: &str, params: &[JSON]) -> JSON {
         json!({
             "jsonrpc": "2.0",
             "id": 0,
@@ -244,4 +260,16 @@ where
 {
     let input = String::deserialize(deserializer)?;
     u64::from_str_radix(input.split_at(2).1, 16).map_err(D::Error::custom)
+}
+
+impl From<APIBlockHead> for BlockHead {
+    fn from(from: APIBlockHead) -> Self {
+        Self {
+            block: BlockPointer {
+                hash: from.hash,
+                number: from.number,
+            },
+            uncles: from.uncles,
+        }
+    }
 }

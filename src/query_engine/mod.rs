@@ -78,7 +78,7 @@ pub enum QueryEngineError {
     MissingBlocks(Vec<UnresolvedBlock>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockHead {
     pub block: BlockPointer,
     pub uncles: Vec<Bytes32>,
@@ -402,7 +402,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
         query: &ClientQuery,
         mut unresolved: Vec<UnresolvedBlock>,
     ) -> Result<(), QueryEngineError> {
-        let _execution_timer = with_metric(
+        let _block_resolution_timer = with_metric(
             &METRICS.block_resolution_duration,
             &[&query.network],
             |hist| hist.start_timer(),
@@ -422,10 +422,6 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                     })
                     .unwrap(),
             );
-            self.indexers.set_block(&query.network, head.block).await;
-            for uncle in head.uncles {
-                self.indexers.remove_block(&query.network, &uncle).await;
-            }
         }
         if !unresolved.is_empty() {
             with_metric(
