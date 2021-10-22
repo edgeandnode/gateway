@@ -74,7 +74,7 @@ async fn main() {
         }
     };
     let (block_resolvers, block_metrics): (
-        HashMap<String, mpsc::Sender<alchemy_client::Request>>,
+        HashMap<String, mpsc::Sender<alchemy_client::Msg>>,
         Vec<alchemy_client::Metrics>,
     ) = opt
         .ethereum_proviers
@@ -437,7 +437,7 @@ pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> Ht
 
 #[derive(Clone)]
 struct NetworkResolver {
-    block_resolvers: Arc<HashMap<String, mpsc::Sender<alchemy_client::Request>>>,
+    block_resolvers: Arc<HashMap<String, mpsc::Sender<alchemy_client::Msg>>>,
     client: reqwest::Client,
     network_subgraph_url: String,
     gateway_id: Uuid,
@@ -451,7 +451,7 @@ impl Resolver for NetworkResolver {
         network: &str,
         unresolved: &[UnresolvedBlock],
     ) -> Vec<BlockHead> {
-        use alchemy_client::Request;
+        use alchemy_client::Msg;
         let mut resolved_blocks = Vec::new();
         let resolver = match self.block_resolvers.get(network) {
             Some(resolver) => resolver,
@@ -463,7 +463,7 @@ impl Resolver for NetworkResolver {
         for unresolved_block in unresolved {
             let (sender, receiver) = oneshot::channel();
             if let Err(_) = resolver
-                .send(Request::Block(unresolved_block.clone(), sender))
+                .send(Msg::Request(unresolved_block.clone(), sender))
                 .await
             {
                 tracing::error!("block resolver connection closed");
