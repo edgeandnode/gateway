@@ -79,7 +79,7 @@ fn block_hash_field<'a, T: q::Text<'a>>(hash: &Bytes32) -> BTreeMap<&'static str
 impl NetworkCache {
     // TODO: test
     pub fn make_query_deterministic(
-        &mut self,
+        &self,
         network: &str,
         mut context: Context,
         blocks_behind: u64,
@@ -100,16 +100,17 @@ impl NetworkCache {
                                     let number = Self::number(number, &context.variables)?;
                                     // Some, but not all, duplicated code
                                     // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
-                                    let hash =
-                                        match self.block_cache(network).number_to_hash.get(&number)
-                                        {
-                                            Some(hash) => hash,
-                                            None => {
-                                                unresolved_blocks
-                                                    .insert(UnresolvedBlock::WithNumber(number));
-                                                continue;
-                                            }
-                                        };
+                                    let hash = match self
+                                        .block_cache(network)
+                                        .and_then(|cache| cache.number_to_hash.get(&number))
+                                    {
+                                        Some(hash) => hash,
+                                        None => {
+                                            unresolved_blocks
+                                                .insert(UnresolvedBlock::WithNumber(number));
+                                            continue;
+                                        }
+                                    };
                                     require_latest = false;
                                     *fields = block_hash_field(hash);
                                 }
@@ -152,8 +153,7 @@ impl NetworkCache {
                                             // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
                                             let hash = match self
                                                 .block_cache(network)
-                                                .number_to_hash
-                                                .get(&number)
+                                                .and_then(|cache| cache.number_to_hash.get(&number))
                                             {
                                                 Some(hash) => hash,
                                                 None => {
@@ -363,7 +363,7 @@ impl NetworkCache {
     }
 
     pub fn set_block(&mut self, network: &str, block: BlockPointer) {
-        let cache = self.block_cache(network);
+        let cache = self.block_cache_mut(network);
         if let Some(prev) = cache.number_to_hash.insert(block.number, block.hash) {
             cache.hash_to_number.remove(&prev);
         }
@@ -371,7 +371,7 @@ impl NetworkCache {
     }
 
     pub fn remove_block(&mut self, network: &str, block_hash: &Bytes32) {
-        let cache = self.block_cache(network);
+        let cache = self.block_cache_mut(network);
         if let Some(number) = cache.hash_to_number.remove(block_hash) {
             cache.number_to_hash.remove(&number);
         }
@@ -402,7 +402,12 @@ impl NetworkCache {
         Ok(BlockPointer { number, hash })
     }
 
-    fn block_cache(&mut self, network: &str) -> &mut BlockCache {
+    fn block_cache(&self, network: &str) -> Option<&BlockCache> {
+        let i = self.networks.iter().position(|v| v == network)?;
+        Some(&self.caches[i])
+    }
+
+    fn block_cache_mut(&mut self, network: &str) -> &mut BlockCache {
         let i = match self.networks.iter().position(|v| v == network) {
             Some(i) => i,
             None => {
