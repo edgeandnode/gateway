@@ -28,10 +28,12 @@ use economic_security::*;
 use graphql_parser::query as graphql_query;
 use im;
 use indexers::IndexerSnapshot;
+use lazy_static::lazy_static;
 use network_cache::*;
 use num_traits::identities::Zero;
 pub use ordered_float::NotNan;
 pub use price_efficiency::CostModelSource;
+use prometheus;
 use rand::{thread_rng, Rng as _};
 use receipts::*;
 pub use secp256k1::SecretKey;
@@ -419,30 +421,31 @@ impl Indexers {
             .await
             .freshness_requirements(&mut context.operations, network)?;
 
-        let (indexing, score, receipt) = loop {
-            match self
-                .make_selection(
-                    config,
-                    network,
-                    subgraph,
-                    &mut context,
-                    &indexers,
-                    budget,
-                    &freshness_requirements,
-                )
-                .await
-            {
-                Ok(Some(result)) => break result,
-                Ok(None) => return Ok(None),
-                Err(err) => return Err(err),
-            }
+        let (indexing, score, receipt) = match self
+            .make_selection(
+                config,
+                network,
+                subgraph,
+                &mut context,
+                &indexers,
+                budget,
+                &freshness_requirements,
+            )
+            .await
+        {
+            Ok(Some(result)) => result,
+            Ok(None) => return Ok(None),
+            Err(err) => return Err(err),
         };
 
+        let make_query_deterministic_timer =
+            METRICS.make_query_deterministic_duration.start_timer();
         let query = self.network_cache.write().await.make_query_deterministic(
             network,
             context,
             score.blocks_behind,
         )?;
+        make_query_deterministic_timer.observe_duration();
 
         Ok(Some(IndexerQuery {
             network: network.into(),
@@ -470,6 +473,7 @@ impl Indexers {
         budget: USD,
         freshness_requirements: &BlockRequirements,
     ) -> Result<Option<(Indexing, IndexerScore, ReceiptBorrow)>, SelectionError> {
+        let _make_selection_timer = METRICS.make_selection_duration.start_timer();
         let mut scores = Vec::new();
         for indexer in indexers {
             let indexing = Indexing {
@@ -566,7 +570,9 @@ impl Indexers {
         config: &UtilityConfig,
         freshness_requirements: &BlockRequirements,
     ) -> Result<IndexerScore, SelectionError> {
+        let _score_indexers_timer = METRICS.score_indexer_duration.start_timer();
         let mut aggregator = UtilityAggregator::new();
+        let load_indexer_data_timer = METRICS.get_indexer_data_duration.start_timer();
         let indexer_data = self
             .indexers
             .get(&indexing.indexer)
@@ -588,18 +594,21 @@ impl Indexers {
         let delegated_stake = indexer_data
             .2
             .ok_or(BadIndexerReason::MissingIndexerDelegatedStake)?;
+        load_indexer_data_timer.observe_duration();
         let economic_security = self
             .network_params
             .economic_security_utility(indexer_stake, config.economic_security)
             .ok_or(SelectionError::MissingNetworkParams)?;
         aggregator.add(economic_security.utility.clone());
 
+        let get_selection_factors_timer = METRICS.get_selection_factors_duration.start_timer();
         let selection_factors = self
             .indexings
             .get(&indexing)
             .await
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
 
+        let get_blocks_behind_timer = METRICS.get_blocks_behind_duration.start_timer();
         let blocks_behind = selection_factors.blocks_behind().await?;
         let latest_block = self
             .network_cache
@@ -607,25 +616,35 @@ impl Indexers {
             .await
             .latest_block(network, blocks_behind)
             .map_err(|unresolved| SelectionError::MissingBlocks(vec![unresolved]))?;
+        get_blocks_behind_timer.observe_duration();
 
         let (fee, price_efficiency) = selection_factors
             .get_price(context, config.price_efficiency, &budget)
             .await?;
         aggregator.add(price_efficiency);
 
+        let get_collateral_timer = METRICS.get_collateral_duration.start_timer();
         if !selection_factors.has_collateral_for(&fee).await {
             return Err(SelectionError::InsufficientCollateral(
                 indexing.clone(),
                 fee,
             ));
         }
+        get_collateral_timer.observe_duration();
 
+        let get_performance_timer = METRICS.get_performance_duration.start_timer();
         aggregator.add(
             selection_factors
                 .expected_performance_utility(config.performance)
                 .await,
         );
+        get_performance_timer.observe_duration();
+
+        let get_reputation_timer = METRICS.get_reputation_duration.start_timer();
         aggregator.add(selection_factors.expected_reputation_utility().await?);
+        get_reputation_timer.observe_duration();
+
+        let get_freshness_timer = METRICS.get_freshness_duration.start_timer();
         aggregator.add(
             selection_factors
                 .expected_freshness_utility(
@@ -636,8 +655,10 @@ impl Indexers {
                 )
                 .await?,
         );
+        get_freshness_timer.observe_duration();
 
         drop(selection_factors);
+        get_selection_factors_timer.observe_duration();
 
         // It's not immediately obvious why this mult works. We want to consider the amount
         // staked over the total amount staked of all Indexers in the running. But, we don't
@@ -727,4 +748,72 @@ impl Default for UtilityConfig {
             // reputation: 0.0,
         }
     }
+}
+
+struct Metrics {
+    get_blocks_behind_duration: prometheus::Histogram,
+    get_collateral_duration: prometheus::Histogram,
+    get_freshness_duration: prometheus::Histogram,
+    get_indexer_data_duration: prometheus::Histogram,
+    get_performance_duration: prometheus::Histogram,
+    get_reputation_duration: prometheus::Histogram,
+    get_selection_factors_duration: prometheus::Histogram,
+    make_query_deterministic_duration: prometheus::Histogram,
+    make_selection_duration: prometheus::Histogram,
+    score_indexer_duration: prometheus::Histogram,
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = Metrics {
+        get_blocks_behind_duration: prometheus::register_histogram!(
+            "get_blocks_behind_duration",
+            "Duration of calculating blocks behind for indexing"
+        )
+        .unwrap(),
+        get_collateral_duration: prometheus::register_histogram!(
+            "get_collateral_duration",
+            "Duration of checking collateral for indexing"
+        )
+        .unwrap(),
+        get_freshness_duration: prometheus::register_histogram!(
+            "get_freshness_duration",
+            "Duration of calculating data freshness for indexing"
+        )
+        .unwrap(),
+        get_indexer_data_duration: prometheus::register_histogram!(
+            "get_indexer_data_duration",
+            "Duration of loading indexer data"
+        )
+        .unwrap(),
+        get_performance_duration: prometheus::register_histogram!(
+            "get_performance_duration",
+            "Duration of calculating performance for indexing"
+        )
+        .unwrap(),
+        get_reputation_duration: prometheus::register_histogram!(
+            "get_reputation_duration",
+            "Duration of calculating reputation for indexing"
+        )
+        .unwrap(),
+        get_selection_factors_duration: prometheus::register_histogram!(
+            "get_selection_factors_duration",
+            "Duration of loading selection factors for indexing"
+        )
+        .unwrap(),
+        make_query_deterministic_duration: prometheus::register_histogram!(
+            "make_query_deterministic_duration",
+            "Duration of making query deterministic"
+        )
+        .unwrap(),
+        make_selection_duration: prometheus::register_histogram!(
+            "make_selection_duration",
+            "Duration of making indexer selection"
+        )
+        .unwrap(),
+        score_indexer_duration: prometheus::register_histogram!(
+            "score_indexer_duration",
+            "Duration of indexer scoring"
+        )
+        .unwrap(),
+    };
 }
