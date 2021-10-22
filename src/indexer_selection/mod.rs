@@ -440,7 +440,7 @@ impl Indexers {
 
         let make_query_deterministic_timer =
             METRICS.make_query_deterministic_duration.start_timer();
-        let query = self.network_cache.write().await.make_query_deterministic(
+        let query = self.network_cache.read().await.make_query_deterministic(
             network,
             context,
             score.blocks_behind,
