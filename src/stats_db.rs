@@ -305,7 +305,8 @@ impl Client {
                     &api_key.key,
                     &stats.value,
                     &(stats.queries as i64),
-                    &stats.fees.to_string(),
+                    // Store values as GRT Gwei
+                    &stats.fees.shift::<0>().to_string(),
                     &stats.time,
                 ],
             )
