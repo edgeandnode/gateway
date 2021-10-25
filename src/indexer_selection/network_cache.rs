@@ -72,7 +72,6 @@ impl BlockRequirements {
 
 // Creates this: { hash: "0xFF" }
 fn block_hash_field<'a, T: q::Text<'a>>(hash: &Bytes32) -> BTreeMap<&'static str, q::Value<'a, T>> {
-    use std::iter::FromIterator;
     BTreeMap::from_iter(std::iter::once(("hash", q::Value::String(hash.encode()))))
 }
 

@@ -4,7 +4,6 @@ use postgres_openssl::MakeTlsConnector;
 use std::{
     collections::{hash_map::Entry, HashMap},
     error::Error,
-    iter::FromIterator as _,
     sync::Arc,
     time::SystemTime,
 };
