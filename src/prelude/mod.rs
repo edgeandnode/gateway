@@ -66,6 +66,12 @@ pub struct BlockPointer {
     pub hash: Bytes32,
 }
 
+#[derive(Debug, Clone)]
+pub struct BlockHead {
+    pub block: BlockPointer,
+    pub uncles: Vec<Bytes32>,
+}
+
 pub trait Reader {
     type Writer;
     fn new() -> (Self::Writer, Self);

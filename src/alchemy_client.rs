@@ -1,7 +1,6 @@
 use crate::{
     indexer_selection::{Indexers, UnresolvedBlock},
     prelude::*,
-    query_engine::BlockHead,
     ws_client,
 };
 use prometheus;
@@ -215,10 +214,7 @@ impl Client {
         if latest {
             self.metrics.head_block.set(head.block.number as i64);
         }
-        self.indexers.set_block(&self.network, head.block).await;
-        for uncle in head.uncles {
-            self.indexers.remove_block(&self.network, &uncle).await;
-        }
+        self.indexers.set_block_head(&self.network, head).await;
     }
 
     fn post_body(method: &str, params: &[JSON]) -> JSON {

@@ -609,7 +609,7 @@ mod tests {
 
     #[test]
     fn block_number_gte_determinism() {
-        let mut cache = cache_with("mainnet", &gen_blocks(&[0, 1, 2, 3, 4, 5, 6, 7]));
+        let cache = cache_with("mainnet", &gen_blocks(&[0, 1, 2, 3, 4, 5, 6, 7]));
         let context = Context::new("query { a(block: { number_gte: 4 }) }", "").unwrap();
         let result = cache.make_query_deterministic("mainnet", context, 2);
         assert_eq!(

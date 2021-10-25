@@ -219,6 +219,13 @@ impl Indexers {
             .remove_block(network, block_hash);
     }
 
+    pub async fn set_block_head(&self, network: &str, head: BlockHead) {
+        self.set_block(&network, head.block).await;
+        for uncle in head.uncles {
+            self.remove_block(&network, &uncle).await;
+        }
+    }
+
     pub async fn latest_block(&self, network: &str) -> Result<BlockPointer, UnresolvedBlock> {
         self.network_cache.read().await.latest_block(network, 0)
     }
