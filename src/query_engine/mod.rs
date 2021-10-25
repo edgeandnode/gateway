@@ -78,12 +78,6 @@ pub enum QueryEngineError {
     MissingBlocks(Vec<UnresolvedBlock>),
 }
 
-#[derive(Debug, Clone)]
-pub struct BlockHead {
-    pub block: BlockPointer,
-    pub uncles: Vec<Bytes32>,
-}
-
 struct Metrics {
     block_resolution_duration: prometheus::HistogramVec,
     block_resolution_requests_failed: prometheus::IntCounterVec,

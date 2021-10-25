@@ -534,7 +534,7 @@ impl Resolver for TopologyResolver {
             Some(network) => &network.blocks,
             None => return vec![],
         };
-        let resolved = unresolved
+        let resolved: Vec<BlockHead> = unresolved
             .into_iter()
             .filter_map(|unresolved| {
                 let block = match unresolved {
@@ -545,7 +545,14 @@ impl Resolver for TopologyResolver {
                 Some(BlockHead { block, uncles })
             })
             .collect();
-        tracing::warn!(?resolved);
+        tracing::info!(?resolved);
+        for head in &resolved {
+            topology
+                .inputs
+                .indexers
+                .set_block_head(network, head.clone())
+                .await;
+        }
         resolved
     }
 
