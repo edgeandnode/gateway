@@ -72,6 +72,7 @@ pub struct Attestation {
 #[derive(Debug)]
 pub enum QueryEngineError {
     SubgraphNotFound,
+    NoIndexers,
     NoIndexerSelected,
     APIKeySubgraphNotAuthorized,
     MalformedQuery,
@@ -259,6 +260,9 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             .and_then(|map| map.get(&deployment).cloned())
             .unwrap_or_default();
         tracing::debug!(?deployment, deployment_indexers = indexers.len());
+        if indexers.is_empty() {
+            return Err(NoIndexers);
+        }
         let _execution_timer = with_metric(
             &METRICS.query_execution_duration,
             &[&deployment_ipfs],
