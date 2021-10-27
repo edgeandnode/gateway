@@ -420,6 +420,7 @@ async fn handle_subgraph_query(
                 match err {
                     QueryEngineError::MalformedQuery => "Invalid query",
                     QueryEngineError::SubgraphNotFound => "Subgraph deployment not found",
+                    QueryEngineError::NoIndexers => "No indexers found for subgraph deployment",
                     QueryEngineError::NoIndexerSelected => {
                         "No suitable indexer found for subgraph deployment"
                     }
