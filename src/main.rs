@@ -159,6 +159,13 @@ async fn main() {
                 key: request_api_key,
             })
             .app_data(web::Data::new(subgraph_query_data.clone()))
+            .app_data(web::JsonConfig::default().error_handler(|err, _| {
+                actix_web::error::InternalError::from_response(
+                    err,
+                    graphql_error_response(StatusCode::OK, "Invalid query"),
+                )
+                .into()
+            }))
             .route(
                 "/subgraphs/id/{subgraph_id}",
                 web::post().to(handle_subgraph_query),
@@ -407,7 +414,24 @@ async fn handle_subgraph_query(
     };
     let (query, body) = match query_engine.execute_query(query).await {
         Ok(result) => (result.query, result.response.graphql_response),
-        Err(err) => return graphql_error_response(StatusCode::OK, format!("{:?}", err)),
+        Err(err) => {
+            return graphql_error_response(
+                StatusCode::OK,
+                match err {
+                    QueryEngineError::MalformedQuery => "Invalid query",
+                    QueryEngineError::SubgraphNotFound => "Subgraph deployment not found",
+                    QueryEngineError::NoIndexerSelected => {
+                        "No suitable indexer found for subgraph deployment"
+                    }
+                    QueryEngineError::APIKeySubgraphNotAuthorized => {
+                        "Subgraph not authorized by API key"
+                    }
+                    QueryEngineError::MissingBlocks(_) => {
+                        "Gateway failed to resolve required blocks"
+                    }
+                },
+            )
+        }
     };
     if let Ok(hist) = METRICS
         .query_result_size
