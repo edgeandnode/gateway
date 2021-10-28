@@ -630,6 +630,7 @@ async fn test() {
         )));
         let query_engine = QueryEngine::new(
             Config {
+                network: "mainnet".to_string(),
                 indexer_selection_retry_limit: 3,
                 utility: UtilityConfig::default(),
                 query_budget: 1u64.try_into().unwrap(),
