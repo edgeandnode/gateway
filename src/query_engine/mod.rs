@@ -124,6 +124,7 @@ pub trait Resolver {
 
 #[derive(Clone)]
 pub struct Config {
+    pub network: String,
     pub indexer_selection_retry_limit: usize,
     pub utility: UtilityConfig,
     pub query_budget: GRT,

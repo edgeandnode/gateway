@@ -45,6 +45,13 @@ async fn main() {
     let gateway_id = Uuid::new_v4();
     tracing::info!(%gateway_id);
 
+    let network = if opt.ethereum_proviers.0.len() == 1 {
+        opt.ethereum_proviers.0[0].network.clone()
+    } else {
+        tracing::error!("We only support a single Ethereum metwork provider!");
+        return;
+    };
+
     let (input_writers, inputs) = Inputs::new();
 
     // Trigger decay every 20 minutes.
@@ -90,6 +97,7 @@ async fn main() {
     let (api_keys_writer, api_keys) = Eventual::new();
     // TODO: argument for timeout
     let sync_metrics = sync_client::create(
+        network.clone(),
         opt.sync_agent,
         Duration::from_secs(30),
         gateway_id,
@@ -104,6 +112,7 @@ async fn main() {
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
     let subgraph_query_data = SubgraphQueryData {
         config: query_engine::Config {
+            network,
             indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
             utility: UtilityConfig::default(),
             query_budget: opt.query_budget,
@@ -402,7 +411,7 @@ async fn handle_subgraph_query(
         query: payload.query.clone(),
         variables: payload.variables.as_ref().map(ToString::to_string),
         // TODO: We are assuming mainnet for now.
-        network: "mainnet".into(),
+        network: data.config.network.clone(),
         subgraph: subgraph.clone(),
     };
     let (query, body) = match query_engine.execute_query(query).await {
