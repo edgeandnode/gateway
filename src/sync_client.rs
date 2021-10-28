@@ -22,6 +22,7 @@ use tracing::{self, Instrument};
 use uuid::Uuid;
 
 pub fn create(
+    network: String,
     agent_url: String,
     poll_interval: Duration,
     gateway_id: Uuid,
@@ -92,6 +93,7 @@ pub fn create(
         current_deployments,
     );
     handle_indexers(
+        network,
         indexers,
         deployment_indexers,
         create_sync_client_input::<Indexers, _>(
@@ -657,6 +659,7 @@ fn handle_cost_models(
 }
 
 fn handle_indexers(
+    network: String,
     indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
     mut deployment_indexers: EventualWriter<
         Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
@@ -673,7 +676,6 @@ fn handle_indexers(
                     .iter()
                     .map(|(deployment, indexer_statuses)| {
                         // TODO: We are assuming the network is mainnet for now.
-                        let network = "mainnet".to_string();
                         tracing::trace!(
                             %network,
                             ?deployment,
