@@ -44,6 +44,7 @@ tokio-tungstenite = {version = "0.14", features = ["native-tls"]}
 tracing = "0.1" 
 tracing-subscriber = {version = "0.2", features = ["parking_lot", "json"]} 
 tree-buf = "0.10" 
+url = "2.2" 
 uuid = {version = "0.8", features = ["v4"]} 
 
 [dev-dependencies]
