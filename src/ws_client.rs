@@ -7,13 +7,14 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
 };
 use tracing::{self, Instrument};
+use url::Url;
 
 type WSStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 struct Client {
     notify: mpsc::Sender<Msg>,
     requests: mpsc::Receiver<Request>,
-    server_url: String,
+    server: Url,
     retry_limit: usize,
     last_ping: Instant,
     retries: usize,
@@ -35,13 +36,13 @@ pub struct Interface {
     pub recv: mpsc::Receiver<Msg>,
 }
 
-pub fn create(buffer: usize, server_url: String, retry_limit: usize) -> Interface {
+pub fn create(buffer: usize, server: Url, retry_limit: usize) -> Interface {
     let (send, requests) = mpsc::channel(buffer);
     let (notify, recv) = mpsc::channel(buffer);
     Client {
         notify,
         requests,
-        server_url,
+        server,
         retry_limit,
         last_ping: Instant::now(),
         retries: 0,
@@ -84,7 +85,7 @@ impl Client {
             )))
         }
         for _ in 0..self.retry_limit {
-            let (stream, response) = tokio_tungstenite::connect_async(&self.server_url).await?;
+            let (stream, response) = tokio_tungstenite::connect_async(&self.server).await?;
             let connection_status = response.status();
             tracing::info!(%connection_status);
             if connection_status.is_client_error() {

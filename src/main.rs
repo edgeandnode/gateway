@@ -1,4 +1,4 @@
-mod alchemy_client;
+mod ethereum_client;
 mod indexer_selection;
 mod opt;
 mod prelude;
@@ -74,15 +74,15 @@ async fn main() {
         }
     };
     let (block_resolvers, block_metrics): (
-        HashMap<String, mpsc::Sender<alchemy_client::Msg>>,
-        Vec<alchemy_client::Metrics>,
+        HashMap<String, mpsc::Sender<ethereum_client::Msg>>,
+        Vec<ethereum_client::Metrics>,
     ) = opt
         .ethereum_proviers
         .0
         .into_iter()
-        .map(|(network, url)| {
-            let (send, metrics) =
-                alchemy_client::create(network.clone(), url, input_writers.indexers.clone());
+        .map(|provider| {
+            let network = provider.network.clone();
+            let (send, metrics) = ethereum_client::create(provider, input_writers.indexers.clone());
             ((network, send), metrics)
         })
         .unzip();
@@ -246,7 +246,7 @@ async fn handle_snapshot(data: web::Data<Arc<indexer_selection::Indexers>>) -> H
 
 #[tracing::instrument(skip(data))]
 async fn handle_ready(
-    data: web::Data<(Vec<alchemy_client::Metrics>, sync_client::Metrics)>,
+    data: web::Data<(Vec<ethereum_client::Metrics>, sync_client::Metrics)>,
 ) -> HttpResponse {
     let ready = data.0.iter().all(|metrics| metrics.head_block.get() > 0)
         && ((data.1.allocations.get() > 0) || (data.1.transfers.get() > 0));
@@ -437,7 +437,7 @@ pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> Ht
 
 #[derive(Clone)]
 struct NetworkResolver {
-    block_resolvers: Arc<HashMap<String, mpsc::Sender<alchemy_client::Msg>>>,
+    block_resolvers: Arc<HashMap<String, mpsc::Sender<ethereum_client::Msg>>>,
     client: reqwest::Client,
     network_subgraph_url: String,
     gateway_id: Uuid,
@@ -451,7 +451,7 @@ impl Resolver for NetworkResolver {
         network: &str,
         unresolved: &[UnresolvedBlock],
     ) -> Vec<BlockHead> {
-        use alchemy_client::Msg;
+        use ethereum_client::Msg;
         let mut resolved_blocks = Vec::new();
         let resolver = match self.block_resolvers.get(network) {
             Some(resolver) => resolver,

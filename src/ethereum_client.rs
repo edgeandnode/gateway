@@ -13,6 +13,14 @@ use tokio::{
     time::{interval, Interval},
 };
 use tracing::{self, Instrument};
+use url::Url;
+
+#[derive(Debug)]
+pub struct Provider {
+    pub network: String,
+    pub rest_url: Url,
+    pub websocket_url: Option<Url>,
+}
 
 #[derive(Debug)]
 pub enum Msg {
@@ -26,8 +34,7 @@ enum Source {
 }
 
 struct Client {
-    network: String,
-    url: String,
+    provider: Provider,
     indexers: Arc<Indexers>,
     metrics: Metrics,
     rest_client: reqwest::Client,
@@ -41,25 +48,25 @@ pub struct Metrics {
     pub head_block: prometheus::IntGauge,
 }
 
-pub fn create(
-    network: String,
-    url: String,
-    indexers: Arc<Indexers>,
-) -> (mpsc::Sender<Msg>, Metrics) {
-    let _trace = tracing::info_span!("Alchemy client", %network).entered();
+pub fn create(provider: Provider, indexers: Arc<Indexers>) -> (mpsc::Sender<Msg>, Metrics) {
+    let _trace = tracing::info_span!("Ethereum client", network = %provider.network).entered();
     let metrics = Metrics {
         head_block: prometheus::register_int_gauge!(
-            format!("head_block_{}", network),
-            format!("{} head block number", network)
+            format!("head_block_{}", provider.network),
+            format!("{} head block number", provider.network)
         )
         .unwrap(),
     };
     let buffer = 32;
     let (msg_send, msg_recv) = mpsc::channel::<Msg>(buffer);
+    let source = provider
+        .websocket_url
+        .as_ref()
+        .map(|ws_url| Source::WS(ws_client::create(buffer, ws_url.clone(), 3)))
+        .unwrap_or(Source::REST(interval(Duration::from_secs(8))));
     let mut client = Client {
-        network,
-        source: Source::WS(ws_client::create(buffer, format!("wss://{}", url), 3)),
-        url,
+        provider,
+        source,
         indexers,
         metrics: metrics.clone(),
         rest_client: reqwest::Client::new(),
@@ -104,7 +111,7 @@ impl Client {
             ws_client::Msg::Connected => {
                 let sub =
                     serde_json::to_string(&Self::post_body("eth_subscribe", &["newHeads".into()]))
-                        .expect("Alchemy subscription should serialize to JSON");
+                        .expect("Ethereum subscription should serialize to JSON");
                 if let Source::WS(ws) = &mut self.source {
                     if let Err(_) = ws.send.send(ws_client::Request::Send(sub)).await {
                         self.fallback_to_rest();
@@ -170,7 +177,7 @@ impl Client {
     #[tracing::instrument(skip(self))]
     fn fetch_block(&self, block: Option<UnresolvedBlock>) {
         let rest_client = self.rest_client.clone();
-        let url = self.url.clone();
+        let url = self.provider.rest_url.clone();
         let msg_send = self.msgs.0.clone();
         tokio::spawn(
             async move {
@@ -185,7 +192,7 @@ impl Client {
                 };
                 tracing::debug!(%method, %param);
                 let response = match rest_client
-                    .post(format!("https://{}", url))
+                    .post(url)
                     .json(&Self::post_body(method, &[param, false.into()]))
                     .send()
                     .await
@@ -214,7 +221,9 @@ impl Client {
         if latest {
             self.metrics.head_block.set(head.block.number as i64);
         }
-        self.indexers.set_block_head(&self.network, head).await;
+        self.indexers
+            .set_block_head(&self.provider.network, head)
+            .await;
     }
 
     fn post_body(method: &str, params: &[JSON]) -> JSON {

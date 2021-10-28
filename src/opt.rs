@@ -1,8 +1,9 @@
-use crate::{indexer_selection::SecretKey, prelude::*};
+use crate::{ethereum_client, indexer_selection::SecretKey, prelude::*};
 use bip39;
 use hdwallet::{self, KeyChain as _};
 use std::error::Error;
 use structopt_derive::StructOpt;
+use url::{self, Url};
 
 // TODO: Consider the security implications of passing mnemonics, passwords, etc. via environment variables or CLI arguments.
 
@@ -147,26 +148,47 @@ impl FromStr for SignerKey {
 }
 
 #[derive(Debug)]
-pub struct EthereumProviders(pub Vec<(String, String)>);
+pub struct EthereumProviders(pub Vec<ethereum_client::Provider>);
 
 impl FromStr for EthereumProviders {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let err_usage = "networks syntax: <network>=<url>,...";
-        let pairs = s.split(",").collect::<Vec<&str>>();
-        if pairs.is_empty() {
+        let err_usage = "networks syntax: <network>=<rest-url>(,<ws-url>)?;...";
+        let providers = s.split(";").collect::<Vec<&str>>();
+        if providers.is_empty() {
             return Err(err_usage.into());
         }
-        pairs
+        providers
             .into_iter()
             .map(|provider| {
-                let kv = provider.split("=").collect::<Vec<&str>>();
+                let kv: Vec<&str> = provider.split("=").collect();
                 if kv.len() != 2 {
                     return None;
                 }
-                Some((kv[0].into(), kv[1].into()))
+                let urls: Vec<Url> = kv[1]
+                    .split(",")
+                    .map(Url::parse)
+                    .collect::<Result<Vec<Url>, url::ParseError>>()
+                    .ok()?;
+                if (urls.len() < 1) || (urls.len() > 2) {
+                    return None;
+                }
+                let mut rest_url = None;
+                let mut websocket_url = None;
+                for url in urls {
+                    match url.scheme() {
+                        "http" | "https" => rest_url = Some(url),
+                        "ws" | "wss" => websocket_url = Some(url),
+                        _ => return None,
+                    }
+                }
+                Some(ethereum_client::Provider {
+                    network: kv[0].to_string(),
+                    rest_url: rest_url?,
+                    websocket_url,
+                })
             })
-            .collect::<Option<Vec<(String, String)>>>()
+            .collect::<Option<Vec<ethereum_client::Provider>>>()
             .map(|providers| EthereumProviders(providers))
             .ok_or::<String>(err_usage.into())
     }
