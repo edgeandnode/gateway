@@ -675,7 +675,6 @@ fn handle_indexers(
                 indexer_statuses
                     .iter()
                     .map(|(deployment, indexer_statuses)| {
-                        // TODO: We are assuming the network is mainnet for now.
                         tracing::trace!(
                             %network,
                             ?deployment,

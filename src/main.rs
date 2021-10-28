@@ -416,7 +416,6 @@ async fn handle_subgraph_query(
         api_key: api_key.clone(),
         query: payload.query.clone(),
         variables: payload.variables.as_ref().map(ToString::to_string),
-        // TODO: We are assuming mainnet for now.
         network: data.config.network.clone(),
         subgraph: subgraph.clone(),
     };
