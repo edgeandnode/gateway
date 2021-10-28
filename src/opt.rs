@@ -26,7 +26,7 @@ pub struct Opt {
         long = "--ethereum-providers",
         env = "ETHEREUM_PROVIDERS"
     )]
-    pub ethereum_proviers: EthereumProviders,
+    pub ethereum_providers: EthereumProviders,
     #[structopt(
         help = "Network subgraph URL",
         long = "--network-subgraph",
