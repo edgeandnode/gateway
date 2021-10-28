@@ -45,8 +45,8 @@ async fn main() {
     let gateway_id = Uuid::new_v4();
     tracing::info!(%gateway_id);
 
-    let network = if opt.ethereum_proviers.0.len() == 1 {
-        opt.ethereum_proviers.0[0].network.clone()
+    let network = if opt.ethereum_providers.0.len() == 1 {
+        opt.ethereum_providers.0[0].network.clone()
     } else {
         tracing::error!("We only support a single Ethereum metwork provider!");
         return;
@@ -84,7 +84,7 @@ async fn main() {
         HashMap<String, mpsc::Sender<ethereum_client::Msg>>,
         Vec<ethereum_client::Metrics>,
     ) = opt
-        .ethereum_proviers
+        .ethereum_providers
         .0
         .into_iter()
         .map(|provider| {
