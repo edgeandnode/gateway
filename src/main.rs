@@ -48,7 +48,7 @@ async fn main() {
     let network = if opt.ethereum_providers.0.len() == 1 {
         opt.ethereum_providers.0[0].network.clone()
     } else {
-        tracing::error!("We only support a single Ethereum metwork provider!");
+        tracing::error!("We only support a single Ethereum network provider!");
         return;
     };
 

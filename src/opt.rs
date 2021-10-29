@@ -160,36 +160,43 @@ impl FromStr for EthereumProviders {
         }
         providers
             .into_iter()
-            .map(|provider| {
-                let kv: Vec<&str> = provider.split("=").collect();
-                if kv.len() != 2 {
-                    return None;
-                }
-                let urls: Vec<Url> = kv[1]
-                    .split(",")
-                    .map(Url::parse)
-                    .collect::<Result<Vec<Url>, url::ParseError>>()
-                    .ok()?;
-                if (urls.len() < 1) || (urls.len() > 2) {
-                    return None;
-                }
-                let mut rest_url = None;
-                let mut websocket_url = None;
-                for url in urls {
-                    match url.scheme() {
-                        "http" | "https" => rest_url = Some(url),
-                        "ws" | "wss" => websocket_url = Some(url),
-                        _ => return None,
+            .map(
+                |provider| -> Result<ethereum_client::Provider, Box<dyn Error>> {
+                    let kv: Vec<&str> = provider.splitn(1, "=").collect();
+                    let urls: Vec<Url> = kv
+                        .get(1)
+                        .ok_or_else::<Box<dyn Error>, _>(|| "Expected URLs, found none".into())?
+                        .split(",")
+                        .map(Url::parse)
+                        .collect::<Result<Vec<Url>, url::ParseError>>()?;
+                    if (urls.len() < 1) || (urls.len() > 2) {
+                        return Err(format!(
+                            "Expected 1-2 URLS per provider, found {}",
+                            urls.len()
+                        )
+                        .into());
                     }
-                }
-                Some(ethereum_client::Provider {
-                    network: kv[0].to_string(),
-                    rest_url: rest_url?,
-                    websocket_url,
-                })
-            })
-            .collect::<Option<Vec<ethereum_client::Provider>>>()
+                    let mut rest_url = None;
+                    let mut websocket_url = None;
+                    for url in urls {
+                        match url.scheme() {
+                            "http" | "https" => rest_url.replace(url),
+                            "ws" | "wss" => websocket_url.replace(url),
+                            scheme => {
+                                return Err(format!("URL scheme not supported: {}", scheme).into())
+                            }
+                        };
+                    }
+                    Ok(ethereum_client::Provider {
+                        network: kv[0].to_string(),
+                        rest_url: rest_url
+                            .ok_or_else::<Box<dyn Error>, _>(|| "REST API URL not found".into())?,
+                        websocket_url,
+                    })
+                },
+            )
+            .collect::<Result<Vec<ethereum_client::Provider>, Box<dyn Error>>>()
             .map(|providers| EthereumProviders(providers))
-            .ok_or::<String>(err_usage.into())
+            .map_err(|err| format!("{}\n{}", err_usage, err).into())
     }
 }
