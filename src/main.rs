@@ -492,7 +492,7 @@ struct NetworkResolver {
 pub struct IndexerResponsePayload {
     #[serde(rename(deserialize = "graphQLResponse"))]
     pub graphql_response: String,
-    pub attestation: Attestation,
+    pub attestation: Option<Attestation>,
 }
 
 #[async_trait]
