@@ -53,7 +53,7 @@ pub struct QueryResponse {
 pub struct IndexerResponse {
     pub status: u16,
     pub payload: String,
-    pub attestation: Attestation,
+    pub attestation: Option<Attestation>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -356,8 +356,12 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             );
 
             let response = match result {
-                Ok(response) => response,
-                Err(indexer_response_err) => {
+                Ok(response) if response.attestation.is_some() => response,
+                _ => {
+                    let indexer_response_err = match result {
+                        Ok(_) => "Response has no attestation".into(),
+                        Err(err) => err,
+                    };
                     tracing::info!(%indexer_response_err);
                     self.indexers
                         .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
