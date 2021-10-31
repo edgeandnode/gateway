@@ -162,7 +162,7 @@ impl FromStr for EthereumProviders {
             .into_iter()
             .map(
                 |provider| -> Result<ethereum_client::Provider, Box<dyn Error>> {
-                    let kv: Vec<&str> = provider.splitn(1, "=").collect();
+                    let kv: Vec<&str> = provider.splitn(3, "=").collect();
                     let urls: Vec<Url> = kv
                         .get(1)
                         .ok_or_else::<Box<dyn Error>, _>(|| "Expected URLs, found none".into())?
@@ -179,13 +179,19 @@ impl FromStr for EthereumProviders {
                     let mut rest_url = None;
                     let mut websocket_url = None;
                     for url in urls {
-                        match url.scheme() {
-                            "http" | "https" => rest_url.replace(url),
-                            "ws" | "wss" => websocket_url.replace(url),
+                        if let Some(scheme) = match url.scheme() {
+                            "http" | "https" => rest_url.replace(url).map(|_| "REST"),
+                            "ws" | "wss" => websocket_url.replace(url).map(|_| "WebSocket"),
                             scheme => {
                                 return Err(format!("URL scheme not supported: {}", scheme).into())
                             }
-                        };
+                        } {
+                            return Err(format!(
+                                "Multiple {} API URLs found for {}, expected 1",
+                                scheme, provider
+                            )
+                            .into());
+                        }
                     }
                     Ok(ethereum_client::Provider {
                         network: kv[0].to_string(),
