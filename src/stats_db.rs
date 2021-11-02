@@ -83,7 +83,9 @@ pub async fn create(
         "host={} port={} user={} password={} dbname={} sslmode=prefer",
         host, port, user, password, dbname
     );
-    let ssl_connector = SslConnector::builder(SslMethod::tls()).unwrap().build();
+    let mut ssl_builder = SslConnector::builder(SslMethod::tls()).unwrap();
+    ssl_builder.set_verify(SslVerifyMode::NONE);
+    let ssl_connector = ssl_builder.build();
     let (client, connection) =
         tokio_postgres::connect(&config, MakeTlsConnector::new(ssl_connector)).await?;
     // The connection object performs the actual communication with the database and is intended to
