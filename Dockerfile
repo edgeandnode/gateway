@@ -1,4 +1,4 @@
-FROM rust:1.55-buster AS build
+FROM rust:1.56-buster AS build
 
 ARG GH_USER
 ARG GH_TOKEN
