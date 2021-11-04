@@ -615,6 +615,11 @@ impl Indexers {
             .await
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
 
+        let allocated_stake = selection_factors
+            .allocation
+            .value_immediate()
+            .unwrap_or(GRT::zero());
+
         let get_blocks_behind_timer = METRICS.get_blocks_behind_duration.start_timer();
         let blocks_behind = selection_factors.blocks_behind().await?;
         let latest_block = self
@@ -683,20 +688,14 @@ impl Indexers {
             fee,
             slashable: economic_security.slashable_usd,
             utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,
-            sybil: Self::sybil(indexer_stake, delegated_stake)?,
+            sybil: Self::sybil(allocated_stake, delegated_stake)?,
             blocks_behind,
         })
     }
 
     /// Sybil protection
-    /// TODO: This is wrong. It should be looking at the total stake of all
-    /// allocations on the Indexing, not the total stake for the Indexer. The
-    /// allocations are meant to provide a signal about capacity and should be
-    /// respected.
-    fn sybil(indexer_stake: GRT, delegated_stake: GRT) -> Result<NotNan<f64>, BadIndexerReason> {
-        // This unfortunately double-counts indexer own stake, once for economic
-        // security and once for sybil.
-        let total_stake = delegated_stake.saturating_add(indexer_stake);
+    fn sybil(allocated_stake: GRT, delegated_stake: GRT) -> Result<NotNan<f64>, BadIndexerReason> {
+        let total_stake = delegated_stake.saturating_add(allocated_stake);
         let identity = total_stake.as_f64();
         // To optimize for sybil protection, we want to just mult the utility by the identity
         // weight. But this may run into some economic problems. Consider the following scenario:

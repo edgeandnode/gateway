@@ -607,6 +607,7 @@ struct UsableAllocations;
 struct ParsedAllocation {
     id: Address,
     indexing: Indexing,
+    size: GRT,
 }
 
 fn parse_usable_allocations(
@@ -630,6 +631,7 @@ fn parse_usable_allocations(
                     )?,
                     indexer: value.indexer.id.parse().ok()?,
                 },
+                size: value.allocated_tokens.parse().ok()?,
             })
         })
         .collect();
@@ -815,7 +817,7 @@ fn handle_allocations(
                     }
                     lock.write(&allocation.indexing)
                         .await
-                        .add_allocation(allocation.id, signer_key)
+                        .add_allocation(allocation.id, &allocation.size, signer_key)
                         .await;
                 }
                 drop(lock);
@@ -835,7 +837,7 @@ fn handle_allocations(
                         indexings
                             .write(&allocation.indexing)
                             .await
-                            .remove_allocation(&allocation.id)
+                            .remove_allocation(&allocation.id, &allocation.size)
                             .await;
                     });
                 }

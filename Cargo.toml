@@ -11,7 +11,7 @@ actix-web = "4.0.0-beta.10"
 async-trait = "0.1" 
 bs58 = "0.4" 
 cost-model = {git = "ssh://git@github.com/graphprotocol/agora.git", rev = "48bf329"} 
-eventuals = "0.6" 
+eventuals = {git = "ssh://git@github.com/edgeandnode/eventuals.git", rev = "4b3424e"} 
 futures = "0.3" 
 futures-util = "0.3" 
 graphql-parser = {git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df"} 
@@ -47,6 +47,6 @@ tree-buf = "0.10"
 uuid = {version = "0.8", features = ["v4"]} 
 
 [dev-dependencies]
-eventuals = {version = "0.6", features = ["trace"]}
+eventuals = {git = "ssh://git@github.com/edgeandnode/eventuals.git", rev = "4b3424e", features = ["trace"]}
 rand_distr = "0.4"
 regex = "1.5"

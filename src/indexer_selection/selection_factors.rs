@@ -11,6 +11,7 @@ use tokio::{sync::RwLock, time};
 use tree_buf::{Decode, Encode};
 
 pub struct SelectionFactors {
+    pub allocation: Eventual<GRT>,
     price_efficiency: PriceEfficiency,
     locked: Arc<RwLock<LockedState>>,
 }
@@ -24,6 +25,7 @@ struct LockedState {
 }
 
 pub struct IndexingData {
+    pub allocation: EventualWriter<GRT>,
     pub cost_model: EventualWriter<CostModelSource>,
     pub status: EventualWriter<IndexingStatus>,
     locked: Arc<RwLock<LockedState>>,
@@ -37,6 +39,7 @@ pub struct IndexingStatus {
 
 #[derive(Debug, Decode, Encode)]
 pub struct IndexingSnapshot {
+    pub allocation: Option<String>,
     pub cost_model: Option<CostModelSource>,
     pub indexing: Indexing,
     pub performance: Performance,
@@ -47,14 +50,17 @@ pub struct IndexingSnapshot {
 impl Reader for SelectionFactors {
     type Writer = IndexingData;
     fn new() -> (Self::Writer, Self) {
+        let (allocation_writer, allocation) = Eventual::new();
         let (cost_model_writer, cost_model) = Eventual::new();
         let locked = Arc::new(RwLock::default());
         let reader = Self {
+            allocation,
             price_efficiency: PriceEfficiency::new(cost_model),
             locked: locked.clone(),
         };
         let (status_writer, status) = Eventual::new();
         let writer = Self::Writer {
+            allocation: allocation_writer,
             cost_model: cost_model_writer,
             status: status_writer,
             locked: locked.clone(),
@@ -74,12 +80,16 @@ impl Reader for SelectionFactors {
 }
 
 impl IndexingData {
-    pub async fn add_allocation(&self, allocation_id: Address, secret: SecretKey) {
+    pub async fn add_allocation(&mut self, allocation_id: Address, size: &GRT, secret: SecretKey) {
+        self.allocation
+            .update(|prev| *prev.unwrap_or(&GRT::zero()) + *size);
         let mut lock = self.locked.write().await;
         lock.receipts.add_allocation(allocation_id, secret);
     }
 
-    pub async fn remove_allocation(&self, allocation_id: &Address) {
+    pub async fn remove_allocation(&mut self, allocation_id: &Address, size: &GRT) {
+        self.allocation
+            .update(|prev| prev.map(|v| v.saturating_sub(*size)).unwrap_or(GRT::zero()));
         let mut lock = self.locked.write().await;
         lock.receipts.remove_allocation(allocation_id);
     }
@@ -181,6 +191,7 @@ impl SelectionFactors {
     pub async fn snapshot(&self, indexing: &Indexing) -> IndexingSnapshot {
         let lock = self.locked.read().await;
         IndexingSnapshot {
+            allocation: self.allocation.value_immediate().map(|v| v.to_string()),
             cost_model: self.price_efficiency.model_src.value_immediate(),
             indexing: indexing.clone(),
             performance: lock.performance.clone(),
@@ -192,6 +203,9 @@ impl SelectionFactors {
     #[cfg(test)]
     pub async fn restore(snapshot: IndexingSnapshot) -> (Indexing, SelectionFactors, IndexingData) {
         let (mut writer, reader) = SelectionFactors::new();
+        if let Some(allocation) = snapshot.allocation.and_then(|v| v.parse().ok()) {
+            writer.allocation.write(allocation);
+        }
         if let Some(model_src) = snapshot.cost_model {
             writer.cost_model.write(model_src);
         }

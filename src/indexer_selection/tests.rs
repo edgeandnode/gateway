@@ -157,7 +157,15 @@ async fn battle_high_and_low() {
                 TEST_KEY.parse().unwrap(),
             )
             .await;
+        indexing_writer
+            .add_allocation(
+                bytes_from_id(1).into(),
+                &indexer.delegated_stake,
+                TEST_KEY.parse().unwrap(),
+            )
+            .await;
         let indexer_writer = input_writers.indexers.write(&indexing.indexer).await;
+        indexer_writer.url.write("".to_string());
         indexer_writer.stake.write(indexer.stake);
         indexer_writer
             .delegated_stake
