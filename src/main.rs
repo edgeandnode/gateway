@@ -265,27 +265,26 @@ async fn handle_ready(
     }
 }
 
-#[tracing::instrument(skip(payload))]
-async fn handle_collect_receipts(data: web::Data<SecretKey>, payload: String) -> HttpResponse {
+#[tracing::instrument(skip(data, payload))]
+async fn handle_collect_receipts(data: web::Data<SecretKey>, payload: web::Bytes) -> HttpResponse {
     let _timer = METRICS.collect_receipts_duration.start_timer();
-    let bytes = payload.into_bytes();
-    if bytes.len() < 20 {
+    if payload.len() < 20 {
         return HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body("Invalid receipt data");
     }
     let mut allocation_id = [0u8; 20];
-    allocation_id.copy_from_slice(&bytes[..20]);
+    allocation_id.copy_from_slice(&payload[..20]);
     let result = indexer_selection::Receipts::receipts_to_voucher(
         &allocation_id.into(),
         data.as_ref(),
-        &bytes[20..],
+        &payload[20..],
     );
     match result {
         Ok(voucher) => {
             METRICS.collect_receipts_ok.inc();
-            tracing::info!(request_size = %bytes.len(), "Collect receipts");
+            tracing::info!(request_size = %payload.len(), "Collect receipts");
             HttpResponseBuilder::new(StatusCode::OK).json(json!({
-                "allocation_id": voucher.allocation_id,
-                "fees": voucher.fees.to_string(),
+                "allocation": format!("0x{}", hex::encode(voucher.allocation_id)),
+                "amount": voucher.fees.to_string(),
                 "signature": format!("0x{}", hex::encode(voucher.signature)),
             }))
         }
