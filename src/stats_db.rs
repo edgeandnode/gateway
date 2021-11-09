@@ -80,8 +80,8 @@ pub async fn create(
     password: &str,
 ) -> Result<mpsc::UnboundedSender<Msg>, Box<dyn Error>> {
     let config = format!(
-        "host={} port={} user={} password={} dbname={} sslmode=prefer",
-        host, port, user, password, dbname
+        "postgres://{}:{}@{}:{}/{}?sslmode=prefer",
+        user, password, host, port, dbname,
     );
     let mut ssl_builder = SslConnector::builder(SslMethod::tls()).unwrap();
     ssl_builder.set_verify(SslVerifyMode::NONE);
