@@ -405,13 +405,16 @@ async fn handle_subgraph_query(
             "Querying not activated yet; make sure to add some GRT to your balance in the studio",
         );
     }
-    let connection_info = request.connection_info();
-    let host = connection_info.host();
+    let domain = request
+        .headers()
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     if !api_key.domains.is_empty()
         && !api_key
             .domains
             .iter()
-            .any(|(domain, _)| host.starts_with(domain))
+            .any(|(authorized, _)| domain.starts_with(authorized))
     {
         with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
         return graphql_error_response(StatusCode::OK, "Domain not authorized by API key");
@@ -456,7 +459,7 @@ async fn handle_subgraph_query(
     let _ = data.stats_db.send(stats_db::Msg::AddQuery {
         api_key,
         fee: query.fee,
-        domain: host.to_string(),
+        domain: domain.to_string(),
         subgraph: match subgraph {
             Subgraph::Name(name) => Some(name),
             Subgraph::Deployment(_) => None,
