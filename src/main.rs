@@ -407,7 +407,7 @@ async fn handle_subgraph_query(
     }
     let domain = request
         .headers()
-        .get("origin")
+        .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     if !api_key.domains.is_empty()
