@@ -9,6 +9,7 @@ mod sync_client;
 mod ws_client;
 
 use crate::{indexer_selection::SecretKey, opt::*, prelude::*, query_engine::*, rate_limiter::*};
+use actix_cors::Cors;
 use actix_web::{
     dev::ServiceRequest,
     http::{header, StatusCode},
@@ -162,7 +163,12 @@ async fn main() {
         opt.api_rate_limit as usize,
     );
     HttpServer::new(move || {
+        let cors = Cors::default()
+            .allow_any_origin()
+            .allow_any_header()
+            .allowed_methods(vec!["POST", "OPTIONS"]);
         let api = web::scope("/api/{api_key}")
+            .wrap(cors)
             .wrap(RateLimiterMiddleware {
                 rate_limiter: api_rate_limiter.clone(),
                 key: request_api_key,
