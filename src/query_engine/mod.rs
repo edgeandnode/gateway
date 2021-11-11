@@ -47,7 +47,6 @@ pub struct APIKey {
 pub struct QueryResponse {
     pub query: IndexerQuery,
     pub response: IndexerResponse,
-    pub duration: Duration,
 }
 
 #[derive(Debug)]
@@ -338,6 +337,24 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 |hist| hist.observe(query_duration.as_secs_f64()),
             );
 
+            // Stand-in for an event sent to some message bus
+            let indexer_response_status = match &result {
+                Ok(response) => response.status.to_string(),
+                Err(err) => err.to_string(),
+            };
+            tracing::info!(
+                api_key = %query.api_key.key,
+                deployment = %indexer_query.indexing.deployment,
+                indexer = %indexer_query.indexing.indexer,
+                indexer_url = %indexer_query.url,
+                fee = %indexer_query.fee,
+                blocks_behind = ?indexer_query.blocks_behind,
+                indexer_query_duration_ms = %query_duration.as_millis(),
+                %indexer_response_status,
+                indexer_query = %indexer_query.query,
+                "indexer query result",
+            );
+
             let response = match result {
                 Ok(response) => response,
                 Err(indexer_response_err) => {
@@ -390,7 +407,6 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 .await;
             return Ok(QueryResponse {
                 query: indexer_query,
-                duration: query_duration,
                 response,
             });
         }

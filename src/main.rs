@@ -457,20 +457,6 @@ async fn handle_subgraph_query(
     {
         hist.observe(result.response.payload.len() as f64);
     }
-    // Stand-in for an event sent to some message bus
-    tracing::info!(
-        %query_id,
-        api_key = %api_key.key,
-        deployment = %result.query.indexing.deployment,
-        indexer = %result.query.indexing.indexer,
-        indexer_url = %result.query.url,
-        fee = %result.query.fee,
-        blocks_behind = ?result.query.blocks_behind,
-        indexer_query_duration_ms = %result.duration.as_millis(),
-        indexer_response_status = %result.response.status,
-        indexer_query = %result.query.query,
-        "Successful query response",
-    );
     let _ = data.stats_db.send(stats_db::Msg::AddQuery {
         api_key,
         fee: result.query.fee,
