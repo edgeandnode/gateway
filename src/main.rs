@@ -420,16 +420,17 @@ async fn handle_subgraph_query(
         return graphql_error_response(StatusCode::OK, "Domain not authorized by API key");
     }
 
+    let query_id = data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64;
     let query = ClientQuery {
-        id: data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64,
+        id: query_id,
         api_key: api_key.clone(),
         query: payload.query.clone(),
         variables: payload.variables.as_ref().map(ToString::to_string),
         network: data.config.network.clone(),
         subgraph: subgraph.clone(),
     };
-    let (query, body) = match query_engine.execute_query(query).await {
-        Ok(result) => (result.query, result.response.graphql_response),
+    let result = match query_engine.execute_query(query).await {
+        Ok(result) => result,
         Err(err) => {
             return graphql_error_response(
                 StatusCode::OK,
@@ -452,13 +453,27 @@ async fn handle_subgraph_query(
     };
     if let Ok(hist) = METRICS
         .query_result_size
-        .get_metric_with_label_values(&[&query.indexing.deployment.ipfs_hash()])
+        .get_metric_with_label_values(&[&result.query.indexing.deployment.ipfs_hash()])
     {
-        hist.observe(body.len() as f64);
+        hist.observe(result.response.payload.len() as f64);
     }
+    // Stand-in for an event sent to some message bus
+    tracing::info!(
+        %query_id,
+        api_key = %api_key.key,
+        deployment = %result.query.indexing.deployment,
+        indexer = %result.query.indexing.indexer,
+        indexer_url = %result.query.url,
+        fee = %result.query.fee,
+        blocks_behind = ?result.query.blocks_behind,
+        indexer_query_duration_ms = %result.duration.as_millis(),
+        indexer_response_status = %result.response.status,
+        indexer_query = %result.query.query,
+        "Successful query response",
+    );
     let _ = data.stats_db.send(stats_db::Msg::AddQuery {
         api_key,
-        fee: query.fee,
+        fee: result.query.fee,
         domain: domain.to_string(),
         subgraph: match subgraph {
             Subgraph::Name(name) => Some(name),
@@ -467,7 +482,7 @@ async fn handle_subgraph_query(
     });
     HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
-        .body(body)
+        .body(result.response.payload)
 }
 
 pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> HttpResponse {
@@ -482,6 +497,13 @@ struct NetworkResolver {
     client: reqwest::Client,
     network_subgraph_url: String,
     gateway_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IndexerResponsePayload {
+    #[serde(rename(deserialize = "graphQLResponse"))]
+    pub graphql_response: String,
+    pub attestation: Attestation,
 }
 
 #[async_trait]
@@ -536,11 +558,14 @@ impl Resolver for NetworkResolver {
             .body(query.query.clone())
             .send()
             .await?;
-        tracing::info!(response_status = %response.status());
-        response
-            .json::<IndexerResponse>()
-            .await
-            .map_err(|err| err.into())
+        let response_status = response.status();
+        tracing::info!(%response_status);
+        let payload = response.json::<IndexerResponsePayload>().await?;
+        Ok(IndexerResponse {
+            status: response_status.as_u16(),
+            payload: payload.graphql_response,
+            attestation: payload.attestation,
+        })
     }
 
     #[tracing::instrument(skip(self, indexers, indexing, fee))]
