@@ -47,12 +47,13 @@ pub struct APIKey {
 pub struct QueryResponse {
     pub query: IndexerQuery,
     pub response: IndexerResponse,
+    pub duration: Duration,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct IndexerResponse {
-    #[serde(rename(deserialize = "graphQLResponse"))]
-    pub graphql_response: String,
+    pub status: u16,
+    pub payload: String,
     pub attestation: Attestation,
 }
 
@@ -366,7 +367,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
 
             let indexer_behind_err =
                 "Failed to decode `block.hash` value: `no block with that hash found`";
-            if serde_json::from_str::<Response<Box<RawValue>>>(&response.graphql_response)
+            if serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
                 .map_err(|_| QueryEngineError::NoIndexerSelected)?
                 .errors
                 .as_ref()
@@ -380,7 +381,6 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
 
             // TODO: fisherman
 
-            tracing::info!("query successful");
             self.indexers
                 .observe_successful_query(
                     &indexer_query.indexing,
@@ -390,6 +390,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 .await;
             return Ok(QueryResponse {
                 query: indexer_query,
+                duration: query_duration,
                 response,
             });
         }
