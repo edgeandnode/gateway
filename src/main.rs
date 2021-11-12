@@ -35,6 +35,7 @@ use std::{
 };
 use structopt::StructOpt as _;
 use tree_buf;
+use url::Url;
 use uuid::Uuid;
 
 #[actix_web::main]
@@ -409,7 +410,9 @@ async fn handle_subgraph_query(
         .headers()
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
+        .unwrap_or("".to_string());
+    tracing::debug!(%domain, authorized = ?api_key.domains);
     if !api_key.domains.is_empty()
         && !api_key
             .domains
