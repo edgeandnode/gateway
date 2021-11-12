@@ -10,10 +10,14 @@ use serde_json::{json, Value as JSON};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
     self,
-    time::{interval, Interval},
+    time::{interval, sleep, Interval},
 };
 use tracing::{self, Instrument};
 use url::Url;
+
+const MPSC_BUFFER: usize = 32;
+const WS_RETRY_LIMIT: usize = 3;
+const REST_POLL_INTERVAL: Duration = Duration::from_secs(8);
 
 #[derive(Debug)]
 pub struct Provider {
@@ -26,6 +30,7 @@ pub struct Provider {
 pub enum Msg {
     Request(UnresolvedBlock, oneshot::Sender<BlockHead>),
     Resolved(Option<UnresolvedBlock>, BlockHead),
+    RetryWS,
 }
 
 enum Source {
@@ -57,16 +62,10 @@ pub fn create(provider: Provider, indexers: Arc<Indexers>) -> (mpsc::Sender<Msg>
         )
         .unwrap(),
     };
-    let buffer = 32;
-    let (msg_send, msg_recv) = mpsc::channel::<Msg>(buffer);
-    let source = provider
-        .websocket_url
-        .as_ref()
-        .map(|ws_url| Source::WS(ws_client::create(buffer, ws_url.clone(), 3)))
-        .unwrap_or(Source::REST(interval(Duration::from_secs(8))));
+    let (msg_send, msg_recv) = mpsc::channel::<Msg>(MPSC_BUFFER);
     let mut client = Client {
+        source: Client::try_ws_source(&provider),
         provider,
-        source,
         indexers,
         metrics: metrics.clone(),
         rest_client: reqwest::Client::new(),
@@ -164,14 +163,37 @@ impl Client {
                     }
                 }
             }
+            Some(Msg::RetryWS) => {
+                tracing::info!("retry WS source");
+                self.source = Self::try_ws_source(&self.provider);
+            }
             None => return,
         }
     }
 
     fn fallback_to_rest(&mut self) {
         tracing::warn!("fallback to REST");
-        // TODO: Spawn a task to reconnect WS client after some time.
-        self.source = Source::REST(interval(Duration::from_secs(8)));
+        self.source = Source::REST(interval(REST_POLL_INTERVAL));
+        let recv = self.msgs.0.clone();
+        tokio::spawn(async move {
+            // Retry WS connection after 20 minutes
+            sleep(Duration::from_secs(60 * 20)).await;
+            let _ = recv.send(Msg::RetryWS).await;
+        });
+    }
+
+    fn try_ws_source(provider: &Provider) -> Source {
+        provider
+            .websocket_url
+            .as_ref()
+            .map(|ws_url| {
+                Source::WS(ws_client::create(
+                    MPSC_BUFFER,
+                    ws_url.clone(),
+                    WS_RETRY_LIMIT,
+                ))
+            })
+            .unwrap_or(Source::REST(interval(REST_POLL_INTERVAL)))
     }
 
     #[tracing::instrument(skip(self))]
