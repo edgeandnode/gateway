@@ -484,7 +484,7 @@ impl Topology {
                 Err(err) => return err_with(trace, format!("expected response, got {:?}", err)),
             };
             // The test resolver only gives the following response for successful queries.
-            if !response.response.graphql_response.contains("success") {
+            if !response.response.payload.contains("success") {
                 return err_with(
                     trace,
                     format!("expected success, got {:#?}", response.response),
@@ -573,15 +573,16 @@ impl Resolver for TopologyResolver {
             }
         }
         Ok(IndexerResponse {
-            graphql_response: r#"{"data": "success"}"#.into(),
-            attestation: Attestation {
+            status: 200,
+            payload: r#"{"data": "success"}"#.into(),
+            attestation: Some(Attestation {
                 request_cid: Bytes32::default(),
                 response_cid: Bytes32::default(),
                 deployment: Bytes32::from(*query.indexing.deployment),
                 v: 0,
                 r: Bytes32::default(),
                 s: Bytes32::default(),
-            },
+            }),
         })
     }
 
