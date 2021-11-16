@@ -1,16 +1,17 @@
 use crate::{
     indexer_selection::{
-        test_utils::{default_cost_model, gen_blocks},
+        test_utils::{default_cost_model, gen_blocks, TEST_KEY},
         Indexers, Indexing, IndexingStatus, UtilityConfig,
     },
     prelude::{test_utils::*, *},
 };
 use rand::{thread_rng, Rng as _};
+use secp256k1::SecretKey;
 use std::collections::{BTreeMap, HashMap};
 
 struct IndexerCharacteristics {
     stake: GRT,
-    delegated_stake: GRT,
+    allocation: GRT,
     blocks_behind: u64,
     price: GRT,
     latency_ms: u64,
@@ -46,7 +47,7 @@ async fn battle_high_and_low() {
         // Great!
         IndexerCharacteristics {
             stake: 500000u64.try_into().unwrap(),
-            delegated_stake: 600000u64.try_into().unwrap(),
+            allocation: 600000u64.try_into().unwrap(),
             price: "0.000040".parse().unwrap(),
             latency_ms: 80,
             reliability: 0.999,
@@ -55,7 +56,7 @@ async fn battle_high_and_low() {
         // Also great!
         IndexerCharacteristics {
             stake: 400000u64.try_into().unwrap(),
-            delegated_stake: 800000u64.try_into().unwrap(),
+            allocation: 800000u64.try_into().unwrap(),
             price: "0.000040".parse().unwrap(),
             latency_ms: 70,
             reliability: 0.995,
@@ -64,7 +65,7 @@ async fn battle_high_and_low() {
         // Ok!
         IndexerCharacteristics {
             stake: 300000u64.try_into().unwrap(),
-            delegated_stake: 400000u64.try_into().unwrap(),
+            allocation: 400000u64.try_into().unwrap(),
             price: "0.000034".parse().unwrap(),
             latency_ms: 130,
             reliability: 0.95,
@@ -73,7 +74,7 @@ async fn battle_high_and_low() {
         // Race to the bottom
         IndexerCharacteristics {
             stake: 400000u64.try_into().unwrap(),
-            delegated_stake: 40000u64.try_into().unwrap(),
+            allocation: 40000u64.try_into().unwrap(),
             price: "0.000005".parse().unwrap(),
             latency_ms: 250,
             reliability: 0.96,
@@ -82,7 +83,7 @@ async fn battle_high_and_low() {
         // Meh
         IndexerCharacteristics {
             stake: 100000u64.try_into().unwrap(),
-            delegated_stake: 100000u64.try_into().unwrap(),
+            allocation: 100000u64.try_into().unwrap(),
             price: "0.000024".parse().unwrap(),
             latency_ms: 200,
             reliability: 0.80,
@@ -91,7 +92,7 @@ async fn battle_high_and_low() {
         // Bad
         IndexerCharacteristics {
             stake: 100000u64.try_into().unwrap(),
-            delegated_stake: 100000u64.try_into().unwrap(),
+            allocation: 100000u64.try_into().unwrap(),
             price: "0.000040".parse().unwrap(),
             latency_ms: 1900,
             reliability: 0.80,
@@ -100,7 +101,7 @@ async fn battle_high_and_low() {
         // Overpriced
         IndexerCharacteristics {
             stake: 500000u64.try_into().unwrap(),
-            delegated_stake: 600000u64.try_into().unwrap(),
+            allocation: 600000u64.try_into().unwrap(),
             price: "0.000999".parse().unwrap(),
             latency_ms: 80,
             reliability: 0.999,
@@ -109,7 +110,7 @@ async fn battle_high_and_low() {
         // Optimize economic security
         IndexerCharacteristics {
             stake: 1000000u64.try_into().unwrap(),
-            delegated_stake: 400000u64.try_into().unwrap(),
+            allocation: 400000u64.try_into().unwrap(),
             price: "0.000045".parse().unwrap(),
             latency_ms: 120,
             reliability: 0.99,
@@ -118,7 +119,7 @@ async fn battle_high_and_low() {
         // Optimize performance
         IndexerCharacteristics {
             stake: 400000u64.try_into().unwrap(),
-            delegated_stake: 400000u64.try_into().unwrap(),
+            allocation: 400000u64.try_into().unwrap(),
             price: "0.000040".parse().unwrap(),
             latency_ms: 60,
             reliability: 0.99,
@@ -127,7 +128,7 @@ async fn battle_high_and_low() {
         // Optimize reliability
         IndexerCharacteristics {
             stake: 300000u64.try_into().unwrap(),
-            delegated_stake: 400000u64.try_into().unwrap(),
+            allocation: 400000u64.try_into().unwrap(),
             price: "0.000035".parse().unwrap(),
             latency_ms: 120,
             reliability: 0.999,
@@ -137,6 +138,7 @@ async fn battle_high_and_low() {
 
     let mut data = HashMap::new();
     let mut indexer_ids = im::Vector::new();
+    let test_key = SecretKey::from_str(TEST_KEY).unwrap();
     for indexer in tests.iter() {
         let indexing = Indexing {
             indexer: bytes_from_id(indexer_ids.len()).into(),
@@ -146,15 +148,16 @@ async fn battle_high_and_low() {
         indexing_writer
             .cost_model
             .write(default_cost_model(indexer.price));
+        indexing_writer
+            .add_allocation(Address::default(), test_key.clone(), indexer.allocation)
+            .await;
         indexing_writer.status.write(IndexingStatus {
             block: latest.number - indexer.blocks_behind,
             latest: latest.number,
         });
         let indexer_writer = input_writers.indexers.write(&indexing.indexer).await;
+        indexer_writer.url.write("".to_string());
         indexer_writer.stake.write(indexer.stake);
-        indexer_writer
-            .delegated_stake
-            .write(indexer.delegated_stake);
         data.insert(indexing.indexer, indexer);
         indexer_ids.push_back(indexing.indexer);
     }

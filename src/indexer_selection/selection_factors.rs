@@ -152,9 +152,12 @@ impl SelectionFactors {
             .expected_utility(freshness_requirements, u_a, latest_block, blocks_behind)
     }
 
-    pub async fn has_allocation(&self) -> bool {
+    pub async fn total_allocation(&self) -> GRT {
         let lock = self.locked.read().await;
-        lock.allocations.has_allocation()
+        if !lock.allocations.has_allocation() {
+            return GRT::zero();
+        }
+        lock.allocations.total_allocation
     }
 
     pub async fn get_price(

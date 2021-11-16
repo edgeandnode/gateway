@@ -1,5 +1,8 @@
 use crate::{
-    indexer_selection::{test_utils::default_cost_model, IndexingStatus},
+    indexer_selection::{
+        test_utils::{default_cost_model, TEST_KEY},
+        IndexingStatus, SecretKey,
+    },
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
 };
@@ -90,7 +93,7 @@ struct DeploymentTopology {
 struct IndexerTopology {
     id: Address,
     staked_grt: TokenAmount,
-    delegated_grt: TokenAmount,
+    allocated_grt: TokenAmount,
     blocks_behind: usize,
     fee: TokenAmount,
     indexer_err: bool,
@@ -234,7 +237,7 @@ impl Topology {
         IndexerTopology {
             id: self.gen_bytes().into(),
             staked_grt: self.gen_amount(),
-            delegated_grt: self.gen_amount(),
+            allocated_grt: self.gen_amount(),
             blocks_behind: self.rng.gen_range(0..=*self.config.blocks.end()),
             fee: self.gen_amount(),
             indexer_err: self.flip_coin(16),
@@ -350,17 +353,15 @@ impl Topology {
                     .await;
             }
         }
+        let stake_table = [0.0, 50e3, 100e3, 150e3];
         for indexer in self.indexers.values() {
             let indexer_writer = indexer_inputs.indexers.write(&indexer.id).await;
-            let stake_table = [0.0, 50e3, 100e3, 150e3];
             indexer_writer.url.write("".into());
             indexer_writer
                 .stake
                 .write(indexer.staked_grt.as_udecimal(&stake_table));
-            indexer_writer
-                .delegated_stake
-                .write(indexer.delegated_grt.as_udecimal(&stake_table));
         }
+        let test_key = SecretKey::from_str(TEST_KEY).unwrap();
         for (network, _, deployment, indexer) in indexings.iter() {
             let indexing = Indexing {
                 deployment: deployment.id,
@@ -368,6 +369,13 @@ impl Topology {
             };
             let fee = indexer.fee.as_udecimal(&[0.0, 0.1, 1.0, 2.0]);
             let indexing_writer = indexer_inputs.indexings.write(&indexing).await;
+            indexing_writer
+                .add_allocation(
+                    Address::default(),
+                    test_key.clone(),
+                    indexer.allocated_grt.as_udecimal(&stake_table),
+                )
+                .await;
             indexing_writer.cost_model.write(default_cost_model(fee));
             if let Ok(latest) = self.inputs.indexers.latest_block(&network.name).await {
                 indexing_writer.status.write(IndexingStatus {
@@ -446,10 +454,11 @@ impl Topology {
             .flat_map(|deployment| deployment.indexings.iter())
             .map(|id| self.indexers.get(id).unwrap())
             .collect::<Vec<&IndexerTopology>>();
-        // Valid indexers have more than zero stake and fee <= budget.
+        // Valid indexers have more than zero stake, more than zero allocation, and fee <= budget.
         fn valid_indexer(indexer: &IndexerTopology) -> bool {
             !indexer.indexer_err
                 && (indexer.staked_grt > TokenAmount::Zero)
+                && (indexer.allocated_grt > TokenAmount::Zero)
                 && (indexer.fee <= TokenAmount::Enough)
         }
         // Return MalformedQuery Malformed queries are rejected.
@@ -487,8 +496,8 @@ impl Topology {
             }
             return err_with(trace, "response did not match any valid indexer");
         }
-        // Return NoIndexerSelected if no valid indexers exist.
-        if let Err(QueryEngineError::NoIndexerSelected) = result {
+        // Return NoIndexers if no valid indexers exist.
+        if let Err(QueryEngineError::NoIndexers) = result {
             return Ok(());
         }
         // Return MissingBlocks if the network has no blocks.
@@ -497,6 +506,10 @@ impl Topology {
                 return Ok(());
             }
             return err_with(trace, format!("expected missing block, got {:#?}", result));
+        }
+        // Return NoIndexerSelected if no valid indexers were found.
+        if let Err(QueryEngineError::NoIndexerSelected) = result {
+            return Ok(());
         }
         err_with(
             trace,
