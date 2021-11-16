@@ -1,6 +1,6 @@
 use crate::{
     indexer_selection::{
-        network_cache::*, performance::*, price_efficiency::*, receipts::*, reputation::*,
+        allocations::*, network_cache::*, performance::*, price_efficiency::*, reputation::*,
         utility::*, BadIndexerReason, Context, Indexing, SecretKey, SelectionError,
     },
     prelude::*,
@@ -20,7 +20,7 @@ struct LockedState {
     performance: Performance,
     reputation: Reputation,
     freshness: DataFreshness,
-    receipts: Receipts,
+    allocations: Allocations,
 }
 
 pub struct IndexingData {
@@ -74,14 +74,19 @@ impl Reader for SelectionFactors {
 }
 
 impl IndexingData {
-    pub async fn add_allocation(&self, allocation_id: Address, secret: SecretKey) {
+    pub async fn add_allocation(&self, allocation_id: Address, secret: SecretKey, size: GRT) {
         let mut lock = self.locked.write().await;
-        lock.receipts.add_allocation(allocation_id, secret);
+        lock.allocations.add_allocation(allocation_id, secret, size);
     }
 
-    pub async fn remove_allocation(&self, allocation_id: &Address) {
+    pub async fn remove_allocation(&self, allocation_id: &Address, size: GRT) {
         let mut lock = self.locked.write().await;
-        lock.receipts.remove_allocation(allocation_id);
+        lock.allocations.remove_allocation(allocation_id, size);
+    }
+
+    pub async fn has_allocation(&self) -> bool {
+        let lock = self.locked.read().await;
+        lock.allocations.has_allocation()
     }
 }
 
@@ -90,13 +95,13 @@ impl SelectionFactors {
         let mut lock = self.locked.write().await;
         lock.performance.add_successful_query(duration);
         lock.reputation.add_successful_query();
-        lock.receipts.release(receipt, QueryStatus::Success);
+        lock.allocations.release(receipt, QueryStatus::Success);
     }
 
     pub async fn observe_failed_query(&self, receipt: &[u8], status: QueryStatus) {
         let mut lock = self.locked.write().await;
         lock.reputation.add_failed_query();
-        lock.receipts.release(receipt, status);
+        lock.allocations.release(receipt, status);
     }
 
     pub async fn observe_indexing_behind(
@@ -122,7 +127,7 @@ impl SelectionFactors {
 
     pub async fn commit(&self, fee: &GRT) -> Result<Receipt, BorrowFail> {
         let mut lock = self.locked.write().await;
-        lock.receipts.commit(fee)
+        lock.allocations.commit(fee)
     }
 
     pub async fn expected_performance_utility(&self, u_a: f64) -> SelectionFactor {
@@ -149,7 +154,7 @@ impl SelectionFactors {
 
     pub async fn has_allocation(&self) -> bool {
         let lock = self.locked.read().await;
-        lock.receipts.has_allocation()
+        lock.allocations.has_allocation()
     }
 
     pub async fn get_price(
