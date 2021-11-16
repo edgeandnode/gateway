@@ -506,7 +506,7 @@ impl Indexers {
                     %score.sybil,
                     ?score.blocks_behind,
                 ),
-                Err(err) => tracing::trace!(scrore.err = ?err),
+                Err(err) => tracing::trace!(score_err = ?err),
             };
             let score = match result {
                 Ok(score) if score.utility > NotNan::zero() => score,
