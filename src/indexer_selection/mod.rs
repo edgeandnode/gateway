@@ -497,16 +497,21 @@ impl Indexers {
                     freshness_requirements,
                 )
                 .await;
-            tracing::trace!(deployment = ?indexing.deployment, indexer = ?indexing.indexer);
             match &result {
                 Ok(score) => tracing::trace!(
+                    ?indexing.deployment,
+                    ?indexing.indexer,
                     ?score.fee,
                     ?score.slashable,
                     %score.utility,
                     %score.sybil,
                     ?score.blocks_behind,
                 ),
-                Err(err) => tracing::trace!(score_err = ?err),
+                Err(err) => tracing::trace!(
+                    ?indexing.deployment,
+                    ?indexing.indexer,
+                    score_err = ?err,
+                ),
             };
             let score = match result {
                 Ok(score) if score.utility > NotNan::zero() => score,
