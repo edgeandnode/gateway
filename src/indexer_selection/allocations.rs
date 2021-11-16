@@ -7,8 +7,9 @@ use secp256k1::{PublicKey, Secp256k1};
 use std::{fmt, ops::Deref};
 
 #[derive(Default)]
-pub struct Receipts {
-    allocations: ReceiptPool,
+pub struct Allocations {
+    receipts: ReceiptPool,
+    pub total_allocation: GRT,
 }
 
 #[derive(Clone)]
@@ -35,29 +36,31 @@ impl fmt::Debug for Receipt {
     }
 }
 
-impl Receipts {
+impl Allocations {
     pub fn has_allocation(&self) -> bool {
-        self.allocations.has_collateral_for()
+        self.receipts.has_collateral_for()
     }
 
     pub fn release(&mut self, receipt: &[u8], status: QueryStatus) {
         if receipt.len() != 164 {
             panic!("Unrecognized receipt format");
         }
-        self.allocations.release(receipt, status);
+        self.receipts.release(receipt, status);
     }
 
     pub fn commit(&mut self, locked_fee: &GRT) -> Result<Receipt, BorrowFail> {
-        let commitment = self.allocations.commit(locked_fee.shift::<0>().as_u256())?;
+        let commitment = self.receipts.commit(locked_fee.shift::<0>().as_u256())?;
         Ok(Receipt { commitment })
     }
 
-    pub fn add_allocation(&mut self, allocation_id: Address, secret: SecretKey) {
-        self.allocations.add_allocation(secret, *allocation_id);
+    pub fn add_allocation(&mut self, allocation_id: Address, secret: SecretKey, size: GRT) {
+        self.receipts.add_allocation(secret, *allocation_id);
+        self.total_allocation = self.total_allocation.saturating_add(size);
     }
 
-    pub fn remove_allocation(&mut self, allocation_id: &Address) {
-        self.allocations.remove_allocation(allocation_id);
+    pub fn remove_allocation(&mut self, allocation_id: &Address, size: GRT) {
+        self.receipts.remove_allocation(allocation_id);
+        self.total_allocation = self.total_allocation.saturating_sub(size);
     }
 
     pub fn receipts_to_voucher(

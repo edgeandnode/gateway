@@ -1,9 +1,9 @@
+mod allocations;
 mod economic_security;
 mod indexers;
 mod network_cache;
 mod performance;
 mod price_efficiency;
-mod receipts;
 mod reputation;
 mod selection_factors;
 mod utility;
@@ -14,8 +14,8 @@ pub mod test_utils;
 mod tests;
 
 pub use crate::indexer_selection::{
+    allocations::{Allocations, QueryStatus, Receipt},
     indexers::{IndexerDataReader, IndexerDataWriter},
-    receipts::{QueryStatus, Receipt, Receipts},
     selection_factors::{IndexingData, IndexingStatus, SelectionFactors},
 };
 use crate::prelude::{

@@ -283,7 +283,7 @@ async fn handle_collect_receipts(data: web::Data<SecretKey>, payload: web::Bytes
     }
     let mut allocation_id = [0u8; 20];
     allocation_id.copy_from_slice(&payload[..20]);
-    let result = indexer_selection::Receipts::receipts_to_voucher(
+    let result = indexer_selection::Allocations::receipts_to_voucher(
         &allocation_id.into(),
         data.as_ref(),
         &payload[20..],

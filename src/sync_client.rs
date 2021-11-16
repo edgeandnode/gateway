@@ -537,6 +537,7 @@ struct UsableAllocations;
 struct ParsedAllocation {
     id: Address,
     indexing: Indexing,
+    size: GRT,
 }
 
 fn parse_usable_allocations(
@@ -560,6 +561,7 @@ fn parse_usable_allocations(
                     )?,
                     indexer: value.indexer.id.parse().ok()?,
                 },
+                size: value.allocated_tokens.parse().ok()?,
             })
         })
         .collect();
@@ -694,7 +696,7 @@ fn handle_allocations(
                     }
                     lock.write(&allocation.indexing)
                         .await
-                        .add_allocation(allocation.id, signer_key)
+                        .add_allocation(allocation.id, signer_key, allocation.size)
                         .await;
                 }
                 // Remove old allocations.
@@ -702,10 +704,15 @@ fn handle_allocations(
                     if allocations.iter().any(|t| t.id == allocation.id) {
                         continue;
                     }
-                    lock.write(&allocation.indexing)
-                        .await
-                        .remove_allocation(&allocation.id)
+                    let writer = lock.write(&allocation.indexing).await;
+                    writer
+                        .remove_allocation(&allocation.id, allocation.size)
                         .await;
+                    let has_allocation = writer.has_allocation().await;
+                    drop(writer);
+                    if !has_allocation {
+                        lock.remove(&allocation.indexing).await;
+                    }
                 }
             }
             .instrument(tracing::info_span!("handle_allocations"))
