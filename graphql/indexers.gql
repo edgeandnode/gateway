@@ -7,7 +7,6 @@ query Indexers($lastUpdateId: String!) {
         id
         url
         stakedTokens
-        delegatedTokens
       }
     }
   }

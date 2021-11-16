@@ -71,7 +71,6 @@ pub enum SelectionError {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum BadIndexerReason {
     MissingIndexerStake,
-    MissingIndexerDelegatedStake,
     BehindMinimumBlock,
     MissingIndexingStatus,
     MissingCostModel,
@@ -545,13 +544,7 @@ impl Indexers {
             .indexers
             .get(&indexing.indexer)
             .await
-            .map(|data| {
-                (
-                    data.url.value_immediate(),
-                    data.stake.value_immediate(),
-                    data.delegated_stake.value_immediate(),
-                )
-            })
+            .map(|data| (data.url.value_immediate(), data.stake.value_immediate()))
             .unwrap_or_default();
         let indexer_url = indexer_data
             .0
@@ -559,9 +552,6 @@ impl Indexers {
         let indexer_stake = indexer_data
             .1
             .ok_or(BadIndexerReason::MissingIndexerStake)?;
-        let delegated_stake = indexer_data
-            .2
-            .ok_or(BadIndexerReason::MissingIndexerDelegatedStake)?;
         load_indexer_data_timer.observe_duration();
         let economic_security = self
             .network_params
@@ -592,7 +582,8 @@ impl Indexers {
         aggregator.add(price_efficiency);
 
         let get_collateral_timer = METRICS.get_collateral_duration.start_timer();
-        if !selection_factors.has_allocation().await {
+        let indexer_allocation = selection_factors.total_allocation().await;
+        if indexer_allocation == GRT::zero() {
             return Err(SelectionError::NoAllocation(indexing.clone()));
         }
         get_collateral_timer.observe_duration();
@@ -641,21 +632,14 @@ impl Indexers {
             fee,
             slashable: economic_security.slashable_usd,
             utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,
-            sybil: Self::sybil(indexer_stake, delegated_stake)?,
+            sybil: Self::sybil(indexer_allocation)?,
             blocks_behind,
         })
     }
 
     /// Sybil protection
-    /// TODO: This is wrong. It should be looking at the total stake of all
-    /// allocations on the Indexing, not the total stake for the Indexer. The
-    /// allocations are meant to provide a signal about capacity and should be
-    /// respected.
-    fn sybil(indexer_stake: GRT, delegated_stake: GRT) -> Result<NotNan<f64>, BadIndexerReason> {
-        // This unfortunately double-counts indexer own stake, once for economic
-        // security and once for sybil.
-        let total_stake = delegated_stake.saturating_add(indexer_stake);
-        let identity = total_stake.as_f64();
+    fn sybil(indexer_allocation: GRT) -> Result<NotNan<f64>, BadIndexerReason> {
+        let identity = indexer_allocation.as_f64();
         // To optimize for sybil protection, we want to just mult the utility by the identity
         // weight. But this may run into some economic problems. Consider the following scenario:
         //

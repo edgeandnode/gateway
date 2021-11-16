@@ -422,7 +422,6 @@ struct ParsedIndexerInfo {
     id: Address,
     url: String,
     staked: GRT,
-    delegated: GRT,
 }
 
 fn parse_indexers(
@@ -448,7 +447,6 @@ fn parse_indexers(
                     // TODO: parse URL
                     url: indexer.url.trim_end_matches('/').into(),
                     staked: indexer.staked_tokens.parse().ok()?,
-                    delegated: indexer.delegated_tokens.parse().ok()?,
                 })
             })
             .collect();
@@ -629,7 +627,6 @@ fn handle_indexers(
                     let indexer = indexers.write(&indexer).await;
                     indexer.url.write(status.url);
                     indexer.stake.write(status.staked);
-                    indexer.delegated_stake.write(status.delegated);
                 }
             }
         })
