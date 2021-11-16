@@ -17,7 +17,6 @@ use actix_web::{
 };
 use async_trait::async_trait;
 use eventuals::EventualExt;
-use graphql_client::GraphQLQuery;
 use hex;
 use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
 use lazy_static::lazy_static;
@@ -36,16 +35,13 @@ use std::{
 use structopt::StructOpt as _;
 use tree_buf;
 use url::Url;
-use uuid::Uuid;
 
 #[actix_web::main]
 async fn main() {
     let opt = Opt::from_args();
     init_tracing(opt.log_json);
     tracing::info!("Graph gateway starting...");
-    tracing::trace!("{:#?}", opt);
-    let gateway_id = Uuid::new_v4();
-    tracing::info!(%gateway_id);
+    tracing::debug!("{:#?}", opt);
 
     let network = if opt.ethereum_providers.0.len() == 1 {
         opt.ethereum_providers.0[0].network.clone()
@@ -102,7 +98,6 @@ async fn main() {
         network.clone(),
         opt.sync_agent,
         Duration::from_secs(30),
-        gateway_id,
         signer_key.clone(),
         input_writers,
         api_keys_writer,
@@ -123,7 +118,6 @@ async fn main() {
             block_resolvers: Arc::new(block_resolvers),
             client: http_client.clone(),
             network_subgraph_url: opt.network_subgraph.clone(),
-            gateway_id,
         },
         inputs: inputs.clone(),
         api_keys,
@@ -271,8 +265,8 @@ async fn handle_snapshot(data: web::Data<Arc<indexer_selection::Indexers>>) -> H
 async fn handle_ready(
     data: web::Data<(Vec<ethereum_client::Metrics>, sync_client::Metrics)>,
 ) -> HttpResponse {
-    let ready = data.0.iter().all(|metrics| metrics.head_block.get() > 0)
-        && ((data.1.allocations.get() > 0) || (data.1.transfers.get() > 0));
+    let ready =
+        data.0.iter().all(|metrics| metrics.head_block.get() > 0) && (data.1.allocations.get() > 0);
     if ready {
         HttpResponseBuilder::new(StatusCode::OK).body("Ready")
     } else {
@@ -485,7 +479,6 @@ struct NetworkResolver {
     block_resolvers: Arc<HashMap<String, mpsc::Sender<ethereum_client::Msg>>>,
     client: reqwest::Client,
     network_subgraph_url: String,
-    gateway_id: Uuid,
 }
 
 #[derive(Debug, Deserialize)]
@@ -556,96 +549,7 @@ impl Resolver for NetworkResolver {
             attestation: payload.attestation,
         })
     }
-
-    #[tracing::instrument(skip(self, indexers, indexing, fee))]
-    async fn create_transfer(
-        &self,
-        indexers: &indexer_selection::Indexers,
-        indexing: Indexing,
-        fee: GRT,
-    ) -> Result<(), Box<dyn Error>> {
-        // TODO: We need to limit the total number of transfers to 2, if/when we can potentially
-        // create multiple transfers.
-        tracing::info!(
-            deployment = ?indexing.deployment,
-            indexer = ?indexing.indexer,
-            fee = ?fee,
-            "Creating transfer to increase collateral",
-        );
-        let query = CreateTransfer::build_query(create_transfer::Variables {
-            gateway_id: self.gateway_id.to_string(),
-            deployment: indexing.deployment.ipfs_hash(),
-            indexer: indexing.indexer.to_string(),
-        });
-        let response = self
-            .client
-            .post(&self.network_subgraph_url)
-            .json(&query)
-            .send()
-            .await?
-            .json::<Response<create_transfer::ResponseData>>()
-            .await?;
-        if let Some(errors) = response.errors {
-            return Err(errors
-                .into_iter()
-                .map(|err| err.message)
-                .collect::<Vec<String>>()
-                .join(", ")
-                .into());
-        }
-        let transfer = match response.data {
-            Some(data) => data.create_transfer,
-            None => return Err("Empty transfer data".into()),
-        };
-        let transfer_id = transfer
-            .id
-            .parse::<Bytes32>()
-            .map_err(|_| "Malformed transfer ID")?;
-        let transfer_indexing = Indexing {
-            deployment: transfer
-                .deployment
-                .parse()
-                .map_err(|_| "Malformed transfer deployment ID")?,
-            indexer: transfer
-                .indexer
-                .id
-                .parse()
-                .map_err(|_| "Malformed transfer indexer ID")?,
-        };
-        let transfer_collateral = transfer
-            .collateral
-            .parse::<GRT>()
-            .map_err(|_| "Malformed transfer collateral")?;
-        let signer_key = transfer
-            .signer_key
-            .parse::<SecretKey>()
-            .map_err(|_| "Malformed signer key")?;
-        tracing::trace!(
-            id = ?transfer_id,
-            deployment = ?transfer_indexing.deployment,
-            indexer = ?transfer_indexing.indexer,
-            collateral = ?transfer_collateral,
-            "Successfully created transfer to increase collateral",
-        );
-        indexers
-            .add_transfer(
-                &transfer_indexing,
-                transfer_id,
-                &transfer_collateral,
-                signer_key,
-            )
-            .await;
-        Ok(())
-    }
 }
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "graphql/sync_agent_schema.gql",
-    query_path = "graphql/create_transfer.gql",
-    response_derives = "Debug"
-)]
-struct CreateTransfer;
 
 #[derive(Clone)]
 struct Metrics {

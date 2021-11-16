@@ -1,9 +1,5 @@
 use crate::{
-    indexer_selection::{
-        self,
-        test_utils::{default_cost_model, TEST_KEY},
-        IndexingStatus,
-    },
+    indexer_selection::{test_utils::default_cost_model, IndexingStatus},
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
 };
@@ -23,7 +19,6 @@ use tokio::{self, sync::Mutex};
 /// networks, subgraphs, deployments, and indexers in the Graph protocol. See also
 /// `Topology::check_result`.
 
-// TODO: test transfers
 // TODO: gen topology deltas to test state changes
 
 // This should be replaced by usize::log2 eventually
@@ -380,13 +375,6 @@ impl Topology {
                     latest: latest.number,
                 });
             }
-            indexing_writer
-                .add_transfer(
-                    bytes_from_id(1).into(),
-                    &1_000_000_000u64.try_into().unwrap(),
-                    TEST_KEY.parse().unwrap(),
-                )
-                .await;
         }
         self.inputs.current_deployments.write(Ptr::new(
             self.subgraphs()
@@ -584,15 +572,6 @@ impl Resolver for TopologyResolver {
                 s: Bytes32::default(),
             }),
         })
-    }
-
-    async fn create_transfer(
-        &self,
-        _indexers: &indexer_selection::Indexers,
-        _indexing: Indexing,
-        _fee: GRT,
-    ) -> Result<(), Box<dyn Error>> {
-        return Err("TODO: create_transfer".into());
     }
 }
 

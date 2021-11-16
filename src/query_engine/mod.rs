@@ -114,13 +114,6 @@ pub trait Resolver {
         -> Vec<BlockHead>;
 
     async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>>;
-
-    async fn create_transfer(
-        &self,
-        indexers: &Indexers,
-        indexing: Indexing,
-        fee: GRT,
-    ) -> Result<(), Box<dyn Error>>;
 }
 
 #[derive(Clone)]
@@ -299,30 +292,13 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 Ok(None)
                 | Err(SelectionError::MissingNetworkParams)
                 | Err(SelectionError::BadIndexer(_))
-                | Err(SelectionError::InsufficientCollateral(_, _)) => {
-                    return Err(NoIndexerSelected)
-                }
+                | Err(SelectionError::NoAllocation(_)) => return Err(NoIndexerSelected),
                 Err(SelectionError::BadInput) => return Err(MalformedQuery),
                 Err(SelectionError::MissingBlocks(unresolved)) => {
                     self.resolve_blocks(&query, unresolved).await?;
                     continue;
                 }
             };
-            if indexer_query.low_collateral_warning {
-                let resolver = self.resolver.clone();
-                let indexers = self.indexers.clone();
-                let indexing = indexer_query.indexing.clone();
-                let fee = indexer_query.fee.clone();
-                tokio::spawn(
-                    async move {
-                        let res = resolver.create_transfer(&indexers, indexing, fee);
-                        if let Err(transfer_err) = res.await {
-                            tracing::error!(%transfer_err);
-                        }
-                    }
-                    .in_current_span(),
-                );
-            }
 
             let indexer_id = indexer_query.indexing.indexer.to_string();
             tracing::info!(indexer = %indexer_id);

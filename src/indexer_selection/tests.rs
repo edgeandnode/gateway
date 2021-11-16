@@ -1,6 +1,6 @@
 use crate::{
     indexer_selection::{
-        test_utils::{default_cost_model, gen_blocks, TEST_KEY},
+        test_utils::{default_cost_model, gen_blocks},
         Indexers, Indexing, IndexingStatus, UtilityConfig,
     },
     prelude::{test_utils::*, *},
@@ -150,13 +150,6 @@ async fn battle_high_and_low() {
             block: latest.number - indexer.blocks_behind,
             latest: latest.number,
         });
-        indexing_writer
-            .add_transfer(
-                bytes_from_id(1).into(),
-                &1_000_000_000_000_000u64.try_into().unwrap(),
-                TEST_KEY.parse().unwrap(),
-            )
-            .await;
         let indexer_writer = input_writers.indexers.write(&indexing.indexer).await;
         indexer_writer.stake.write(indexer.stake);
         indexer_writer
