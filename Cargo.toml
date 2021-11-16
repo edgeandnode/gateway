@@ -29,8 +29,7 @@ postgres-openssl = "0.5"
 primitive-types = "0.8" 
 prometheus = "0.13" 
 rand = {version = "0.8", features = ["small_rng"]} 
-receipts-allocation = {package = "receipts", git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "ea0ffdd"} 
-receipts-transfer = {package = "receipts", git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "f4b756f"} 
+receipts = {git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "ea0ffdd"} 
 reqwest = {version = "0.11", features = ["json"]} 
 secp256k1 = "0.20" 
 serde = "1.0" 
@@ -46,7 +45,6 @@ tracing = "0.1"
 tracing-subscriber = {version = "0.2", features = ["parking_lot", "json"]} 
 tree-buf = "0.10" 
 url = "2.2" 
-uuid = {version = "0.8", features = ["v4"]} 
 
 [dev-dependencies]
 eventuals = {version = "0.6", features = ["trace"]}

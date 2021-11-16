@@ -83,24 +83,9 @@ impl IndexingData {
         let mut lock = self.locked.write().await;
         lock.receipts.remove_allocation(allocation_id);
     }
-
-    pub async fn add_transfer(&self, transfer_id: Bytes32, collateral: &GRT, secret: SecretKey) {
-        let mut lock = self.locked.write().await;
-        lock.receipts.add_transfer(transfer_id, collateral, secret);
-    }
-
-    pub async fn remove_transfer(&self, transfer_id: &Bytes32) {
-        let mut lock = self.locked.write().await;
-        lock.receipts.remove_transfer(transfer_id);
-    }
 }
 
 impl SelectionFactors {
-    pub async fn add_transfer(&self, transfer_id: Bytes32, collateral: &GRT, secret: SecretKey) {
-        let mut lock = self.locked.write().await;
-        lock.receipts.add_transfer(transfer_id, collateral, secret);
-    }
-
     pub async fn observe_successful_query(&self, duration: time::Duration, receipt: &[u8]) {
         let mut lock = self.locked.write().await;
         lock.performance.add_successful_query(duration);
@@ -135,7 +120,7 @@ impl SelectionFactors {
         lock.freshness.blocks_behind()
     }
 
-    pub async fn commit(&self, fee: &GRT) -> Result<ReceiptBorrow, BorrowFail> {
+    pub async fn commit(&self, fee: &GRT) -> Result<Receipt, BorrowFail> {
         let mut lock = self.locked.write().await;
         lock.receipts.commit(fee)
     }
@@ -162,9 +147,9 @@ impl SelectionFactors {
             .expected_utility(freshness_requirements, u_a, latest_block, blocks_behind)
     }
 
-    pub async fn has_collateral_for(&self, fee: &GRT) -> bool {
+    pub async fn has_allocation(&self) -> bool {
         let lock = self.locked.read().await;
-        lock.receipts.has_collateral_for(fee)
+        lock.receipts.has_allocation()
     }
 
     pub async fn get_price(

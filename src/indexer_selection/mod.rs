@@ -15,7 +15,7 @@ mod tests;
 
 pub use crate::indexer_selection::{
     indexers::{IndexerDataReader, IndexerDataWriter},
-    receipts::Receipts,
+    receipts::{QueryStatus, Receipt, Receipts},
     selection_factors::{IndexingData, IndexingStatus, SelectionFactors},
 };
 use crate::prelude::{
@@ -35,10 +35,8 @@ pub use ordered_float::NotNan;
 pub use price_efficiency::CostModelSource;
 use prometheus;
 use rand::{thread_rng, Rng as _};
-use receipts::*;
 pub use secp256k1::SecretKey;
 use selection_factors::*;
-use std::{fmt, ops::Deref};
 use tokio::{
     sync::{Mutex, RwLock},
     time,
@@ -55,35 +53,10 @@ pub struct IndexerQuery {
     pub url: String,
     pub query: String,
     pub receipt: Receipt,
-    pub low_collateral_warning: bool,
     pub fee: GRT,
     pub slashable_usd: USD,
     pub utility: NotNan<f64>,
     pub blocks_behind: Option<u64>,
-}
-
-#[derive(Clone)]
-pub struct Receipt {
-    pub commitment: Vec<u8>,
-}
-
-impl From<Vec<u8>> for Receipt {
-    fn from(commitment: Vec<u8>) -> Self {
-        Self { commitment }
-    }
-}
-
-impl Deref for Receipt {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Self::Target {
-        &self.commitment
-    }
-}
-
-impl fmt::Debug for Receipt {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "0x{}", hex::encode(&self.commitment))
-    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -92,7 +65,7 @@ pub enum SelectionError {
     MissingNetworkParams,
     MissingBlocks(Vec<UnresolvedBlock>),
     BadIndexer(BadIndexerReason),
-    InsufficientCollateral(Indexing, GRT),
+    NoAllocation(Indexing),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -228,22 +201,6 @@ impl Indexers {
 
     pub async fn latest_block(&self, network: &str) -> Result<BlockPointer, UnresolvedBlock> {
         self.network_cache.read().await.latest_block(network, 0)
-    }
-
-    pub async fn add_transfer(
-        &self,
-        indexing: &Indexing,
-        transfer_id: Bytes32,
-        collateral: &GRT,
-        secret: SecretKey,
-    ) {
-        let selection_factors = match self.indexings.get(indexing).await {
-            Some(selection_factors) => selection_factors,
-            None => return,
-        };
-        selection_factors
-            .add_transfer(transfer_id, collateral, secret)
-            .await;
     }
 
     pub async fn observe_successful_query(
@@ -460,7 +417,6 @@ impl Indexers {
             url: score.url,
             query: query.query,
             receipt: receipt.commitment.into(),
-            low_collateral_warning: receipt.low_collateral_warning,
             fee: score.fee,
             slashable_usd: score.slashable,
             utility: score.utility,
@@ -479,7 +435,7 @@ impl Indexers {
         indexers: &im::Vector<Address>,
         budget: USD,
         freshness_requirements: &BlockRequirements,
-    ) -> Result<Option<(Indexing, IndexerScore, ReceiptBorrow)>, SelectionError> {
+    ) -> Result<Option<(Indexing, IndexerScore, Receipt)>, SelectionError> {
         let _make_selection_timer = METRICS.make_selection_duration.start_timer();
         let mut scores = Vec::new();
         for indexer in indexers {
@@ -570,7 +526,7 @@ impl Indexers {
             .commit(&fee)
             .await
             .map(|receipt| Some((indexing.clone(), score, receipt)))
-            .map_err(|_| SelectionError::InsufficientCollateral(indexing.clone(), fee))
+            .map_err(|_| SelectionError::NoAllocation(indexing.clone()))
     }
 
     async fn score_indexer(
@@ -636,11 +592,8 @@ impl Indexers {
         aggregator.add(price_efficiency);
 
         let get_collateral_timer = METRICS.get_collateral_duration.start_timer();
-        if !selection_factors.has_collateral_for(&fee).await {
-            return Err(SelectionError::InsufficientCollateral(
-                indexing.clone(),
-                fee,
-            ));
+        if !selection_factors.has_allocation().await {
+            return Err(SelectionError::NoAllocation(indexing.clone()));
         }
         get_collateral_timer.observe_duration();
 
