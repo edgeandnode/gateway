@@ -768,26 +768,15 @@ fn handle_transfers(
                         .add_transfer(transfer.id, &transfer.collateral, transfer.signer_key)
                         .await;
                 }
-                drop(lock);
                 // Remove old transfers.
                 for transfer in used_transfers.iter() {
                     if transfers.iter().any(|t| t.id == transfer.id) {
                         continue;
                     }
-                    // HOY (Hack Of the Year): Remove the old transfer in 5 minutes, to give new
-                    // allocations and replacement transfer some time to propagate through the
-                    // system and into indexer selection.
-                    let indexings = indexings.clone();
-                    let transfer = transfer.clone();
-                    tokio::spawn(async move {
-                        sleep(Duration::from_secs(5 * 60)).await;
-                        let mut indexings = indexings.lock().await;
-                        indexings
-                            .write(&transfer.indexing)
-                            .await
-                            .remove_transfer(&transfer.id)
-                            .await;
-                    });
+                    lock.write(&transfer.indexing)
+                        .await
+                        .remove_transfer(&transfer.id)
+                        .await;
                 }
             }
             .instrument(tracing::info_span!("handle_transfers"))
@@ -819,26 +808,15 @@ fn handle_allocations(
                         .add_allocation(allocation.id, signer_key)
                         .await;
                 }
-                drop(lock);
                 // Remove old allocations.
                 for allocation in used_allocations.iter() {
                     if allocations.iter().any(|t| t.id == allocation.id) {
                         continue;
                     }
-                    // HOY (Hack Of the Year): Remove the old allocation in 5 minutes, to give new
-                    // allocations and replacement transfer some time to propagate through the
-                    // system and into indexer selection.
-                    let indexings = indexings.clone();
-                    let allocation = allocation.clone();
-                    tokio::spawn(async move {
-                        sleep(Duration::from_secs(5 * 60)).await;
-                        let mut indexings = indexings.lock().await;
-                        indexings
-                            .write(&allocation.indexing)
-                            .await
-                            .remove_allocation(&allocation.id)
-                            .await;
-                    });
+                    lock.write(&allocation.indexing)
+                        .await
+                        .remove_allocation(&allocation.id)
+                        .await;
                 }
             }
             .instrument(tracing::info_span!("handle_allocations"))
