@@ -154,9 +154,6 @@ impl SelectionFactors {
 
     pub async fn total_allocation(&self) -> GRT {
         let lock = self.locked.read().await;
-        if !lock.allocations.has_allocation() {
-            return GRT::zero();
-        }
         lock.allocations.total_allocation
     }
 
