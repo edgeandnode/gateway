@@ -691,10 +691,20 @@ fn handle_allocations(
                     if used_allocations.iter().any(|t| t.id == allocation.id) {
                         continue;
                     }
-                    lock.write(&allocation.indexing)
-                        .await
+                    let writer = lock.write(&allocation.indexing).await;
+                    writer
                         .add_allocation(allocation.id, signer_key, allocation.size)
                         .await;
+                    let total_allocation = writer.total_allocation().await;
+                    drop(writer);
+                    with_metric(
+                        &METRICS.total_allocation,
+                        &[
+                            &allocation.indexing.deployment.to_string(),
+                            &allocation.indexing.indexer.to_string(),
+                        ],
+                        |g| g.set(total_allocation.as_f64()),
+                    );
                 }
                 // Remove old allocations.
                 for allocation in used_allocations.iter() {
@@ -705,11 +715,19 @@ fn handle_allocations(
                     writer
                         .remove_allocation(&allocation.id, allocation.size)
                         .await;
-                    let has_allocation = writer.has_allocation().await;
+                    let total_allocation = writer.total_allocation().await;
                     drop(writer);
-                    if !has_allocation {
+                    if total_allocation == GRT::zero() {
                         lock.remove(&allocation.indexing).await;
                     }
+                    with_metric(
+                        &METRICS.total_allocation,
+                        &[
+                            &allocation.indexing.deployment.to_string(),
+                            &allocation.indexing.indexer.to_string(),
+                        ],
+                        |g| g.set(total_allocation.as_f64()),
+                    );
                 }
             }
             .instrument(tracing::info_span!("handle_allocations"))
@@ -720,6 +738,7 @@ fn handle_allocations(
 #[derive(Clone)]
 pub struct Metrics {
     pub allocations: prometheus::IntGauge,
+    pub total_allocation: prometheus::GaugeVec,
     pub queries_ok: prometheus::IntCounterVec,
     pub queries_failed: prometheus::IntCounterVec,
 }
@@ -727,6 +746,12 @@ pub struct Metrics {
 lazy_static! {
     static ref METRICS: Metrics = Metrics {
         allocations: prometheus::register_int_gauge!("allocations", "Total allocations").unwrap(),
+        total_allocation: prometheus::register_gauge_vec!(
+            "total_allocation",
+            "Total total_allocation",
+            &["deployment", "indexer"],
+        )
+        .unwrap(),
         queries_ok: prometheus::register_int_counter_vec!(
             "gateway_network_subgraph_client_successful_queries",
             "Successful network subgraph queries",

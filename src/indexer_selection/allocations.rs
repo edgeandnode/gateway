@@ -37,10 +37,6 @@ impl fmt::Debug for Receipt {
 }
 
 impl Allocations {
-    pub fn has_allocation(&self) -> bool {
-        self.receipts.has_collateral_for()
-    }
-
     pub fn release(&mut self, receipt: &[u8], status: QueryStatus) {
         if receipt.len() != 164 {
             panic!("Unrecognized receipt format");

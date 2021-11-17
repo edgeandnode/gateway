@@ -84,9 +84,9 @@ impl IndexingData {
         lock.allocations.remove_allocation(allocation_id, size);
     }
 
-    pub async fn has_allocation(&self) -> bool {
+    pub async fn total_allocation(&self) -> GRT {
         let lock = self.locked.read().await;
-        lock.allocations.has_allocation()
+        lock.allocations.total_allocation
     }
 }
 
