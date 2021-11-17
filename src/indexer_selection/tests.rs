@@ -224,10 +224,24 @@ async fn battle_high_and_low() {
 
     let query_time = Instant::now() - query_time;
     println!("Thoughput: {} /s", COUNT as f64 / query_time.as_secs_f64());
+    let columns = vec![
+        "ID",
+        "Stake",
+        "Allocation",
+        "Blocks Behind",
+        "Price",
+        "Latency",
+        "Reliability",
+        "Daily Fees",
+        "Queries Served",
+    ];
+    println!("| {} |", columns.join(" | "));
     println!(
-    "| ID | Stake | Blocks Behind | Price | Latency | Reliability | Daily Fees | Queries Served |"
-  );
-    println!("| --- | --- | --- | --- | --- | --- | --- | --- |");
+        "| {}",
+        std::iter::repeat("--- |")
+            .take(columns.len())
+            .collect::<String>()
+    );
 
     let mut total_fees = GRT::zero();
     for (name, indexer_id) in indexer_ids.iter().enumerate() {
@@ -235,10 +249,10 @@ async fn battle_high_and_low() {
         let results = results.get(indexer_id).cloned().unwrap_or_default();
 
         println!(
-            "| {} | {} GRT | {} | {} USD | {} ms | {}% | {} USD | {:.1}% |",
+            "| {} | {} GRT | {} GRT | {} | {} USD | {} ms | {}% | {} USD | {:.1}% |",
             name,
             data.stake,
-            // data.delegated_stake,
+            data.allocation,
             data.blocks_behind,
             data.price,
             data.latency_ms,
