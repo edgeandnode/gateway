@@ -325,7 +325,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 indexer_url = %indexer_query.url,
                 fee = %indexer_query.fee,
                 blocks_behind = ?indexer_query.blocks_behind,
-                indexer_query_duration_ms = %query_duration.as_millis(),
+                indexer_query_duration_ms = query_duration.as_millis() as u32,
                 %indexer_response_status,
                 indexer_query = %indexer_query.query,
                 "indexer query result",
