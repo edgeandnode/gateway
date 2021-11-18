@@ -362,18 +362,29 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 |counter| counter.inc(),
             );
 
-            let indexer_behind_err =
-                "Failed to decode `block.hash` value: `no block with that hash found`";
-            if serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
-                .map_err(|_| QueryEngineError::NoIndexerSelected)?
-                .errors
-                .as_ref()
-                .map(|errs| errs.iter().any(|err| err.message == indexer_behind_err))
-                .unwrap_or(false)
+            // Special-casing for a few known indexer errors; the block scope here
+            // is just to separate the code neatly from the rest
             {
-                tracing::info!("indexing behind");
-                self.indexers.observe_indexing_behind(&indexer_query).await;
-                continue;
+                let parsed_response =
+                    serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
+                        .map_err(|_| QueryEngineError::NoIndexerSelected)?;
+
+                if indexer_response_has_error(
+                    &parsed_response,
+                    "Failed to decode `block.hash` value: `no block with that hash found`",
+                ) {
+                    tracing::info!("indexing behind");
+                    self.indexers.observe_indexing_behind(&indexer_query).await;
+                    continue;
+                }
+
+                if indexer_response_has_error(&parsed_response, "panic processing query: panic") {
+                    tracing::info!("panic processing query");
+                    self.indexers
+                        .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                        .await;
+                    continue;
+                }
             }
 
             // TODO: fisherman
@@ -586,4 +597,14 @@ impl Metrics {
             .unwrap(),
         }
     }
+}
+
+/// Returns true if the GraphQL response includes at least one error with the
+/// given message.
+fn indexer_response_has_error(response: &Response<Box<RawValue>>, msg: &'static str) -> bool {
+    response
+        .errors
+        .as_ref()
+        .map(|errs| errs.iter().any(|err| err.message == msg))
+        .unwrap_or(false)
 }
