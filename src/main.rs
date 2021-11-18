@@ -295,7 +295,9 @@ async fn handle_collect_receipts(data: web::Data<SecretKey>, payload: web::Bytes
             HttpResponseBuilder::new(StatusCode::OK).json(json!({
                 "allocation": format!("0x{}", hex::encode(voucher.allocation_id)),
                 "amount": voucher.fees.to_string(),
-                "signature": format!("0x{}", hex::encode(voucher.signature)),
+                // For now, this must not include a `0x` prefix because the indexer-agent will
+                // unconditionally create the prefix when submitting the voucher on chain.
+                "signature": hex::encode(voucher.signature),
             }))
         }
         Err(voucher_err) => {
