@@ -1,7 +1,7 @@
 use crate::{
     indexer_selection::{
         test_utils::{default_cost_model, gen_blocks, TEST_KEY},
-        Indexers, Indexing, IndexingStatus, UtilityConfig,
+        Context, Indexers, Indexing, IndexingStatus, UtilityConfig,
     },
     prelude::{test_utils::*, *},
 };
@@ -171,17 +171,20 @@ async fn battle_high_and_low() {
     const COUNT: usize = 86400;
     const QPS: u64 = 2000;
     for i in 0..COUNT {
-        let query = "{ a }".to_string();
-        let variables = "".to_string();
         let budget: GRT = "0.00005".parse().unwrap();
+        let mut context = Context::new("{ a }", "").unwrap();
+        let freshness_requirements = indexers
+            .freshness_requirements(&mut context, network)
+            .await
+            .unwrap();
         let result = indexers
             .select_indexer(
                 &config,
                 network,
                 &deployment,
                 &indexer_ids,
-                query,
-                Some(variables),
+                &mut context,
+                &freshness_requirements,
                 budget,
             )
             .await

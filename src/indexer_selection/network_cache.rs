@@ -79,7 +79,7 @@ impl NetworkCache {
     pub fn make_query_deterministic(
         &self,
         network: &str,
-        mut context: Context,
+        context: &mut Context,
         blocks_behind: u64,
     ) -> Result<DeterministicQuery, SelectionError> {
         let mut latest = None;
@@ -226,8 +226,20 @@ impl NetworkCache {
         }
 
         let mut definitions = Vec::new();
-        definitions.extend(context.fragments.into_iter().map(q::Definition::Fragment));
-        definitions.extend(context.operations.into_iter().map(q::Definition::Operation));
+        definitions.extend(
+            context
+                .fragments
+                .iter()
+                .cloned()
+                .map(q::Definition::Fragment),
+        );
+        definitions.extend(
+            context
+                .operations
+                .iter()
+                .cloned()
+                .map(q::Definition::Operation),
+        );
 
         let query = q::Document { definitions };
 
@@ -235,7 +247,7 @@ impl NetworkCache {
 
         let query = SerializableQuery {
             query: query.to_string(),
-            variables: context.variables,
+            variables: context.variables.clone(),
         };
 
         // The query only maintains being behind if the latest block has
@@ -609,8 +621,8 @@ mod tests {
     #[test]
     fn block_number_gte_determinism() {
         let cache = cache_with("mainnet", &gen_blocks(&[0, 1, 2, 3, 4, 5, 6, 7]));
-        let context = Context::new("query { a(block: { number_gte: 4 }) }", "").unwrap();
-        let result = cache.make_query_deterministic("mainnet", context, 2);
+        let mut context = Context::new("query { a(block: { number_gte: 4 }) }", "").unwrap();
+        let result = cache.make_query_deterministic("mainnet", &mut context, 2);
         assert_eq!(
             result,
             Ok(DeterministicQuery {

@@ -16,6 +16,7 @@ mod tests;
 pub use crate::indexer_selection::{
     allocations::{Allocations, QueryStatus, Receipt},
     indexers::{IndexerDataReader, IndexerDataWriter},
+    network_cache::BlockRequirements,
     selection_factors::{IndexingData, IndexingStatus, SelectionFactors},
 };
 use crate::prelude::{
@@ -285,6 +286,15 @@ impl Indexers {
         }
     }
 
+    pub async fn freshness_requirements(
+        &self,
+        context: &mut Context<'_>,
+        network: &str,
+    ) -> Result<BlockRequirements, SelectionError> {
+        let network_cache = self.network_cache.read().await;
+        network_cache.freshness_requirements(&mut context.operations, network)
+    }
+
     // TODO: Specify budget in terms of a cost model -
     // the budget should be different per query
     pub async fn select_indexer(
@@ -293,30 +303,21 @@ impl Indexers {
         network: &str,
         subgraph: &SubgraphDeploymentID,
         indexers: &im::Vector<Address>,
-        query: String,
-        variables: Option<String>,
+        context: &mut Context<'_>,
+        freshness_requirements: &BlockRequirements,
         budget: USD,
     ) -> Result<Option<IndexerQuery>, SelectionError> {
         let budget: GRT = self
             .network_params
             .usd_to_grt(budget)
             .ok_or(SelectionError::MissingNetworkParams)?;
-        // Performance: Use a shared context to avoid duplicating query parsing,
-        // which is one of the most expensive operations.
-        let mut context = Context::new(&query, variables.as_deref().unwrap_or_default())
-            .map_err(|_| SelectionError::BadInput)?;
-        let freshness_requirements = self
-            .network_cache
-            .read()
-            .await
-            .freshness_requirements(&mut context.operations, network)?;
 
         let (indexing, score, receipt) = match self
             .make_selection(
                 config,
                 network,
                 subgraph,
-                &mut context,
+                context,
                 &indexers,
                 budget,
                 &freshness_requirements,
