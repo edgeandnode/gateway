@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests;
 
-use crate::indexer_selection::{self, IndexerQuery, Indexers, SelectionError, UnresolvedBlock};
+use crate::indexer_selection::{
+    self, BlockRequirements, Context, IndexerQuery, Indexers, SelectionError, UnresolvedBlock,
+};
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
     prelude::*,
@@ -263,6 +265,12 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             &[&deployment_ipfs],
             |hist| hist.start_timer(),
         );
+
+        let mut context =
+            Context::new(&query.query, query.variables.as_deref().unwrap_or_default())
+                .map_err(|_| QueryEngineError::MalformedQuery)?;
+        let freshness_requirements = self.freshness_requirements(&mut context, &query).await?;
+
         for _ in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
                 &METRICS.indexer_selection_duration,
@@ -276,8 +284,8 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                     &query.network,
                     &deployment,
                     &indexers,
-                    query.query.clone(),
-                    query.variables.clone(),
+                    &mut context,
+                    &freshness_requirements,
                     self.config.query_budget,
                 )
                 .await;
@@ -402,6 +410,28 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             });
         }
         Err(NoIndexerSelected)
+    }
+
+    async fn freshness_requirements(
+        &self,
+        context: &mut Context<'_>,
+        query: &ClientQuery,
+    ) -> Result<BlockRequirements, QueryEngineError> {
+        for _ in 0..2 {
+            match self
+                .indexers
+                .freshness_requirements(context, &query.network)
+                .await
+            {
+                Ok(freshness_requirements) => return Ok(freshness_requirements),
+                Err(SelectionError::BadInput) => return Err(QueryEngineError::MalformedQuery),
+                Err(SelectionError::MissingBlocks(unresolved)) => {
+                    self.resolve_blocks(&query, unresolved).await?;
+                }
+                Err(_) => return Err(QueryEngineError::NoIndexerSelected),
+            };
+        }
+        Err(QueryEngineError::NoIndexerSelected)
     }
 
     async fn resolve_blocks(
