@@ -26,7 +26,6 @@ use crate::prelude::{
 };
 use cost_model;
 use economic_security::*;
-use graphql_parser::query as graphql_query;
 use im;
 use lazy_static::lazy_static;
 use network_cache::*;
@@ -227,7 +226,7 @@ impl Indexers {
             .await;
     }
 
-    pub async fn observe_indexing_behind(&self, query: &IndexerQuery) {
+    pub async fn observe_indexing_behind(&self, context: &mut Context<'_>, query: &IndexerQuery) {
         // Get this early to be closer to the time when the query was made so
         // that race conditions occur less frequently. They will still occur,
         // but less is better.
@@ -238,22 +237,11 @@ impl Indexers {
             .latest_block(&query.network, 0)
             .map(|block| block.number)
             .unwrap_or(0);
-        let q = serde_json::from_str::<network_cache::SerializableQuery>(&query.query)
-            .expect("observe_indexing_behind should only take sanitized queries");
-        let mut operations = graphql_query::parse_query::<&str>(&q.query)
-            .expect("observe_indexing_behind should only take sanitized queries")
-            .definitions
-            .into_iter()
-            .filter_map(|d| match d {
-                graphql_query::Definition::Operation(o) => Some(o),
-                _ => None,
-            })
-            .collect::<Vec<graphql_query::OperationDefinition<&str>>>();
         let freshness_requirements = self
             .network_cache
             .read()
             .await
-            .freshness_requirements(&mut operations, &query.network);
+            .freshness_requirements(&mut context.operations, &query.network);
         let selection_factors = match self.indexings.get(&query.indexing).await {
             Some(selection_factors) => selection_factors,
             None => return,

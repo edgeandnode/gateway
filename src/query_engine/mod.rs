@@ -382,7 +382,9 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                     "Failed to decode `block.hash` value: `no block with that hash found`",
                 ) {
                     tracing::info!("indexing behind");
-                    self.indexers.observe_indexing_behind(&indexer_query).await;
+                    self.indexers
+                        .observe_indexing_behind(&mut context, &indexer_query)
+                        .await;
                     continue;
                 }
 
