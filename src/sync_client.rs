@@ -1,4 +1,5 @@
 use crate::{
+    block_resolver::BlockResolver,
     indexer_selection::{
         self, CostModelSource, IndexerDataReader, IndexerDataWriter, Indexing, IndexingData,
         IndexingStatus, SecretKey, SelectionFactors,
@@ -26,6 +27,7 @@ pub fn create(
     poll_interval: Duration,
     signer_key: SecretKey,
     inputs: InputWriters,
+    block_resolvers: Arc<HashMap<String, BlockResolver>>,
     api_keys: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
 ) -> &'static Metrics {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
@@ -39,7 +41,7 @@ pub fn create(
             },
         current_deployments,
         deployment_indexers,
-        indexers: indexer_selection,
+        ..
     } = inputs;
     let indexings = Arc::new(Mutex::new(indexings));
 
@@ -98,7 +100,7 @@ pub fn create(
         ),
     );
     handle_indexing_statuses(
-        indexer_selection.clone(),
+        block_resolvers,
         indexings.clone(),
         create_sync_client_input::<IndexingStatuses, _>(
             agent_url.clone(),
@@ -634,13 +636,13 @@ fn handle_indexers(
 }
 
 fn handle_indexing_statuses(
-    indexer_selection: Arc<indexer_selection::Indexers>,
+    block_resolvers: Arc<HashMap<String, BlockResolver>>,
     indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
     indexing_statuses: Eventual<Ptr<Vec<ParsedIndexingStatus>>>,
 ) {
     indexing_statuses
         .pipe_async(move |indexing_statuses| {
-            let indexer_selection = indexer_selection.clone();
+            let block_resolvers = block_resolvers.clone();
             let indexings = indexings.clone();
             async move {
                 tracing::info!(indexing_statuses = %indexing_statuses.len());
@@ -650,10 +652,9 @@ fn handle_indexing_statuses(
                     let latest = match latest_blocks.entry(status.network.clone()) {
                         Entry::Occupied(entry) => *entry.get(),
                         Entry::Vacant(entry) => *entry.insert(
-                            indexer_selection
-                                .latest_block(&status.network)
-                                .await
-                                .map(|block| block.number)
+                            block_resolvers
+                                .get(&status.network)
+                                .and_then(|resolver| resolver.latest_block().map(|b| b.number))
                                 .unwrap_or(0),
                         ),
                     };

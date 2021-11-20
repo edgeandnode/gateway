@@ -1,3 +1,4 @@
+mod block_resolver;
 mod ethereum_client;
 mod indexer_selection;
 mod opt;
@@ -8,7 +9,14 @@ mod stats_db;
 mod sync_client;
 mod ws_client;
 
-use crate::{indexer_selection::SecretKey, opt::*, prelude::*, query_engine::*, rate_limiter::*};
+use crate::{
+    block_resolver::{BlockCache, BlockResolver},
+    indexer_selection::SecretKey,
+    opt::*,
+    prelude::*,
+    query_engine::*,
+    rate_limiter::*,
+};
 use actix_cors::Cors;
 use actix_web::{
     dev::ServiceRequest,
@@ -18,7 +26,7 @@ use actix_web::{
 use async_trait::async_trait;
 use eventuals::EventualExt;
 use hex;
-use indexer_selection::{IndexerQuery, UnresolvedBlock, UtilityConfig};
+use indexer_selection::{IndexerQuery, UtilityConfig};
 use lazy_static::lazy_static;
 use prometheus::{self, Encoder as _};
 use reqwest;
@@ -77,19 +85,19 @@ async fn main() {
             return;
         }
     };
-    let (block_resolvers, block_metrics): (
-        HashMap<String, mpsc::Sender<ethereum_client::Msg>>,
-        Vec<ethereum_client::Metrics>,
-    ) = opt
+    let block_resolvers = opt
         .ethereum_providers
         .0
         .into_iter()
         .map(|provider| {
             let network = provider.network.clone();
-            let (send, metrics) = ethereum_client::create(provider, input_writers.indexers.clone());
-            ((network, send), metrics)
+            let (block_cache_writer, block_cache) = BlockCache::new();
+            let chain_client = ethereum_client::create(provider, block_cache_writer);
+            let resolver = BlockResolver::new(network.clone(), block_cache, chain_client);
+            (network, resolver)
         })
-        .unzip();
+        .collect::<HashMap<String, BlockResolver>>();
+    let block_resolvers = Arc::new(block_resolvers);
     let signer_key = opt.signer_key.0;
     let (api_keys_writer, api_keys) = Eventual::new();
     // TODO: argument for timeout
@@ -99,6 +107,7 @@ async fn main() {
         Duration::from_secs(30),
         signer_key.clone(),
         input_writers,
+        block_resolvers.clone(),
         api_keys_writer,
     );
     let http_client = reqwest::Client::builder()
@@ -114,10 +123,10 @@ async fn main() {
             query_budget: opt.query_budget,
         },
         resolver: NetworkResolver {
-            block_resolvers: Arc::new(block_resolvers),
             client: http_client.clone(),
             network_subgraph_url: opt.network_subgraph.clone(),
         },
+        block_resolvers: block_resolvers.clone(),
         inputs: inputs.clone(),
         api_keys,
         query_id: &QUERY_ID,
@@ -183,7 +192,7 @@ async fn main() {
             .service(
                 web::resource("/ready")
                     .app_data(web::Data::new((
-                        block_metrics.clone(),
+                        block_resolvers.clone(),
                         sync_metrics.clone(),
                     )))
                     .route(web::get().to(handle_ready)),
@@ -242,10 +251,13 @@ async fn handle_metrics() -> HttpResponse {
 
 #[tracing::instrument(skip(data))]
 async fn handle_ready(
-    data: web::Data<(Vec<ethereum_client::Metrics>, sync_client::Metrics)>,
+    data: web::Data<(Arc<HashMap<String, BlockResolver>>, sync_client::Metrics)>,
 ) -> HttpResponse {
-    let ready =
-        data.0.iter().all(|metrics| metrics.head_block.get() > 0) && (data.1.allocations.get() > 0);
+    let ready = data
+        .0
+        .iter()
+        .all(|(_, resolver)| resolver.latest_block().is_some())
+        && (data.1.allocations.get() > 0);
     if ready {
         HttpResponseBuilder::new(StatusCode::OK).body("Ready")
     } else {
@@ -339,6 +351,7 @@ struct QueryBody {
 struct SubgraphQueryData {
     config: Config,
     resolver: NetworkResolver,
+    block_resolvers: Arc<HashMap<String, BlockResolver>>,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     query_id: &'static AtomicUsize,
@@ -381,6 +394,7 @@ async fn handle_subgraph_query_inner(
     let query_engine = QueryEngine::new(
         data.config.clone(),
         data.resolver.clone(),
+        data.block_resolvers.clone(),
         data.inputs.clone(),
     );
     let url_params = request.match_info();
@@ -448,7 +462,7 @@ async fn handle_subgraph_query_inner(
                     QueryEngineError::APIKeySubgraphNotAuthorized => {
                         "Subgraph not authorized by API key"
                     }
-                    QueryEngineError::MissingBlocks(_) => {
+                    QueryEngineError::MissingBlock(_) => {
                         "Gateway failed to resolve required blocks"
                     }
                 },
@@ -481,9 +495,10 @@ pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> Ht
         .body(json!({"errors": {"message": message.to_string()}}).to_string())
 }
 
+// TODO: pass block resolver to indexer selection, network resolver -> indexer client
+
 #[derive(Clone)]
 struct NetworkResolver {
-    block_resolvers: Arc<HashMap<String, mpsc::Sender<ethereum_client::Msg>>>,
     client: reqwest::Client,
     network_subgraph_url: String,
 }
@@ -495,43 +510,9 @@ pub struct IndexerResponsePayload {
     pub attestation: Option<Attestation>,
 }
 
+// TODO: rename to indexer client, make an actor
 #[async_trait]
 impl Resolver for NetworkResolver {
-    #[tracing::instrument(skip(self, network, unresolved))]
-    async fn resolve_blocks(
-        &self,
-        network: &str,
-        unresolved: &[UnresolvedBlock],
-    ) -> Vec<BlockHead> {
-        use ethereum_client::Msg;
-        let mut resolved_blocks = Vec::new();
-        let resolver = match self.block_resolvers.get(network) {
-            Some(resolver) => resolver,
-            None => {
-                tracing::error!(missing_network = network);
-                return resolved_blocks;
-            }
-        };
-        for unresolved_block in unresolved {
-            let (sender, receiver) = oneshot::channel();
-            if let Err(_) = resolver
-                .send(Msg::Request(unresolved_block.clone(), sender))
-                .await
-            {
-                tracing::error!("block resolver connection closed");
-                return resolved_blocks;
-            }
-            match receiver.await {
-                Ok(resolved) => resolved_blocks.push(resolved),
-                Err(_) => {
-                    tracing::error!("block resolver connection closed");
-                    return resolved_blocks;
-                }
-            };
-        }
-        resolved_blocks
-    }
-
     #[tracing::instrument(skip(self, query))]
     async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>> {
         let receipt = hex::encode(&query.receipt.commitment);

@@ -19,10 +19,13 @@ pub use crate::indexer_selection::{
     network_cache::BlockRequirements,
     selection_factors::{IndexingData, IndexingStatus, SelectionFactors},
 };
-use crate::prelude::{
-    shared_lookup::{SharedLookup, SharedLookupWriter},
-    weighted_sample::WeightedSample,
-    *,
+use crate::{
+    block_resolver::BlockResolver,
+    prelude::{
+        shared_lookup::{SharedLookup, SharedLookupWriter},
+        weighted_sample::WeightedSample,
+        *,
+    },
 };
 use cost_model;
 use economic_security::*;
@@ -35,10 +38,7 @@ pub use price_efficiency::CostModelSource;
 use prometheus;
 use rand::{thread_rng, Rng as _};
 pub use secp256k1::SecretKey;
-use tokio::{
-    sync::{Mutex, RwLock},
-    time,
-};
+use tokio::{sync::Mutex, time};
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
@@ -60,9 +60,15 @@ pub struct IndexerQuery {
 pub enum SelectionError {
     BadInput,
     MissingNetworkParams,
-    MissingBlocks(Vec<UnresolvedBlock>),
+    MissingBlock(UnresolvedBlock),
     BadIndexer(BadIndexerReason),
     NoAllocation(Indexing),
+}
+
+impl From<UnresolvedBlock> for SelectionError {
+    fn from(unresolved: UnresolvedBlock) -> Self {
+        Self::MissingBlock(unresolved)
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -84,8 +90,17 @@ impl From<BadIndexerReason> for SelectionError {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum UnresolvedBlock {
-    WithNumber(u64),
     WithHash(Bytes32),
+    WithNumber(u64),
+}
+
+impl UnresolvedBlock {
+    pub fn matches(&self, block: &BlockPointer) -> bool {
+        match self {
+            Self::WithHash(hash) => &block.hash == hash,
+            Self::WithNumber(number) => &block.number == number,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -128,7 +143,6 @@ pub struct InputWriters {
 
 pub struct Indexers {
     network_params: NetworkParameters,
-    network_cache: RwLock<NetworkCache>,
     indexers: SharedLookup<Address, IndexerDataReader>,
     indexings: SharedLookup<Indexing, SelectionFactors>,
     last_decay: Mutex<Option<time::Instant>>,
@@ -162,33 +176,10 @@ impl Indexers {
                 slashing_percentage: inputs.slashing_percentage,
                 usd_to_grt_conversion: inputs.usd_to_grt_conversion,
             },
-            network_cache: RwLock::default(),
             indexers: inputs.indexers,
             indexings: inputs.indexings,
             last_decay: Mutex::default(),
         }
-    }
-
-    pub async fn set_block(&self, network: &str, block: BlockPointer) {
-        self.network_cache.write().await.set_block(network, block);
-    }
-
-    pub async fn remove_block(&self, network: &str, block_hash: &Bytes32) {
-        self.network_cache
-            .write()
-            .await
-            .remove_block(network, block_hash);
-    }
-
-    pub async fn set_block_head(&self, network: &str, head: BlockHead) {
-        self.set_block(&network, head.block).await;
-        for uncle in head.uncles {
-            self.remove_block(&network, &uncle).await;
-        }
-    }
-
-    pub async fn latest_block(&self, network: &str) -> Result<BlockPointer, UnresolvedBlock> {
-        self.network_cache.read().await.latest_block(network, 0)
     }
 
     pub async fn observe_successful_query(
@@ -226,22 +217,18 @@ impl Indexers {
             .await;
     }
 
-    pub async fn observe_indexing_behind(&self, context: &mut Context<'_>, query: &IndexerQuery) {
+    pub async fn observe_indexing_behind(
+        &self,
+        context: &mut Context<'_>,
+        query: &IndexerQuery,
+        block_resolver: &BlockResolver,
+    ) {
         // Get this early to be closer to the time when the query was made so
         // that race conditions occur less frequently. They will still occur,
         // but less is better.
-        let latest = self
-            .network_cache
-            .write()
-            .await
-            .latest_block(&query.network, 0)
-            .map(|block| block.number)
-            .unwrap_or(0);
-        let freshness_requirements = self
-            .network_cache
-            .read()
-            .await
-            .freshness_requirements(&mut context.operations, &query.network);
+        let latest = block_resolver.latest_block().map(|b| b.number).unwrap_or(0);
+        let freshness_requirements =
+            NetworkCache::freshness_requirements(&mut context.operations, block_resolver).await;
         let selection_factors = match self.indexings.get(&query.indexing).await {
             Some(selection_factors) => selection_factors,
             None => return,
@@ -275,12 +262,10 @@ impl Indexers {
     }
 
     pub async fn freshness_requirements(
-        &self,
         context: &mut Context<'_>,
-        network: &str,
+        block_resolver: &BlockResolver,
     ) -> Result<BlockRequirements, SelectionError> {
-        let network_cache = self.network_cache.read().await;
-        network_cache.freshness_requirements(&mut context.operations, network)
+        NetworkCache::freshness_requirements(&mut context.operations, block_resolver).await
     }
 
     // TODO: Specify budget in terms of a cost model -
@@ -292,6 +277,7 @@ impl Indexers {
         subgraph: &SubgraphDeploymentID,
         indexers: &im::Vector<Address>,
         context: &mut Context<'_>,
+        block_resolver: &BlockResolver,
         freshness_requirements: &BlockRequirements,
         budget: USD,
     ) -> Result<Option<IndexerQuery>, SelectionError> {
@@ -303,9 +289,9 @@ impl Indexers {
         let (indexing, score, receipt) = match self
             .make_selection(
                 config,
-                network,
                 subgraph,
                 context,
+                block_resolver,
                 &indexers,
                 budget,
                 &freshness_requirements,
@@ -319,11 +305,21 @@ impl Indexers {
 
         let make_query_deterministic_timer =
             METRICS.make_query_deterministic_duration.start_timer();
-        let query = self.network_cache.read().await.make_query_deterministic(
-            network,
+        let head = block_resolver
+            .latest_block()
+            .ok_or(SelectionError::MissingBlock(UnresolvedBlock::WithNumber(0)))?;
+        let latest_block = block_resolver
+            .resolve_block(UnresolvedBlock::WithNumber(
+                head.number.saturating_sub(score.blocks_behind),
+            ))
+            .await?;
+        let query = NetworkCache::make_query_deterministic(
             context,
+            block_resolver,
+            &latest_block,
             score.blocks_behind,
-        )?;
+        )
+        .await?;
         make_query_deterministic_timer.observe_duration();
 
         Ok(Some(IndexerQuery {
@@ -344,9 +340,9 @@ impl Indexers {
     async fn make_selection(
         &self,
         config: &UtilityConfig,
-        network: &str,
         deployment: &SubgraphDeploymentID,
         context: &mut Context<'_>,
+        block_resolver: &BlockResolver,
         indexers: &im::Vector<Address>,
         budget: USD,
         freshness_requirements: &BlockRequirements,
@@ -360,9 +356,9 @@ impl Indexers {
             };
             let result = self
                 .score_indexer(
-                    network,
                     &indexing,
                     context,
+                    block_resolver,
                     budget,
                     config,
                     freshness_requirements,
@@ -389,7 +385,7 @@ impl Indexers {
                 Err(err) => match &err {
                     &SelectionError::BadInput
                     | &SelectionError::MissingNetworkParams
-                    | &SelectionError::MissingBlocks(_) => return Err(err),
+                    | &SelectionError::MissingBlock(_) => return Err(err),
                     _ => continue,
                 },
                 _ => continue,
@@ -446,9 +442,9 @@ impl Indexers {
 
     async fn score_indexer(
         &self,
-        network: &str,
         indexing: &Indexing,
         context: &mut Context<'_>,
+        block_resolver: &BlockResolver,
         budget: GRT,
         config: &UtilityConfig,
         freshness_requirements: &BlockRequirements,
@@ -483,13 +479,10 @@ impl Indexers {
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
 
         let get_blocks_behind_timer = METRICS.get_blocks_behind_duration.start_timer();
+        let latest_block = block_resolver
+            .latest_block()
+            .ok_or(SelectionError::MissingBlock(UnresolvedBlock::WithNumber(0)))?;
         let blocks_behind = selection_factors.blocks_behind().await?;
-        let latest_block = self
-            .network_cache
-            .read()
-            .await
-            .latest_block(network, blocks_behind)
-            .map_err(|unresolved| SelectionError::MissingBlocks(vec![unresolved]))?;
         get_blocks_behind_timer.observe_duration();
 
         let (fee, price_efficiency) = selection_factors
