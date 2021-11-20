@@ -135,6 +135,15 @@ impl Topology {
         topology
     }
 
+    fn resolvers(&self) -> Arc<HashMap<String, BlockResolver>> {
+        let resolvers = self
+            .networks
+            .iter()
+            .map(|(name, network)| (name.clone(), BlockResolver::test(&network.blocks)))
+            .collect();
+        Arc::new(resolvers)
+    }
+
     fn gen_query(&mut self) -> ClientQuery {
         fn choose_name<'s, I: IntoIterator<Item = &'s String>>(
             rng: &mut SmallRng,
@@ -345,14 +354,6 @@ impl Topology {
         indexer_inputs
             .usd_to_grt_conversion
             .write("1.0".parse().unwrap());
-        for (_, network) in self.networks.iter() {
-            if let Some(latest) = network.blocks.last() {
-                self.inputs
-                    .indexers
-                    .set_block(&network.name, latest.clone())
-                    .await;
-            }
-        }
         let stake_table = [0.0, 50e3, 100e3, 150e3];
         for indexer in self.indexers.values() {
             let indexer_writer = indexer_inputs.indexers.write(&indexer.id).await;
@@ -377,7 +378,7 @@ impl Topology {
                 )
                 .await;
             indexing_writer.cost_model.write(default_cost_model(fee));
-            if let Ok(latest) = self.inputs.indexers.latest_block(&network.name).await {
+            if let Some(latest) = network.blocks.last() {
                 indexing_writer.status.write(IndexingStatus {
                     block: indexer.block(network.blocks.len()) as u64,
                     latest: latest.number,
@@ -439,8 +440,8 @@ impl Topology {
                 return Err(trace);
             }
         };
-        // Return MissingBlocks if the network has no blocks.
-        if let Err(QueryEngineError::MissingBlocks(_)) = result {
+        // Return MissingBlock if the network has no blocks.
+        if let Err(QueryEngineError::MissingBlock(_)) = result {
             if self.networks.get(&query.network).unwrap().blocks.is_empty() {
                 return Ok(());
             }
@@ -460,6 +461,10 @@ impl Topology {
                 && (indexer.staked_grt > TokenAmount::Zero)
                 && (indexer.allocated_grt > TokenAmount::Zero)
                 && (indexer.fee <= TokenAmount::Enough)
+        }
+        // Return NoIndexers if no valid indexers exist.
+        if let Err(QueryEngineError::NoIndexers) = result {
+            return Ok(());
         }
         // Return MalformedQuery Malformed queries are rejected.
         if query.query == "?" {
@@ -496,17 +501,6 @@ impl Topology {
             }
             return err_with(trace, "response did not match any valid indexer");
         }
-        // Return NoIndexers if no valid indexers exist.
-        if let Err(QueryEngineError::NoIndexers) = result {
-            return Ok(());
-        }
-        // Return MissingBlocks if the network has no blocks.
-        if self.networks.get(&query.network).unwrap().blocks.is_empty() {
-            if let Err(QueryEngineError::MissingBlocks(_)) = result {
-                return Ok(());
-            }
-            return err_with(trace, format!("expected missing block, got {:#?}", result));
-        }
         // Return NoIndexerSelected if no valid indexers were found.
         if let Err(QueryEngineError::NoIndexerSelected) = result {
             return Ok(());
@@ -525,38 +519,6 @@ struct TopologyResolver {
 
 #[async_trait]
 impl Resolver for TopologyResolver {
-    async fn resolve_blocks(
-        &self,
-        network: &str,
-        unresolved: &[UnresolvedBlock],
-    ) -> Vec<BlockHead> {
-        let topology = self.topology.lock().await;
-        let blocks = match topology.networks.get(network) {
-            Some(network) => &network.blocks,
-            None => return vec![],
-        };
-        let resolved: Vec<BlockHead> = unresolved
-            .into_iter()
-            .filter_map(|unresolved| {
-                let block = match unresolved {
-                    UnresolvedBlock::WithNumber(n) => blocks.get(*n as usize)?.clone(),
-                    UnresolvedBlock::WithHash(h) => blocks.iter().find(|b| &b.hash == h)?.clone(),
-                };
-                let uncles = vec![];
-                Some(BlockHead { block, uncles })
-            })
-            .collect();
-        tracing::info!(?resolved);
-        for head in &resolved {
-            topology
-                .inputs
-                .indexers
-                .set_block_head(network, head.clone())
-                .await;
-        }
-        resolved
-    }
-
     async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>> {
         use regex::Regex;
         let topology = self.topology.lock().await;
@@ -623,7 +585,7 @@ async fn test() {
         )));
         let query_engine = QueryEngine::new(
             Config {
-                network: "mainnet".to_string(),
+                network: "test".to_string(),
                 indexer_selection_retry_limit: 3,
                 utility: UtilityConfig::default(),
                 query_budget: 1u64.try_into().unwrap(),
@@ -631,6 +593,7 @@ async fn test() {
             TopologyResolver {
                 topology: topology.clone(),
             },
+            topology.lock().await.resolvers(),
             inputs,
         );
         topology.lock().await.write_inputs().await;

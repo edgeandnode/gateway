@@ -1,13 +1,12 @@
 use crate::{
-    indexer_selection::{Indexers, UnresolvedBlock},
-    prelude::*,
-    ws_client,
+    block_resolver::BlockCacheWriter, indexer_selection::UnresolvedBlock, prelude::*, ws_client,
 };
+use lazy_static::lazy_static;
 use prometheus;
 use reqwest;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 use tokio::{
     self,
     time::{interval, sleep, Interval},
@@ -28,7 +27,7 @@ pub struct Provider {
 
 #[derive(Debug)]
 pub enum Msg {
-    Request(UnresolvedBlock, oneshot::Sender<BlockHead>),
+    Request(UnresolvedBlock, oneshot::Sender<BlockPointer>),
     Resolved(Option<UnresolvedBlock>, BlockHead),
     RetryWS,
 }
@@ -40,37 +39,23 @@ enum Source {
 
 struct Client {
     provider: Provider,
-    indexers: Arc<Indexers>,
-    metrics: Metrics,
     rest_client: reqwest::Client,
     source: Source,
     msgs: (mpsc::Sender<Msg>, mpsc::Receiver<Msg>),
-    resolving: HashMap<UnresolvedBlock, Vec<oneshot::Sender<BlockHead>>>,
+    resolving: HashMap<UnresolvedBlock, Vec<oneshot::Sender<BlockPointer>>>,
+    block_cache: BlockCacheWriter,
 }
 
-#[derive(Clone)]
-pub struct Metrics {
-    pub head_block: prometheus::IntGauge,
-}
-
-pub fn create(provider: Provider, indexers: Arc<Indexers>) -> (mpsc::Sender<Msg>, Metrics) {
+pub fn create(provider: Provider, block_cache: BlockCacheWriter) -> mpsc::Sender<Msg> {
     let _trace = tracing::info_span!("Ethereum client", network = %provider.network).entered();
-    let metrics = Metrics {
-        head_block: prometheus::register_int_gauge!(
-            format!("head_block_{}", provider.network),
-            format!("{} head block number", provider.network)
-        )
-        .unwrap(),
-    };
     let (msg_send, msg_recv) = mpsc::channel::<Msg>(MPSC_BUFFER);
     let mut client = Client {
         source: Client::try_ws_source(&provider),
         provider,
-        indexers,
-        metrics: metrics.clone(),
         rest_client: reqwest::Client::new(),
         msgs: (msg_send.clone(), msg_recv),
         resolving: HashMap::new(),
+        block_cache,
     };
     tokio::spawn(
         async move {
@@ -79,7 +64,7 @@ pub fn create(provider: Provider, indexers: Arc<Indexers>) -> (mpsc::Sender<Msg>
         }
         .in_current_span(),
     );
-    (msg_send, metrics)
+    msg_send
 }
 
 impl Client {
@@ -158,7 +143,7 @@ impl Client {
                 if let Some(key) = key {
                     if let Some(notifies) = self.resolving.remove(&key) {
                         for notify in notifies {
-                            let _ = notify.send(head.clone());
+                            let _ = notify.send(head.block.clone());
                         }
                     }
                 }
@@ -241,11 +226,11 @@ impl Client {
     async fn handle_head(&mut self, head: BlockHead, latest: bool) {
         tracing::info!(?head);
         if latest {
-            self.metrics.head_block.set(head.block.number as i64);
+            with_metric(&METRICS.head_block, &[&self.provider.network], |g| {
+                g.set(head.block.number as i64)
+            });
         }
-        self.indexers
-            .set_block_head(&self.provider.network, head)
-            .await;
+        self.block_cache.insert(head.block, &head.uncles);
     }
 
     fn post_body(method: &str, params: &[JSON]) -> JSON {
@@ -297,6 +282,27 @@ impl From<APIBlockHead> for BlockHead {
                 number: from.number,
             },
             uncles: from.uncles,
+        }
+    }
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = Metrics::new();
+}
+
+struct Metrics {
+    head_block: prometheus::IntGaugeVec,
+}
+
+impl Metrics {
+    fn new() -> Self {
+        Self {
+            head_block: prometheus::register_int_gauge_vec!(
+                "head_block",
+                "Chain head block number",
+                &["network"]
+            )
+            .unwrap(),
         }
     }
 }

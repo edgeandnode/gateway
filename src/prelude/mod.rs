@@ -12,7 +12,7 @@ pub use prometheus::{
     self,
     core::{MetricVec, MetricVecBuilder},
 };
-pub use std::{fmt, str::FromStr};
+pub use std::{cmp::Ordering, fmt, str::FromStr};
 pub use tokio::{
     sync::{mpsc, oneshot},
     time::{Duration, Instant},
@@ -64,6 +64,18 @@ pub type GRTWei = UDecimal<0>;
 pub struct BlockPointer {
     pub number: u64,
     pub hash: Bytes32,
+}
+
+impl PartialOrd for BlockPointer {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BlockPointer {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.number.cmp(&other.number)
+    }
 }
 
 #[derive(Debug, Clone)]

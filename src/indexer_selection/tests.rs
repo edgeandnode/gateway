@@ -1,4 +1,5 @@
 use crate::{
+    block_resolver::BlockResolver,
     indexer_selection::{
         test_utils::{default_cost_model, gen_blocks, TEST_KEY},
         Context, Indexers, Indexing, IndexingStatus, UtilityConfig,
@@ -36,11 +37,9 @@ async fn battle_high_and_low() {
         .usd_to_grt_conversion
         .write(1u64.try_into().unwrap());
 
-    let network = "mainnet";
+    let network = "test";
     let blocks = gen_blocks(&(0u64..100).into_iter().collect::<Vec<u64>>());
-    for block in blocks.iter() {
-        indexers.set_block(network, block.clone()).await;
-    }
+    let resolver = BlockResolver::test(&blocks);
     let latest = blocks.last().unwrap();
     let deployment: SubgraphDeploymentID = bytes_from_id(99).into();
     let tests = [
@@ -173,8 +172,7 @@ async fn battle_high_and_low() {
     for i in 0..COUNT {
         let budget: GRT = "0.00005".parse().unwrap();
         let mut context = Context::new("{ a }", "").unwrap();
-        let freshness_requirements = indexers
-            .freshness_requirements(&mut context, network)
+        let freshness_requirements = Indexers::freshness_requirements(&mut context, &resolver)
             .await
             .unwrap();
         let result = indexers
@@ -184,6 +182,7 @@ async fn battle_high_and_low() {
                 &deployment,
                 &indexer_ids,
                 &mut context,
+                &resolver,
                 &freshness_requirements,
                 budget,
             )

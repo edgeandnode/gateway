@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests;
 
-use crate::indexer_selection::{
-    self, BlockRequirements, Context, IndexerQuery, Indexers, SelectionError, UnresolvedBlock,
+use crate::{
+    block_resolver::BlockResolver,
+    indexer_selection::{self, Context, IndexerQuery, Indexers, SelectionError, UnresolvedBlock},
 };
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
@@ -78,13 +79,22 @@ pub enum QueryEngineError {
     NoIndexerSelected,
     APIKeySubgraphNotAuthorized,
     MalformedQuery,
-    MissingBlocks(Vec<UnresolvedBlock>),
+    MissingBlock(UnresolvedBlock),
+}
+
+impl From<SelectionError> for QueryEngineError {
+    fn from(from: SelectionError) -> Self {
+        match from {
+            SelectionError::MissingNetworkParams
+            | SelectionError::BadIndexer(_)
+            | SelectionError::NoAllocation(_) => Self::NoIndexerSelected,
+            SelectionError::BadInput => Self::MalformedQuery,
+            SelectionError::MissingBlock(unresolved) => Self::MissingBlock(unresolved),
+        }
+    }
 }
 
 struct Metrics {
-    block_resolution_duration: prometheus::HistogramVec,
-    block_resolution_requests_failed: prometheus::IntCounterVec,
-    block_resolution_requests_ok: prometheus::IntCounterVec,
     indexer_requests_duration: prometheus::HistogramVec,
     indexer_requests_failed: prometheus::IntCounterVec,
     indexer_requests_ok: prometheus::IntCounterVec,
@@ -112,9 +122,6 @@ lazy_static! {
 
 #[async_trait]
 pub trait Resolver {
-    async fn resolve_blocks(&self, network: &str, unresolved: &[UnresolvedBlock])
-        -> Vec<BlockHead>;
-
     async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>>;
 }
 
@@ -167,17 +174,24 @@ pub struct QueryEngine<R: Clone + Resolver + Send> {
     indexers: Arc<Indexers>,
     current_deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
+    block_resolvers: Arc<HashMap<String, BlockResolver>>,
     resolver: R,
     config: Config,
 }
 
 impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
-    pub fn new(config: Config, resolver: R, inputs: Inputs) -> Self {
+    pub fn new(
+        config: Config,
+        resolver: R,
+        block_resolvers: Arc<HashMap<String, BlockResolver>>,
+        inputs: Inputs,
+    ) -> Self {
         Self {
             indexers: inputs.indexers,
             current_deployments: inputs.current_deployments,
             deployment_indexers: inputs.deployment_indexers,
             resolver,
+            block_resolvers,
             config,
         }
     }
@@ -269,7 +283,12 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
         let mut context =
             Context::new(&query.query, query.variables.as_deref().unwrap_or_default())
                 .map_err(|_| QueryEngineError::MalformedQuery)?;
-        let freshness_requirements = self.freshness_requirements(&mut context, &query).await?;
+        let block_resolver = self
+            .block_resolvers
+            .get(&query.network)
+            .ok_or(QueryEngineError::SubgraphNotFound)?;
+        let freshness_requirements =
+            Indexers::freshness_requirements(&mut context, block_resolver).await?;
 
         for _ in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
@@ -285,6 +304,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                     &deployment,
                     &indexers,
                     &mut context,
+                    &block_resolver,
                     &freshness_requirements,
                     self.config.query_budget,
                 )
@@ -298,15 +318,8 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             };
             let indexer_query = match selection_result {
                 Ok(Some(indexer_query)) => indexer_query,
-                Ok(None)
-                | Err(SelectionError::MissingNetworkParams)
-                | Err(SelectionError::BadIndexer(_))
-                | Err(SelectionError::NoAllocation(_)) => return Err(NoIndexerSelected),
-                Err(SelectionError::BadInput) => return Err(MalformedQuery),
-                Err(SelectionError::MissingBlocks(unresolved)) => {
-                    self.resolve_blocks(&query, unresolved).await?;
-                    continue;
-                }
+                Ok(None) => return Err(NoIndexerSelected),
+                Err(err) => return Err(err.into()),
             };
 
             let indexer_id = indexer_query.indexing.indexer.to_string();
@@ -383,7 +396,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
                 ) {
                     tracing::info!("indexing behind");
                     self.indexers
-                        .observe_indexing_behind(&mut context, &indexer_query)
+                        .observe_indexing_behind(&mut context, &indexer_query, &block_resolver)
                         .await;
                     continue;
                 }
@@ -412,70 +425,6 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             });
         }
         Err(NoIndexerSelected)
-    }
-
-    async fn freshness_requirements(
-        &self,
-        context: &mut Context<'_>,
-        query: &ClientQuery,
-    ) -> Result<BlockRequirements, QueryEngineError> {
-        for _ in 0..2 {
-            match self
-                .indexers
-                .freshness_requirements(context, &query.network)
-                .await
-            {
-                Ok(freshness_requirements) => return Ok(freshness_requirements),
-                Err(SelectionError::BadInput) => return Err(QueryEngineError::MalformedQuery),
-                Err(SelectionError::MissingBlocks(unresolved)) => {
-                    self.resolve_blocks(&query, unresolved).await?;
-                }
-                Err(_) => return Err(QueryEngineError::NoIndexerSelected),
-            };
-        }
-        Err(QueryEngineError::NoIndexerSelected)
-    }
-
-    async fn resolve_blocks(
-        &self,
-        query: &ClientQuery,
-        mut unresolved: Vec<UnresolvedBlock>,
-    ) -> Result<(), QueryEngineError> {
-        let _block_resolution_timer = with_metric(
-            &METRICS.block_resolution_duration,
-            &[&query.network],
-            |hist| hist.start_timer(),
-        );
-        tracing::debug!(unresolved_blocks = ?unresolved);
-        let heads = self
-            .resolver
-            .resolve_blocks(&query.network, &unresolved)
-            .await;
-        for head in heads {
-            unresolved.swap_remove(
-                unresolved
-                    .iter()
-                    .position(|b| match b {
-                        UnresolvedBlock::WithHash(h) => h == &head.block.hash,
-                        UnresolvedBlock::WithNumber(n) => n == &head.block.number,
-                    })
-                    .unwrap(),
-            );
-        }
-        if !unresolved.is_empty() {
-            with_metric(
-                &METRICS.block_resolution_requests_failed,
-                &[&query.network],
-                |counter| counter.inc(),
-            );
-            return Err(QueryEngineError::MissingBlocks(unresolved));
-        }
-        with_metric(
-            &METRICS.block_resolution_requests_ok,
-            &[&query.network],
-            |counter| counter.inc(),
-        );
-        Ok(())
     }
 
     fn observe_indexer_selection_metrics(
@@ -517,24 +466,6 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
 impl Metrics {
     fn new() -> Self {
         Self {
-            block_resolution_duration: prometheus::register_histogram_vec!(
-                "block_resolution_duration",
-                "Duration of block requests",
-                &["network"]
-            )
-            .unwrap(),
-            block_resolution_requests_failed: prometheus::register_int_counter_vec!(
-                "block_resolution_requests_failed",
-                "Number of failed block requests",
-                &["network"]
-            )
-            .unwrap(),
-            block_resolution_requests_ok: prometheus::register_int_counter_vec!(
-                "block_resolution_requests_ok",
-                "Number of successful block requests",
-                &["network"]
-            )
-            .unwrap(),
             indexer_requests_duration: prometheus::register_histogram_vec!(
                 "query_engine_indexer_request_duration",
                 "Duration of making a request to an indexer",

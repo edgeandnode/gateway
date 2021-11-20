@@ -1,33 +1,20 @@
-use crate::indexer_selection::{
-    utility::{concave_utility, SelectionFactor},
-    BadIndexerReason, Context, SelectionError, UnresolvedBlock,
-};
 use crate::prelude::*;
+use crate::{
+    block_resolver::BlockResolver,
+    indexer_selection::{
+        utility::{concave_utility, SelectionFactor},
+        BadIndexerReason, Context, SelectionError, UnresolvedBlock,
+    },
+};
 use codecs::Encode as _;
 use cost_model::QueryVariables;
 use graphql_parser::query::{self as q, Number};
 use neon_utils::marshalling::codecs;
 use serde::{Deserialize, Serialize};
 use single::Single as _;
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    convert::TryFrom,
-};
+use std::{collections::BTreeMap, convert::TryFrom};
 
-#[derive(Default)]
-pub struct NetworkCache {
-    // TODO: SOA Vec
-    networks: Vec<String>,
-    caches: Vec<BlockCache>,
-}
-
-#[derive(Default)]
-pub struct BlockCache {
-    hash_to_number: HashMap<Bytes32, u64>,
-    // A BTreeMap is used here to quickly refer to the top, even as items may be
-    // removed.
-    number_to_hash: BTreeMap<u64, Bytes32>,
-}
+pub struct NetworkCache;
 
 #[derive(Default, Debug, Eq, PartialEq)]
 pub struct BlockRequirements {
@@ -75,17 +62,15 @@ fn block_hash_field<'a, T: q::Text<'a>>(hash: &Bytes32) -> BTreeMap<&'static str
 }
 
 impl NetworkCache {
-    // TODO: test
-    pub fn make_query_deterministic(
-        &self,
-        network: &str,
-        context: &mut Context,
+    pub async fn make_query_deterministic(
+        context: &mut Context<'_>,
+        block_resolver: &BlockResolver,
+        latest_block: &BlockPointer,
         blocks_behind: u64,
     ) -> Result<DeterministicQuery, SelectionError> {
-        let mut latest = None;
         // TODO: Ugh this code is a mess, and it's not even doing fragments yet.
+        let mut query_requires_latest = false;
         let ops = &mut context.operations[..];
-        let mut unresolved_blocks = HashSet::new();
         for top_level_field in Self::top_level_fields(ops)? {
             let mut require_latest = true;
             for arg in top_level_field.arguments.iter_mut() {
@@ -98,40 +83,20 @@ impl NetworkCache {
                                     let number = Self::number(number, &context.variables)?;
                                     // Some, but not all, duplicated code
                                     // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
-                                    let hash = match self
-                                        .block_cache(network)
-                                        .and_then(|cache| cache.number_to_hash.get(&number))
-                                    {
-                                        Some(hash) => hash,
-                                        None => {
-                                            unresolved_blocks
-                                                .insert(UnresolvedBlock::WithNumber(number));
-                                            continue;
-                                        }
-                                    };
+                                    let block = block_resolver
+                                        .resolve_block(UnresolvedBlock::WithNumber(number))
+                                        .await?;
                                     require_latest = false;
-                                    *fields = block_hash_field(hash);
+                                    *fields = block_hash_field(&block.hash);
                                 }
                                 Ok((&"number_gte", number)) => {
                                     let number = Self::number(number, &context.variables)?;
-                                    latest.get_or_insert_with(|| {
-                                        self.latest_block(network, blocks_behind)
-                                    });
-                                    let block = match latest.clone().unwrap() {
-                                        Ok(block) => block,
-                                        Err(unresolved) => {
-                                            unresolved_blocks.insert(unresolved);
-                                            continue;
-                                        }
-                                    };
-
-                                    if block.number < number {
-                                        return Err(SelectionError::BadIndexer(
-                                            BadIndexerReason::BehindMinimumBlock,
-                                        ));
+                                    if latest_block.number < number {
+                                        return Err(BadIndexerReason::BehindMinimumBlock.into());
                                     }
-                                    *fields = block_hash_field(&block.hash);
+                                    *fields = block_hash_field(&latest_block.hash);
                                     require_latest = false;
+                                    query_requires_latest = true;
                                 }
                                 _ => return Err(SelectionError::BadInput),
                             },
@@ -149,20 +114,11 @@ impl NetworkCache {
                                             let number = Self::number(number, &context.variables)?;
                                             // Some, but not all, duplicated code
                                             // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
-                                            let hash = match self
-                                                .block_cache(network)
-                                                .and_then(|cache| cache.number_to_hash.get(&number))
-                                            {
-                                                Some(hash) => hash,
-                                                None => {
-                                                    unresolved_blocks.insert(
-                                                        UnresolvedBlock::WithNumber(number),
-                                                    );
-                                                    continue;
-                                                }
-                                            };
+                                            let block = block_resolver
+                                                .resolve_block(UnresolvedBlock::WithNumber(number))
+                                                .await?;
                                             require_latest = false;
-                                            let fields = block_hash_field(hash);
+                                            let fields = block_hash_field(&block.hash);
                                             // This is different then the above which just replaces the
                                             // fields in the existing object, because we must not modify
                                             // the variable in case it's used elsewhere.
@@ -170,28 +126,18 @@ impl NetworkCache {
                                         }
                                         Ok((name, number)) if name.as_str() == "number_gte" => {
                                             let number = Self::number(number, &context.variables)?;
-                                            latest.get_or_insert_with(|| {
-                                                self.latest_block(network, blocks_behind)
-                                            });
-                                            let block = match latest.clone().unwrap() {
-                                                Ok(block) => block,
-                                                Err(unresolved) => {
-                                                    unresolved_blocks.insert(unresolved);
-                                                    continue;
-                                                }
-                                            };
-
-                                            if block.number < number {
-                                                return Err(SelectionError::BadIndexer(
-                                                    BadIndexerReason::BehindMinimumBlock,
-                                                ));
+                                            if latest_block.number < number {
+                                                return Err(
+                                                    BadIndexerReason::BehindMinimumBlock.into()
+                                                );
                                             }
-                                            let fields = block_hash_field(&block.hash);
+                                            let fields = block_hash_field(&latest_block.hash);
                                             // This is different then the above which just replaces the
                                             // fields in the existing object, because we must not modify
                                             // the variable in case it's used elsewhere.
                                             *arg = (arg.0, q::Value::Object(fields));
                                             require_latest = false;
+                                            query_requires_latest = true;
                                         }
                                         _ => return Err(SelectionError::BadInput),
                                     },
@@ -205,26 +151,12 @@ impl NetworkCache {
                 }
             }
             if require_latest {
-                // Get and cache the latest block hash so that it's used consistently.
-                latest.get_or_insert_with(|| self.latest_block(network, blocks_behind));
-                let block = match latest.clone().unwrap() {
-                    Ok(block) => block,
-                    Err(unresolved) => {
-                        unresolved_blocks.insert(unresolved);
-                        continue;
-                    }
-                };
-                let fields = block_hash_field(&block.hash);
+                let fields = block_hash_field(&latest_block.hash);
                 let arg = ("block", q::Value::Object(fields));
                 top_level_field.arguments.push(arg);
+                query_requires_latest = true;
             }
         }
-        if !unresolved_blocks.is_empty() {
-            return Err(SelectionError::MissingBlocks(
-                unresolved_blocks.into_iter().collect(),
-            ));
-        }
-
         let mut definitions = Vec::new();
         definitions.extend(
             context
@@ -252,7 +184,11 @@ impl NetworkCache {
 
         // The query only maintains being behind if the latest block has
         // been requested. Otherwise it's not "behind", it's what is requested.
-        let blocks_behind = latest.map(|_| blocks_behind);
+        let blocks_behind = if query_requires_latest {
+            Some(blocks_behind)
+        } else {
+            None
+        };
 
         let query = serde_json::to_string(&query).map_err(|_| SelectionError::BadInput)?;
         Ok(DeterministicQuery {
@@ -261,13 +197,11 @@ impl NetworkCache {
         })
     }
 
-    pub fn freshness_requirements<'c>(
-        &self,
+    pub async fn freshness_requirements<'c>(
         operations: &mut [q::OperationDefinition<'c, &'c str>],
-        network: &str,
+        block_resolver: &BlockResolver,
     ) -> Result<BlockRequirements, SelectionError> {
         let mut requirements = BlockRequirements::default();
-        let mut unresolved_blocks = Vec::new();
         for top_level_field in Self::top_level_fields(operations)? {
             let mut has_latest = true;
             for arg in top_level_field.arguments.iter() {
@@ -284,13 +218,10 @@ impl NetworkCache {
                             let hash_bytes: [u8; 32] = codecs::decode(hash.as_str())
                                 .map_err(|_| SelectionError::BadInput)?;
                             let hash = hash_bytes.into();
-                            let number = match self.hash_to_number(network, &hash) {
-                                Some(number) => number,
-                                None => {
-                                    unresolved_blocks.push(UnresolvedBlock::WithHash(hash));
-                                    continue;
-                                }
-                            };
+                            let number = block_resolver
+                                .resolve_block(UnresolvedBlock::WithHash(hash))
+                                .await?
+                                .number;
                             requirements.minimum_block =
                                 Some(requirements.minimum_block.unwrap_or_default().max(number));
                             has_latest = false;
@@ -301,9 +232,6 @@ impl NetworkCache {
                 }
             }
             requirements.has_latest = has_latest || requirements.has_latest;
-        }
-        if !unresolved_blocks.is_empty() {
-            return Err(SelectionError::MissingBlocks(unresolved_blocks));
         }
         Ok(requirements)
     }
@@ -365,68 +293,6 @@ impl NetworkCache {
             .and_then(|i| Some(u64::try_from(i)))
             .ok_or(SelectionError::BadInput)?
             .map_err(|_| SelectionError::BadInput)
-    }
-
-    fn hash_to_number(&self, network: &str, hash: &Bytes32) -> Option<u64> {
-        let i = self.networks.iter().position(|v| v == network)?;
-        self.caches[i].hash_to_number.get(hash).cloned()
-    }
-
-    pub fn set_block(&mut self, network: &str, block: BlockPointer) {
-        let cache = self.block_cache_mut(network);
-        if let Some(prev) = cache.number_to_hash.insert(block.number, block.hash) {
-            cache.hash_to_number.remove(&prev);
-        }
-        cache.hash_to_number.insert(block.hash, block.number);
-    }
-
-    pub fn remove_block(&mut self, network: &str, block_hash: &Bytes32) {
-        let cache = self.block_cache_mut(network);
-        if let Some(number) = cache.hash_to_number.remove(block_hash) {
-            cache.number_to_hash.remove(&number);
-        }
-    }
-
-    pub fn latest_block(
-        &self,
-        network: &str,
-        behind: u64,
-    ) -> Result<BlockPointer, UnresolvedBlock> {
-        let i = self
-            .networks
-            .iter()
-            .position(|v| v == network)
-            .ok_or(UnresolvedBlock::WithNumber(0))?;
-        let cache = &self.caches[i];
-        let latest = cache
-            .number_to_hash
-            .keys()
-            .rev()
-            .next()
-            .ok_or(UnresolvedBlock::WithNumber(behind))?;
-        let number = latest.saturating_sub(behind);
-        let hash = *cache
-            .number_to_hash
-            .get(&number)
-            .ok_or(UnresolvedBlock::WithNumber(number))?;
-        Ok(BlockPointer { number, hash })
-    }
-
-    fn block_cache(&self, network: &str) -> Option<&BlockCache> {
-        let i = self.networks.iter().position(|v| v == network)?;
-        Some(&self.caches[i])
-    }
-
-    fn block_cache_mut(&mut self, network: &str) -> &mut BlockCache {
-        let i = match self.networks.iter().position(|v| v == network) {
-            Some(i) => i,
-            None => {
-                self.networks.push(network.to_string());
-                self.caches.push(BlockCache::default());
-                self.caches.len() - 1
-            }
-        };
-        &mut self.caches[i]
     }
 }
 
@@ -534,189 +400,133 @@ impl DataFreshness {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::indexer_selection::{test_utils::gen_blocks, Context};
-    use codecs::Encode as _;
+    use crate::{
+        block_resolver::BlockResolver,
+        indexer_selection::{test_utils::gen_blocks, Context},
+    };
 
-    #[test]
-    fn requirements_field() {
+    #[tokio::test]
+    async fn requirements_field() {
         requirements_test(
-            &NetworkCache::default(),
+            &BlockResolver::test(&[]),
             "query { a }",
             "",
             BlockRequirements {
                 minimum_block: None,
                 has_latest: true,
             },
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn requirements_arg() {
+    #[tokio::test]
+    async fn requirements_arg() {
         requirements_test(
-            &NetworkCache::default(),
+            &BlockResolver::test(&[]),
             "query { a(abc: true) }",
             "",
             BlockRequirements {
                 minimum_block: None,
                 has_latest: true,
             },
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn requirements_block_number() {
+    #[tokio::test]
+    async fn requirements_block_number() {
         requirements_test(
-            &NetworkCache::default(),
+            &BlockResolver::test(&[]),
             "query { a(block: { number: 10}) }",
             "",
             BlockRequirements {
                 minimum_block: Some(10),
                 has_latest: false,
             },
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn requirements_multiple_block_numbers() {
+    #[tokio::test]
+    async fn requirements_multiple_block_numbers() {
         requirements_test(
-            &NetworkCache::default(),
+            &BlockResolver::test(&[]),
             "query { a(block: { number: 10 }) a(block: { number: 20 }) }",
             "",
             BlockRequirements {
                 minimum_block: Some(20),
                 has_latest: false,
             },
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn requirements_block_hash() {
-        let mut network_cache = NetworkCache::default();
-        let hash = test_utils::bytes_from_id(54321).into();
-        network_cache.set_block("mainnet", BlockPointer { number: 50, hash });
+    #[tokio::test]
+    async fn requirements_block_hash() {
+        let blocks = gen_blocks(&[54321]);
+        let resolver = &BlockResolver::test(&blocks);
         requirements_test(
-            &network_cache,
-            &format!("query {{ a(block: {{ hash: {:?}}}) }}", hash.encode()),
+            &resolver,
+            &format!(
+                "query {{ a(block: {{ hash: {:?} }}) }}",
+                hex::encode(&*blocks[0].hash)
+            ),
             "",
             BlockRequirements {
-                minimum_block: Some(50),
+                minimum_block: Some(54321),
                 has_latest: false,
             },
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn block_number_gte_requirements() {
+    #[tokio::test]
+    async fn block_number_gte_requirements() {
         requirements_test(
-            &NetworkCache::default(),
+            &BlockResolver::test(&[]),
             "query { a(block: { number_gte: 10 }) }",
             "",
             BlockRequirements {
                 minimum_block: Some(10),
                 has_latest: true,
             },
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn block_number_gte_determinism() {
-        let cache = cache_with("mainnet", &gen_blocks(&[0, 1, 2, 3, 4, 5, 6, 7]));
+    #[tokio::test]
+    async fn block_number_gte_determinism() {
+        let blocks = gen_blocks(&[0, 1, 2, 3, 4, 5, 6, 7]);
+        let resolver = BlockResolver::test(&blocks);
         let mut context = Context::new("query { a(block: { number_gte: 4 }) }", "").unwrap();
-        let result = cache.make_query_deterministic("mainnet", &mut context, 2);
+        let blocks_behind = 2;
+        let latest = resolver
+            .resolve_block(UnresolvedBlock::WithNumber(7 - blocks_behind))
+            .await
+            .unwrap();
+        let result =
+            NetworkCache::make_query_deterministic(&mut context, &resolver, &latest, blocks_behind)
+                .await;
         assert_eq!(
-            result,
-            Ok(DeterministicQuery {
-                blocks_behind: Some(2),
-                query: "{\"query\":\"query {\\n  a(block: {hash: \\\"0x0500000000000000000000000000000000000000000000000000000000000000\\\"})\\n}\\n\",\"variables\":{}}".to_owned()
-            })
-        );
+                result,
+                Ok(DeterministicQuery {
+                    blocks_behind: Some(blocks_behind),
+                    query: "{\"query\":\"query {\\n  a(block: {hash: \\\"0x0500000000000000000000000000000000000000000000000000000000000000\\\"})\\n}\\n\",\"variables\":{}}".to_owned()
+                })
+            );
     }
 
-    fn requirements_test(
-        network_cache: &NetworkCache,
+    async fn requirements_test(
+        block_resolver: &BlockResolver,
         query: &str,
         variables: &str,
         expect: BlockRequirements,
     ) {
         let mut context = Context::new(query, variables).unwrap();
-        let requirements = network_cache
-            .freshness_requirements(context.operations.as_mut_slice(), "mainnet")
-            .unwrap();
+        let requirements =
+            NetworkCache::freshness_requirements(context.operations.as_mut_slice(), block_resolver)
+                .await
+                .unwrap();
         assert_eq!(requirements, expect);
-    }
-
-    /* TODO: Finish all this
-    #[test]
-    fn variable_as_block() {
-        let mut network_cache = NetworkCache::default();
-        let hash = test_utils::bytes_from_id(54321).into();
-        network_cache.set_block("mainnet", BlockPointer { number: 50, hash });
-        // FIXME: Variables
-        requirements_test(
-            &network_cache,
-            "query BlockVars($block: Block) { a(block: $block) }",
-            &format!("{}", hash.encode()),
-            BlockRequirements {
-                minimum_block: Some(50),
-                has_latest: false,
-            },
-        );
-    }
-
-    #[test]
-    fn variable_as_number() {
-        todo!()
-    }
-
-    #[test]
-    fn variable_as_hash() {
-        todo!()
-    }
-
-    #[test]
-    fn skipped_requirement() {
-        todo!()
-    }
-    */
-
-    #[test]
-    fn can_get_latest() {
-        let blocks = gen_blocks(&[0, 1, 2, 3, 4, 5, 6, 7]);
-        let cache = cache_with("", &blocks);
-        assert_eq!(cache.latest_block("", 0), Ok(blocks[7].clone()));
-    }
-
-    #[test]
-    fn missing() {
-        let blocks = gen_blocks(&[0, 1, 2, 3, 5, 6, 7]);
-        let cache = cache_with("", &blocks);
-        assert_eq!(
-            cache.latest_block("", 3),
-            Err(UnresolvedBlock::WithNumber(4))
-        );
-    }
-
-    #[test]
-    fn missing_head() {
-        let blocks = gen_blocks(&[0, 1, 2, 3]);
-        let cache = cache_with("", &blocks);
-        assert_eq!(cache.latest_block("", 7), Ok(blocks[0].clone()));
-    }
-
-    /// Skipping some number of blocks from latest does not require all
-    /// blocks between the latest and the skipped to.
-    #[test]
-    fn does_not_require_intermediates() {
-        let blocks = gen_blocks(&[12, 7]);
-        let cache = cache_with("", &blocks);
-        assert_eq!(cache.latest_block("", 5), Ok(blocks[1].clone()));
-    }
-
-    fn cache_with(network: &str, blocks: &[BlockPointer]) -> NetworkCache {
-        let mut cache = NetworkCache::default();
-        for block in blocks.iter() {
-            cache.set_block(network, block.clone());
-        }
-        cache
     }
 }
