@@ -1,7 +1,8 @@
 mod allocations;
+mod block_requirements;
+mod data_freshness;
 mod economic_security;
 mod indexers;
-mod network_cache;
 mod performance;
 mod price_efficiency;
 mod reputation;
@@ -15,12 +16,14 @@ mod tests;
 
 pub use crate::indexer_selection::{
     allocations::{Allocations, QueryStatus, Receipt},
+    block_requirements::BlockRequirements,
     indexers::{IndexerDataReader, IndexerDataWriter},
-    network_cache::BlockRequirements,
+    price_efficiency::CostModelSource,
     selection_factors::{IndexingData, IndexingStatus, SelectionFactors},
 };
 use crate::{
     block_resolver::BlockResolver,
+    indexer_selection::{block_requirements::*, economic_security::*},
     prelude::{
         shared_lookup::{SharedLookup, SharedLookupWriter},
         weighted_sample::WeightedSample,
@@ -28,13 +31,10 @@ use crate::{
     },
 };
 use cost_model;
-use economic_security::*;
 use im;
 use lazy_static::lazy_static;
-use network_cache::*;
 use num_traits::identities::Zero;
 pub use ordered_float::NotNan;
-pub use price_efficiency::CostModelSource;
 use prometheus;
 use rand::{thread_rng, Rng as _};
 pub use secp256k1::SecretKey;
@@ -228,7 +228,7 @@ impl Indexers {
         // but less is better.
         let latest = block_resolver.latest_block().map(|b| b.number).unwrap_or(0);
         let freshness_requirements =
-            NetworkCache::freshness_requirements(&mut context.operations, block_resolver).await;
+            freshness_requirements(&mut context.operations, block_resolver).await;
         let selection_factors = match self.indexings.get(&query.indexing).await {
             Some(selection_factors) => selection_factors,
             None => return,
@@ -265,7 +265,7 @@ impl Indexers {
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
     ) -> Result<BlockRequirements, SelectionError> {
-        NetworkCache::freshness_requirements(&mut context.operations, block_resolver).await
+        freshness_requirements(&mut context.operations, block_resolver).await
     }
 
     // TODO: Specify budget in terms of a cost model -
@@ -313,13 +313,9 @@ impl Indexers {
                 head.number.saturating_sub(score.blocks_behind),
             ))
             .await?;
-        let query = NetworkCache::make_query_deterministic(
-            context,
-            block_resolver,
-            &latest_block,
-            score.blocks_behind,
-        )
-        .await?;
+        let query =
+            make_query_deterministic(context, block_resolver, &latest_block, score.blocks_behind)
+                .await?;
         make_query_deterministic_timer.observe_duration();
 
         Ok(Some(IndexerQuery {

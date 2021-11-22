@@ -1,7 +1,8 @@
 use crate::{
     indexer_selection::{
-        allocations::*, network_cache::*, performance::*, price_efficiency::*, reputation::*,
-        utility::*, BadIndexerReason, Context, SecretKey, SelectionError,
+        allocations::*, block_requirements::*, data_freshness::*, performance::*,
+        price_efficiency::*, reputation::*, utility::*, BadIndexerReason, Context, SecretKey,
+        SelectionError,
     },
     prelude::*,
 };
