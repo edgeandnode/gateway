@@ -3,20 +3,19 @@ mod tests;
 
 use crate::{
     block_resolver::BlockResolver,
+    indexer_client::*,
     indexer_selection::{self, Context, IndexerQuery, Indexers, SelectionError, UnresolvedBlock},
 };
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
     prelude::*,
 };
-use async_trait::async_trait;
 pub use graphql_client::Response;
 use im;
 use lazy_static::lazy_static;
 use prometheus;
-use serde::{self, Deserialize, Serialize};
 use serde_json::value::RawValue;
-use std::{collections::HashMap, error::Error, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone, Debug)]
 pub enum Subgraph {
@@ -57,19 +56,6 @@ pub struct IndexerResponse {
     pub status: u16,
     pub payload: String,
     pub attestation: Option<Attestation>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Attestation {
-    #[serde(rename(deserialize = "requestCID"))]
-    request_cid: Bytes32,
-    #[serde(rename(deserialize = "responseCID"))]
-    response_cid: Bytes32,
-    #[serde(rename(deserialize = "subgraphDeploymentID"))]
-    deployment: Bytes32,
-    v: u8,
-    r: Bytes32,
-    s: Bytes32,
 }
 
 #[derive(Debug)]
@@ -120,11 +106,6 @@ lazy_static! {
     static ref METRICS: Metrics = Metrics::new();
 }
 
-#[async_trait]
-pub trait Resolver {
-    async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>>;
-}
-
 #[derive(Clone)]
 pub struct Config {
     pub network: String,
@@ -170,19 +151,19 @@ impl Inputs {
     }
 }
 
-pub struct QueryEngine<R: Clone + Resolver + Send> {
+pub struct QueryEngine<I: IndexerInterface + Clone + Send> {
     indexers: Arc<Indexers>,
     current_deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
-    resolver: R,
+    indexer_client: I,
     config: Config,
 }
 
-impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
+impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
     pub fn new(
         config: Config,
-        resolver: R,
+        indexer_client: I,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
         inputs: Inputs,
     ) -> Self {
@@ -190,7 +171,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             indexers: inputs.indexers,
             current_deployments: inputs.current_deployments,
             deployment_indexers: inputs.deployment_indexers,
-            resolver,
+            indexer_client,
             block_resolvers,
             config,
         }
@@ -326,7 +307,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             tracing::info!(indexer = %indexer_id);
             self.observe_indexer_selection_metrics(&deployment, &indexer_query);
             let t0 = Instant::now();
-            let result = self.resolver.query_indexer(&indexer_query).await;
+            let result = self.indexer_client.query_indexer(&indexer_query).await;
             let query_duration = Instant::now() - t0;
             with_metric(
                 &METRICS.indexer_requests_duration,

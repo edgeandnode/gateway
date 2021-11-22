@@ -1,5 +1,6 @@
 mod block_resolver;
 mod ethereum_client;
+mod indexer_client;
 mod indexer_selection;
 mod opt;
 mod prelude;
@@ -11,7 +12,8 @@ mod ws_client;
 
 use crate::{
     block_resolver::{BlockCache, BlockResolver},
-    indexer_selection::SecretKey,
+    indexer_client::IndexerClient,
+    indexer_selection::{SecretKey, UtilityConfig},
     opt::*,
     prelude::*,
     query_engine::*,
@@ -23,10 +25,8 @@ use actix_web::{
     http::{header, StatusCode},
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
-use async_trait::async_trait;
 use eventuals::EventualExt;
 use hex;
-use indexer_selection::{IndexerQuery, UtilityConfig};
 use lazy_static::lazy_static;
 use prometheus::{self, Encoder as _};
 use reqwest;
@@ -34,7 +34,6 @@ use serde::Deserialize;
 use serde_json::{json, value::RawValue};
 use std::{
     collections::HashMap,
-    error::Error,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
         Arc,
@@ -122,9 +121,8 @@ async fn main() {
             utility: UtilityConfig::default(),
             query_budget: opt.query_budget,
         },
-        resolver: NetworkResolver {
+        indexer_client: IndexerClient {
             client: http_client.clone(),
-            network_subgraph_url: opt.network_subgraph.clone(),
         },
         block_resolvers: block_resolvers.clone(),
         inputs: inputs.clone(),
@@ -350,7 +348,7 @@ struct QueryBody {
 #[derive(Clone)]
 struct SubgraphQueryData {
     config: Config,
-    resolver: NetworkResolver,
+    indexer_client: IndexerClient,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
@@ -393,7 +391,7 @@ async fn handle_subgraph_query_inner(
 ) -> Result<HttpResponse, (StatusCode, &'static str)> {
     let query_engine = QueryEngine::new(
         data.config.clone(),
-        data.resolver.clone(),
+        data.indexer_client.clone(),
         data.block_resolvers.clone(),
         data.inputs.clone(),
     );
@@ -493,50 +491,6 @@ pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> Ht
     HttpResponseBuilder::new(status)
         .insert_header(header::ContentType::json())
         .body(json!({"errors": {"message": message.to_string()}}).to_string())
-}
-
-// TODO: pass block resolver to indexer selection, network resolver -> indexer client
-
-#[derive(Clone)]
-struct NetworkResolver {
-    client: reqwest::Client,
-    network_subgraph_url: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct IndexerResponsePayload {
-    #[serde(rename(deserialize = "graphQLResponse"))]
-    pub graphql_response: String,
-    pub attestation: Option<Attestation>,
-}
-
-// TODO: rename to indexer client, make an actor
-#[async_trait]
-impl Resolver for NetworkResolver {
-    #[tracing::instrument(skip(self, query))]
-    async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>> {
-        let receipt = hex::encode(&query.receipt.commitment);
-        let receipt = &receipt[0..(receipt.len() - 64)];
-        let response = self
-            .client
-            .post(format!(
-                "{}/subgraphs/id/{:?}",
-                query.url, query.indexing.deployment
-            ))
-            .header("Content-Type", "application/json")
-            .header("Scalar-Receipt", receipt)
-            .body(query.query.clone())
-            .send()
-            .await?;
-        let response_status = response.status();
-        tracing::info!(%response_status);
-        let payload = response.json::<IndexerResponsePayload>().await?;
-        Ok(IndexerResponse {
-            status: response_status.as_u16(),
-            payload: payload.graphql_response,
-            attestation: payload.attestation,
-        })
-    }
 }
 
 #[derive(Clone)]
