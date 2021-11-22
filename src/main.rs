@@ -372,6 +372,33 @@ async fn handle_subgraph_query(
     payload: web::Json<QueryBody>,
     data: web::Data<SubgraphQueryData>,
 ) -> HttpResponse {
+    let t0 = Instant::now();
+    let query_id = data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64;
+    let response = handle_subgraph_query_inner(request, payload, data, query_id).await;
+    let response_time = Instant::now() - t0;
+    let (payload, status) = match response {
+        Ok(payload) => {
+            let status = payload.status().to_string();
+            (payload, status)
+        }
+        Err((status, msg)) => (graphql_error_response(status, msg), msg.to_string()),
+    };
+    tracing::info!(
+        query_id,
+        %status,
+        response_time_ms = response_time.as_millis() as u32,
+        "client query result",
+    );
+    payload
+}
+
+#[tracing::instrument(skip(request, payload, data))]
+async fn handle_subgraph_query_inner(
+    request: HttpRequest,
+    payload: web::Json<QueryBody>,
+    data: web::Data<SubgraphQueryData>,
+    query_id: u64,
+) -> Result<HttpResponse, (StatusCode, &'static str)> {
     let query_engine = QueryEngine::new(
         data.config.clone(),
         data.resolver.clone(),
@@ -386,21 +413,21 @@ async fn handle_subgraph_query(
     {
         Subgraph::Deployment(deployment)
     } else {
-        return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier");
+        return Err((StatusCode::BAD_REQUEST, "Invalid subgraph identifier"));
     };
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();
     let api_key = match url_params.get("api_key").and_then(|k| api_keys.get(k)) {
         Some(api_key) => api_key.clone(),
         None => {
             METRICS.unknown_api_key.inc();
-            return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid API key");
+            return Err((StatusCode::BAD_REQUEST, "Invalid API key"));
         }
     };
     if !api_key.queries_activated {
-        return graphql_error_response(
+        return Err((
             StatusCode::OK,
             "Querying not activated yet; make sure to add some GRT to your balance in the studio",
-        );
+        ));
     }
     let domain = request
         .headers()
@@ -416,10 +443,9 @@ async fn handle_subgraph_query(
             .any(|(authorized, _)| domain.starts_with(authorized))
     {
         with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
-        return graphql_error_response(StatusCode::OK, "Domain not authorized by API key");
+        return Err((StatusCode::OK, "Domain not authorized by API key"));
     }
 
-    let query_id = data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64;
     let query = ClientQuery {
         id: query_id,
         api_key: api_key.clone(),
@@ -431,7 +457,7 @@ async fn handle_subgraph_query(
     let result = match query_engine.execute_query(query).await {
         Ok(result) => result,
         Err(err) => {
-            return graphql_error_response(
+            return Err((
                 StatusCode::OK,
                 match err {
                     QueryEngineError::MalformedQuery => "Invalid query",
@@ -447,7 +473,7 @@ async fn handle_subgraph_query(
                         "Gateway failed to resolve required blocks"
                     }
                 },
-            )
+            ))
         }
     };
     if let Ok(hist) = METRICS
@@ -465,9 +491,9 @@ async fn handle_subgraph_query(
             Subgraph::Deployment(_) => None,
         },
     });
-    HttpResponseBuilder::new(StatusCode::OK)
+    Ok(HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
-        .body(result.response.payload)
+        .body(result.response.payload))
 }
 
 pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> HttpResponse {
