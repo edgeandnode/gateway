@@ -48,6 +48,18 @@ pub struct Opt {
     )]
     pub indexer_selection_retry_limit: usize,
     #[structopt(
+        long = "--block-cache-head",
+        env = "BLOCK_CACHE_HEAD",
+        default_value = "64"
+    )]
+    pub block_cache_head: usize,
+    #[structopt(
+        long = "--block-cache-size",
+        env = "BLOCK_CACHE_SIZE",
+        default_value = "32768"
+    )]
+    pub block_cache_size: usize,
+    #[structopt(
         long = "--query-budget",
         env = "QUERY_BUDGET",
         default_value = "0.0005"

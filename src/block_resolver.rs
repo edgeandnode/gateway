@@ -24,7 +24,7 @@ impl BlockResolver {
 
     #[cfg(test)]
     pub fn test(blocks: &[BlockPointer]) -> BlockResolver {
-        let (mut cache_writer, cache) = BlockCache::new();
+        let (mut cache_writer, cache) = BlockCache::new(blocks.len(), 0);
         let (dummy, _) = mpsc::channel(1);
         let resolver = BlockResolver::new("test".to_string(), cache, dummy);
         for block in blocks {
@@ -85,11 +85,6 @@ impl BlockResolver {
     }
 }
 
-/// The amount of blocks behind chain head that are susceptible to reorgs.
-const CHAIN_HEAD_LENGTH: usize = 64;
-/// Size of cache containing confirmed blocks.
-const CACHE_SIZE: usize = 1024 * 32;
-
 #[derive(Clone)]
 pub struct BlockCache {
     head: im::Vector<BlockPointer>,
@@ -98,9 +93,14 @@ pub struct BlockCache {
 }
 
 impl BlockCache {
-    pub fn new() -> (BlockCacheWriter, Eventual<Ptr<BlockCache>>) {
+    pub fn new(
+        chain_head_length: usize,
+        cache_size: usize,
+    ) -> (BlockCacheWriter, Eventual<Ptr<BlockCache>>) {
         let (cache_writer, reader) = Eventual::new();
         let writer = BlockCacheWriter {
+            chain_head_length,
+            cache_size,
             cache: BlockCache {
                 head: im::Vector::new(),
                 hash_to_number: im::HashMap::new(),
@@ -129,6 +129,10 @@ impl BlockCache {
 }
 
 pub struct BlockCacheWriter {
+    /// The amount of blocks behind chain head that are susceptible to reorgs.
+    chain_head_length: usize,
+    /// Size of cache containing confirmed blocks.
+    cache_size: usize,
     cache: BlockCache,
     writer: EventualWriter<Ptr<BlockCache>>,
     last_update: im::OrdMap<Instant, u64>,
@@ -152,13 +156,13 @@ impl BlockCacheWriter {
 
         // Insert block
         let height = self.cache.latest().map(|b| b.number).unwrap_or(0);
-        if (block.number > height) || ((height - block.number) < CHAIN_HEAD_LENGTH as u64) {
-            if self.cache.head.len() >= CHAIN_HEAD_LENGTH {
+        if (block.number > height) || ((height - block.number) < self.chain_head_length as u64) {
+            if self.cache.head.len() >= self.chain_head_length {
                 self.cache.head.pop_front();
             }
             self.cache.head.insert_ord(block);
         } else {
-            if self.cache.hash_to_number.len() >= CACHE_SIZE {
+            if self.cache.hash_to_number.len() >= self.cache_size {
                 if let Some(number) = self.last_update.get_min().map(|(_, number)| number) {
                     if let Some(hash) = self.cache.number_to_hash.remove(number) {
                         self.cache.hash_to_number.remove(&hash);
