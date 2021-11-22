@@ -43,7 +43,6 @@ tokio-postgres = {version = "0.7", features = ["runtime"]}
 tokio-tungstenite = {version = "0.16", features = ["native-tls"]} 
 tracing = "0.1" 
 tracing-subscriber = {version = "0.3", features = ["env-filter", "parking_lot", "json"]} 
-tree-buf = "0.10" 
 url = "2.2" 
 
 [dev-dependencies]

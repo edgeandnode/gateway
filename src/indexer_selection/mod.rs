@@ -27,7 +27,6 @@ use cost_model;
 use economic_security::*;
 use graphql_parser::query as graphql_query;
 use im;
-use indexers::IndexerSnapshot;
 use lazy_static::lazy_static;
 use network_cache::*;
 use num_traits::identities::Zero;
@@ -36,12 +35,10 @@ pub use price_efficiency::CostModelSource;
 use prometheus;
 use rand::{thread_rng, Rng as _};
 pub use secp256k1::SecretKey;
-use selection_factors::*;
 use tokio::{
     sync::{Mutex, RwLock},
     time,
 };
-use tree_buf::{Decode, Encode};
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
@@ -91,18 +88,10 @@ pub enum UnresolvedBlock {
     WithHash(Bytes32),
 }
 
-#[derive(Clone, Debug, Decode, Eq, Hash, Encode, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Indexing {
     pub indexer: Address,
     pub deployment: SubgraphDeploymentID,
-}
-
-#[derive(Debug, Default, Decode, Encode)]
-pub struct Snapshot {
-    pub slashing_percentage: Bytes32,
-    pub usd_to_grt_conversion: Bytes32,
-    pub indexers: Vec<IndexerSnapshot>,
-    pub indexings: Vec<IndexingSnapshot>,
 }
 
 #[derive(Clone)]
@@ -271,68 +260,6 @@ impl Indexers {
         selection_factors
             .observe_indexing_behind(&freshness_requirements, latest)
             .await;
-    }
-
-    pub async fn snapshot(&self) -> Snapshot {
-        let (slashing_percentage, usd_to_grt_conversion) = {
-            (
-                self.network_params
-                    .slashing_percentage
-                    .value_immediate()
-                    .unwrap_or_default(),
-                self.network_params
-                    .usd_to_grt_conversion
-                    .value_immediate()
-                    .unwrap_or_default(),
-            )
-        };
-        Snapshot {
-            slashing_percentage: slashing_percentage.to_little_endian().into(),
-            usd_to_grt_conversion: usd_to_grt_conversion.to_little_endian().into(),
-            indexers: self.indexers.snapshot().await,
-            indexings: self.snapshot_indexings().await,
-        }
-    }
-
-    async fn snapshot_indexings(&self) -> Vec<IndexingSnapshot> {
-        use futures::stream::{FuturesUnordered, StreamExt as _};
-        self.indexings
-            .read()
-            .await
-            .iter()
-            .map(|(k, v)| v.snapshot(k))
-            .collect::<FuturesUnordered<_>>()
-            .collect()
-            .await
-    }
-
-    #[cfg(test)]
-    pub async fn restore(&self, inputs: &mut InputWriters, snapshot: Snapshot) {
-        inputs
-            .slashing_percentage
-            .write(PPM::from_little_endian(&snapshot.slashing_percentage));
-        inputs
-            .usd_to_grt_conversion
-            .write(GRT::from_little_endian(&snapshot.usd_to_grt_conversion));
-        inputs.indexers.restore(snapshot.indexers).await;
-        inputs
-            .indexings
-            .restore(self.restore_indexings(snapshot.indexings).await)
-            .await;
-    }
-
-    #[cfg(test)]
-    async fn restore_indexings(
-        &self,
-        snapshots: Vec<IndexingSnapshot>,
-    ) -> Vec<(Indexing, SelectionFactors, IndexingData)> {
-        use futures::stream::{FuturesUnordered, StreamExt as _};
-        snapshots
-            .into_iter()
-            .map(|snapshot| SelectionFactors::restore(snapshot))
-            .collect::<FuturesUnordered<_>>()
-            .collect()
-            .await
     }
 
     pub async fn decay(&self) {

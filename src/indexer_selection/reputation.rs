@@ -2,9 +2,8 @@ use crate::indexer_selection::{
     utility::{concave_utility, SelectionFactor},
     SelectionError,
 };
-use tree_buf;
 
-#[derive(Debug, Default, Clone, tree_buf::Decode, tree_buf::Encode)]
+#[derive(Debug, Default, Clone)]
 pub struct Reputation {
     successful_queries: f64,
     failed_queries: f64,

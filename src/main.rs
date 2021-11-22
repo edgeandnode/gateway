@@ -33,7 +33,6 @@ use std::{
     },
 };
 use structopt::StructOpt as _;
-use tree_buf;
 use url::Url;
 
 #[actix_web::main]
@@ -130,24 +129,15 @@ async fn main() {
         network_subgraph_auth_token: opt.network_subgraph_auth_token,
     };
     let metrics_port = opt.metrics_port;
-    let indexer_selection = inputs.indexers.clone();
     // Host metrics on a separate server with a port that isn't open to public requests.
     actix_web::rt::spawn(async move {
-        HttpServer::new(move || {
-            App::new()
-                .route("/metrics", web::get().to(handle_metrics))
-                .service(
-                    web::resource("/snapshot")
-                        .app_data(web::Data::new(indexer_selection.clone()))
-                        .route(web::get().to(handle_snapshot)),
-                )
-        })
-        .workers(1)
-        .bind(("0.0.0.0", metrics_port))
-        .expect("Failed to bind to metrics port")
-        .run()
-        .await
-        .expect("Failed to start metrics server")
+        HttpServer::new(move || App::new().route("/metrics", web::get().to(handle_metrics)))
+            .workers(1)
+            .bind(("0.0.0.0", metrics_port))
+            .expect("Failed to bind to metrics port")
+            .run()
+            .await
+            .expect("Failed to start metrics server")
     });
     let ip_rate_limiter = RateLimiter::new(
         Duration::from_secs(opt.ip_rate_limit_window_secs.into()),
@@ -248,17 +238,6 @@ async fn handle_metrics() -> HttpResponse {
             .body("Failed to encode metrics");
     }
     HttpResponseBuilder::new(StatusCode::OK).body(buffer)
-}
-
-#[tracing::instrument(skip(data))]
-async fn handle_snapshot(data: web::Data<Arc<indexer_selection::Indexers>>) -> HttpResponse {
-    let snapshot = data.snapshot().await;
-    tracing::trace!(?snapshot);
-    let encoded = tree_buf::encode(&snapshot);
-    tracing::info!(snapshot_size = %encoded.len());
-    HttpResponseBuilder::new(StatusCode::OK)
-        .insert_header(header::ContentType::octet_stream())
-        .body(encoded)
 }
 
 #[tracing::instrument(skip(data))]

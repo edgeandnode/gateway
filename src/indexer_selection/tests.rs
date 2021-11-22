@@ -264,20 +264,4 @@ async fn battle_high_and_low() {
         total_fees += results.query_fees;
     }
     println!("Total Fees: {}", (total_fees * QPS.try_into().unwrap()));
-
-    // Demonstrate snapshot restore.
-    let mut start = Instant::now();
-    let snapshot = indexers.snapshot().await;
-    let serialized = tree_buf::encode(&snapshot);
-    println!(
-        "Snapshot taken in {:?}. Used {}B.",
-        Instant::now() - start,
-        serialized.len()
-    );
-
-    start = Instant::now();
-    indexers
-        .restore(&mut input_writers, tree_buf::decode(&serialized).unwrap())
-        .await;
-    println!("Snapshot restored in {:?}.", Instant::now() - start,);
 }

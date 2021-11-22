@@ -13,7 +13,6 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     convert::TryFrom,
 };
-use tree_buf;
 
 #[derive(Default)]
 pub struct NetworkCache {
@@ -41,7 +40,7 @@ pub struct BlockRequirements {
     has_latest: bool,
 }
 
-#[derive(Clone, Debug, Default, tree_buf::Decode, tree_buf::Encode)]
+#[derive(Clone, Debug, Default)]
 pub struct DataFreshness {
     blocks_behind: Option<u64>,
     highest_reported_block: Option<u64>,
