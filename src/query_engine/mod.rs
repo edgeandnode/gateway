@@ -180,7 +180,7 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
         }
     }
 
-    #[tracing::instrument(skip(self, query), fields(%query.id))]
+    #[tracing::instrument(skip(self, query), fields(query_id = query.id))]
     pub async fn execute_query(
         &self,
         query: ClientQuery,
@@ -229,18 +229,19 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
         with_metric(result_counter, &[&deployment_ipfs, &api_key], |counter| {
             counter.inc()
         });
+        let query_execution_duration = Instant::now() - query_start;
         with_metric(
             &METRICS.query_duration,
             &[&deployment_ipfs, &api_key],
             |hist| {
-                let t = Instant::now() - query_start;
-                hist.observe(t.as_secs_f64());
+                hist.observe(query_execution_duration.as_secs_f64());
             },
         );
+        tracing::info!(query_execution_duration_ms = query_execution_duration.as_millis() as u32);
         result
     }
 
-    #[tracing::instrument(skip(self, query, deployment_ipfs), fields(%query.id))]
+    #[tracing::instrument(skip(self, query, deployment_ipfs), fields(query_id = query.id))]
     async fn execute_deployment_query(
         &self,
         query: ClientQuery,
@@ -306,7 +307,6 @@ impl<R: Clone + Resolver + Send + 'static> QueryEngine<R> {
             let t0 = Instant::now();
             let result = self.resolver.query_indexer(&indexer_query).await;
             let query_duration = Instant::now() - t0;
-            tracing::debug!(query_duration = ?query_duration);
             with_metric(
                 &METRICS.indexer_requests_duration,
                 &[&deployment_ipfs, &indexer_id],
