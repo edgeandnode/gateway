@@ -26,9 +26,8 @@ use crate::{
     prelude::*,
 };
 use ordered_float::NotNan;
-use tree_buf;
 
-#[derive(Clone, Debug, Default, tree_buf::Decode, tree_buf::Encode)]
+#[derive(Clone, Debug, Default)]
 pub struct Performance {
     performance: Vec<f64>,
     count: Vec<f64>,

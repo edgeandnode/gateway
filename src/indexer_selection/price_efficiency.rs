@@ -5,9 +5,8 @@ use crate::{
 use cost_model::{CompileError, CostError, CostModel};
 use eventuals::EventualExt;
 use std::convert::TryFrom;
-use tree_buf::{Decode, Encode};
 
-#[derive(Clone, Debug, Decode, Encode, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CostModelSource {
     pub model: String,
     pub globals: String,

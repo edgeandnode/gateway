@@ -4,7 +4,7 @@ use std::{
     hash::Hash,
     sync::Arc,
 };
-use tokio::sync::{RwLock, RwLockReadGuard};
+use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct SharedLookup<K, R>(Arc<RwLock<HashMap<K, Arc<R>>>>);
@@ -29,19 +29,6 @@ where
 
     pub async fn get(&self, key: &K) -> Option<Arc<R>> {
         self.0.read().await.get(key).cloned()
-    }
-
-    pub async fn snapshot<S>(&self) -> Vec<S>
-    where
-        S: for<'k, 'r> From<(&'k K, &'r R)>,
-    {
-        let outer = self.0.read().await;
-        outer.iter().map(|(k, r)| S::from((k, &r))).collect()
-    }
-
-    #[inline]
-    pub async fn read(&self) -> RwLockReadGuard<'_, HashMap<K, Arc<R>>> {
-        self.0.read().await
     }
 }
 
@@ -74,20 +61,5 @@ where
     pub async fn remove(&mut self, key: &K) {
         self.writers.remove(key);
         self.readers.write().await.remove(key);
-    }
-
-    #[cfg(test)]
-    pub async fn restore<S>(&mut self, snapshot: Vec<S>)
-    where
-        S: Into<(K, R, W)>,
-    {
-        self.writers.clear();
-        let mut readers = self.readers.write().await;
-        readers.clear();
-        for s in snapshot.into_iter() {
-            let (k, r, w) = s.into();
-            self.writers.insert(k.clone(), w);
-            readers.insert(k, Arc::new(r));
-        }
     }
 }

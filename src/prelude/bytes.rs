@@ -3,7 +3,7 @@ pub use std::{fmt, str::FromStr};
 
 macro_rules! bytes_wrapper {
     ($vis:vis, $id:ident, $len:expr) => {
-        #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd, tree_buf::Decode, tree_buf::Encode)]
+        #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
         $vis struct $id {
             pub bytes: [u8; $len],
         }

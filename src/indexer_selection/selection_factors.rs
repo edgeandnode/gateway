@@ -1,14 +1,13 @@
 use crate::{
     indexer_selection::{
         allocations::*, network_cache::*, performance::*, price_efficiency::*, reputation::*,
-        utility::*, BadIndexerReason, Context, Indexing, SecretKey, SelectionError,
+        utility::*, BadIndexerReason, Context, SecretKey, SelectionError,
     },
     prelude::*,
 };
 use eventuals::EventualExt;
 use std::sync::Arc;
 use tokio::{sync::RwLock, time};
-use tree_buf::{Decode, Encode};
 
 pub struct SelectionFactors {
     price_efficiency: PriceEfficiency,
@@ -33,15 +32,6 @@ pub struct IndexingData {
 pub struct IndexingStatus {
     pub block: u64,
     pub latest: u64,
-}
-
-#[derive(Debug, Decode, Encode)]
-pub struct IndexingSnapshot {
-    pub cost_model: Option<CostModelSource>,
-    pub indexing: Indexing,
-    pub performance: Performance,
-    pub freshness: DataFreshness,
-    pub reputation: Reputation,
 }
 
 impl Reader for SelectionFactors {
@@ -166,31 +156,5 @@ impl SelectionFactors {
         self.price_efficiency
             .get_price(context, weight, max_budget)
             .await
-    }
-
-    pub async fn snapshot(&self, indexing: &Indexing) -> IndexingSnapshot {
-        let lock = self.locked.read().await;
-        IndexingSnapshot {
-            cost_model: self.price_efficiency.model_src.value_immediate(),
-            indexing: indexing.clone(),
-            performance: lock.performance.clone(),
-            freshness: lock.freshness.clone(),
-            reputation: lock.reputation.clone(),
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn restore(snapshot: IndexingSnapshot) -> (Indexing, SelectionFactors, IndexingData) {
-        let (mut writer, reader) = SelectionFactors::new();
-        if let Some(model_src) = snapshot.cost_model {
-            writer.cost_model.write(model_src);
-        }
-        {
-            let mut lock = reader.locked.write().await;
-            lock.performance = snapshot.performance;
-            lock.freshness = snapshot.freshness;
-            lock.reputation = snapshot.reputation;
-        }
-        (snapshot.indexing, reader, writer)
     }
 }
