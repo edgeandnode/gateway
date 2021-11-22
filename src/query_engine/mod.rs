@@ -264,10 +264,12 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         let mut context =
             Context::new(&query.query, query.variables.as_deref().unwrap_or_default())
                 .map_err(|_| QueryEngineError::MalformedQuery)?;
-        let block_resolver = self
-            .block_resolvers
-            .get(&query.network)
-            .ok_or(QueryEngineError::SubgraphNotFound)?;
+        let block_resolver =
+            self.block_resolvers
+                .get(&query.network)
+                .ok_or(QueryEngineError::MissingBlock(UnresolvedBlock::WithNumber(
+                    0,
+                )))?;
         let freshness_requirements =
             Indexers::freshness_requirements(&mut context, block_resolver).await?;
 
