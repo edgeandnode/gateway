@@ -90,7 +90,8 @@ async fn main() {
         .into_iter()
         .map(|provider| {
             let network = provider.network.clone();
-            let (block_cache_writer, block_cache) = BlockCache::new();
+            let (block_cache_writer, block_cache) =
+                BlockCache::new(opt.block_cache_head, opt.block_cache_size);
             let chain_client = ethereum_client::create(provider, block_cache_writer);
             let resolver = BlockResolver::new(network.clone(), block_cache, chain_client);
             (network, resolver)
