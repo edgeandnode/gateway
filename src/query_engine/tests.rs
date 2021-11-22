@@ -1,4 +1,5 @@
 use crate::{
+    indexer_client::*,
     indexer_selection::{
         test_utils::{default_cost_model, TEST_KEY},
         IndexingStatus, SecretKey,
@@ -513,12 +514,12 @@ impl Topology {
 }
 
 #[derive(Clone)]
-struct TopologyResolver {
+struct TopologyIndexer {
     topology: Arc<Mutex<Topology>>,
 }
 
 #[async_trait]
-impl Resolver for TopologyResolver {
+impl IndexerInterface for TopologyIndexer {
     async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>> {
         use regex::Regex;
         let topology = self.topology.lock().await;
@@ -590,7 +591,7 @@ async fn test() {
                 utility: UtilityConfig::default(),
                 query_budget: 1u64.try_into().unwrap(),
             },
-            TopologyResolver {
+            TopologyIndexer {
                 topology: topology.clone(),
             },
             topology.lock().await.resolvers(),
