@@ -5,6 +5,7 @@ use crate::{
     block_resolver::BlockResolver,
     indexer_client::*,
     indexer_selection::{self, Context, IndexerQuery, Indexers, SelectionError, UnresolvedBlock},
+    manifest_client::SubgraphInfo,
 };
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
@@ -155,6 +156,7 @@ pub struct QueryEngine<I: IndexerInterface + Clone + Send> {
     indexers: Arc<Indexers>,
     current_deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
+    subgraph_info: Eventual<im::HashMap<SubgraphDeploymentID, Arc<SubgraphInfo>>>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     indexer_client: I,
     config: Config,
@@ -165,6 +167,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         config: Config,
         indexer_client: I,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
+        subgraph_info: Eventual<im::HashMap<SubgraphDeploymentID, Arc<SubgraphInfo>>>,
         inputs: Inputs,
     ) -> Self {
         Self {
@@ -173,6 +176,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
             deployment_indexers: inputs.deployment_indexers,
             indexer_client,
             block_resolvers,
+            subgraph_info,
             config,
         }
     }
@@ -238,7 +242,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         result
     }
 
-    #[tracing::instrument(skip(self, query, deployment_ipfs), fields(query_id = query.id))]
+    #[tracing::instrument(skip(self, query, deployment_ipfs))]
     async fn execute_deployment_query(
         &self,
         query: ClientQuery,
@@ -261,15 +265,19 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
             |hist| hist.start_timer(),
         );
 
+        let subgraph_info = self
+            .subgraph_info
+            .value_immediate()
+            .and_then(|info| info.get(&deployment).cloned())
+            .ok_or(SubgraphNotFound)?;
+
         let mut context =
             Context::new(&query.query, query.variables.as_deref().unwrap_or_default())
-                .map_err(|_| QueryEngineError::MalformedQuery)?;
-        let block_resolver =
-            self.block_resolvers
-                .get(&query.network)
-                .ok_or(QueryEngineError::MissingBlock(UnresolvedBlock::WithNumber(
-                    0,
-                )))?;
+                .map_err(|_| MalformedQuery)?;
+        let block_resolver = self
+            .block_resolvers
+            .get(&query.network)
+            .ok_or(MissingBlock(UnresolvedBlock::WithNumber(0)))?;
         let freshness_requirements =
             Indexers::freshness_requirements(&mut context, block_resolver).await?;
 
@@ -292,8 +300,8 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                     self.config.query_budget,
                 )
                 .await;
-
             selection_timer.map(|t| t.observe_duration());
+
             match &selection_result {
                 Ok(None) => tracing::info!(err = ?NoIndexerSelected),
                 Err(err) => tracing::info!(?err),
@@ -304,110 +312,147 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                 Ok(None) => return Err(NoIndexerSelected),
                 Err(err) => return Err(err.into()),
             };
-
-            let indexer_id = indexer_query.indexing.indexer.to_string();
-            tracing::info!(indexer = %indexer_id);
-            self.observe_indexer_selection_metrics(&deployment, &indexer_query);
-            let t0 = Instant::now();
-            let result = self.indexer_client.query_indexer(&indexer_query).await;
-            let query_duration = Instant::now() - t0;
-            with_metric(
-                &METRICS.indexer_requests_duration,
-                &[&deployment_ipfs, &indexer_id],
-                |hist| hist.observe(query_duration.as_secs_f64()),
-            );
-
-            // Stand-in for an event sent to some message bus
-            let indexer_response_status = match &result {
-                Ok(response) => response.status.to_string(),
-                Err(err) => err.to_string(),
-            };
-            tracing::info!(
-                api_key = %query.api_key.key,
-                deployment = %indexer_query.indexing.deployment,
-                indexer = %indexer_query.indexing.indexer,
-                indexer_url = %indexer_query.url,
-                fee = %indexer_query.fee,
-                blocks_behind = ?indexer_query.blocks_behind,
-                indexer_query_duration_ms = query_duration.as_millis() as u32,
-                %indexer_response_status,
-                indexer_query = %indexer_query.query,
-                "indexer query result",
-            );
-
-            let response = match result {
-                Ok(response) if response.attestation.is_some() => response,
-                _ => {
-                    let indexer_response_err = match result {
-                        Ok(_) => "Response has no attestation".into(),
-                        Err(err) => err,
-                    };
-                    tracing::info!(%indexer_response_err);
-                    self.indexers
-                        .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
-                        .await;
-                    indexers.remove(
-                        indexers
-                            .iter()
-                            .position(|indexer| indexer == &indexer_query.indexing.indexer)
-                            .unwrap(),
-                    );
-                    with_metric(
-                        &METRICS.indexer_requests_failed,
-                        &[&deployment_ipfs, &indexer_id],
-                        |counter| counter.inc(),
-                    );
-                    continue;
-                }
-            };
-            with_metric(
-                &METRICS.indexer_requests_ok,
-                &[&deployment_ipfs, &indexer_id],
-                |counter| counter.inc(),
-            );
-
-            // Special-casing for a few known indexer errors; the block scope here
-            // is just to separate the code neatly from the rest
+            let indexer = indexer_query.indexing.indexer;
+            if let Ok(response) = self
+                .execute_indexer_query(
+                    &query,
+                    indexer_query,
+                    &deployment,
+                    deployment_ipfs,
+                    &subgraph_info,
+                    &mut context,
+                    block_resolver,
+                )
+                .await
             {
-                let parsed_response =
-                    serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
-                        .map_err(|_| QueryEngineError::NoIndexerSelected)?;
+                return Ok(response);
+            }
+            indexers.remove(indexers.iter().position(|i| i == &indexer).unwrap());
+        }
+        tracing::info!("retry limit reached");
+        Err(NoIndexerSelected)
+    }
 
-                if indexer_response_has_error(
-                    &parsed_response,
-                    "Failed to decode `block.hash` value: `no block with that hash found`",
-                ) {
-                    tracing::info!("indexing behind");
-                    self.indexers
-                        .observe_indexing_behind(&mut context, &indexer_query, &block_resolver)
-                        .await;
-                    continue;
-                }
+    #[tracing::instrument(skip(
+        self,
+        query,
+        indexer_query,
+        deployment,
+        deployment_ipfs,
+        subgraph_info,
+        context,
+        block_resolver
+    ))]
+    async fn execute_indexer_query(
+        &self,
+        query: &ClientQuery,
+        indexer_query: IndexerQuery,
+        deployment: &SubgraphDeploymentID,
+        deployment_ipfs: &str,
+        subgraph_info: &SubgraphInfo,
+        context: &mut Context<'_>,
+        block_resolver: &BlockResolver,
+    ) -> Result<QueryResponse, ()> {
+        let indexer_id = indexer_query.indexing.indexer.to_string();
+        tracing::info!(indexer = %indexer_id);
+        self.observe_indexer_selection_metrics(&deployment, &indexer_query);
+        let t0 = Instant::now();
+        let result = self.indexer_client.query_indexer(&indexer_query).await;
+        let query_duration = Instant::now() - t0;
+        with_metric(
+            &METRICS.indexer_requests_duration,
+            &[&deployment_ipfs, &indexer_id],
+            |hist| hist.observe(query_duration.as_secs_f64()),
+        );
 
-                if indexer_response_has_error(&parsed_response, "panic processing query") {
-                    tracing::info!("panic processing query");
-                    self.indexers
-                        .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
-                        .await;
-                    continue;
-                }
+        // Stand-in for an event sent to some message bus
+        let indexer_response_status = match &result {
+            Ok(response) => response.status.to_string(),
+            Err(err) => err.to_string(),
+        };
+        tracing::info!(
+            api_key = %query.api_key.key,
+            deployment = %indexer_query.indexing.deployment,
+            indexer = %indexer_query.indexing.indexer,
+            indexer_url = %indexer_query.url,
+            fee = %indexer_query.fee,
+            blocks_behind = ?indexer_query.blocks_behind,
+            indexer_query_duration_ms = query_duration.as_millis() as u32,
+            %indexer_response_status,
+            indexer_query = %indexer_query.query,
+            "indexer query result",
+        );
+
+        let response = match result {
+            Ok(response) => response,
+            Err(_) => {
+                self.indexers
+                    .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                    .await;
+                with_metric(
+                    &METRICS.indexer_requests_failed,
+                    &[&deployment_ipfs, &indexer_id],
+                    |counter| counter.inc(),
+                );
+                return Err(());
+            }
+        };
+        with_metric(
+            &METRICS.indexer_requests_ok,
+            &[&deployment_ipfs, &indexer_id],
+            |counter| counter.inc(),
+        );
+
+        if !subgraph_info.features.is_empty() && response.attestation.is_none() {
+            tracing::info!(indexer_response_err = "Attestable response has no attestation");
+            self.indexers
+                .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                .await;
+            return Err(());
+        }
+
+        // Special-casing for a few known indexer errors; the block scope here
+        // is just to separate the code neatly from the rest
+        {
+            let parsed_response =
+                serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
+                    .map_err(|_| ())?;
+
+            if indexer_response_has_error(
+                &parsed_response,
+                "Failed to decode `block.hash` value: `no block with that hash found`",
+            ) {
+                tracing::info!(indexer_response_err = "indexing behind");
+                self.indexers
+                    .observe_indexing_behind(context, &indexer_query, &block_resolver)
+                    .await;
+                return Err(());
             }
 
-            // TODO: fisherman
-
-            self.indexers
-                .observe_successful_query(
-                    &indexer_query.indexing,
-                    query_duration,
-                    &indexer_query.receipt,
-                )
-                .await;
-            return Ok(QueryResponse {
-                query: indexer_query,
-                response,
-            });
+            if indexer_response_has_error(&parsed_response, "panic processing query") {
+                tracing::info!(indexer_response_err = "panic processing query");
+                self.indexers
+                    .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                    .await;
+                return Err(());
+            }
         }
-        Err(NoIndexerSelected)
+
+        if let Some(_attestation) = &response.attestation {
+            // TODO: fisherman
+        }
+
+        self.indexers
+            .observe_successful_query(
+                &indexer_query.indexing,
+                query_duration,
+                &indexer_query.receipt,
+            )
+            .await;
+        Ok(QueryResponse {
+            query: indexer_query,
+            response,
+        })
     }
 
     fn observe_indexer_selection_metrics(

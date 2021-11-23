@@ -2,6 +2,8 @@ mod block_resolver;
 mod ethereum_client;
 mod indexer_client;
 mod indexer_selection;
+mod ipfs_client;
+mod manifest_client;
 mod opt;
 mod prelude;
 mod query_engine;
@@ -14,6 +16,8 @@ use crate::{
     block_resolver::{BlockCache, BlockResolver},
     indexer_client::IndexerClient,
     indexer_selection::{SecretKey, UtilityConfig},
+    ipfs_client::*,
+    manifest_client::*,
     opt::*,
     prelude::*,
     query_engine::*,
@@ -114,6 +118,13 @@ async fn main() {
         .timeout(Duration::from_secs(30))
         .build()
         .unwrap();
+    let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs);
+    let deployment_ids = inputs
+        .deployment_indexers
+        .clone()
+        .map(|deployments| async move { deployments.keys().cloned().collect() });
+    let subgraph_info = manifest_client::create(ipfs_client, deployment_ids, 5);
+
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
     let subgraph_query_data = SubgraphQueryData {
         config: query_engine::Config {
@@ -126,6 +137,7 @@ async fn main() {
             client: http_client.clone(),
         },
         block_resolvers: block_resolvers.clone(),
+        subgraph_info,
         inputs: inputs.clone(),
         api_keys,
         query_id: &QUERY_ID,
@@ -351,6 +363,7 @@ struct SubgraphQueryData {
     config: Config,
     indexer_client: IndexerClient,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
+    subgraph_info: Eventual<im::HashMap<SubgraphDeploymentID, Arc<SubgraphInfo>>>,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     query_id: &'static AtomicUsize,
@@ -394,6 +407,7 @@ async fn handle_subgraph_query_inner(
         data.config.clone(),
         data.indexer_client.clone(),
         data.block_resolvers.clone(),
+        data.subgraph_info.clone(),
         data.inputs.clone(),
     );
     let url_params = request.match_info();

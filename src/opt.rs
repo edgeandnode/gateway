@@ -22,6 +22,12 @@ pub struct Opt {
     )]
     pub sync_agent: String,
     #[structopt(
+        help = "IPFS endpoint with access to the subgraph files",
+        long = "--ipfs",
+        env = "IPFS"
+    )]
+    pub ipfs: Url,
+    #[structopt(
         help = "Ethereum provider URLs, format: '<network>=<url>,...'\ne.g. rinkeby=eth-rinkeby.alchemyapi.io/v2/<api-key>",
         long = "--ethereum-providers",
         env = "ETHEREUM_PROVIDERS"

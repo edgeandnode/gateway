@@ -145,6 +145,28 @@ impl Topology {
         Arc::new(resolvers)
     }
 
+    fn subgraph_info(&self) -> Eventual<im::HashMap<SubgraphDeploymentID, Arc<SubgraphInfo>>> {
+        let info = self
+            .subgraphs()
+            .into_iter()
+            .flat_map(|(network, subgraph)| {
+                subgraph
+                    .deployments
+                    .iter()
+                    .map(|deployment| {
+                        let info = Arc::new(SubgraphInfo {
+                            id: deployment.id.clone(),
+                            network: network.name.clone(),
+                            features: vec![],
+                        });
+                        (deployment.id.clone(), info)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        Eventual::from_value(info)
+    }
+
     fn gen_query(&mut self) -> ClientQuery {
         fn choose_name<'s, I: IntoIterator<Item = &'s String>>(
             rng: &mut SmallRng,
@@ -584,6 +606,8 @@ async fn test() {
             input_writers,
             &rng,
         )));
+        let resolvers = topology.lock().await.resolvers();
+        let subgraph_info = topology.lock().await.subgraph_info();
         let query_engine = QueryEngine::new(
             Config {
                 network: "test".to_string(),
@@ -594,7 +618,8 @@ async fn test() {
             TopologyIndexer {
                 topology: topology.clone(),
             },
-            topology.lock().await.resolvers(),
+            resolvers,
+            subgraph_info,
             inputs,
         );
         topology.lock().await.write_inputs().await;
