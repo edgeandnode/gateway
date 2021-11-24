@@ -73,6 +73,7 @@ impl From<UnresolvedBlock> for SelectionError {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum BadIndexerReason {
+    Penalized,
     MissingIndexerStake,
     BehindMinimumBlock,
     MissingIndexingStatus,

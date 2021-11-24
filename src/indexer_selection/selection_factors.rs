@@ -17,6 +17,7 @@ pub struct SelectionFactors {
 
 #[derive(Default)]
 struct LockedState {
+    penalized: bool,
     performance: Performance,
     reputation: Reputation,
     freshness: DataFreshness,
@@ -57,6 +58,7 @@ impl Reader for SelectionFactors {
                     let mut lock = locked.write().await;
                     let behind = status.latest.saturating_sub(status.block);
                     lock.freshness.set_blocks_behind(behind, status.latest);
+                    lock.penalized = false;
                 }
             })
             .forever();
@@ -95,14 +97,39 @@ impl SelectionFactors {
         lock.allocations.release(receipt, status);
     }
 
+    /// Apply a temporary ban to the indexer that will expire when the indexing status updated.
+    pub async fn penalize(&self) {
+        let mut lock = self.locked.write().await;
+        lock.penalized = true;
+    }
+
     pub async fn observe_indexing_behind(
         &self,
         freshness_requirements: &Result<BlockRequirements, SelectionError>,
         latest: u64,
     ) {
+        let minimum_block = match freshness_requirements {
+            // If we observed a block hash in the query that we could no longer associate with a
+            // number, then we have detected a reorg and the indexer receives no penalty.
+            Err(_) => return,
+            Ok(requirements) => {
+                assert!(
+                    !requirements.has_latest,
+                    "Observe indexing behind should only take deterministic queries"
+                );
+                requirements.minimum_block
+            }
+        };
         let mut lock = self.locked.write().await;
-        lock.freshness
-            .observe_indexing_behind(freshness_requirements, latest);
+        match minimum_block {
+            Some(minimum_block) => lock
+                .freshness
+                .observe_indexing_behind(minimum_block, latest),
+            // TODO: Give the indexer a harsh penalty here. The only way to reach this
+            // would be if they returned that the block was unknown or not indexed for a
+            // query with an empty selection set.
+            None => lock.penalized = true,
+        };
     }
 
     pub async fn decay(&self, retain: f64) {
@@ -113,6 +140,9 @@ impl SelectionFactors {
 
     pub async fn blocks_behind(&self) -> Result<u64, BadIndexerReason> {
         let lock = self.locked.read().await;
+        if lock.penalized {
+            return Err(BadIndexerReason::Penalized);
+        }
         lock.freshness.blocks_behind()
     }
 
