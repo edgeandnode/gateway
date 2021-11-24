@@ -4,6 +4,7 @@ use crate::{
         test_utils::{default_cost_model, TEST_KEY},
         IndexingStatus, SecretKey,
     },
+    manifest_client::{SubgraphInfo, SubgraphInfoMap},
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
 };
@@ -145,7 +146,7 @@ impl Topology {
         Arc::new(resolvers)
     }
 
-    fn subgraph_info(&self) -> Eventual<im::HashMap<SubgraphDeploymentID, Arc<SubgraphInfo>>> {
+    fn subgraph_info(&self) -> SubgraphInfoMap {
         let info = self
             .subgraphs()
             .into_iter()
@@ -154,17 +155,17 @@ impl Topology {
                     .deployments
                     .iter()
                     .map(|deployment| {
-                        let info = Arc::new(SubgraphInfo {
+                        let info = Eventual::from_value(Ptr::new(SubgraphInfo {
                             id: deployment.id.clone(),
                             network: network.name.clone(),
                             features: vec![],
-                        });
+                        }));
                         (deployment.id.clone(), info)
                     })
                     .collect::<Vec<_>>()
             })
             .collect();
-        Eventual::from_value(info)
+        Eventual::from_value(Ptr::new(info))
     }
 
     fn gen_query(&mut self) -> ClientQuery {
