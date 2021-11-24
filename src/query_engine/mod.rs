@@ -384,7 +384,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                     continue;
                 }
 
-                if indexer_response_has_error(&parsed_response, "panic processing query: panic") {
+                if indexer_response_has_error(&parsed_response, "panic processing query") {
                     tracing::info!("panic processing query");
                     self.indexers
                         .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
@@ -545,12 +545,12 @@ impl Metrics {
     }
 }
 
-/// Returns true if the GraphQL response includes at least one error with the
-/// given message.
+/// Returns true if the GraphQL response includes at least one error whose
+/// message beings with the given message.
 fn indexer_response_has_error(response: &Response<Box<RawValue>>, msg: &'static str) -> bool {
     response
         .errors
         .as_ref()
-        .map(|errs| errs.iter().any(|err| err.message == msg))
+        .map(|errs| errs.iter().any(|err| err.message.starts_with(msg)))
         .unwrap_or(false)
 }
