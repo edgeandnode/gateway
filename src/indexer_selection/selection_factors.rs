@@ -17,6 +17,8 @@ pub struct SelectionFactors {
 
 #[derive(Default)]
 struct LockedState {
+    /// Used to apply a temporary ban to the indexer that will expire when the indexing status is
+    /// updated.
     penalized: bool,
     performance: Performance,
     reputation: Reputation,
@@ -91,16 +93,13 @@ impl SelectionFactors {
         lock.allocations.release(receipt, QueryStatus::Success);
     }
 
-    pub async fn observe_failed_query(&self, receipt: &[u8], status: QueryStatus) {
+    pub async fn observe_failed_query(&self, receipt: &[u8], is_timeout: bool) {
         let mut lock = self.locked.write().await;
         lock.reputation.add_failed_query();
-        lock.allocations.release(receipt, status);
-    }
-
-    /// Apply a temporary ban to the indexer that will expire when the indexing status updated.
-    pub async fn penalize(&self) {
-        let mut lock = self.locked.write().await;
-        lock.penalized = true;
+        lock.allocations.release(receipt, QueryStatus::Failure);
+        if is_timeout {
+            lock.penalized = true;
+        }
     }
 
     pub async fn observe_indexing_behind(

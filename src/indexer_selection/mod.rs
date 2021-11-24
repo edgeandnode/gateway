@@ -202,19 +202,14 @@ impl Indexers {
         &self,
         indexing: &Indexing,
         receipt: &[u8],
-        is_unknown: bool,
+        is_timeout: bool,
     ) {
-        let status = if is_unknown {
-            QueryStatus::Unknown
-        } else {
-            QueryStatus::Failure
-        };
         let selection_factors = match self.indexings.get(indexing).await {
             Some(selection_factors) => selection_factors,
             None => return,
         };
         selection_factors
-            .observe_failed_query(receipt, status)
+            .observe_failed_query(receipt, is_timeout)
             .await;
     }
 

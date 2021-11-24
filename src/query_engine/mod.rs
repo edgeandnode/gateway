@@ -53,13 +53,6 @@ pub struct QueryResponse {
 }
 
 #[derive(Debug)]
-pub struct IndexerResponse {
-    pub status: u16,
-    pub payload: String,
-    pub attestation: Option<Attestation>,
-}
-
-#[derive(Debug)]
 pub enum QueryEngineError {
     SubgraphNotFound,
     NoIndexers,
@@ -394,9 +387,17 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
 
         let response = match result {
             Ok(response) => response,
-            Err(_) => {
+            Err(err) => {
+                let is_timeout = match err {
+                    IndexerError::Timeout => true,
+                    IndexerError::Other(_) => false,
+                };
                 self.indexers
-                    .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                    .observe_failed_query(
+                        &indexer_query.indexing,
+                        &indexer_query.receipt,
+                        is_timeout,
+                    )
                     .await;
                 with_metric(
                     &METRICS.indexer_requests_failed,
@@ -415,7 +416,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         if !subgraph_info.features.is_empty() && response.attestation.is_none() {
             tracing::info!(indexer_response_err = "Attestable response has no attestation");
             self.indexers
-                .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, false)
                 .await;
             return Err(RemoveIndexer::Yes);
         }
@@ -441,7 +442,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
             if indexer_response_has_error(&parsed_response, "panic processing query") {
                 tracing::info!(indexer_response_err = "panic processing query");
                 self.indexers
-                    .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                    .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, false)
                     .await;
                 return Err(RemoveIndexer::Yes);
             }
