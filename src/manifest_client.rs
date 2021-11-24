@@ -4,7 +4,7 @@ use im;
 use serde::Deserialize;
 use serde_yaml;
 use std::sync::Arc;
-use tokio::time::sleep;
+use tokio::{sync::Mutex, time::sleep};
 
 pub struct SubgraphInfo {
     pub id: SubgraphDeploymentID,
@@ -19,11 +19,13 @@ pub fn create(
     ipfs_client: Arc<IPFSClient>,
     subgraphs: Eventual<Vec<SubgraphDeploymentID>>,
 ) -> SubgraphInfoMap {
-    let manifests = im::HashMap::new();
+    let manifests: Arc<Mutex<im::HashMap<SubgraphDeploymentID, Eventual<Ptr<SubgraphInfo>>>>> =
+        Arc::default();
     subgraphs.map(move |subgraphs| {
         let ipfs_client = ipfs_client.clone();
-        let mut manifests = manifests.clone();
+        let manifests = manifests.clone();
         async move {
+            let mut manifests = manifests.lock().await;
             // Remove deployments not present in updated set
             let stale_deployments = manifests
                 .keys()
@@ -39,27 +41,24 @@ pub fn create(
                 .filter(|id| !manifests.contains_key(id))
                 .collect::<Vec<SubgraphDeploymentID>>();
             for deployment in unresolved {
-                let (mut writer, reader) = Eventual::new();
-                tokio::spawn({
-                    let client = ipfs_client.clone();
-                    async move {
-                        loop {
-                            match fetch_manifest(&client, deployment).await {
-                                Ok(response) => {
-                                    writer.write(Ptr::new(response));
-                                    break;
-                                }
-                                Err((deployment, manifest_fetch_err)) => {
-                                    tracing::warn!(%deployment, %manifest_fetch_err);
-                                    sleep(Duration::from_secs(20)).await;
-                                }
+                let client = ipfs_client.clone();
+                let info = Eventual::spawn(move |mut writer| async move {
+                    loop {
+                        match fetch_manifest(&client, deployment).await {
+                            Ok(response) => {
+                                writer.write(Ptr::new(response));
+                                return Err(eventuals::Closed);
+                            }
+                            Err((deployment, manifest_fetch_err)) => {
+                                tracing::warn!(%deployment, %manifest_fetch_err);
+                                sleep(Duration::from_secs(20)).await;
                             }
                         }
                     }
                 });
-                manifests.insert(deployment, reader);
+                manifests.insert(deployment, info);
             }
-            Ptr::new(manifests)
+            Ptr::new(manifests.clone())
         }
     })
 }
