@@ -5,7 +5,7 @@ use crate::{
     block_resolver::BlockResolver,
     indexer_client::*,
     indexer_selection::{self, Context, IndexerQuery, Indexers, SelectionError, UnresolvedBlock},
-    manifest_client::SubgraphInfo,
+    manifest_client::{SubgraphInfo, SubgraphInfoMap},
 };
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
@@ -79,6 +79,11 @@ impl From<SelectionError> for QueryEngineError {
             SelectionError::MissingBlock(unresolved) => Self::MissingBlock(unresolved),
         }
     }
+}
+
+enum RemoveIndexer {
+    Yes,
+    No,
 }
 
 struct Metrics {
@@ -156,7 +161,7 @@ pub struct QueryEngine<I: IndexerInterface + Clone + Send> {
     indexers: Arc<Indexers>,
     current_deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
-    subgraph_info: Eventual<im::HashMap<SubgraphDeploymentID, Arc<SubgraphInfo>>>,
+    subgraph_info: SubgraphInfoMap,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     indexer_client: I,
     config: Config,
@@ -167,7 +172,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         config: Config,
         indexer_client: I,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
-        subgraph_info: Eventual<im::HashMap<SubgraphDeploymentID, Arc<SubgraphInfo>>>,
+        subgraph_info: SubgraphInfoMap,
         inputs: Inputs,
     ) -> Self {
         Self {
@@ -268,7 +273,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         let subgraph_info = self
             .subgraph_info
             .value_immediate()
-            .and_then(|info| info.get(&deployment).cloned())
+            .and_then(|info| info.get(&deployment)?.value_immediate())
             .ok_or(SubgraphNotFound)?;
 
         let mut context =
@@ -313,7 +318,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                 Err(err) => return Err(err.into()),
             };
             let indexer = indexer_query.indexing.indexer;
-            if let Ok(response) = self
+            let result = self
                 .execute_indexer_query(
                     &query,
                     indexer_query,
@@ -323,11 +328,15 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                     &mut context,
                     block_resolver,
                 )
-                .await
-            {
-                return Ok(response);
-            }
-            indexers.remove(indexers.iter().position(|i| i == &indexer).unwrap());
+                .await;
+            match result {
+                Ok(response) => return Ok(response),
+                Err(RemoveIndexer::No) => (),
+                Err(RemoveIndexer::Yes) => {
+                    // TODO: There should be a penalty here, but the indexer should not be removed.
+                    indexers.remove(indexers.iter().position(|i| i == &indexer).unwrap());
+                }
+            };
         }
         tracing::info!("retry limit reached");
         Err(NoIndexerSelected)
@@ -352,7 +361,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         subgraph_info: &SubgraphInfo,
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
-    ) -> Result<QueryResponse, ()> {
+    ) -> Result<QueryResponse, RemoveIndexer> {
         let indexer_id = indexer_query.indexing.indexer.to_string();
         tracing::info!(indexer = %indexer_id);
         self.observe_indexer_selection_metrics(&deployment, &indexer_query);
@@ -394,7 +403,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                     &[&deployment_ipfs, &indexer_id],
                     |counter| counter.inc(),
                 );
-                return Err(());
+                return Err(RemoveIndexer::Yes);
             }
         };
         with_metric(
@@ -408,7 +417,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
             self.indexers
                 .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
                 .await;
-            return Err(());
+            return Err(RemoveIndexer::Yes);
         }
 
         // Special-casing for a few known indexer errors; the block scope here
@@ -416,7 +425,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         {
             let parsed_response =
                 serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
-                    .map_err(|_| ())?;
+                    .map_err(|_| RemoveIndexer::Yes)?;
 
             if indexer_response_has_error(
                 &parsed_response,
@@ -426,7 +435,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                 self.indexers
                     .observe_indexing_behind(context, &indexer_query, &block_resolver)
                     .await;
-                return Err(());
+                return Err(RemoveIndexer::No);
             }
 
             if indexer_response_has_error(&parsed_response, "panic processing query") {
@@ -434,7 +443,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                 self.indexers
                     .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
                     .await;
-                return Err(());
+                return Err(RemoveIndexer::Yes);
             }
         }
 

@@ -1,10 +1,10 @@
 use crate::{ipfs_client::*, prelude::*};
 use eventuals::EventualExt;
-use futures::{stream, StreamExt};
 use im;
 use serde::Deserialize;
 use serde_yaml;
 use std::sync::Arc;
+use tokio::time::sleep;
 
 pub struct SubgraphInfo {
     pub id: SubgraphDeploymentID,
@@ -12,46 +12,54 @@ pub struct SubgraphInfo {
     pub features: Vec<String>,
 }
 
-impl Eq for SubgraphInfo {}
-impl PartialEq for SubgraphInfo {
-    fn eq(&self, other: &Self) -> bool {
-        self.id.eq(&other.id)
-    }
-}
+pub type SubgraphInfoMap =
+    Eventual<Ptr<im::HashMap<SubgraphDeploymentID, Eventual<Ptr<SubgraphInfo>>>>>;
 
 pub fn create(
     ipfs_client: Arc<IPFSClient>,
     subgraphs: Eventual<Vec<SubgraphDeploymentID>>,
-    max_concurrent: usize,
-) -> Eventual<im::HashMap<SubgraphDeploymentID, Arc<SubgraphInfo>>> {
+) -> SubgraphInfoMap {
     let manifests = im::HashMap::new();
     subgraphs.map(move |subgraphs| {
         let ipfs_client = ipfs_client.clone();
         let mut manifests = manifests.clone();
         async move {
+            // Remove deployments not present in updated set
+            let stale_deployments = manifests
+                .keys()
+                .filter(|id| !subgraphs.contains(id))
+                .cloned()
+                .collect::<Vec<SubgraphDeploymentID>>();
+            for deployment in stale_deployments {
+                manifests.remove(&deployment);
+            }
+
             let unresolved = subgraphs
                 .into_iter()
                 .filter(|id| !manifests.contains_key(id))
                 .collect::<Vec<SubgraphDeploymentID>>();
-            let results = stream::iter(unresolved)
-                .map(|id| {
-                    let ipfs_client = &ipfs_client;
-                    async move { fetch_manifest(ipfs_client, id).await }
-                })
-                .buffer_unordered(max_concurrent)
-                .collect::<Vec<Result<SubgraphInfo, (SubgraphDeploymentID, String)>>>()
-                .await;
-            for result in results {
-                match result {
-                    Ok(manifest) => {
-                        manifests.insert(manifest.id, Arc::new(manifest));
+            for deployment in unresolved {
+                let (mut writer, reader) = Eventual::new();
+                tokio::spawn({
+                    let client = ipfs_client.clone();
+                    async move {
+                        loop {
+                            match fetch_manifest(&client, deployment).await {
+                                Ok(response) => {
+                                    writer.write(Ptr::new(response));
+                                    break;
+                                }
+                                Err((deployment, manifest_fetch_err)) => {
+                                    tracing::warn!(%deployment, %manifest_fetch_err);
+                                    sleep(Duration::from_secs(20)).await;
+                                }
+                            }
+                        }
                     }
-                    Err((deployment, manifest_fetch_err)) => {
-                        tracing::warn!(%deployment, %manifest_fetch_err);
-                    }
-                };
+                });
+                manifests.insert(deployment, reader);
             }
-            manifests
+            Ptr::new(manifests)
         }
     })
 }

@@ -118,12 +118,12 @@ async fn main() {
         .timeout(Duration::from_secs(30))
         .build()
         .unwrap();
-    let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs);
+    let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
     let deployment_ids = inputs
         .deployment_indexers
         .clone()
         .map(|deployments| async move { deployments.keys().cloned().collect() });
-    let subgraph_info = manifest_client::create(ipfs_client, deployment_ids, 5);
+    let subgraph_info = manifest_client::create(ipfs_client, deployment_ids);
 
     static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
     let subgraph_query_data = SubgraphQueryData {
@@ -363,7 +363,7 @@ struct SubgraphQueryData {
     config: Config,
     indexer_client: IndexerClient,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
-    subgraph_info: Eventual<im::HashMap<SubgraphDeploymentID, Arc<SubgraphInfo>>>,
+    subgraph_info: SubgraphInfoMap,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     query_id: &'static AtomicUsize,
