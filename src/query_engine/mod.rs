@@ -546,7 +546,7 @@ impl Metrics {
 }
 
 /// Returns true if the GraphQL response includes at least one error whose
-/// message beings with the given message.
+/// message begins with the given message.
 fn indexer_response_has_error(response: &Response<Box<RawValue>>, msg: &'static str) -> bool {
     response
         .errors
