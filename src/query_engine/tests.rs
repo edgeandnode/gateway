@@ -4,6 +4,7 @@ use crate::{
         test_utils::{default_cost_model, TEST_KEY},
         IndexingStatus, SecretKey,
     },
+    manifest_client::{SubgraphInfo, SubgraphInfoMap},
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
 };
@@ -143,6 +144,28 @@ impl Topology {
             .map(|(name, network)| (name.clone(), BlockResolver::test(&network.blocks)))
             .collect();
         Arc::new(resolvers)
+    }
+
+    fn subgraph_info(&self) -> SubgraphInfoMap {
+        let info = self
+            .subgraphs()
+            .into_iter()
+            .flat_map(|(network, subgraph)| {
+                subgraph
+                    .deployments
+                    .iter()
+                    .map(|deployment| {
+                        let info = Eventual::from_value(Ptr::new(SubgraphInfo {
+                            id: deployment.id.clone(),
+                            network: network.name.clone(),
+                            features: vec![],
+                        }));
+                        (deployment.id.clone(), info)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        Eventual::from_value(Ptr::new(info))
     }
 
     fn gen_query(&mut self) -> ClientQuery {
@@ -584,6 +607,8 @@ async fn test() {
             input_writers,
             &rng,
         )));
+        let resolvers = topology.lock().await.resolvers();
+        let subgraph_info = topology.lock().await.subgraph_info();
         let query_engine = QueryEngine::new(
             Config {
                 network: "test".to_string(),
@@ -594,7 +619,8 @@ async fn test() {
             TopologyIndexer {
                 topology: topology.clone(),
             },
-            topology.lock().await.resolvers(),
+            resolvers,
+            subgraph_info,
             inputs,
         );
         topology.lock().await.write_inputs().await;
