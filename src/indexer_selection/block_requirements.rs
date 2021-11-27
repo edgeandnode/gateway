@@ -3,10 +3,8 @@ use crate::{
     indexer_selection::{BadIndexerReason, Context, SelectionError, UnresolvedBlock},
     prelude::*,
 };
-use codecs::Encode as _;
 use cost_model::QueryVariables;
 use graphql_parser::query::{self as q, Number};
-use neon_utils::marshalling::codecs;
 use serde::{Deserialize, Serialize};
 use single::Single as _;
 use std::{collections::BTreeMap, convert::TryFrom};
@@ -47,7 +45,10 @@ impl BlockRequirements {
 
 // Creates this: { hash: "0xFF" }
 fn block_hash_field<'a, T: q::Text<'a>>(hash: &Bytes32) -> BTreeMap<&'static str, q::Value<'a, T>> {
-    BTreeMap::from_iter(std::iter::once(("hash", q::Value::String(hash.encode()))))
+    BTreeMap::from_iter(std::iter::once((
+        "hash",
+        q::Value::String(hash.to_string()),
+    )))
 }
 
 pub async fn make_query_deterministic(
@@ -201,9 +202,10 @@ pub async fn freshness_requirements<'c>(
                         requirements.parse_minimum_block(number)?;
                     }
                     Ok((&"hash", q::Value::String(hash))) => {
-                        let hash_bytes: [u8; 32] =
-                            codecs::decode(hash.as_str()).map_err(|_| SelectionError::BadInput)?;
-                        let hash = hash_bytes.into();
+                        let hash = hash
+                            .as_str()
+                            .parse::<Bytes32>()
+                            .map_err(|_| SelectionError::BadInput)?;
                         let number = block_resolver
                             .resolve_block(UnresolvedBlock::WithHash(hash))
                             .await?
