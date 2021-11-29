@@ -23,6 +23,15 @@ pub enum IndexerError {
     Other(String),
 }
 
+impl IndexerError {
+    pub fn is_timeout(&self) -> bool {
+        match self {
+            Self::Timeout => true,
+            Self::Other(_) => false,
+        }
+    }
+}
+
 impl fmt::Display for IndexerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

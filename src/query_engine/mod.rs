@@ -388,15 +388,11 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         let response = match result {
             Ok(response) => response,
             Err(err) => {
-                let is_timeout = match err {
-                    IndexerError::Timeout => true,
-                    IndexerError::Other(_) => false,
-                };
                 self.indexers
                     .observe_failed_query(
                         &indexer_query.indexing,
                         &indexer_query.receipt,
-                        is_timeout,
+                        err.is_timeout(),
                     )
                     .await;
                 with_metric(
