@@ -36,13 +36,7 @@ use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicUsize, Ordering as MemoryOrdering},
-        Arc,
-    },
-};
+use std::{collections::HashMap, sync::Arc};
 use structopt::StructOpt as _;
 use url::Url;
 
@@ -125,7 +119,6 @@ async fn main() {
         .map(|deployments| async move { deployments.keys().cloned().collect() });
     let subgraph_info = manifest_client::create(ipfs_client, deployment_ids);
 
-    static QUERY_ID: AtomicUsize = AtomicUsize::new(0);
     let subgraph_query_data = SubgraphQueryData {
         config: query_engine::Config {
             network,
@@ -140,7 +133,6 @@ async fn main() {
         subgraph_info,
         inputs: inputs.clone(),
         api_keys,
-        query_id: &QUERY_ID,
         stats_db,
     };
     let network_subgraph_query_data = NetworkSubgraphQueryData {
@@ -366,7 +358,6 @@ struct SubgraphQueryData {
     subgraph_info: SubgraphInfoMap,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
-    query_id: &'static AtomicUsize,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
 }
 
@@ -377,7 +368,7 @@ async fn handle_subgraph_query(
     data: web::Data<SubgraphQueryData>,
 ) -> HttpResponse {
     let t0 = Instant::now();
-    let query_id = data.query_id.fetch_add(1, MemoryOrdering::Relaxed) as u64;
+    let query_id = QueryID::new();
     let response = handle_subgraph_query_inner(request, payload, data, query_id).await;
     let response_time = Instant::now() - t0;
     let (payload, status) = match response {
@@ -388,7 +379,7 @@ async fn handle_subgraph_query(
         Err((status, msg)) => (graphql_error_response(status, msg), msg.to_string()),
     };
     tracing::info!(
-        query_id,
+        %query_id,
         %status,
         response_time_ms = response_time.as_millis() as u32,
         "client query result",
@@ -401,7 +392,7 @@ async fn handle_subgraph_query_inner(
     request: HttpRequest,
     payload: web::Json<QueryBody>,
     data: web::Data<SubgraphQueryData>,
-    query_id: u64,
+    query_id: QueryID,
 ) -> Result<HttpResponse, (StatusCode, &'static str)> {
     let query_engine = QueryEngine::new(
         data.config.clone(),
