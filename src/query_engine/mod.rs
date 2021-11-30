@@ -16,7 +16,14 @@ use im;
 use lazy_static::lazy_static;
 use prometheus;
 use serde_json::value::RawValue;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicUsize, Ordering as MemoryOrdering},
+        Arc,
+    },
+};
+use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub enum Subgraph {
@@ -26,12 +33,40 @@ pub enum Subgraph {
 
 #[derive(Clone, Debug)]
 pub struct ClientQuery {
-    pub id: u64,
+    pub id: QueryID,
     pub api_key: Arc<APIKey>,
     pub query: String,
     pub variables: Option<String>,
     pub network: String,
     pub subgraph: Subgraph,
+}
+
+#[derive(Clone, Copy)]
+pub struct QueryID {
+    local_id: u64,
+}
+
+impl QueryID {
+    pub fn new() -> Self {
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let local_id = COUNTER.fetch_add(1, MemoryOrdering::Relaxed) as u64;
+        Self { local_id }
+    }
+}
+
+impl fmt::Display for QueryID {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        lazy_static! {
+            static ref GATEWAY_ID: Uuid = Uuid::new_v4();
+        }
+        write!(f, "{}-{:x}", *GATEWAY_ID, self.local_id)
+    }
+}
+
+impl fmt::Debug for QueryID {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -186,7 +221,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         }
     }
 
-    #[tracing::instrument(skip(self, query), fields(query_id = query.id))]
+    #[tracing::instrument(skip(self, query), fields(query_id = %query.id))]
     pub async fn execute_query(
         &self,
         query: ClientQuery,
