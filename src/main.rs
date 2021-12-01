@@ -367,9 +367,25 @@ async fn handle_subgraph_query(
     payload: web::Json<QueryBody>,
     data: web::Data<SubgraphQueryData>,
 ) -> HttpResponse {
+    let url_params = request.match_info();
+    let subgraph = if let Some(name) = url_params
+        .get("subgraph_id")
+        .and_then(|id| id.parse::<SubgraphID>().ok())
+    {
+        Subgraph::ID(name.into())
+    } else if let Some(deployment) = url_params
+        .get("deployment_id")
+        .and_then(|id| SubgraphDeploymentID::from_ipfs_hash(&id))
+    {
+        Subgraph::Deployment(deployment)
+    } else {
+        return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier");
+    };
+    let subgraph_info = format!("{:?}", subgraph);
+
     let t0 = Instant::now();
     let query_id = QueryID::new();
-    let response = handle_subgraph_query_inner(request, payload, data, query_id).await;
+    let response = handle_subgraph_query_inner(request, payload, data, query_id, subgraph).await;
     let response_time = Instant::now() - t0;
     let (payload, status) = match response {
         Ok(payload) => {
@@ -380,6 +396,7 @@ async fn handle_subgraph_query(
     };
     tracing::info!(
         %query_id,
+        %subgraph_info,
         %status,
         response_time_ms = response_time.as_millis() as u32,
         "client query result",
@@ -387,12 +404,13 @@ async fn handle_subgraph_query(
     payload
 }
 
-#[tracing::instrument(skip(request, payload, data))]
+#[tracing::instrument(skip(request, payload, data, subgraph))]
 async fn handle_subgraph_query_inner(
     request: HttpRequest,
     payload: web::Json<QueryBody>,
     data: web::Data<SubgraphQueryData>,
     query_id: QueryID,
+    subgraph: Subgraph,
 ) -> Result<HttpResponse, (StatusCode, &'static str)> {
     let query_engine = QueryEngine::new(
         data.config.clone(),
@@ -401,22 +419,12 @@ async fn handle_subgraph_query_inner(
         data.subgraph_info.clone(),
         data.inputs.clone(),
     );
-    let url_params = request.match_info();
-    let subgraph = if let Some(id) = url_params
-        .get("subgraph_id")
-        .and_then(|id| id.parse::<SubgraphID>().ok())
-    {
-        Subgraph::ID(id)
-    } else if let Some(deployment) = url_params
-        .get("deployment_id")
-        .and_then(|id| SubgraphDeploymentID::from_ipfs_hash(&id))
-    {
-        Subgraph::Deployment(deployment)
-    } else {
-        return Err((StatusCode::BAD_REQUEST, "Invalid subgraph identifier"));
-    };
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();
-    let api_key = match url_params.get("api_key").and_then(|k| api_keys.get(k)) {
+    let api_key = match request
+        .match_info()
+        .get("api_key")
+        .and_then(|k| api_keys.get(k))
+    {
         Some(api_key) => api_key.clone(),
         None => {
             METRICS.unknown_api_key.inc();
