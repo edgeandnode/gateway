@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub enum Subgraph {
-    Name(String),
+    ID(SubgraphID),
     Deployment(SubgraphDeploymentID),
 }
 
@@ -158,14 +158,14 @@ pub struct Config {
 #[derive(Clone)]
 pub struct Inputs {
     pub indexers: Arc<Indexers>,
-    pub current_deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
+    pub current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
     pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
 }
 
 pub struct InputWriters {
     pub indexer_inputs: indexer_selection::InputWriters,
     pub indexers: Arc<Indexers>,
-    pub current_deployments: EventualWriter<Ptr<HashMap<String, SubgraphDeploymentID>>>,
+    pub current_deployments: EventualWriter<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
     pub deployment_indexers:
         EventualWriter<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
 }
@@ -194,7 +194,7 @@ impl Inputs {
 
 pub struct QueryEngine<I: IndexerInterface + Clone + Send> {
     indexers: Arc<Indexers>,
-    current_deployments: Eventual<Ptr<HashMap<String, SubgraphDeploymentID>>>,
+    current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
     subgraph_info: SubgraphInfoMap,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
@@ -233,19 +233,21 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         );
         let api_key = query.api_key.key.clone();
         let query_start = Instant::now();
-        let name_timer = if let Subgraph::Name(subgraph_name) = &query.subgraph {
-            with_metric(&METRICS.subgraph_name_duration, &[subgraph_name], |hist| {
-                hist.start_timer()
-            })
+        let name_timer = if let Subgraph::ID(id) = &query.subgraph {
+            with_metric(
+                &METRICS.subgraph_name_duration,
+                &[&id.to_string()],
+                |hist| hist.start_timer(),
+            )
         } else {
             None
         };
         let deployment = match &query.subgraph {
             Subgraph::Deployment(deployment) => deployment.clone(),
-            Subgraph::Name(name) => self
+            Subgraph::ID(id) => self
                 .current_deployments
                 .value_immediate()
-                .and_then(|map| map.get(name).cloned())
+                .and_then(|map| map.get(id).cloned())
                 .ok_or_else(|| QueryEngineError::SubgraphNotFound)?,
         };
         if !query.api_key.deployments.is_empty() && !query.api_key.deployments.contains(&deployment)

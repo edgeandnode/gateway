@@ -402,8 +402,11 @@ async fn handle_subgraph_query_inner(
         data.inputs.clone(),
     );
     let url_params = request.match_info();
-    let subgraph = if let Some(name) = url_params.get("subgraph_id") {
-        Subgraph::Name(name.into())
+    let subgraph = if let Some(id) = url_params
+        .get("subgraph_id")
+        .and_then(|id| id.parse::<SubgraphID>().ok())
+    {
+        Subgraph::ID(id)
     } else if let Some(deployment) = url_params
         .get("deployment_id")
         .and_then(|id| SubgraphDeploymentID::from_ipfs_hash(&id))
@@ -484,7 +487,7 @@ async fn handle_subgraph_query_inner(
         fee: result.query.fee,
         domain: domain.to_string(),
         subgraph: match subgraph {
-            Subgraph::Name(name) => Some(name),
+            Subgraph::ID(id) => Some(id.to_string()),
             Subgraph::Deployment(_) => None,
         },
     });
