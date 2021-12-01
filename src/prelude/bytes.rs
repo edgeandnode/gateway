@@ -1,6 +1,6 @@
 use bs58;
 use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
-use sha2::{Digest as _, Sha256};
+use sha3::{Digest as _, Keccak256};
 pub use std::{fmt, str::FromStr};
 
 macro_rules! bytes_wrapper {
@@ -76,9 +76,7 @@ impl FromStr for SubgraphID {
             .strip_prefix("0x")
             .and_then(|s| s.split_once("-"))
             .ok_or(BadSubgraphID)?;
-        println!("yup: {}, {}", account_id, sequence_id);
         let account = account_id.parse::<Address>().map_err(|_| BadSubgraphID)?;
-        println!("yup: {:?}", account);
         // Assuming u256 big-endian, since that's the word-size of the EVM
         let mut sequence_word = [0u8; 32];
         let sequence_number = sequence_id
@@ -86,7 +84,7 @@ impl FromStr for SubgraphID {
             .map_err(|_| BadSubgraphID)?
             .to_be_bytes();
         sequence_word[24..].copy_from_slice(&sequence_number);
-        let hash: [u8; 32] = Sha256::default()
+        let hash: [u8; 32] = Keccak256::default()
             .chain(account.as_ref())
             .chain(&sequence_word)
             .finalize()
@@ -164,10 +162,10 @@ mod tests {
 
     #[tokio::test]
     async fn subgraph_id_encoding() {
-        let bytes = hex::decode("b72b8b0f4a7d308c65fe38d6688806d4c20bd065fc9a723389842b4c0bb7e6bf")
+        let bytes = hex::decode("67486e65165b1474898247760a4b852d70d95782c6325960e5b6b4fd82fed1bd")
             .unwrap();
         let v1 = "0xdeadbeef678b513255cea949017921c8c9f6ef82-1";
-        let v2 = "DL27shUK28HXNxdDrRiFYCQXUgTpo8oHuGbFwuX6iQJr";
+        let v2 = "7xB3yxxD8okmq4dZPky3eP1nYRgLfZrwMyUQBGo32t4U";
 
         let id1 = v1.parse::<SubgraphID>().unwrap();
         let id2 = v2.parse::<SubgraphID>().unwrap();
