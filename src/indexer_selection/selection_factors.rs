@@ -1,8 +1,8 @@
 use crate::{
     indexer_selection::{
-        allocations::*, block_requirements::*, data_freshness::*, performance::*,
-        price_efficiency::*, reputation::*, utility::*, BadIndexerReason, Context, SecretKey,
-        SelectionError,
+        allocations::*, block_requirements::*, data_freshness::*, decay::DecayBuffer,
+        performance::*, price_efficiency::*, reputation::*, utility::*, BadIndexerReason, Context,
+        SecretKey, SelectionError,
     },
     prelude::*,
 };
@@ -18,7 +18,7 @@ pub struct SelectionFactors {
 #[derive(Default)]
 struct LockedState {
     performance: Performance,
-    reputation: Reputation,
+    reputation: DecayBuffer<Reputation>,
     freshness: DataFreshness,
     allocations: Allocations,
 }
@@ -85,13 +85,13 @@ impl SelectionFactors {
     pub async fn observe_successful_query(&self, duration: time::Duration, receipt: &[u8]) {
         let mut lock = self.locked.write().await;
         lock.performance.add_successful_query(duration);
-        lock.reputation.add_successful_query();
+        lock.reputation.current().add_successful_query();
         lock.allocations.release(receipt, QueryStatus::Success);
     }
 
     pub async fn observe_failed_query(&self, receipt: &[u8], status: QueryStatus) {
         let mut lock = self.locked.write().await;
-        lock.reputation.add_failed_query();
+        lock.reputation.current().add_failed_query();
         lock.allocations.release(receipt, status);
     }
 
@@ -108,7 +108,7 @@ impl SelectionFactors {
     pub async fn decay(&self, retain: f64) {
         let mut lock = self.locked.write().await;
         lock.performance.decay(retain);
-        lock.reputation.decay(retain);
+        lock.reputation.decay();
     }
 
     pub async fn blocks_behind(&self) -> Result<u64, BadIndexerReason> {
@@ -128,7 +128,7 @@ impl SelectionFactors {
 
     pub async fn expected_reputation_utility(&self) -> Result<SelectionFactor, SelectionError> {
         let lock = self.locked.read().await;
-        lock.reputation.expected_utility()
+        lock.reputation.expected_utility(1.0)
     }
 
     pub async fn expected_freshness_utility(
