@@ -1,6 +1,7 @@
 mod allocations;
 mod block_requirements;
 mod data_freshness;
+mod decay;
 mod economic_security;
 mod indexers;
 mod performance;
