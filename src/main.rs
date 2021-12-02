@@ -56,9 +56,9 @@ async fn main() {
 
     let (input_writers, inputs) = Inputs::new();
 
-    // Trigger decay every 20 minutes.
+    // Trigger decay every minute.
     let indexer_selection = inputs.indexers.clone();
-    eventuals::timer(Duration::from_secs(20 * 60))
+    eventuals::timer(Duration::from_secs(60))
         .pipe_async(move |_| {
             let indexer_selection = indexer_selection.clone();
             async move {
