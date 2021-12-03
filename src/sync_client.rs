@@ -394,7 +394,7 @@ struct CurrentDeployments;
 
 fn parse_current_deployments(
     data: current_deployments::ResponseData,
-) -> Option<Ptr<HashMap<String, SubgraphDeploymentID>>> {
+) -> Option<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>> {
     use current_deployments::{CurrentDeploymentsData, ResponseData};
     let values = match data {
         ResponseData {
@@ -404,7 +404,7 @@ fn parse_current_deployments(
     };
     let parsed = values.into_iter().filter_map(|value| {
         Some((
-            value.subgraph,
+            value.subgraph.parse::<SubgraphID>().ok()?,
             SubgraphDeploymentID::from_ipfs_hash(&value.deployment)?,
         ))
     });

@@ -76,12 +76,12 @@ struct TopologyConfig {
 struct NetworkTopology {
     name: String,
     blocks: Vec<BlockPointer>,
-    subgraphs: BTreeMap<String, SubgraphTopology>,
+    subgraphs: BTreeMap<SubgraphID, SubgraphTopology>,
 }
 
 #[derive(Clone, Debug)]
 struct SubgraphTopology {
-    name: String,
+    id: SubgraphID,
     deployments: Vec<DeploymentTopology>,
 }
 
@@ -183,19 +183,28 @@ impl Topology {
         }
 
         let invalid_network = self.gen_str(*self.config.networks.end() + 1);
-        let invalid_subgraph = self.gen_str(*self.config.subgraphs.end() + 1);
+        let invalid_subgraph = "FzFAtwLSSzxhug4sEvUeusLxFdjAS3ByYqgseUYkFpkN"
+            .parse::<SubgraphID>()
+            .unwrap();
         let rng = &mut self.rng;
         let mut network = choose_name(rng, self.networks.keys(), &invalid_network);
         let mut subgraph = self
             .networks
             .get(&network)
-            .map(|net| choose_name(rng, net.subgraphs.keys(), &invalid_subgraph))
-            .unwrap_or(invalid_subgraph.clone());
+            .map(|net| {
+                *net.subgraphs
+                    .keys()
+                    .copied()
+                    .collect::<Vec<SubgraphID>>()
+                    .choose(rng)
+                    .unwrap_or(&invalid_subgraph)
+            })
+            .unwrap_or(invalid_subgraph);
         if self.flip_coin(32) {
             network = invalid_network;
         }
         if self.flip_coin(32) {
-            subgraph = invalid_subgraph;
+            subgraph = invalid_subgraph.clone();
         }
         let query = if self.flip_coin(32) { "?" } else { BASIC_QUERY };
         ClientQuery {
@@ -204,7 +213,7 @@ impl Topology {
             query: query.into(),
             variables: None,
             network,
-            subgraph: Subgraph::Name(subgraph),
+            subgraph: Subgraph::ID(subgraph),
         }
     }
 
@@ -220,24 +229,24 @@ impl Topology {
         }
         for _ in 0..self.gen_len(self.config.subgraphs.clone(), 32) {
             let subgraph = self.gen_subgraph();
-            network.subgraphs.insert(subgraph.name.clone(), subgraph);
+            network.subgraphs.insert(subgraph.id, subgraph);
         }
         network
     }
 
     fn gen_subgraph(&mut self) -> SubgraphTopology {
-        let mut name = self.gen_str(log_2(*self.config.networks.end()));
+        let mut id = self.gen_bytes().into();
         // TODO: For now, subgraph names must be unique across networks
         while self
             .subgraphs()
             .iter()
-            .any(|(_, subgraph)| subgraph.name == name)
+            .any(|(_, subgraph)| subgraph.id == id)
         {
-            name = self.gen_str(log_2(*self.config.networks.end()));
+            id = self.gen_bytes().into();
         }
 
         let mut subgraph = SubgraphTopology {
-            name,
+            id,
             deployments: Vec::new(),
         };
         for _ in 1..self.gen_len(self.config.deployments.clone(), 32) {
@@ -330,7 +339,7 @@ impl Topology {
         }
     }
 
-    fn subgraph(&self, network: &str, subgraph: &str) -> Option<&SubgraphTopology> {
+    fn subgraph(&self, network: &str, subgraph: &SubgraphID) -> Option<&SubgraphTopology> {
         self.networks
             .get(network)
             .and_then(|net| net.subgraphs.get(subgraph))
@@ -412,7 +421,7 @@ impl Topology {
         self.inputs.current_deployments.write(Ptr::new(
             self.subgraphs()
                 .into_iter()
-                .filter_map(|(_, subgraph)| Some((subgraph.name, subgraph.deployments.last()?.id)))
+                .filter_map(|(_, subgraph)| Some((subgraph.id, subgraph.deployments.last()?.id)))
                 .collect(),
         ));
         self.inputs.deployment_indexers.write(Ptr::new(
@@ -440,12 +449,12 @@ impl Topology {
         let mut trace = Vec::new();
         trace.push(format!("{:#?}", query));
         trace.push(format!("{:#?}", result));
-        let subgraph_name = match &query.subgraph {
-            Subgraph::Name(name) => name,
+        let subgraph_id = match &query.subgraph {
+            Subgraph::ID(id) => id,
             Subgraph::Deployment(_) => panic!("Unexpected SubgraphDeploymentID"),
         };
         // Return SubgraphNotFound if the subgraph does not exist.
-        let subgraph = match self.subgraph(&query.network, subgraph_name) {
+        let subgraph = match self.subgraph(&query.network, subgraph_id) {
             Some(subgraph) => subgraph,
             None => {
                 if let Err(QueryEngineError::SubgraphNotFound) = result {
@@ -455,7 +464,7 @@ impl Topology {
                 // expected. In the future there must be a check that the query network matches
                 // with the expected network of the subgraph.
                 if self.subgraphs().iter().all(|(network, subgraph)| {
-                    (network.name != query.network) || (&subgraph.name != subgraph_name)
+                    (network.name != query.network) || (&subgraph.id != subgraph_id)
                 }) {
                     return Ok(());
                 }
