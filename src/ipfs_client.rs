@@ -1,5 +1,5 @@
 use reqwest;
-use std::sync::Arc;
+use std::{error::Error, sync::Arc};
 use tokio::sync::Semaphore;
 use url::Url;
 
@@ -18,14 +18,16 @@ impl IPFSClient {
         })
     }
 
-    pub async fn cat(&self, ipfs_hash: &str) -> Result<String, reqwest::Error> {
+    pub async fn cat(&self, ipfs_hash: &str) -> Result<String, Box<dyn Error>> {
         let _permit = self.semaphore.acquire().await;
+        let url = self.endpoint.join("api/v0/cat")?;
         self.client
-            .get(format!("{}/api/v0/cat?arg={}", self.endpoint, ipfs_hash))
+            .post(format!("{}?arg={}", url, ipfs_hash))
             .send()
             .await
             .and_then(|response| response.error_for_status())?
             .text()
             .await
+            .map_err(Into::into)
     }
 }
