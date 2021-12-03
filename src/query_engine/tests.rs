@@ -229,7 +229,7 @@ impl Topology {
         }
         for _ in 0..self.gen_len(self.config.subgraphs.clone(), 32) {
             let subgraph = self.gen_subgraph();
-            network.subgraphs.insert(subgraph.id.clone(), subgraph);
+            network.subgraphs.insert(subgraph.id, subgraph);
         }
         network
     }

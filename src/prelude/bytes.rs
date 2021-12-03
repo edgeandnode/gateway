@@ -62,34 +62,36 @@ bytes_wrapper!(pub, SubgraphID, 32);
 bytes_wrapper!(pub, SubgraphDeploymentID, 32);
 
 impl FromStr for SubgraphID {
-    type Err = BadSubgraphID;
+    type Err = InvalidSubgraphID;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut hash = [0u8; 32];
-        // Attempt to decode v2 format: base58 of sha256 hash
-        if let Ok(len) = bs58::decode(s).into(&mut hash) {
-            if len == hash.len() {
-                return Ok(hash.into());
-            }
+        fn parse_v1(s: &str) -> Option<[u8; 32]> {
+            // Attempt to decode v1 format: '0x' <hex account_id> '-' <decimal sequence_id>
+            let (account_id, sequence_id) = s.strip_prefix("0x").and_then(|s| s.split_once("-"))?;
+            let account = account_id.parse::<Address>().ok()?;
+            // Assuming u256 big-endian, since that's the word-size of the EVM
+            let mut sequence_word = [0u8; 32];
+            let sequence_number = sequence_id.parse::<u64>().ok()?.to_be_bytes();
+            sequence_word[24..].copy_from_slice(&sequence_number);
+            let hash: [u8; 32] = Keccak256::default()
+                .chain(account.as_ref())
+                .chain(&sequence_word)
+                .finalize()
+                .into();
+            Some(hash)
         }
-        // Attempt to decode v1 format: '0x' <hex account_id> '-' <decimal sequence_id>
-        let (account_id, sequence_id) = s
-            .strip_prefix("0x")
-            .and_then(|s| s.split_once("-"))
-            .ok_or(BadSubgraphID)?;
-        let account = account_id.parse::<Address>().map_err(|_| BadSubgraphID)?;
-        // Assuming u256 big-endian, since that's the word-size of the EVM
-        let mut sequence_word = [0u8; 32];
-        let sequence_number = sequence_id
-            .parse::<u64>()
-            .map_err(|_| BadSubgraphID)?
-            .to_be_bytes();
-        sequence_word[24..].copy_from_slice(&sequence_number);
-        let hash: [u8; 32] = Keccak256::default()
-            .chain(account.as_ref())
-            .chain(&sequence_word)
-            .finalize()
-            .into();
-        Ok(hash.into())
+        fn parse_v2(s: &str) -> Option<[u8; 32]> {
+            // Attempt to decode v2 format: base58 of sha256 hash
+            let mut hash = [0u8; 32];
+            let len = bs58::decode(s).into(&mut hash).ok()?;
+            if len != hash.len() {
+                return None;
+            }
+            Some(hash)
+        }
+        if let Some(v2) = parse_v2(s) {
+            return Ok(v2.into());
+        }
+        parse_v1(s).map(Into::into).ok_or(InvalidSubgraphID)
     }
 }
 
@@ -106,9 +108,9 @@ impl fmt::Debug for SubgraphID {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct BadSubgraphID;
+pub struct InvalidSubgraphID;
 
-impl fmt::Display for BadSubgraphID {
+impl fmt::Display for InvalidSubgraphID {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Invalid Subgraph ID")
     }
@@ -129,9 +131,9 @@ impl SubgraphDeploymentID {
 }
 
 impl FromStr for SubgraphDeploymentID {
-    type Err = BadIPFSHash;
+    type Err = InvalidIPFSHash;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_ipfs_hash(s).ok_or(BadIPFSHash)
+        Self::from_ipfs_hash(s).ok_or(InvalidIPFSHash)
     }
 }
 
@@ -148,9 +150,9 @@ impl fmt::Debug for SubgraphDeploymentID {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct BadIPFSHash;
+pub struct InvalidIPFSHash;
 
-impl fmt::Display for BadIPFSHash {
+impl fmt::Display for InvalidIPFSHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Invalid IPFS hash")
     }
