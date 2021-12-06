@@ -385,6 +385,12 @@ async fn handle_subgraph_query(
 
     let t0 = Instant::now();
     let query_id = QueryID::new();
+    let ray_id = request
+        .headers()
+        .get("cf-ray")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let response = handle_subgraph_query_inner(request, payload, data, query_id, subgraph).await;
     let response_time = Instant::now() - t0;
     let (payload, status) = match response {
@@ -395,6 +401,7 @@ async fn handle_subgraph_query(
         Err((status, msg)) => (graphql_error_response(status, msg), msg.to_string()),
     };
     tracing::info!(
+        %ray_id,
         %query_id,
         %subgraph_info,
         %status,
