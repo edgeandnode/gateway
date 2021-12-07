@@ -30,11 +30,12 @@ impl<T: Decay<T> + Default> DecayBuffer<T> {
             .map(|frame| frame.expected_utility())
             .collect::<Result<Vec<f64>, SelectionError>>()?
             .into_iter()
+            .map(|u| concave_utility(u, u_a))
             .sum::<f64>()
             / self.frames.len() as f64;
 
         Ok(SelectionFactor {
-            utility: agg_utility,
+            utility: agg_utility.powf(3.0),
             // This weight gives about 85% confidence after 10 samples
             // We would like more samples, but the query volume per indexer/deployment
             // pair is so low that it otherwise takes a very long time to converge.
@@ -64,62 +65,94 @@ impl<T: Decay<T> + Default> DecayBuffer<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::indexer_selection::reputation::Reputation;
-    use plotlib::{
-        page::Page,
-        repr::Plot,
-        style::{PointMarker, PointStyle},
-        view::ContinuousView,
-    };
+    use crate::{indexer_selection::reputation::Reputation, prelude::test_utils::create_dir};
+    use plotters::prelude::*;
     use rand::{thread_rng, Rng as _};
+    use std::collections::HashMap;
 
     #[test]
     fn reputation_response() {
+        create_dir("test-outputs").unwrap();
+
+        let success_rates = [0000, 4000, 6000, 8000, 9000, 9900, 9999];
         let outage_durations_m = [0, 5, 60, 5 * 60, 30 * 60, 120 * 60];
         let query_volume_hz = 20;
-        let success_rate = 0.9900;
-        let mut reputation = DecayBuffer::<Reputation>::default();
-        let mut rand = thread_rng();
         let outage_start = 60 * 4092;
+        let mut rand = thread_rng();
+        let mut data = Vec::new();
+        let mut reputations = success_rates
+            .iter()
+            .map(|success_rate| (*success_rate, DecayBuffer::default()))
+            .collect::<HashMap<u32, DecayBuffer<Reputation>>>();
         for outage_duration_m in outage_durations_m {
-            let mut data = Vec::new();
             let outage_end = outage_start + (60 * outage_duration_m);
             for t_s in 0u64..(outage_start * 2) {
                 let outage = (t_s >= outage_start) && (t_s < outage_end);
-                for _ in 0..query_volume_hz {
-                    if !outage && rand.gen_bool(success_rate) {
-                        reputation.current().add_successful_query();
-                    } else {
-                        reputation.current().add_failed_query();
+                for success_rate in success_rates {
+                    let reputation = reputations.get_mut(&success_rate).unwrap();
+                    let success_rate = success_rate as f64 * 1e-4;
+                    for _ in 0..query_volume_hz {
+                        if !outage && rand.gen_bool(success_rate) {
+                            reputation.current().add_successful_query();
+                        } else {
+                            reputation.current().add_failed_query();
+                        }
+                    }
+                    // Decay every minute.
+                    if (t_s % 60) == 0 {
+                        reputation.decay();
+                    }
+                    // Sample every minute.
+                    if (t_s % 60) == 0 {
+                        let utility = reputation
+                            .expected_utility(3.0)
+                            .map(|selection_factor| selection_factor.utility)
+                            .unwrap_or(f64::NAN);
+                        data.push((outage_duration_m, success_rate, (t_s / 60) as f64, utility));
                     }
                 }
-                // Decay every minute.
-                if (t_s % 60) == 0 {
-                    reputation.decay();
-                }
-                // Sample every minute.
-                if (t_s % 60) == 0 {
-                    let utility = reputation
-                        .expected_utility(1.0)
-                        .map(|selection_factor| selection_factor.utility)
-                        .unwrap_or(f64::NAN);
-                    data.push(((t_s / 60) as f64, utility));
-                }
             }
+        }
 
-            let trace =
-                Plot::new(data.clone()).point_style(PointStyle::new().marker(PointMarker::Cross));
-            let view = ContinuousView::new()
-                .add(trace)
-                .x_range(3500.0, 4092.0 * 2.0)
-                .x_label("t (minutes)")
-                .y_range(0.0, 1.0)
-                .y_label("utility");
-            println!(
-                "{} minute outage:\n{}",
-                outage_duration_m,
-                Page::single(&view).dimensions(80, 20).to_text().unwrap()
-            );
+        let root = SVGBackend::new("test-outputs/reputation-response.svg", (1600, 800))
+            .into_drawing_area();
+        let plot_areas = root.split_evenly((3, 2));
+        for (plot_area, outage_duration_m) in plot_areas.into_iter().zip(outage_durations_m) {
+            let mut plot = plotters::prelude::ChartBuilder::on(&plot_area)
+                .margin(5)
+                .x_label_area_size(35)
+                .y_label_area_size(35)
+                .caption(
+                    format!("{} minute outage", outage_duration_m),
+                    ("sans-serif", 18),
+                )
+                .build_cartesian_2d(0.0..(4092.0 * 2.0), 0.0..1.0)
+                .unwrap();
+            plot.configure_mesh()
+                .x_desc("t (minute)")
+                .y_desc("utility")
+                .draw()
+                .unwrap();
+            for (i, success_rate) in success_rates.iter().enumerate().rev() {
+                let success_rate = *success_rate as f64 * 1e-4;
+                let color = Palette99::pick(i);
+                let data = LineSeries::new(
+                    data.iter()
+                        .filter(|row| row.0 == outage_duration_m)
+                        .filter(|row| row.1 == success_rate)
+                        .map(|(_, _, x, y)| (*x, *y)),
+                    &color,
+                );
+                plot.draw_series(data)
+                    .unwrap()
+                    .label(format!("{:.4}", success_rate))
+                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &color));
+            }
+            plot.configure_series_labels()
+                .background_style(&WHITE.mix(0.8))
+                .border_style(&BLACK)
+                .draw()
+                .unwrap();
         }
     }
 }
