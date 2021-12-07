@@ -34,6 +34,11 @@ impl Decay<Reputation> for Reputation {
         self.failed_queries *= fraction;
         self.failed_queries += next.failed_queries;
     }
+
+    fn clear(&mut self) {
+        self.successful_queries = 0.0;
+        self.failed_queries = 0.0;
+    }
 }
 
 impl Reputation {

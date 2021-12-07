@@ -3,13 +3,6 @@ use crate::indexer_selection::{
     SelectionError,
 };
 
-/// The utility weight of each frame, as a fucntion of its index. For example, we want to have a
-/// greater weight to the utilities of smaller time frames that contain more recent data so that
-/// indexer selection can quickly respond to a changing environment. So with a FRAME_INDEX_WIEGHT
-/// of 0.5 we will weigh index 0 at 100%, index 1 at 50%, index 2 at 25%, and so on. This number is
-/// currently _very_ arbitrary and needs to be tuned.
-const FRAME_INDEX_WIEGHT: f64 = 0.5;
-
 /// The DecayBuffer accounts for selection factors over various time-frames. Currently, these time
 /// frames are 7 consecutive powers of 4 minute intervals, i.e. [1m, 4m, 16m, ... 4096m]. This
 /// assumes that `decay` is called once every minute.
@@ -22,6 +15,7 @@ pub struct DecayBuffer<T: Decay<T> + Default> {
 pub trait Decay<T> {
     fn expected_utility(&self) -> Result<f64, SelectionError>;
     fn shift(&mut self, next: &T, fraction: f64);
+    fn clear(&mut self);
 }
 
 impl<T: Decay<T> + Default> DecayBuffer<T> {
@@ -30,21 +24,15 @@ impl<T: Decay<T> + Default> DecayBuffer<T> {
     }
 
     pub fn expected_utility(&self, u_a: f64) -> Result<SelectionFactor, SelectionError> {
-        let index_weight = |i: usize| -> f64 {
-            if i == 0 {
-                return 1.0;
-            }
-            FRAME_INDEX_WIEGHT * i as f64
-        };
         let agg_utility = self
             .frames
             .iter()
             .map(|frame| frame.expected_utility())
             .collect::<Result<Vec<f64>, SelectionError>>()?
             .into_iter()
-            .enumerate()
-            .map(|(i, u)| concave_utility(u, u_a) * index_weight(i))
-            .sum();
+            .sum::<f64>()
+            / self.frames.len() as f64;
+
         Ok(SelectionFactor {
             utility: agg_utility,
             // This weight gives about 85% confidence after 10 samples
@@ -67,6 +55,71 @@ impl<T: Decay<T> + Default> DecayBuffer<T> {
             let (l, r) = self.frames.split_at_mut(i);
             let (prev, this) = (&l.last().unwrap(), &mut r[0]);
             this.shift(prev, 0.25);
+        }
+        // Clear the current frame.
+        self.frames[0].clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::indexer_selection::reputation::Reputation;
+    use plotlib::{
+        page::Page,
+        repr::Plot,
+        style::{PointMarker, PointStyle},
+        view::ContinuousView,
+    };
+    use rand::{thread_rng, Rng as _};
+
+    #[test]
+    fn reputation_response() {
+        let outage_durations_m = [0, 5, 60, 5 * 60, 30 * 60, 120 * 60];
+        let query_volume_hz = 20;
+        let success_rate = 0.9900;
+        let mut reputation = DecayBuffer::<Reputation>::default();
+        let mut rand = thread_rng();
+        let outage_start = 60 * 4092;
+        for outage_duration_m in outage_durations_m {
+            let mut data = Vec::new();
+            let outage_end = outage_start + (60 * outage_duration_m);
+            for t_s in 0u64..(outage_start * 2) {
+                let outage = (t_s >= outage_start) && (t_s < outage_end);
+                for _ in 0..query_volume_hz {
+                    if !outage && rand.gen_bool(success_rate) {
+                        reputation.current().add_successful_query();
+                    } else {
+                        reputation.current().add_failed_query();
+                    }
+                }
+                // Decay every minute.
+                if (t_s % 60) == 0 {
+                    reputation.decay();
+                }
+                // Sample every minute.
+                if (t_s % 60) == 0 {
+                    let utility = reputation
+                        .expected_utility(1.0)
+                        .map(|selection_factor| selection_factor.utility)
+                        .unwrap_or(f64::NAN);
+                    data.push(((t_s / 60) as f64, utility));
+                }
+            }
+
+            let trace =
+                Plot::new(data.clone()).point_style(PointStyle::new().marker(PointMarker::Cross));
+            let view = ContinuousView::new()
+                .add(trace)
+                .x_range(3500.0, 4092.0 * 2.0)
+                .x_label("t (minutes)")
+                .y_range(0.0, 1.0)
+                .y_label("utility");
+            println!(
+                "{} minute outage:\n{}",
+                outage_duration_m,
+                Page::single(&view).dimensions(80, 20).to_text().unwrap()
+            );
         }
     }
 }
