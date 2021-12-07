@@ -1,6 +1,9 @@
 use crate::prelude::*;
-use std::io::{Cursor, Write as _};
-use std::sync::Once;
+use std::{
+    fs,
+    io::{self, Cursor, Write as _},
+    sync::Once,
+};
 
 pub const BASIC_QUERY: &'static str = "{ entities { id } }";
 
@@ -14,4 +17,14 @@ pub fn bytes_from_id<const N: usize>(id: usize) -> [u8; N] {
 pub fn init_test_tracing() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| init_tracing(false))
+}
+
+pub fn create_dir(path: &str) -> io::Result<()> {
+    match fs::create_dir(path) {
+        Ok(()) => Ok(()),
+        Err(err) => match err.kind() {
+            io::ErrorKind::AlreadyExists => Ok(()),
+            _ => return Err(err),
+        },
+    }
 }
