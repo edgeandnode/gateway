@@ -195,7 +195,6 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         }
     }
 
-    #[tracing::instrument(skip(self, query), fields(query_id = %query.id))]
     pub async fn execute_query(
         &self,
         query: ClientQuery,
@@ -353,16 +352,6 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         Err(NoIndexerSelected)
     }
 
-    #[tracing::instrument(skip(
-        self,
-        query,
-        indexer_query,
-        deployment,
-        deployment_ipfs,
-        subgraph_info,
-        context,
-        block_resolver
-    ))]
     async fn execute_indexer_query(
         &self,
         query: &ClientQuery,
@@ -392,7 +381,6 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         };
         tracing::info!(
             api_key = %query.api_key.key,
-            deployment = %indexer_query.indexing.deployment,
             indexer = %indexer_query.indexing.indexer,
             indexer_url = %indexer_query.url,
             fee = %indexer_query.fee,
