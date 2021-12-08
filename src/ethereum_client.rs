@@ -245,8 +245,6 @@ impl Client {
 
 #[derive(Debug, Deserialize)]
 struct APIResponse<T> {
-    jsonrpc: String,
-    method: Option<String>,
     result: Option<String>,
     params: Option<APIResult<T>>,
     error: Option<HashMap<String, JSON>>,
