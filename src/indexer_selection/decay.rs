@@ -1,7 +1,4 @@
-use crate::indexer_selection::{
-    utility::{concave_utility, SelectionFactor},
-    SelectionError,
-};
+use crate::indexer_selection::utility::{concave_utility, SelectionFactor};
 
 /// The DecayBuffer accounts for selection factors over various time-frames. Currently, these time
 /// frames are 7 consecutive powers of 4 minute intervals, i.e. [1m, 4m, 16m, ... 4096m]. This
@@ -13,7 +10,7 @@ pub struct DecayBuffer<T: Decay<T> + Default> {
 }
 
 pub trait Decay<T> {
-    fn expected_utility(&self) -> Result<f64, SelectionError>;
+    fn expected_utility(&self, u_a: f64) -> f64;
     fn shift(&mut self, next: &T, fraction: f64);
     fn clear(&mut self);
 }
@@ -23,24 +20,21 @@ impl<T: Decay<T> + Default> DecayBuffer<T> {
         &mut self.frames[0]
     }
 
-    pub fn expected_utility(&self, u_a: f64) -> Result<SelectionFactor, SelectionError> {
+    pub fn expected_utility(&self, u_a: f64) -> SelectionFactor {
         let agg_utility = self
             .frames
             .iter()
-            .map(|frame| frame.expected_utility())
-            .collect::<Result<Vec<f64>, SelectionError>>()?
-            .into_iter()
-            .map(|u| concave_utility(u, u_a))
+            .map(|frame| frame.expected_utility(u_a))
             .sum::<f64>()
             / self.frames.len() as f64;
 
-        Ok(SelectionFactor {
+        SelectionFactor {
             utility: agg_utility.powf(3.0),
             // This weight gives about 85% confidence after 10 samples
             // We would like more samples, but the query volume per indexer/deployment
             // pair is so low that it otherwise takes a very long time to converge.
             weight: concave_utility(agg_utility, 0.19),
-        })
+        }
     }
 
     pub fn decay(&mut self) {
@@ -104,10 +98,7 @@ mod tests {
                     }
                     // Sample every minute.
                     if (t_s % 60) == 0 {
-                        let utility = reputation
-                            .expected_utility(3.0)
-                            .map(|selection_factor| selection_factor.utility)
-                            .unwrap_or(f64::NAN);
+                        let utility = reputation.expected_utility(3.0).utility;
                         data.push((outage_duration_m, success_rate, (t_s / 60) as f64, utility));
                     }
                 }

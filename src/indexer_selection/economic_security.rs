@@ -153,6 +153,6 @@ mod tests {
             security.slashable_usd,
             expected_slashable.try_into().unwrap()
         );
-        assert_within(security.utility, expected_utility, 0.01);
+        assert_within(security.utility.utility, expected_utility, 0.01);
     }
 }

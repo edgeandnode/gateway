@@ -1,4 +1,4 @@
-use crate::indexer_selection::{decay::Decay, SelectionError};
+use crate::indexer_selection::decay::Decay;
 
 // TODO: Other factors like how long the indexer has been in the network.
 // Because reliability (which is what is captured here now) is useful on it's own, it may be useful
@@ -12,7 +12,7 @@ pub struct Reputation {
 }
 
 impl Decay<Reputation> for Reputation {
-    fn expected_utility(&self) -> Result<f64, SelectionError> {
+    fn expected_utility(&self, _u_a: f64) -> f64 {
         // Give the indexer the benefit of the doubt by pretending they have at least 1 successful
         // query. This prevents a divide by 0, but also keeps this utility from reaching 0 which
         // would be a point of no return since it can't correct without issuing new queries.
@@ -25,7 +25,7 @@ impl Decay<Reputation> for Reputation {
         // utility. Eg: If we send 3 queries to each indexer A and B, and A returns 1 success, and B
         // returns 3 successes - for some fixed value of a query the utility is number of returned
         // queries * value of query.
-        Ok(ratio)
+        ratio
     }
 
     fn shift(&mut self, next: &Self, fraction: f64) {

@@ -34,12 +34,11 @@ use crate::{
 use cost_model;
 use im;
 use lazy_static::lazy_static;
-use num_traits::identities::Zero;
+use num_traits::identities::Zero as _;
 pub use ordered_float::NotNan;
 use prometheus;
 use rand::{thread_rng, Rng as _};
 pub use secp256k1::SecretKey;
-use tokio::{sync::Mutex, time};
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
@@ -146,7 +145,6 @@ pub struct Indexers {
     network_params: NetworkParameters,
     indexers: SharedLookup<Address, IndexerDataReader>,
     indexings: SharedLookup<Indexing, SelectionFactors>,
-    last_decay: Mutex<Option<time::Instant>>,
 }
 
 impl Indexers {
@@ -179,14 +177,13 @@ impl Indexers {
             },
             indexers: inputs.indexers,
             indexings: inputs.indexings,
-            last_decay: Mutex::default(),
         }
     }
 
     pub async fn observe_successful_query(
         &self,
         indexing: &Indexing,
-        duration: time::Duration,
+        duration: Duration,
         receipt: &[u8],
     ) {
         let selection_factors = match self.indexings.get(indexing).await {
@@ -240,23 +237,9 @@ impl Indexers {
     }
 
     pub async fn decay(&self) {
-        let mut log = match self.last_decay.try_lock() {
-            Ok(log) => log,
-            Err(_) => return,
-        };
-        let time = Instant::now();
-        let last_decay = match log.replace(time) {
-            Some(last_decay) => last_decay,
-            None => return,
-        };
-        drop(log);
-        let passed_hours = (time - last_decay).as_secs_f64() / 3600.0;
-        // Information half-life of ~24 hours.
-        let retain = 0.973f64.powf(passed_hours);
-        let indexings: Vec<Indexing> = self.indexings.keys().await;
-        for indexing in indexings {
+        for indexing in self.indexings.keys().await {
             match self.indexings.get(&indexing).await {
-                Some(selection_factors) => selection_factors.decay(retain).await,
+                Some(selection_factors) => selection_factors.decay().await,
                 None => continue,
             };
         }
@@ -493,7 +476,7 @@ impl Indexers {
                 .await,
         );
 
-        aggregator.add(selection_factors.expected_reputation_utility().await?);
+        aggregator.add(selection_factors.expected_reputation_utility(3.0).await);
 
         aggregator.add(
             selection_factors
