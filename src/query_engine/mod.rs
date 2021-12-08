@@ -121,32 +121,6 @@ enum RemoveIndexer {
     No,
 }
 
-struct Metrics {
-    indexer_requests_duration: prometheus::HistogramVec,
-    indexer_requests_failed: prometheus::IntCounterVec,
-    indexer_requests_ok: prometheus::IntCounterVec,
-    indexer_selection: IndexerSelectionMetrics,
-    indexer_selection_duration: prometheus::HistogramVec,
-    queries_failed: prometheus::IntCounterVec,
-    queries_ok: prometheus::IntCounterVec,
-    queries_unauthorized_deployment: prometheus::IntCounterVec,
-    query_duration: prometheus::HistogramVec,
-    query_execution_duration: prometheus::HistogramVec,
-    subgraph_name_duration: prometheus::HistogramVec,
-}
-
-struct IndexerSelectionMetrics {
-    blocks_behind: prometheus::HistogramVec,
-    fee: prometheus::HistogramVec,
-    indexer_selected: prometheus::IntCounterVec,
-    slashable_dollars: prometheus::HistogramVec,
-    utility: prometheus::HistogramVec,
-}
-
-lazy_static! {
-    static ref METRICS: Metrics = Metrics::new();
-}
-
 #[derive(Clone)]
 pub struct Config {
     pub network: String,
@@ -457,31 +431,16 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
             return Err(RemoveIndexer::Yes);
         }
 
-        // Special-casing for a few known indexer errors; the block scope here
-        // is just to separate the code neatly from the rest
+        if let Err(remove_indexer) = self
+            .check_unattestable_responses(context, &block_resolver, &indexer_query, &response)
+            .await
         {
-            let parsed_response =
-                serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
-                    .map_err(|_| RemoveIndexer::Yes)?;
-
-            if indexer_response_has_error(
-                &parsed_response,
-                "Failed to decode `block.hash` value: `no block with that hash found`",
-            ) {
-                tracing::info!(indexer_response_err = "indexing behind");
-                self.indexers
-                    .observe_indexing_behind(context, &indexer_query, &block_resolver)
-                    .await;
-                return Err(RemoveIndexer::No);
-            }
-
-            if indexer_response_has_error(&parsed_response, "panic processing query") {
-                tracing::info!(indexer_response_err = "panic processing query");
-                self.indexers
-                    .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
-                    .await;
-                return Err(RemoveIndexer::Yes);
-            }
+            with_metric(
+                &METRICS.indexer_response_unattestable,
+                &[&deployment_ipfs, &indexer_id],
+                |counter| counter.inc(),
+            );
+            return Err(remove_indexer);
         }
 
         if let Some(_attestation) = &response.attestation {
@@ -535,11 +494,79 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
             hist.observe(*selection.utility);
         }
     }
+
+    async fn check_unattestable_responses(
+        &self,
+        context: &mut Context<'_>,
+        block_resolver: &BlockResolver,
+        indexer_query: &IndexerQuery,
+        response: &IndexerResponse,
+    ) -> Result<(), RemoveIndexer> {
+        // Special-casing for a few known indexer errors; the block scope here
+        // is just to separate the code neatly from the rest
+
+        let parsed_response = serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
+            .map_err(|_| RemoveIndexer::Yes)?;
+
+        if indexer_response_has_error(
+            &parsed_response,
+            "Failed to decode `block.hash` value: `no block with that hash found`",
+        ) {
+            tracing::info!(indexer_response_err = "indexing behind");
+            self.indexers
+                .observe_indexing_behind(context, indexer_query, block_resolver)
+                .await;
+            return Err(RemoveIndexer::No);
+        }
+
+        if indexer_response_has_error(&parsed_response, "panic processing query") {
+            tracing::info!(indexer_response_err = "panic processing query");
+            self.indexers
+                .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                .await;
+            return Err(RemoveIndexer::Yes);
+        }
+
+        Ok(())
+    }
+}
+
+struct Metrics {
+    indexer_response_unattestable: prometheus::IntCounterVec,
+    indexer_requests_duration: prometheus::HistogramVec,
+    indexer_requests_failed: prometheus::IntCounterVec,
+    indexer_requests_ok: prometheus::IntCounterVec,
+    indexer_selection: IndexerSelectionMetrics,
+    indexer_selection_duration: prometheus::HistogramVec,
+    queries_failed: prometheus::IntCounterVec,
+    queries_ok: prometheus::IntCounterVec,
+    queries_unauthorized_deployment: prometheus::IntCounterVec,
+    query_duration: prometheus::HistogramVec,
+    query_execution_duration: prometheus::HistogramVec,
+    subgraph_name_duration: prometheus::HistogramVec,
+}
+
+struct IndexerSelectionMetrics {
+    blocks_behind: prometheus::HistogramVec,
+    fee: prometheus::HistogramVec,
+    indexer_selected: prometheus::IntCounterVec,
+    slashable_dollars: prometheus::HistogramVec,
+    utility: prometheus::HistogramVec,
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = Metrics::new();
 }
 
 impl Metrics {
     fn new() -> Self {
         Self {
+            indexer_response_unattestable: prometheus::register_int_counter_vec!(
+                "query_engine_indexer_response_unattestable",
+                "Number of unattestable indexer responses",
+                &["deployment", "indexer"]
+            )
+            .unwrap(),
             indexer_requests_duration: prometheus::register_histogram_vec!(
                 "query_engine_indexer_request_duration",
                 "Duration of making a request to an indexer",
