@@ -2,7 +2,7 @@ use crate::{
     indexer_selection::{
         allocations::*, block_requirements::*, data_freshness::*, decay::DecayBuffer,
         performance::*, price_efficiency::*, reputation::*, utility::*, BadIndexerReason, Context,
-        SecretKey, SelectionError,
+        IndexerError, SecretKey, SelectionError,
     },
     prelude::*,
 };
@@ -89,10 +89,13 @@ impl SelectionFactors {
         lock.allocations.release(receipt, QueryStatus::Success);
     }
 
-    pub async fn observe_failed_query(&self, receipt: &[u8], status: QueryStatus) {
+    pub async fn observe_failed_query(&self, receipt: &[u8], error: IndexerError) {
         let mut lock = self.locked.write().await;
         lock.reputation.current().add_failed_query();
-        lock.allocations.release(receipt, status);
+        lock.allocations.release(receipt, QueryStatus::Failure);
+        if error.is_timeout() {
+            lock.reputation.current().penalize(1);
+        }
     }
 
     pub async fn observe_indexing_behind(

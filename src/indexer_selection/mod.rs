@@ -88,6 +88,29 @@ impl From<BadIndexerReason> for SelectionError {
     }
 }
 
+#[derive(Debug)]
+pub enum IndexerError {
+    Timeout,
+    NoAttestation,
+    NondeterministicResponse,
+    Other(String),
+}
+
+impl IndexerError {
+    pub fn is_timeout(&self) -> bool {
+        match self {
+            Self::Timeout => true,
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Display for IndexerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum UnresolvedBlock {
     WithHash(Bytes32),
@@ -199,20 +222,13 @@ impl Indexers {
         &self,
         indexing: &Indexing,
         receipt: &[u8],
-        is_unknown: bool,
+        error: IndexerError,
     ) {
-        let status = if is_unknown {
-            QueryStatus::Unknown
-        } else {
-            QueryStatus::Failure
-        };
         let selection_factors = match self.indexings.get(indexing).await {
             Some(selection_factors) => selection_factors,
             None => return,
         };
-        selection_factors
-            .observe_failed_query(receipt, status)
-            .await;
+        selection_factors.observe_failed_query(receipt, error).await;
     }
 
     pub async fn observe_indexing_behind(

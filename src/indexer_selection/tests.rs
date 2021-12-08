@@ -2,7 +2,7 @@ use crate::{
     block_resolver::BlockResolver,
     indexer_selection::{
         test_utils::{default_cost_model, gen_blocks, TEST_KEY},
-        Context, Indexers, Indexing, IndexingStatus, UtilityConfig,
+        *,
     },
     prelude::{test_utils::*, *},
 };
@@ -219,7 +219,11 @@ async fn battle_high_and_low() {
                 .await;
         } else {
             indexers
-                .observe_failed_query(&indexing, &query.receipt, false)
+                .observe_failed_query(
+                    &indexing,
+                    &query.receipt,
+                    IndexerError::Other("error".to_string()),
+                )
                 .await;
         }
     }
