@@ -45,3 +45,4 @@ These options should be considered once we can measure the "real world" performa
 
 - We will likely merge the gateway agent into network syncing.
 - Replace the Rust default allocator with snmalloc via [snmalloc-rs](https://github.com/SchrodingerZhu/snmalloc-rs).
+- Use an alternative method for quantizing indexer performance. Currently we use nearest triangle numbers, but I have found that something like the first 40 snmalloc sizeclasses works unreasonably well for our binning needs. These sizeclass calculations are are rescribed in section 2.6 of the snmalloc paper.

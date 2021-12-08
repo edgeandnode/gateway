@@ -9,6 +9,7 @@ use crate::indexer_selection::decay::Decay;
 pub struct Reputation {
     successful_queries: f64,
     failed_queries: f64,
+    penalties: u16,
 }
 
 impl Decay<Reputation> for Reputation {
@@ -48,5 +49,14 @@ impl Reputation {
 
     pub fn add_failed_query(&mut self) {
         self.failed_queries += 1.0;
+    }
+
+    /// The `count` corresponds to how many minutes of outage this penalty will simulate.
+    /// Additionally, the current expected utility will be dropped such that it is no higher than
+    /// 0.1.
+    pub fn penalize(&mut self, count: u16) {
+        self.successful_queries = 0.0;
+        self.failed_queries = self.failed_queries.min(10.0);
+        self.penalties = self.penalties.max(count);
     }
 }
