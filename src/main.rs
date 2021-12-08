@@ -361,7 +361,6 @@ struct SubgraphQueryData {
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
 }
 
-#[tracing::instrument(skip(request, payload, data))]
 async fn handle_subgraph_query(
     request: HttpRequest,
     payload: web::Json<QueryBody>,
@@ -391,7 +390,10 @@ async fn handle_subgraph_query(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let response = handle_subgraph_query_inner(request, payload, data, query_id, subgraph).await;
+    let span = tracing::info_span!("handle_subgraph_query", %ray_id, %query_id);
+    let response = handle_subgraph_query_inner(request, payload, data, query_id, subgraph)
+        .instrument(span.clone())
+        .await;
     let response_time = Instant::now() - t0;
     let (payload, status) = match response {
         Ok(payload) => {
@@ -401,8 +403,7 @@ async fn handle_subgraph_query(
         Err((status, msg)) => (graphql_error_response(status, msg), msg.to_string()),
     };
     tracing::info!(
-        %ray_id,
-        %query_id,
+        parent: &span,
         %subgraph_info,
         %status,
         response_time_ms = response_time.as_millis() as u32,
@@ -411,7 +412,6 @@ async fn handle_subgraph_query(
     payload
 }
 
-#[tracing::instrument(skip(request, payload, data, subgraph))]
 async fn handle_subgraph_query_inner(
     request: HttpRequest,
     payload: web::Json<QueryBody>,
