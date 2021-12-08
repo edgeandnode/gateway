@@ -100,9 +100,27 @@ impl SelectionFactors {
         freshness_requirements: &Result<BlockRequirements, SelectionError>,
         latest: u64,
     ) {
+        let minimum_block = match freshness_requirements {
+            // If we observed a block hash in the query that we could no longer associate with a
+            // number, then we have detected a reorg and the indexer receives no penalty.
+            Err(_) => return,
+            Ok(requirements) => {
+                assert!(
+                    !requirements.has_latest,
+                    "Observe indexing behind should only take deterministic queries"
+                );
+                requirements.minimum_block
+            }
+        };
         let mut lock = self.locked.write().await;
-        lock.freshness
-            .observe_indexing_behind(freshness_requirements, latest);
+        match minimum_block {
+            Some(minimum_block) => lock
+                .freshness
+                .observe_indexing_behind(minimum_block, latest),
+            // The only way to reach this would be if they returned that the block was unknown or
+            // not indexed for a query with an empty selection set.
+            None => lock.reputation.current().penalize(5),
+        };
     }
 
     pub async fn decay(&self) {
