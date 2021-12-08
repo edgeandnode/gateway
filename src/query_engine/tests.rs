@@ -2,7 +2,7 @@ use crate::{
     indexer_client::*,
     indexer_selection::{
         test_utils::{default_cost_model, TEST_KEY},
-        IndexingStatus, SecretKey,
+        IndexerError, IndexingStatus, SecretKey,
     },
     manifest_client::{SubgraphInfo, SubgraphInfoMap},
     prelude::{decimal, test_utils::*, *},
@@ -15,7 +15,7 @@ use rand::{
     seq::SliceRandom,
     Rng, RngCore as _, SeedableRng,
 };
-use std::{collections::BTreeMap, env, error::Error, fmt, iter, ops::RangeInclusive};
+use std::{collections::BTreeMap, env, fmt, iter, ops::RangeInclusive};
 use tokio::{self, sync::Mutex};
 
 /// Query engine tests use pseudorandomly generated network state and client query as inputs.
@@ -552,12 +552,12 @@ struct TopologyIndexer {
 
 #[async_trait]
 impl IndexerInterface for TopologyIndexer {
-    async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, Box<dyn Error>> {
+    async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, IndexerError> {
         use regex::Regex;
         let topology = self.topology.lock().await;
         let indexer = topology.indexers.get(&query.indexing.indexer).unwrap();
         if indexer.indexer_err {
-            return Err("indexer error".into());
+            return Err(IndexerError::Other("indexer error".to_string()));
         }
         let blocks = &topology.networks.get(&query.network).unwrap().blocks;
         let matcher = Regex::new(r#"block: \{hash: \\"0x([[:xdigit:]]+)\\"}"#).unwrap();

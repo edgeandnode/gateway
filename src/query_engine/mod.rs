@@ -4,7 +4,9 @@ mod tests;
 use crate::{
     block_resolver::BlockResolver,
     indexer_client::*,
-    indexer_selection::{self, Context, IndexerQuery, Indexers, SelectionError, UnresolvedBlock},
+    indexer_selection::{
+        self, Context, IndexerError, IndexerQuery, Indexers, SelectionError, UnresolvedBlock,
+    },
     manifest_client::{SubgraphInfo, SubgraphInfoMap},
 };
 pub use crate::{
@@ -85,13 +87,6 @@ pub struct APIKey {
 pub struct QueryResponse {
     pub query: IndexerQuery,
     pub response: IndexerResponse,
-}
-
-#[derive(Debug)]
-pub struct IndexerResponse {
-    pub status: u16,
-    pub payload: String,
-    pub attestation: Option<Attestation>,
 }
 
 #[derive(Debug)]
@@ -396,9 +391,9 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
 
         let response = match result {
             Ok(response) => response,
-            Err(_) => {
+            Err(err) => {
                 self.indexers
-                    .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                    .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, err)
                     .await;
                 with_metric(
                     &METRICS.indexer_requests_failed,
@@ -417,7 +412,11 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         if !subgraph_info.features.is_empty() && response.attestation.is_none() {
             tracing::info!(indexer_response_err = "Attestable response has no attestation");
             self.indexers
-                .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                .observe_failed_query(
+                    &indexer_query.indexing,
+                    &indexer_query.receipt,
+                    IndexerError::NoAttestation,
+                )
                 .await;
             return Err(RemoveIndexer::Yes);
         }
@@ -513,7 +512,11 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         if indexer_response_has_error(&parsed_response, "panic processing query") {
             tracing::info!(indexer_response_err = "panic processing query");
             self.indexers
-                .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, true)
+                .observe_failed_query(
+                    &indexer_query.indexing,
+                    &indexer_query.receipt,
+                    IndexerError::NondeterministicResponse,
+                )
                 .await;
             return Err(RemoveIndexer::Yes);
         }
