@@ -22,7 +22,7 @@
 // a parameter without obscene loss to performance.
 
 use crate::{
-    indexer_selection::utility::{concave_utility, SelectionFactor},
+    indexer_selection::{decay::Decay, utility::concave_utility},
     prelude::*,
 };
 use ordered_float::NotNan;
@@ -31,6 +31,34 @@ use ordered_float::NotNan;
 pub struct Performance {
     performance: Vec<f64>,
     count: Vec<f64>,
+}
+
+impl Decay<Performance> for Performance {
+    fn expected_utility(&self, u_a: f64) -> f64 {
+        let mut agg_count = 0.0;
+        let mut agg_utility = 0.0;
+        for (count, performance) in self.iter() {
+            agg_count += count;
+            agg_utility += count * concave_utility(performance, u_a);
+        }
+        if agg_count == 0.0 {
+            return 0.0;
+        }
+        agg_utility / agg_count
+    }
+
+    fn shift(&mut self, next: &Performance, fraction: f64) {
+        for count in &mut self.count {
+            *count = *count * fraction;
+        }
+        for (count, performance) in next.iter() {
+            self.add_successful_queries_inner(performance, count);
+        }
+    }
+
+    fn clear(&mut self) {
+        todo!();
+    }
 }
 
 impl Performance {
@@ -68,39 +96,21 @@ impl Performance {
     }
 
     pub fn add_successful_query(&mut self, duration: Duration) {
-        let performance = Self::quantized_performance(duration);
+        self.add_successful_queries_inner(Self::quantized_performance(duration), 1.0);
+    }
+
+    fn add_successful_queries_inner(&mut self, quantized_performance: f64, count: f64) {
         // Safety: Performance is NotNan. See also 47632ed6-4dcc-4b39-b064-c0ca01560626
         match unsafe {
             self.performance
-                .binary_search_by_key(&NotNan::new_unchecked(performance), |a| {
+                .binary_search_by_key(&NotNan::new_unchecked(quantized_performance), |a| {
                     NotNan::new_unchecked(*a)
                 })
         } {
-            Ok(index) => self.count[index] += 1.0,
+            Ok(index) => self.count[index] += count,
             Err(index) => {
-                self.performance.insert(index, performance);
-                self.count.insert(index, 1.0)
-            }
-        }
-    }
-
-    pub fn expected_utility(&self, u_a: f64) -> SelectionFactor {
-        let mut agg_count = 0.0;
-        let mut agg_utility = 0.0;
-        for (count, performance) in self.iter() {
-            agg_count += count;
-            agg_utility += count * concave_utility(performance, u_a);
-        }
-
-        if agg_count == 0.0 {
-            SelectionFactor::zero()
-        } else {
-            SelectionFactor {
-                utility: agg_utility / agg_count,
-                // This weight gives about 85% confidence after 10 samples
-                // We would like more samples, but the query volume per indexer/deployment
-                // pair is so low that it otherwise takes a very long time to converge.
-                weight: concave_utility(agg_count, 0.19),
+                self.performance.insert(index, quantized_performance);
+                self.count.insert(index, count)
             }
         }
     }
@@ -110,12 +120,6 @@ impl Performance {
             .iter()
             .cloned()
             .zip(self.performance.iter().cloned())
-    }
-
-    pub fn decay(&mut self, retain: f64) {
-        for count in self.count.iter_mut() {
-            *count *= retain;
-        }
     }
 }
 
@@ -159,7 +163,6 @@ mod tests {
 
         let utility = tracker.expected_utility(a_u);
         assert_within(utility, expected, tolerance);
-        tracker.decay(0.75);
     }
 
     #[test]
@@ -210,7 +213,7 @@ mod tests {
         fn web_utility(ms: u64) -> f64 {
             let mut tracker = Performance::default();
             tracker.add_successful_query(Duration::from_millis(ms));
-            tracker.expected_utility(WEB_UTIL).utility
+            tracker.expected_utility(WEB_UTIL)
         }
 
         // What we want to see is a high preference for values

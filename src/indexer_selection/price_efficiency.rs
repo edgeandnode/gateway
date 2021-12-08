@@ -160,7 +160,7 @@ mod test {
                 .unwrap();
             println!("fee: {}, {:?}", fee, utility);
             assert_eq!(fee, "0.01".parse::<GRT>().unwrap());
-            assert_within(utility, expected_utility, 0.0001);
+            assert_within(utility.utility, expected_utility, 0.0001);
         }
     }
 }

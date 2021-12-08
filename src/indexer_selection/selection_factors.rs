@@ -17,7 +17,7 @@ pub struct SelectionFactors {
 
 #[derive(Default)]
 struct LockedState {
-    performance: Performance,
+    performance: DecayBuffer<Performance>,
     reputation: DecayBuffer<Reputation>,
     freshness: DataFreshness,
     allocations: Allocations,
@@ -84,7 +84,7 @@ impl IndexingData {
 impl SelectionFactors {
     pub async fn observe_successful_query(&self, duration: time::Duration, receipt: &[u8]) {
         let mut lock = self.locked.write().await;
-        lock.performance.add_successful_query(duration);
+        lock.performance.current().add_successful_query(duration);
         lock.reputation.current().add_successful_query();
         lock.allocations.release(receipt, QueryStatus::Success);
     }
@@ -105,9 +105,9 @@ impl SelectionFactors {
             .observe_indexing_behind(freshness_requirements, latest);
     }
 
-    pub async fn decay(&self, retain: f64) {
+    pub async fn decay(&self) {
         let mut lock = self.locked.write().await;
-        lock.performance.decay(retain);
+        lock.performance.decay();
         lock.reputation.decay();
     }
 
@@ -126,9 +126,9 @@ impl SelectionFactors {
         lock.performance.expected_utility(u_a)
     }
 
-    pub async fn expected_reputation_utility(&self) -> Result<SelectionFactor, SelectionError> {
+    pub async fn expected_reputation_utility(&self, u_a: f64) -> SelectionFactor {
         let lock = self.locked.read().await;
-        lock.reputation.expected_utility(1.0)
+        lock.reputation.expected_utility(u_a)
     }
 
     pub async fn expected_freshness_utility(

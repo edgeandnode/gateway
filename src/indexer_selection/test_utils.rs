@@ -1,5 +1,5 @@
 use crate::{
-    indexer_selection::{utility::SelectionFactor, BlockPointer, CostModelSource},
+    indexer_selection::{BlockPointer, CostModelSource},
     prelude::test_utils::bytes_from_id,
     prelude::*,
 };
@@ -14,14 +14,14 @@ pub fn default_cost_model(price: GRT) -> CostModelSource {
     }
 }
 
-pub fn assert_within(utility: SelectionFactor, expected: f64, tolerance: f64) {
-    let diff = (utility.utility - expected).abs();
+pub fn assert_within(value: f64, expected: f64, tolerance: f64) {
+    let diff = (value - expected).abs();
     assert!(
         diff <= tolerance,
-        "Expected utility of {} +- {} but got {} which is off by {}",
+        "Expected value of {} +- {} but got {} which is off by {}",
         expected,
         tolerance,
-        utility.utility,
+        value,
         diff
     );
 }
