@@ -27,17 +27,6 @@ impl DataFreshness {
         } else {
             return;
         };
-
-        // There's two cases here. One is that they said they have a block, but don't.
-        // The other is we assume they have a block, but don't.
-        // This is disabled because there isn't yet implemented an appropriate
-        // penalty and this can happen normally just for timing issues. Unfortunately
-        // it's hard to tell which is which. This needs to be a penalty that is increasingly
-        // severe so that malicious actors are penalized but its ok for occasional timing issues.
-        // Reputation fits this, but isn't implemented yet.
-        // TODO: if highest_reported_block > minimum_block
-        // { penalize }
-
         // They are at least one block behind the assumed status (this
         // will usually be the case). In some cases for timing issues
         // they may have already reported they are even farther behind,

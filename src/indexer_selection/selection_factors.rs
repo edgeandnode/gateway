@@ -84,17 +84,25 @@ impl IndexingData {
 impl SelectionFactors {
     pub async fn observe_successful_query(&self, duration: time::Duration, receipt: &[u8]) {
         let mut lock = self.locked.write().await;
-        lock.performance.current().add_successful_query(duration);
-        lock.reputation.current().add_successful_query();
+        lock.performance
+            .current_mut()
+            .add_successful_query(duration);
+        lock.reputation.current_mut().add_successful_query();
         lock.allocations.release(receipt, QueryStatus::Success);
     }
 
     pub async fn observe_failed_query(&self, receipt: &[u8], error: IndexerError) {
         let mut lock = self.locked.write().await;
-        lock.reputation.current().add_failed_query();
-        lock.allocations.release(receipt, QueryStatus::Failure);
+        lock.reputation.current_mut().add_failed_query();
+        let status = match error {
+            IndexerError::Timeout => QueryStatus::Unknown,
+            IndexerError::NoAttestation
+            | IndexerError::NondeterministicResponse
+            | IndexerError::Other(_) => QueryStatus::Failure,
+        };
+        lock.allocations.release(receipt, status);
         if error.is_timeout() {
-            lock.reputation.current().penalize(1);
+            lock.reputation.current_mut().penalize(1);
         }
     }
 
@@ -122,7 +130,7 @@ impl SelectionFactors {
                 .observe_indexing_behind(minimum_block, latest),
             // The only way to reach this would be if they returned that the block was unknown or
             // not indexed for a query with an empty selection set.
-            None => lock.reputation.current().penalize(5),
+            None => lock.reputation.current_mut().penalize(5),
         };
     }
 

@@ -30,10 +30,14 @@ impl Decay<Reputation> for Reputation {
     }
 
     fn shift(&mut self, next: &Self, fraction: f64) {
-        self.successful_queries *= fraction;
-        self.successful_queries += next.successful_queries;
         self.failed_queries *= fraction;
         self.failed_queries += next.failed_queries;
+        self.successful_queries *= fraction;
+        if self.penalties == 0 {
+            self.successful_queries += next.successful_queries;
+        } else {
+            self.penalties -= 1;
+        }
     }
 
     fn clear(&mut self) {

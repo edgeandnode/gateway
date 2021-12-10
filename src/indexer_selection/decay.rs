@@ -16,7 +16,7 @@ pub trait Decay<T> {
 }
 
 impl<T: Decay<T> + Default> DecayBuffer<T> {
-    pub fn current(&mut self) -> &mut T {
+    pub fn current_mut(&mut self) -> &mut T {
         &mut self.frames[0]
     }
 
@@ -42,7 +42,7 @@ impl<T: Decay<T> + Default> DecayBuffer<T> {
         // when `decay_ticks` is divisible by `pow(4, i)`,
         // reduce the value of `frame[i]` by 1/4 and add the value of `frame[i-1]` to `frame[i]`.
         self.decay_ticks += 1;
-        for i in 1..7 {
+        for i in (1..7).rev() {
             let frame_ticks = 1 << (i * 2);
             if (self.decay_ticks % frame_ticks) != 0 {
                 continue;
@@ -66,7 +66,7 @@ mod tests {
 
     #[test]
     fn reputation_response() {
-        create_dir("test-outputs").unwrap();
+        create_dir("test-outputs");
 
         let success_rates = [0000, 4000, 6000, 8000, 9000, 9900, 9999];
         let outage_durations_m = [0, 5, 60, 5 * 60, 30 * 60, 120 * 60];
@@ -87,9 +87,9 @@ mod tests {
                     let success_rate = success_rate as f64 * 1e-4;
                     for _ in 0..query_volume_hz {
                         if !outage && rand.gen_bool(success_rate) {
-                            reputation.current().add_successful_query();
+                            reputation.current_mut().add_successful_query();
                         } else {
-                            reputation.current().add_failed_query();
+                            reputation.current_mut().add_failed_query();
                         }
                     }
                     // Decay every minute.
