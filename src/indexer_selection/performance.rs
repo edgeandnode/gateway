@@ -33,7 +33,7 @@ pub struct Performance {
     count: Vec<f64>,
 }
 
-impl Decay<Performance> for Performance {
+impl Decay for Performance {
     fn expected_utility(&self, u_a: f64) -> f64 {
         let mut agg_count = 0.0;
         let mut agg_utility = 0.0;
@@ -47,7 +47,7 @@ impl Decay<Performance> for Performance {
         agg_utility / agg_count
     }
 
-    fn shift(&mut self, next: &Performance, fraction: f64) {
+    fn shift(&mut self, next: &Self, fraction: f64) {
         for count in &mut self.count {
             *count = *count * fraction;
         }
@@ -57,7 +57,12 @@ impl Decay<Performance> for Performance {
     }
 
     fn clear(&mut self) {
-        todo!();
+        self.performance.clear();
+        self.count.clear();
+    }
+
+    fn count(&self) -> f64 {
+        self.count.iter().sum()
     }
 }
 

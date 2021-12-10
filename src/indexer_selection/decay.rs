@@ -1,39 +1,41 @@
-use crate::indexer_selection::utility::{concave_utility, SelectionFactor};
+use crate::indexer_selection::utility::{concave_utility, SelectionFactor, UtilityAggregator};
+
+pub trait Decay {
+    fn expected_utility(&self, u_a: f64) -> f64;
+    fn shift(&mut self, next: &Self, fraction: f64);
+    fn clear(&mut self);
+    fn count(&self) -> f64;
+}
 
 /// The DecayBuffer accounts for selection factors over various time-frames. Currently, these time
 /// frames are 7 consecutive powers of 4 minute intervals, i.e. [1m, 4m, 16m, ... 4096m]. This
 /// assumes that `decay` is called once every minute.
 #[derive(Default)]
-pub struct DecayBuffer<T: Decay<T> + Default> {
+pub struct DecayBuffer<T: Default + Decay> {
     frames: [T; 7],
     decay_ticks: u64,
 }
 
-pub trait Decay<T> {
-    fn expected_utility(&self, u_a: f64) -> f64;
-    fn shift(&mut self, next: &T, fraction: f64);
-    fn clear(&mut self);
-}
-
-impl<T: Decay<T> + Default> DecayBuffer<T> {
+impl<T: Default + Decay> DecayBuffer<T> {
     pub fn current_mut(&mut self) -> &mut T {
         &mut self.frames[0]
     }
 
     pub fn expected_utility(&self, u_a: f64) -> SelectionFactor {
-        let agg_utility = self
-            .frames
-            .iter()
-            .map(|frame| frame.expected_utility(u_a))
-            .sum::<f64>()
-            / self.frames.len() as f64;
-
+        // TODO: This weight seems to have no appreciable effect
+        const FRAME_INDEX_WIEGTH: f64 = 0.5;
+        let mut aggregator = UtilityAggregator::new();
+        for (i, frame) in self.frames.iter().enumerate() {
+            let index_weight = FRAME_INDEX_WIEGTH * (i + 1) as f64;
+            aggregator.add(SelectionFactor {
+                utility: frame.expected_utility(u_a),
+                weight: concave_utility(index_weight * frame.count(), u_a),
+            });
+        }
+        let agg_utility = aggregator.crunch();
         SelectionFactor {
-            utility: agg_utility.powf(3.0),
-            // This weight gives about 85% confidence after 10 samples
-            // We would like more samples, but the query volume per indexer/deployment
-            // pair is so low that it otherwise takes a very long time to converge.
-            weight: concave_utility(agg_utility, 0.19),
+            utility: agg_utility,
+            weight: 1.0,
         }
     }
 
@@ -61,7 +63,7 @@ mod tests {
     use super::*;
     use crate::{indexer_selection::reputation::Reputation, prelude::test_utils::create_dir};
     use plotters::prelude::*;
-    use rand::{thread_rng, Rng as _};
+    use rand::{rngs::SmallRng, Rng as _, SeedableRng as _};
     use std::collections::HashMap;
 
     #[test]
@@ -69,10 +71,10 @@ mod tests {
         create_dir("test-outputs");
 
         let success_rates = [0000, 4000, 6000, 8000, 9000, 9900, 9999];
-        let outage_durations_m = [0, 5, 60, 5 * 60, 30 * 60, 120 * 60];
+        let outage_durations_m = [0, 5, 60, 5 * 60, 15 * 60, 120 * 60];
         let query_volume_hz = 20;
         let outage_start = 60 * 4092;
-        let mut rand = thread_rng();
+        let mut rand = SmallRng::from_entropy();
         let mut data = Vec::new();
         let mut reputations = success_rates
             .iter()
@@ -98,7 +100,7 @@ mod tests {
                     }
                     // Sample every minute.
                     if (t_s % 60) == 0 {
-                        let utility = reputation.expected_utility(3.0).utility;
+                        let utility = reputation.expected_utility(1.0).utility;
                         data.push((outage_duration_m, success_rate, (t_s / 60) as f64, utility));
                     }
                 }
