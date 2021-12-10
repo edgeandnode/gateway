@@ -102,7 +102,7 @@ impl SelectionFactors {
         };
         lock.allocations.release(receipt, status);
         if error.is_timeout() {
-            lock.reputation.current_mut().penalize(1);
+            lock.reputation.current_mut().penalize(1.0);
         }
     }
 
@@ -130,7 +130,7 @@ impl SelectionFactors {
                 .observe_indexing_behind(minimum_block, latest),
             // The only way to reach this would be if they returned that the block was unknown or
             // not indexed for a query with an empty selection set.
-            None => lock.reputation.current_mut().penalize(5),
+            None => lock.reputation.current_mut().penalize(5.0),
         };
     }
 
