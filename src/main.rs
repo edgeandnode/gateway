@@ -1,5 +1,6 @@
 mod block_resolver;
 mod ethereum_client;
+mod fisherman_client;
 mod indexer_client;
 mod indexer_selection;
 mod ipfs_client;
@@ -14,6 +15,7 @@ mod ws_client;
 
 use crate::{
     block_resolver::{BlockCache, BlockResolver},
+    fisherman_client::*,
     indexer_client::IndexerClient,
     indexer_selection::{SecretKey, UtilityConfig},
     ipfs_client::*,
@@ -119,6 +121,9 @@ async fn main() {
         .map(|deployments| async move { deployments.keys().cloned().collect() });
     let subgraph_info = manifest_client::create(ipfs_client, deployment_ids);
 
+    let fisherman_client = opt
+        .fisherman
+        .map(|url| FishermanClient::new(http_client.clone(), url));
     let subgraph_query_data = SubgraphQueryData {
         config: query_engine::Config {
             network,
@@ -134,6 +139,7 @@ async fn main() {
         inputs: inputs.clone(),
         api_keys,
         stats_db,
+        fisherman_client,
     };
     let network_subgraph_query_data = NetworkSubgraphQueryData {
         http_client,
@@ -354,6 +360,7 @@ struct QueryBody {
 struct SubgraphQueryData {
     config: Config,
     indexer_client: IndexerClient,
+    fisherman_client: Option<FishermanClient>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     subgraph_info: SubgraphInfoMap,
     inputs: Inputs,
@@ -422,6 +429,7 @@ async fn handle_subgraph_query_inner(
     let query_engine = QueryEngine::new(
         data.config.clone(),
         data.indexer_client.clone(),
+        data.fisherman_client.clone(),
         data.block_resolvers.clone(),
         data.subgraph_info.clone(),
         data.inputs.clone(),

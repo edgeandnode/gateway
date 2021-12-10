@@ -1,4 +1,5 @@
 use crate::{
+    fisherman_client::*,
     indexer_client::*,
     indexer_selection::{
         test_utils::{default_cost_model, TEST_KEY},
@@ -100,6 +101,7 @@ struct IndexerTopology {
     blocks_behind: usize,
     fee: TokenAmount,
     indexer_err: bool,
+    challenge_outcome: ChallengeOutcome,
 }
 
 impl IndexerTopology {
@@ -284,6 +286,7 @@ impl Topology {
             blocks_behind: self.rng.gen_range(0..=*self.config.blocks.end()),
             fee: self.gen_amount(),
             indexer_err: self.flip_coin(16),
+            challenge_outcome: self.gen_challenge_outcome(),
         }
     }
 
@@ -299,6 +302,25 @@ impl Topology {
             2 => TokenAmount::Enough,
             3 => TokenAmount::MoreThanEnough,
             _ => unreachable!(),
+        }
+    }
+
+    fn gen_challenge_outcome(&mut self) -> ChallengeOutcome {
+        if self.flip_coin(16) {
+            *[
+                ChallengeOutcome::FailedToProvideAttestation,
+                ChallengeOutcome::DisagreeWithTrustedIndexer,
+                ChallengeOutcome::DisagreeWithUntrustedIndexer,
+            ]
+            .choose(&mut self.rng)
+            .unwrap()
+        } else {
+            *[
+                ChallengeOutcome::AgreeWithTrustedIndexer,
+                ChallengeOutcome::Unknown,
+            ]
+            .choose(&mut self.rng)
+            .unwrap()
         }
     }
 
@@ -489,9 +511,10 @@ impl Topology {
             .flat_map(|deployment| deployment.indexings.iter())
             .map(|id| self.indexers.get(id).unwrap())
             .collect::<Vec<&IndexerTopology>>();
-        // Valid indexers have more than zero stake, more than zero allocation, and fee <= budget.
+        // Valid indexers have the following properties:
         fn valid_indexer(indexer: &IndexerTopology) -> bool {
             !indexer.indexer_err
+                && Topology::successful_challenge_outcome(indexer.challenge_outcome)
                 && (indexer.staked_grt > TokenAmount::Zero)
                 && (indexer.allocated_grt > TokenAmount::Zero)
                 && (indexer.fee <= TokenAmount::Enough)
@@ -544,6 +567,15 @@ impl Topology {
             format!("expected NoIndexerSelected, got {:#?}", result),
         )
     }
+
+    fn successful_challenge_outcome(outcome: ChallengeOutcome) -> bool {
+        match outcome {
+            ChallengeOutcome::AgreeWithTrustedIndexer | ChallengeOutcome::Unknown => true,
+            ChallengeOutcome::DisagreeWithTrustedIndexer
+            | ChallengeOutcome::DisagreeWithUntrustedIndexer
+            | ChallengeOutcome::FailedToProvideAttestation => false,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -585,6 +617,24 @@ impl IndexerInterface for TopologyIndexer {
                 s: Bytes32::default(),
             }),
         })
+    }
+}
+
+#[derive(Clone)]
+struct TopologyFisherman {
+    topology: Arc<Mutex<Topology>>,
+}
+
+#[async_trait]
+impl FishermanInterface for TopologyFisherman {
+    async fn challenge(&self, indexer_query: &IndexerQuery, _: &Attestation) -> ChallengeOutcome {
+        self.topology
+            .lock()
+            .await
+            .indexers
+            .get(&indexer_query.indexing.indexer)
+            .unwrap()
+            .challenge_outcome
     }
 }
 
@@ -633,6 +683,9 @@ async fn test() {
             TopologyIndexer {
                 topology: topology.clone(),
             },
+            Some(TopologyFisherman {
+                topology: topology.clone(),
+            }),
             resolvers,
             subgraph_info,
             inputs,

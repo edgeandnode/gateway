@@ -21,18 +21,18 @@ pub struct IndexerResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct IndexerResponsePayload {
-    #[serde(rename(deserialize = "graphQLResponse"))]
+    #[serde(rename = "graphQLResponse")]
     pub graphql_response: String,
     pub attestation: Option<Attestation>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Attestation {
-    #[serde(rename(deserialize = "requestCID"))]
+    #[serde(rename = "requestCID")]
     pub request_cid: Bytes32,
-    #[serde(rename(deserialize = "responseCID"))]
+    #[serde(rename = "responseCID")]
     pub response_cid: Bytes32,
-    #[serde(rename(deserialize = "subgraphDeploymentID"))]
+    #[serde(rename = "subgraphDeploymentID")]
     pub deployment: Bytes32,
     pub v: u8,
     pub r: Bytes32,
