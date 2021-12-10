@@ -254,10 +254,9 @@ impl Indexers {
 
     pub async fn decay(&self) {
         for indexing in self.indexings.keys().await {
-            match self.indexings.get(&indexing).await {
-                Some(selection_factors) => selection_factors.decay().await,
-                None => continue,
-            };
+            if let Some(selection_factors) = self.indexings.get(&indexing).await {
+                selection_factors.decay().await;
+            }
         }
     }
 

@@ -19,12 +19,10 @@ pub fn init_test_tracing() {
     ONCE.call_once(|| init_tracing(false))
 }
 
-pub fn create_dir(path: &str) -> io::Result<()> {
+pub fn create_dir(path: &str) {
     match fs::create_dir(path) {
-        Ok(()) => Ok(()),
-        Err(err) => match err.kind() {
-            io::ErrorKind::AlreadyExists => Ok(()),
-            _ => return Err(err),
-        },
-    }
+        Ok(()) => (),
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
+        Err(err) => panic!("{}", err),
+    };
 }
