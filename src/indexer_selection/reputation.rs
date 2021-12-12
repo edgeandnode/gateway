@@ -24,7 +24,6 @@ impl Decay for Reputation {
         // returns 3 successes - for some fixed value of a query the utility is number of returned
         // queries * value of query.
         let ratio = self.successful_queries / total_queries;
-        // TODO: analyze penalty impact
         let penalty = ((self.penalties / total_queries) + 1.0).recip();
         ratio * penalty
     }
@@ -41,6 +40,7 @@ impl Decay for Reputation {
     fn clear(&mut self) {
         self.successful_queries = 0.0;
         self.failed_queries = 0.0;
+        self.penalties = 0.0;
     }
 
     fn count(&self) -> f64 {
@@ -57,7 +57,10 @@ impl Reputation {
         self.failed_queries += 1.0;
     }
 
-    pub fn penalize(&mut self, weight: f64) {
-        self.penalties += weight;
+    pub fn penalize(&mut self, weight: u8) {
+        // Scale weight to a shift amount in range [0, 63].
+        let shamt = (weight / 4).max(1) - 1;
+        let weight = 1u64 << shamt;
+        self.penalties += weight as f64;
     }
 }
