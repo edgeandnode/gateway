@@ -247,8 +247,14 @@ impl Indexers {
             Some(selection_factors) => selection_factors,
             None => return,
         };
+        let minimum_block = match freshness_requirements {
+            Ok(requirements) => requirements.minimum_block,
+            // If we observed a block hash in the query that we could no longer associate with a
+            // number, then we have detected a reorg and the indexer receives no penalty.
+            Err(_) => return,
+        };
         selection_factors
-            .observe_indexing_behind(&freshness_requirements, latest)
+            .observe_indexing_behind(minimum_block, latest)
             .await;
     }
 
