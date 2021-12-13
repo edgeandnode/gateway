@@ -106,23 +106,7 @@ impl SelectionFactors {
         }
     }
 
-    pub async fn observe_indexing_behind(
-        &self,
-        freshness_requirements: &Result<BlockRequirements, SelectionError>,
-        latest: u64,
-    ) {
-        let minimum_block = match freshness_requirements {
-            // If we observed a block hash in the query that we could no longer associate with a
-            // number, then we have detected a reorg and the indexer receives no penalty.
-            Err(_) => return,
-            Ok(requirements) => {
-                assert!(
-                    !requirements.has_latest,
-                    "Observe indexing behind should only take deterministic queries"
-                );
-                requirements.minimum_block
-            }
-        };
+    pub async fn observe_indexing_behind(&self, minimum_block: Option<u64>, latest: u64) {
         let mut lock = self.locked.write().await;
         match minimum_block {
             Some(minimum_block) => lock

@@ -61,6 +61,7 @@ impl IndexerInterface for IndexerClient {
             .body(query.query.clone())
             .send()
             .await;
+        // We need to observe timeouts differently in the ISA, so we discriminate them here.
         let response = match result {
             Ok(response) => response,
             Err(err) if err.is_timeout() => return Err(IndexerError::Timeout),
