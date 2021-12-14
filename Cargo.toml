@@ -7,8 +7,9 @@ version = "0.1.0"
 lto = "thin"
 
 [dependencies]
-actix-cors = "0.6.0-beta.3"
-actix-web = "4.0.0-beta.11"
+actix-cors = "=0.6.0-beta.4"
+actix-http = "=3.0.0-beta.14"
+actix-web = "=4.0.0-beta.13"
 async-trait = "0.1"
 bs58 = "0.4"
 cost-model = {git = "ssh://git@github.com/graphprotocol/agora.git", rev = "48bf329"}
