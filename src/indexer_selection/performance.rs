@@ -27,6 +27,8 @@ use crate::{
 };
 use ordered_float::NotNan;
 
+use super::decay::DecayUtility;
+
 #[derive(Clone, Debug, Default)]
 pub struct Performance {
     performance: Vec<f64>,
@@ -34,6 +36,22 @@ pub struct Performance {
 }
 
 impl Decay for Performance {
+    fn shift(&mut self, mut next: Option<&mut Self>, fraction: f64, keep: f64) {
+        // For each quantized bucket, find the corresponding quantized bucket in
+        // the next frame, and shift information into it.
+        for (count, performance) in self.count.iter_mut().zip(self.performance.iter().cloned()) {
+            let next_performance = next.as_deref_mut().map(|n| n.bucket_mut(performance));
+            count.shift(next_performance, fraction, keep);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.performance.clear();
+        self.count.clear();
+    }
+}
+
+impl DecayUtility for Performance {
     fn expected_utility(&self, u_a: f64) -> f64 {
         let mut agg_count = 0.0;
         let mut agg_utility = 0.0;
@@ -46,21 +64,6 @@ impl Decay for Performance {
         }
         agg_utility / agg_count
     }
-
-    fn shift(&mut self, next: &Self, fraction: f64) {
-        for count in &mut self.count {
-            *count = *count * fraction;
-        }
-        for (count, performance) in next.iter() {
-            self.add_successful_queries_inner(performance, count);
-        }
-    }
-
-    fn clear(&mut self) {
-        self.performance.clear();
-        self.count.clear();
-    }
-
     fn count(&self) -> f64 {
         self.count.iter().sum()
     }
@@ -101,23 +104,25 @@ impl Performance {
     }
 
     pub fn add_successful_query(&mut self, duration: Duration) {
-        self.add_successful_queries_inner(Self::quantized_performance(duration), 1.0);
+        *self.bucket_mut(Self::quantized_performance(duration)) += 1.0;
     }
 
-    fn add_successful_queries_inner(&mut self, quantized_performance: f64, count: f64) {
+    fn bucket_mut(&mut self, quantized_performance: f64) -> &mut f64 {
         // Safety: Performance is NotNan. See also 47632ed6-4dcc-4b39-b064-c0ca01560626
-        match unsafe {
+        let index = match unsafe {
             self.performance
                 .binary_search_by_key(&NotNan::new_unchecked(quantized_performance), |a| {
                     NotNan::new_unchecked(*a)
                 })
         } {
-            Ok(index) => self.count[index] += count,
+            Ok(index) => index,
             Err(index) => {
                 self.performance.insert(index, quantized_performance);
-                self.count.insert(index, count)
+                self.count.insert(index, 0.0);
+                index
             }
-        }
+        };
+        &mut self.count[index]
     }
 
     fn iter<'a>(&'a self) -> impl 'a + Iterator<Item = (f64, f64)> {
