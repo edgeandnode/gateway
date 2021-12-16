@@ -102,7 +102,7 @@ impl SelectionFactors {
         };
         lock.allocations.release(receipt, status);
         if error.is_timeout() {
-            lock.reputation.current_mut().penalize(30);
+            lock.reputation.current_mut().penalize(50);
         }
     }
 

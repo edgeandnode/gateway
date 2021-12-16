@@ -1,60 +1,97 @@
 use crate::indexer_selection::utility::{concave_utility, SelectionFactor, UtilityAggregator};
 
 pub trait Decay {
-    fn expected_utility(&self, u_a: f64) -> f64;
-    fn shift(&mut self, next: &Self, fraction: f64);
+    fn shift(&mut self, next: Option<&mut Self>, fraction: f64, keep: f64);
     fn clear(&mut self);
+}
+
+pub trait DecayUtility {
     fn count(&self) -> f64;
+    fn expected_utility(&self, u_a: f64) -> f64;
 }
 
 /// The DecayBuffer accounts for selection factors over various time-frames. Currently, these time
 /// frames are 7 consecutive powers of 4 minute intervals, i.e. [1m, 4m, 16m, ... 4096m]. This
 /// assumes that `decay` is called once every minute.
 #[derive(Default)]
-pub struct DecayBuffer<T: Default + Decay> {
+pub struct DecayBuffer<T> {
     frames: [T; 7],
-    decay_ticks: u64,
 }
 
-impl<T: Default + Decay> DecayBuffer<T> {
-    pub fn current_mut(&mut self) -> &mut T {
-        &mut self.frames[0]
-    }
-
+impl<T: DecayUtility> DecayBuffer<T> {
     pub fn expected_utility(&self, u_a: f64) -> SelectionFactor {
-        // TODO: This weight seems to have no appreciable effect
-        const FRAME_INDEX_WIEGTH: f64 = 0.5;
         let mut aggregator = UtilityAggregator::new();
         for (i, frame) in self.frames.iter().enumerate() {
-            let index_weight = FRAME_INDEX_WIEGTH * (i + 1) as f64;
+            // 1/10 query per minute = 85% confident.
+            let confidence = concave_utility(frame.count() * 10.0 / 4.0_f64.powf(i as f64), 0.19);
+
+            // Buckets decrease in relevance rapidly, making
+            // the most recent buckets contribute the most to the
+            // final result.
+            let importance = 1.0 / (1.0 + (i as f64));
+
             aggregator.add(SelectionFactor {
                 utility: frame.expected_utility(u_a),
-                weight: concave_utility(index_weight * frame.count(), u_a),
+                weight: confidence * importance,
             });
         }
+
         let agg_utility = aggregator.crunch();
         SelectionFactor {
             utility: agg_utility,
             weight: 1.0,
         }
     }
+}
 
+impl<T> DecayBuffer<T> {
+    pub fn current_mut(&mut self) -> &mut T {
+        &mut self.frames[0]
+    }
+}
+
+impl<T: Decay> DecayBuffer<T> {
+    /*
+    The idea here is to pretend that we have a whole bunch of buckets of the minimum window size (1 min each)
+    A whole 8191 of them! Queries contribute to the bucket they belong, and each time we decay each bucket shifts down
+    and retains 99.5% of the information in the bucket.
+
+    The above would be bad for performance, so we achieve almost the same result by creating "frames"
+    of increasing size, each of which can hold many buckets. When we decay we do the same operation as above,
+    assuming that each bucket within a frame holds the average value of all buckets within that frame. This results in some "smearing"
+    of the data, but reduces the size of our array from 8191 to just 7 at the expense of slight complexity and loss of accuracy.
+    */
     pub fn decay(&mut self) {
-        // For each frame `frame[i]`,
-        // when `decay_ticks` is divisible by `pow(4, i-1)`,
-        // reduce the value of `frame[i]` by 1/4 and add the value of `frame[i-1]` to `frame[i]`.
-        self.decay_ticks += 1;
-        for i in (1..7).rev() {
-            let next_frame_ticks = 1 << ((i - 1) * 2);
-            if (self.decay_ticks % next_frame_ticks) != 0 {
-                continue;
-            }
-            let (l, r) = self.frames.split_at_mut(i);
-            let (prev, this) = (&l.last().unwrap(), &mut r[0]);
-            this.shift(prev, 0.25);
+        for i in (0..7).rev() {
+            // Select buckets [i], [i+]
+            let (l, r) = self.frames.split_at_mut(i + 1);
+            let (this, next) = (l.last_mut().unwrap(), r.get_mut(0));
+
+            // Decay rate of 0.5% per smallest bucket resolution
+            // That is, each time we shift decay 0.5% per non-aggregated bucket
+            // and aggregate the results into frames.
+            let retain = 0.995_f64.powf(4_f64.powf(i as f64));
+
+            // Shift one bucket, aggregating the results.
+            this.shift(next, 0.25_f64.powf(i as f64), retain);
         }
-        // Clear the current frame.
-        self.frames[0].clear();
+    }
+}
+
+impl Decay for f64 {
+    fn shift(&mut self, next: Option<&mut Self>, fraction: f64, retain: f64) {
+        // Remove some amount of value from this frame
+        let take = *self * fraction;
+        *self -= take;
+        if let Some(next) = next {
+            // And add that value to the next frame, destroying some of the value
+            // as we go to forget over time.
+            *next += take * retain;
+        }
+    }
+
+    fn clear(&mut self) {
+        *self = 0.0;
     }
 }
 
@@ -131,6 +168,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Writes output to disk"]
     fn reputation_response() {
         let config = ResponseConfig {
             title: "reputation-outage-response",
@@ -179,6 +217,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Writes output to disk"]
     fn penalty_response() {
         let config = ResponseConfig {
             title: "reputation-penalty-response",
