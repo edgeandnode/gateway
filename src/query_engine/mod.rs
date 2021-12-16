@@ -296,7 +296,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         let freshness_requirements =
             Indexers::freshness_requirements(&mut context, block_resolver).await?;
 
-        for _ in 0..self.config.indexer_selection_retry_limit {
+        for retry_count in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
                 &METRICS.indexer_selection_duration,
                 &[&deployment_ipfs],
@@ -337,6 +337,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                     &subgraph_info,
                     &mut context,
                     block_resolver,
+                    retry_count,
                 )
                 .await;
             match result {
@@ -361,6 +362,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         subgraph_info: &SubgraphInfo,
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
+        retry_count: usize,
     ) -> Result<QueryResponse, RemoveIndexer> {
         let indexer_id = indexer_query.indexing.indexer.to_string();
         tracing::info!(indexer = %indexer_id);
@@ -388,6 +390,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
             indexer_query_duration_ms = query_duration.as_millis() as u32,
             %indexer_response_status,
             indexer_query = %indexer_query.query,
+            %retry_count,
             "indexer query result",
         );
 
