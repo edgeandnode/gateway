@@ -565,7 +565,9 @@ impl IndexerInterface for TopologyIndexer {
             let hash = capture.get(1).unwrap().as_str().parse::<Bytes32>().unwrap();
             let number = blocks.iter().position(|block| block.hash == hash).unwrap();
             if number > indexer.block(blocks.len()) {
-                todo!("block ahead of indexer")
+                return Err(
+                    "Failed to decode `block.hash` value: `no block with that hash found`".into(),
+                );
             }
         }
         Ok(IndexerResponse {

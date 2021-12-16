@@ -297,6 +297,9 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                 &[&deployment_ipfs],
                 |hist| hist.start_timer(),
             );
+            // Create fresh context since the process of making queries deterministic may depend on
+            // the indexing status of the selected indexer.
+            let mut context = context.clone();
             let selection_result = self
                 .indexers
                 .select_indexer(
