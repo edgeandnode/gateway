@@ -15,6 +15,7 @@ use rand::{
     seq::SliceRandom,
     Rng, RngCore as _, SeedableRng,
 };
+use serde_json::json;
 use std::{collections::BTreeMap, env, fmt, iter, ops::RangeInclusive};
 use tokio::{self, sync::Mutex};
 
@@ -565,9 +566,11 @@ impl IndexerInterface for TopologyIndexer {
             let hash = capture.get(1).unwrap().as_str().parse::<Bytes32>().unwrap();
             let number = blocks.iter().position(|block| block.hash == hash).unwrap();
             if number > indexer.block(blocks.len()) {
-                return Err(
-                    "Failed to decode `block.hash` value: `no block with that hash found`".into(),
-                );
+                return Err(IndexerError::Other(json!({
+                    "errors": vec![json!({
+                        "message": "Failed to decode `block.hash` value: `no block with that hash found`",
+                    })]
+                }).to_string()));
             }
         }
         Ok(IndexerResponse {
