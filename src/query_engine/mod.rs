@@ -297,6 +297,24 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
                 &[&deployment_ipfs],
                 |hist| hist.start_timer(),
             );
+
+            // Since we modify the context in-place, we need to reset the context to the state of
+            // the original client query. This to avoid the following scenario:
+            // 1. A client query has no block requirements set for some top-level operation
+            // 2. The first indexer is selected, with some indexing status at block number `n`
+            // 3. The query is made deterministic by setting the block requirement to the hash of
+            //    block `n`
+            // 4. Some condition requires us to retry this query on another indexer with an indexing
+            //    status at a block less than `n`
+            // 5. The same context is re-used, including the block requirement set to the hash of
+            //    block `n`
+            // 6. The indexer is seen as being behind and is unnecessarily penalized
+            //
+            // TODO: Avoid the additional cloning of the entire AST here, especially in the case
+            // where retries are necessary. Only the top-level operation arguments need to be reset
+            // to the state of the client query.
+            let mut context = context.clone();
+
             let selection_result = self
                 .indexers
                 .select_indexer(
