@@ -12,7 +12,7 @@ actix-http = "=3.0.0-beta.14"
 actix-web = "=4.0.0-beta.13"
 async-trait = "0.1"
 bs58 = "0.4"
-cost-model = {git = "ssh://git@github.com/graphprotocol/agora.git", rev = "48bf329"}
+cost-model = {git = "ssh://git@github.com/graphprotocol/agora.git", rev = "c7c9876"}
 eventuals = "0.6"
 futures = "0.3"
 futures-util = "0.3"
