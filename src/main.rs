@@ -123,7 +123,7 @@ async fn main() {
 
     let fisherman_client = opt
         .fisherman
-        .map(|url| FishermanClient::new(http_client.clone(), url));
+        .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
     let subgraph_query_data = SubgraphQueryData {
         config: query_engine::Config {
             network,
@@ -360,7 +360,7 @@ struct QueryBody {
 struct SubgraphQueryData {
     config: Config,
     indexer_client: IndexerClient,
-    fisherman_client: Option<FishermanClient>,
+    fisherman_client: Option<Arc<FishermanClient>>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     subgraph_info: SubgraphInfoMap,
     inputs: Inputs,

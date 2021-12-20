@@ -173,19 +173,19 @@ where
     subgraph_info: SubgraphInfoMap,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     indexer_client: I,
-    fisherman_client: Option<F>,
+    fisherman_client: Option<Arc<F>>,
     config: Config,
 }
 
 impl<I, F> QueryEngine<I, F>
 where
     I: IndexerInterface + Clone + Send + 'static,
-    F: FishermanInterface + Clone + Send + 'static,
+    F: FishermanInterface + Clone + Send + Sync + 'static,
 {
     pub fn new(
         config: Config,
         indexer_client: I,
-        fisherman_client: Option<F>,
+        fisherman_client: Option<Arc<F>>,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
         subgraph_info: SubgraphInfoMap,
         inputs: Inputs,
@@ -464,23 +464,7 @@ where
         }
 
         if let Some(attestation) = &response.attestation {
-            let challenge_outcome = self
-                .challenge_indexer_response(&indexer_query, attestation)
-                .await;
-            tracing::info!(?challenge_outcome);
-            let penalty = match challenge_outcome {
-                ChallengeOutcome::Unknown | ChallengeOutcome::AgreeWithTrustedIndexer => 0,
-                ChallengeOutcome::DisagreeWithUntrustedIndexer => 10,
-                ChallengeOutcome::DisagreeWithTrustedIndexer => 35,
-                ChallengeOutcome::FailedToProvideAttestation => 40,
-            };
-            if penalty > 0 {
-                // TODO: apply penalty to indexers
-                // self.indexers
-                //     .penalize(&indexer_query.indexing, penalty)
-                //     .await;
-                return Err(RemoveIndexer::Yes);
-            }
+            self.challenge_indexer_response(indexer_query.clone(), attestation.clone());
         }
 
         self.indexers
@@ -570,15 +554,26 @@ where
         Ok(())
     }
 
-    async fn challenge_indexer_response(
-        &self,
-        indexer_query: &IndexerQuery,
-        attestation: &Attestation,
-    ) -> ChallengeOutcome {
-        match &self.fisherman_client {
-            Some(fisherman) => fisherman.challenge(indexer_query, attestation).await,
-            None => return ChallengeOutcome::Unknown,
-        }
+    fn challenge_indexer_response(&self, indexer_query: IndexerQuery, attestation: Attestation) {
+        let fisherman = match &self.fisherman_client {
+            Some(fisherman) => fisherman.clone(),
+            None => return,
+        };
+        let indexers = self.indexers.clone();
+        tokio::spawn(async move {
+            let outcome = fisherman.challenge(&indexer_query, &attestation).await;
+            tracing::trace!(?outcome);
+            let penalty = match outcome {
+                ChallengeOutcome::Unknown | ChallengeOutcome::AgreeWithTrustedIndexer => 0,
+                ChallengeOutcome::DisagreeWithUntrustedIndexer => 10,
+                ChallengeOutcome::DisagreeWithTrustedIndexer => 35,
+                ChallengeOutcome::FailedToProvideAttestation => 40,
+            };
+            if penalty > 0 {
+                tracing::info!(?outcome, "penalizing for challenge outcome");
+                indexers.penalize(&indexer_query.indexing, penalty).await;
+            }
+        });
     }
 }
 

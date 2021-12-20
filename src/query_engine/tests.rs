@@ -513,11 +513,16 @@ impl Topology {
             .collect::<Vec<&IndexerTopology>>();
         // Valid indexers have the following properties:
         fn valid_indexer(indexer: &IndexerTopology) -> bool {
+            // no failure to indexing the subgraph
             !indexer.indexer_err
-                && Topology::successful_challenge_outcome(indexer.challenge_outcome)
-                && (indexer.staked_grt > TokenAmount::Zero)
-                && (indexer.allocated_grt > TokenAmount::Zero)
-                && (indexer.fee <= TokenAmount::Enough)
+            // successful outcome to fisherman challenge
+            && Topology::successful_challenge_outcome(indexer.challenge_outcome)
+            // more than zero stake
+            && (indexer.staked_grt > TokenAmount::Zero)
+            // more than zero allocation
+            && (indexer.allocated_grt > TokenAmount::Zero)
+            // fee <= budget
+            && (indexer.fee <= TokenAmount::Enough)
         }
         // Return NoIndexers if no valid indexers exist.
         if let Err(QueryEngineError::NoIndexers) = result {
@@ -683,9 +688,9 @@ async fn test() {
             TopologyIndexer {
                 topology: topology.clone(),
             },
-            Some(TopologyFisherman {
+            Some(Arc::new(TopologyFisherman {
                 topology: topology.clone(),
-            }),
+            })),
             resolvers,
             subgraph_info,
             inputs,

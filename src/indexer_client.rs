@@ -26,7 +26,7 @@ pub struct IndexerResponsePayload {
     pub attestation: Option<Attestation>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Attestation {
     #[serde(rename = "requestCID")]
     pub request_cid: Bytes32,

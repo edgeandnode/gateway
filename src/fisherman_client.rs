@@ -37,7 +37,7 @@ impl FishermanInterface for FishermanClient {
         indexer_query: &IndexerQuery,
         attestation: &Attestation,
     ) -> ChallengeOutcome {
-        match self.send_challenge(indexer_query, attestation).await {
+        match self.send_challenge(&indexer_query, &attestation).await {
             Ok(outcome) => outcome,
             Err(fisherman_challenge_err) => {
                 tracing::error!(%fisherman_challenge_err);
@@ -57,17 +57,13 @@ impl FishermanClient {
         indexer_query: &IndexerQuery,
         attestation: &Attestation,
     ) -> Result<ChallengeOutcome, Box<dyn Error>> {
-        let mut allocation_id = Address { bytes: [0; 20] };
-        allocation_id
-            .bytes
-            .copy_from_slice(&indexer_query.receipt.commitment[0..20]);
         let challenge = serde_json::to_string(&json!({
             "jsonrpc": "2.0",
             "id": 0,
             "method": "challenge",
             "params": {
                 "readOperation": &indexer_query.query,
-                "allocationID": allocation_id.to_string(),
+                "allocationID": indexer_query.allocation.to_string(),
                 "attestation": serde_json::to_value(attestation)?,
             },
         }))?;
