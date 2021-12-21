@@ -54,6 +54,7 @@ pub struct IndexerQuery {
     pub slashable_usd: USD,
     pub utility: NotNan<f64>,
     pub blocks_behind: Option<u64>,
+    pub allocation: Address,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -258,6 +259,14 @@ impl Indexers {
             .await;
     }
 
+    pub async fn penalize(&self, indexing: &Indexing, weight: u8) {
+        let selection_factors = match self.indexings.get(indexing).await {
+            Some(selection_factors) => selection_factors,
+            None => return,
+        };
+        selection_factors.penalize(weight).await;
+    }
+
     pub async fn decay(&self) {
         for indexing in self.indexings.keys().await {
             if let Some(selection_factors) = self.indexings.get(&indexing).await {
@@ -323,6 +332,9 @@ impl Indexers {
                 .await?;
         make_query_deterministic_timer.observe_duration();
 
+        let mut allocation = Address { bytes: [0; 20] };
+        allocation.bytes.copy_from_slice(&receipt.commitment[0..20]);
+
         Ok(Some(IndexerQuery {
             network: network.into(),
             indexing,
@@ -333,6 +345,7 @@ impl Indexers {
             slashable_usd: score.slashable,
             utility: score.utility,
             blocks_behind: query.blocks_behind,
+            allocation,
         }))
     }
 

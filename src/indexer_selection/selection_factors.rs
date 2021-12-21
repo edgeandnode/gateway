@@ -118,6 +118,11 @@ impl SelectionFactors {
         };
     }
 
+    pub async fn penalize(&self, weight: u8) {
+        let mut lock = self.locked.write().await;
+        lock.reputation.current_mut().penalize(weight);
+    }
+
     pub async fn decay(&self) {
         let mut lock = self.locked.write().await;
         lock.performance.decay();

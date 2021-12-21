@@ -3,6 +3,7 @@ mod tests;
 
 use crate::{
     block_resolver::BlockResolver,
+    fisherman_client::*,
     indexer_client::*,
     indexer_selection::{
         self, Context, IndexerError, IndexerQuery, Indexers, SelectionError, UnresolvedBlock,
@@ -161,20 +162,30 @@ impl Inputs {
     }
 }
 
-pub struct QueryEngine<I: IndexerInterface + Clone + Send> {
+pub struct QueryEngine<I, F>
+where
+    I: IndexerInterface + Clone + Send,
+    F: FishermanInterface + Clone + Send,
+{
     indexers: Arc<Indexers>,
     current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
     subgraph_info: SubgraphInfoMap,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     indexer_client: I,
+    fisherman_client: Option<Arc<F>>,
     config: Config,
 }
 
-impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
+impl<I, F> QueryEngine<I, F>
+where
+    I: IndexerInterface + Clone + Send + 'static,
+    F: FishermanInterface + Clone + Send + Sync + 'static,
+{
     pub fn new(
         config: Config,
         indexer_client: I,
+        fisherman_client: Option<Arc<F>>,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
         subgraph_info: SubgraphInfoMap,
         inputs: Inputs,
@@ -184,6 +195,7 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
             current_deployments: inputs.current_deployments,
             deployment_indexers: inputs.deployment_indexers,
             indexer_client,
+            fisherman_client,
             block_resolvers,
             subgraph_info,
             config,
@@ -451,8 +463,8 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
             return Err(remove_indexer);
         }
 
-        if let Some(_attestation) = &response.attestation {
-            // TODO: fisherman
+        if let Some(attestation) = &response.attestation {
+            self.challenge_indexer_response(indexer_query.clone(), attestation.clone());
         }
 
         self.indexers
@@ -540,6 +552,28 @@ impl<I: IndexerInterface + Clone + Send + 'static> QueryEngine<I> {
         }
 
         Ok(())
+    }
+
+    fn challenge_indexer_response(&self, indexer_query: IndexerQuery, attestation: Attestation) {
+        let fisherman = match &self.fisherman_client {
+            Some(fisherman) => fisherman.clone(),
+            None => return,
+        };
+        let indexers = self.indexers.clone();
+        tokio::spawn(async move {
+            let outcome = fisherman.challenge(&indexer_query, &attestation).await;
+            tracing::trace!(?outcome);
+            let penalty = match outcome {
+                ChallengeOutcome::Unknown | ChallengeOutcome::AgreeWithTrustedIndexer => 0,
+                ChallengeOutcome::DisagreeWithUntrustedIndexer => 10,
+                ChallengeOutcome::DisagreeWithTrustedIndexer => 35,
+                ChallengeOutcome::FailedToProvideAttestation => 40,
+            };
+            if penalty > 0 {
+                tracing::info!(?outcome, "penalizing for challenge outcome");
+                indexers.penalize(&indexer_query.indexing, penalty).await;
+            }
+        });
     }
 }
 

@@ -27,6 +27,8 @@ pub struct Opt {
         env = "IPFS"
     )]
     pub ipfs: Url,
+    #[structopt(help = "Fisherman endpoint", long = "--fisherman", env = "FISHERMAN")]
+    pub fisherman: Option<Url>,
     #[structopt(
         help = "Ethereum provider URLs, format: '<network>=<url>,...'\ne.g. rinkeby=eth-rinkeby.alchemyapi.io/v2/<api-key>",
         long = "--ethereum-providers",
