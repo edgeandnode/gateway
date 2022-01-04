@@ -39,6 +39,7 @@ pub use ordered_float::NotNan;
 use prometheus;
 use rand::{thread_rng, Rng as _};
 pub use secp256k1::SecretKey;
+use std::collections::HashMap;
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
@@ -156,6 +157,7 @@ pub struct Inputs {
     pub usd_to_grt_conversion: Eventual<USD>,
     pub indexers: SharedLookup<Address, IndexerDataReader>,
     pub indexings: SharedLookup<Indexing, SelectionFactors>,
+    pub special_indexers: Eventual<HashMap<Address, NotNan<f64>>>,
 }
 
 pub struct InputWriters {
@@ -163,12 +165,14 @@ pub struct InputWriters {
     pub usd_to_grt_conversion: EventualWriter<USD>,
     pub indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
     pub indexings: SharedLookupWriter<Indexing, SelectionFactors, IndexingData>,
+    pub special_indexers: EventualWriter<HashMap<Address, NotNan<f64>>>,
 }
 
 pub struct Indexers {
     network_params: NetworkParameters,
     indexers: SharedLookup<Address, IndexerDataReader>,
     indexings: SharedLookup<Indexing, SelectionFactors>,
+    special_indexers: Eventual<HashMap<Address, NotNan<f64>>>,
 }
 
 impl Indexers {
@@ -177,18 +181,21 @@ impl Indexers {
         let (usd_to_grt_conversion_writer, usd_to_grt_conversion) = Eventual::new();
         let (indexers_writer, indexers) = SharedLookup::new();
         let (indexings_writer, indexings) = SharedLookup::new();
+        let (special_indexers_writer, special_indexers) = Eventual::new();
         (
             InputWriters {
                 slashing_percentage: slashing_percentage_writer,
                 usd_to_grt_conversion: usd_to_grt_conversion_writer,
                 indexers: indexers_writer,
                 indexings: indexings_writer,
+                special_indexers: special_indexers_writer,
             },
             Inputs {
                 slashing_percentage,
                 usd_to_grt_conversion,
                 indexers,
                 indexings,
+                special_indexers,
             },
         )
     }
@@ -201,6 +208,7 @@ impl Indexers {
             },
             indexers: inputs.indexers,
             indexings: inputs.indexings,
+            special_indexers: inputs.special_indexers,
         }
     }
 
@@ -534,7 +542,15 @@ impl Indexers {
         // delegating more and then getting more queries is kind of a self-fulfilling
         // prophesy. What balances this, is that any amount delegated is most productive
         // when delegated proportionally to each Indexer's utility for that subgraph.
-        let utility = aggregator.crunch();
+        let mut utility = aggregator.crunch();
+
+        // Some indexers require an additional weight applied to their utility. For example,
+        // backstop indexers may have a reduced utility.
+        utility *= self
+            .special_indexers
+            .value_immediate()
+            .and_then(|map| map.get(&indexing.indexer).map(|w| **w))
+            .unwrap_or(1.0);
 
         Ok(IndexerScore {
             url: indexer_url,

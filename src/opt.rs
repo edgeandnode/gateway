@@ -1,7 +1,8 @@
 use crate::{ethereum_client, indexer_selection::SecretKey, prelude::*};
 use bip39;
 use hdwallet::{self, KeyChain as _};
-use std::error::Error;
+use ordered_float::NotNan;
+use std::{collections::HashMap, error::Error};
 use structopt_derive::StructOpt;
 use url::{self, Url};
 
@@ -47,6 +48,13 @@ pub struct Opt {
         env = "NETWORK_SUBGRAPH_AUTH_TOKEN"
     )]
     pub network_subgraph_auth_token: String,
+    #[structopt(
+        help = "MIP weights and addresses, format: '<weight>:<address>,...'\ne.g. 0.1:0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        long = "--mips",
+        env = "MIPS",
+        default_value = "0.2:"
+    )]
+    pub mips: MIPs,
     #[structopt(help = "Format log output as JSON", long = "--log-json")]
     pub log_json: bool,
     #[structopt(
@@ -224,5 +232,31 @@ impl FromStr for EthereumProviders {
             .collect::<Result<Vec<ethereum_client::Provider>, Box<dyn Error>>>()
             .map(|providers| EthereumProviders(providers))
             .map_err(|err| format!("{}\n{}", err_usage, err).into())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MIPs(pub HashMap<Address, NotNan<f64>>);
+
+impl FromStr for MIPs {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let fields: Vec<&str> = s.split(":").collect();
+        if fields.len() != 2 {
+            return Err(format!("Expected <weight>:<address>..., found {:?}", s));
+        }
+        let weight = fields[0]
+            .parse::<NotNan<f64>>()
+            .map_err(|_| format!("Expected <weight> (f64), found {:?}", fields[0]))?;
+        let addresses = fields[1]
+            .split(",")
+            .filter(|s| *s != "")
+            .map(|s| s.parse::<Address>().map_err(|_| s))
+            .collect::<Result<Vec<Address>, &str>>()
+            .map_err(|s| format!("Expected <address>, found {:?}", s))?;
+
+        Ok(MIPs(
+            addresses.into_iter().map(|addr| (addr, weight)).collect(),
+        ))
     }
 }

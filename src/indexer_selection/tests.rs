@@ -17,6 +17,7 @@ struct IndexerCharacteristics {
     price: GRT,
     latency_ms: u64,
     reliability: f64,
+    special_weight: Option<f64>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -51,6 +52,7 @@ async fn battle_high_and_low() {
             latency_ms: 80,
             reliability: 0.999,
             blocks_behind: 0,
+            special_weight: None,
         },
         // Also great!
         IndexerCharacteristics {
@@ -60,6 +62,7 @@ async fn battle_high_and_low() {
             latency_ms: 70,
             reliability: 0.995,
             blocks_behind: 1,
+            special_weight: None,
         },
         // Ok!
         IndexerCharacteristics {
@@ -69,6 +72,7 @@ async fn battle_high_and_low() {
             latency_ms: 130,
             reliability: 0.95,
             blocks_behind: 1,
+            special_weight: None,
         },
         // Race to the bottom
         IndexerCharacteristics {
@@ -78,6 +82,7 @@ async fn battle_high_and_low() {
             latency_ms: 250,
             reliability: 0.96,
             blocks_behind: 1,
+            special_weight: None,
         },
         // Meh
         IndexerCharacteristics {
@@ -87,6 +92,7 @@ async fn battle_high_and_low() {
             latency_ms: 200,
             reliability: 0.80,
             blocks_behind: 8,
+            special_weight: None,
         },
         // Bad
         IndexerCharacteristics {
@@ -96,6 +102,7 @@ async fn battle_high_and_low() {
             latency_ms: 1900,
             reliability: 0.80,
             blocks_behind: 8,
+            special_weight: None,
         },
         // Overpriced
         IndexerCharacteristics {
@@ -105,6 +112,7 @@ async fn battle_high_and_low() {
             latency_ms: 80,
             reliability: 0.999,
             blocks_behind: 0,
+            special_weight: None,
         },
         // Optimize economic security
         IndexerCharacteristics {
@@ -114,6 +122,7 @@ async fn battle_high_and_low() {
             latency_ms: 120,
             reliability: 0.99,
             blocks_behind: 1,
+            special_weight: None,
         },
         // Optimize performance
         IndexerCharacteristics {
@@ -123,6 +132,7 @@ async fn battle_high_and_low() {
             latency_ms: 60,
             reliability: 0.99,
             blocks_behind: 1,
+            special_weight: None,
         },
         // Optimize reliability
         IndexerCharacteristics {
@@ -132,15 +142,28 @@ async fn battle_high_and_low() {
             latency_ms: 120,
             reliability: 0.999,
             blocks_behind: 0,
+            special_weight: None,
+        },
+        // MIPs
+        IndexerCharacteristics {
+            stake: 300000u64.try_into().unwrap(),
+            allocation: 400000u64.try_into().unwrap(),
+            price: "0.00003".parse().unwrap(),
+            latency_ms: 70,
+            reliability: 0.999,
+            blocks_behind: 0,
+            special_weight: Some(0.2),
         },
     ];
 
     let mut data = HashMap::new();
     let mut indexer_ids = im::Vector::new();
     let test_key = SecretKey::from_str(TEST_KEY).unwrap();
+    let mut special_indexers = HashMap::<Address, NotNan<f64>>::new();
     for indexer in tests.iter() {
+        let address = bytes_from_id(indexer_ids.len()).into();
         let indexing = Indexing {
-            indexer: bytes_from_id(indexer_ids.len()).into(),
+            indexer: address,
             deployment,
         };
         let indexing_writer = input_writers.indexings.write(&indexing).await;
@@ -159,7 +182,12 @@ async fn battle_high_and_low() {
         indexer_writer.stake.write(indexer.stake);
         data.insert(indexing.indexer, indexer);
         indexer_ids.push_back(indexing.indexer);
+        if let Some(special_weight) = indexer.special_weight {
+            special_indexers.insert(address, special_weight.try_into().unwrap());
+        }
     }
+
+    input_writers.special_indexers.write(special_indexers);
 
     eventuals::idle().await;
 
@@ -189,9 +217,7 @@ async fn battle_high_and_low() {
             .await
             .unwrap();
 
-        // This will make almost no difference.
-        // Just testing.
-        if i % (COUNT / 10) == 0 {
+        if i % (COUNT / QPS as usize) == 0 {
             indexers.decay().await;
         }
 
@@ -238,6 +264,7 @@ async fn battle_high_and_low() {
         "Price",
         "Latency",
         "Reliability",
+        "Special Weight",
         "Daily Fees",
         "Queries Served",
     ];
@@ -255,7 +282,7 @@ async fn battle_high_and_low() {
         let results = results.get(indexer_id).cloned().unwrap_or_default();
 
         println!(
-            "| {} | {} GRT | {} GRT | {} | {} USD | {} ms | {}% | {} USD | {:.1}% |",
+            "| {} | {} GRT | {} GRT | {} | {} USD | {} ms | {}% | {:?} | {} USD | {:.1}% |",
             name,
             data.stake,
             data.allocation,
@@ -263,6 +290,7 @@ async fn battle_high_and_low() {
             data.price,
             data.latency_ms,
             data.reliability * 100.0,
+            data.special_weight,
             (results.query_fees * QPS.try_into().unwrap()),
             (results.queries_received * 100) as f64 / COUNT as f64,
         );

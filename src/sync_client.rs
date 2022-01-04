@@ -38,6 +38,7 @@ pub fn create(
                 usd_to_grt_conversion,
                 indexers,
                 indexings,
+                ..
             },
         current_deployments,
         deployment_indexers,

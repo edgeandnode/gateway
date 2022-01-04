@@ -56,7 +56,12 @@ async fn main() {
         return;
     };
 
-    let (input_writers, inputs) = Inputs::new();
+    let (mut input_writers, inputs) = Inputs::new();
+
+    input_writers
+        .indexer_inputs
+        .special_indexers
+        .write(opt.mips.0);
 
     // Trigger decay every minute.
     let indexer_selection = inputs.indexers.clone();
