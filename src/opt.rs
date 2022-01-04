@@ -52,7 +52,7 @@ pub struct Opt {
         help = "MIP weights and addresses, format: '<weight>:<address>,...'\ne.g. 0.1:0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         long = "--mips",
         env = "MIPS",
-        default_value = "0.5:"
+        default_value = "0.2:"
     )]
     pub mips: MIPs,
     #[structopt(help = "Format log output as JSON", long = "--log-json")]

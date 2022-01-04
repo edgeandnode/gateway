@@ -144,7 +144,7 @@ async fn battle_high_and_low() {
             blocks_behind: 0,
             special_weight: None,
         },
-        // Optimize reliability
+        // MIPs
         IndexerCharacteristics {
             stake: 300000u64.try_into().unwrap(),
             allocation: 400000u64.try_into().unwrap(),

@@ -34,7 +34,7 @@ use crate::{
 use cost_model;
 use im;
 use lazy_static::lazy_static;
-use num_traits::identities::{One as _, Zero as _};
+use num_traits::identities::Zero as _;
 pub use ordered_float::NotNan;
 use prometheus;
 use rand::{thread_rng, Rng as _};
@@ -546,11 +546,11 @@ impl Indexers {
 
         // Some indexers require an additional weight applied to their utility. For example,
         // backstop indexers may have a reduced utility.
-        utility *= *self
+        utility *= self
             .special_indexers
             .value_immediate()
-            .and_then(|map| map.get(&indexing.indexer).copied())
-            .unwrap_or(NotNan::one());
+            .and_then(|map| map.get(&indexing.indexer).map(|w| **w))
+            .unwrap_or(1.0);
 
         Ok(IndexerScore {
             url: indexer_url,
