@@ -22,8 +22,9 @@ pub struct IndexerResponse {
 #[derive(Debug, Deserialize)]
 pub struct IndexerResponsePayload {
     #[serde(rename = "graphQLResponse")]
-    pub graphql_response: String,
+    pub graphql_response: Option<String>,
     pub attestation: Option<Attestation>,
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -73,9 +74,18 @@ impl IndexerInterface for IndexerClient {
             .json::<IndexerResponsePayload>()
             .await
             .map_err(|err| IndexerError::Other(err.to_string()))?;
+        let graphql_response = match payload.graphql_response {
+            Some(graphql_response) => graphql_response,
+            None => {
+                let err = payload
+                    .error
+                    .unwrap_or_else(|| "GraphQL response not found".to_string());
+                return Err(IndexerError::Other(err));
+            }
+        };
         Ok(IndexerResponse {
             status: response_status.as_u16(),
-            payload: payload.graphql_response,
+            payload: graphql_response,
             attestation: payload.attestation,
         })
     }
