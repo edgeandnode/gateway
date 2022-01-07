@@ -207,7 +207,7 @@ async fn main() {
             )
             .service(
                 web::resource("/collect-receipts")
-                    .app_data(web::PayloadConfig::new(16_000_000))
+                    .app_data(web::PayloadConfig::new(25_000_000))
                     .app_data(web::Data::new(signer_key.clone()))
                     .route(web::post().to(handle_collect_receipts)),
             );
