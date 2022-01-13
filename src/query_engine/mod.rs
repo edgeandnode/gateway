@@ -347,10 +347,34 @@ where
                 Err(err) => tracing::info!(?err),
                 _ => (),
             };
-            let indexer_query = match selection_result {
+            let (indexer_query, scoring_sample) = match selection_result {
                 Ok(Some(indexer_query)) => indexer_query,
                 Ok(None) => return Err(NoIndexerSelected),
                 Err(err) => return Err(err.into()),
+            };
+            tracing::info!(
+                indexer = ?indexer_query.indexing.indexer,
+                fee = ?indexer_query.score.fee,
+                slashable = ?indexer_query.score.slashable,
+                utility = %indexer_query.score.utility,
+                sybil = %indexer_query.score.sybil,
+                blocks_behind = ?indexer_query.score.blocks_behind,
+                "Selected indexer score",
+            );
+            match scoring_sample.0 {
+                Some((indexer, Ok(score))) => tracing::info!(
+                    ?indexer,
+                    fee = ?score.fee,
+                    slashable = ?score.slashable,
+                    utility = %score.utility,
+                    sybil = %score.sybil,
+                    blocks_behind = ?score.blocks_behind,
+                    "ISA scoring sample",
+                ),
+                Some((indexer, Err(scoring_err))) => {
+                    tracing::info!(?indexer, ?scoring_err, "ISA scoring sample")
+                }
+                _ => (),
             };
             let indexer = indexer_query.indexing.indexer;
             let result = self
@@ -401,7 +425,6 @@ where
             |hist| hist.observe(query_duration.as_secs_f64()),
         );
 
-        // Stand-in for an event sent to some message bus
         let indexer_response_status = match &result {
             Ok(response) => response.status.to_string(),
             Err(err) => err.to_string(),
@@ -409,9 +432,9 @@ where
         tracing::info!(
             api_key = %query.api_key.key,
             indexer = %indexer_query.indexing.indexer,
-            indexer_url = %indexer_query.url,
-            fee = %indexer_query.fee,
-            blocks_behind = ?indexer_query.blocks_behind,
+            indexer_url = %indexer_query.score.url,
+            fee = %indexer_query.score.fee,
+            blocks_behind = ?indexer_query.score.blocks_behind,
             indexer_query_duration_ms = query_duration.as_millis() as u32,
             %indexer_response_status,
             indexer_query = %indexer_query.query,
@@ -491,12 +514,10 @@ where
             .blocks_behind
             .get_metric_with_label_values(&[&deployment])
         {
-            if let Some(blocks_behind) = selection.blocks_behind {
-                hist.observe(blocks_behind as f64);
-            }
+            hist.observe(selection.score.blocks_behind as f64);
         }
         if let Ok(hist) = metrics.fee.get_metric_with_label_values(&[&deployment]) {
-            hist.observe(selection.fee.as_f64());
+            hist.observe(selection.score.fee.as_f64());
         }
         if let Ok(counter) = metrics
             .indexer_selected
@@ -508,10 +529,10 @@ where
             .slashable_dollars
             .get_metric_with_label_values(&[&deployment])
         {
-            hist.observe(selection.slashable_usd.as_f64());
+            hist.observe(selection.score.slashable.as_f64());
         }
         if let Ok(hist) = metrics.utility.get_metric_with_label_values(&[&deployment]) {
-            hist.observe(*selection.utility);
+            hist.observe(*selection.score.utility);
         }
     }
 

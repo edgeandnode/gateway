@@ -222,7 +222,7 @@ async fn battle_high_and_low() {
         }
 
         let query = match result {
-            Some(query) => query,
+            Some((query, _)) => query,
             None => continue,
         };
         let entry = results.entry(query.indexing.indexer).or_default();

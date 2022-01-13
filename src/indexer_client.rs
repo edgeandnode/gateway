@@ -55,7 +55,7 @@ impl IndexerInterface for IndexerClient {
             .client
             .post(format!(
                 "{}/subgraphs/id/{:?}",
-                query.url, query.indexing.deployment
+                query.score.url, query.indexing.deployment
             ))
             .header("Content-Type", "application/json")
             .header("Scalar-Receipt", receipt)
