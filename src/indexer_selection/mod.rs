@@ -472,6 +472,9 @@ impl Indexers {
         // and at the same time try to use another Indexer.
 
         let fee = score.fee.clone();
+        let sample = scoring_sample
+            .take()
+            .filter(|(address, _)| address != &indexing.indexer);
         self.indexings
             .get(&indexing)
             .await
@@ -483,7 +486,7 @@ impl Indexers {
                     indexing: indexing.clone(),
                     score,
                     receipt,
-                    scoring_sample: ScoringSample(scoring_sample.take()),
+                    scoring_sample: ScoringSample(sample),
                 })
             })
             .map_err(|_| SelectionError::NoAllocation(indexing.clone()))
