@@ -7,49 +7,63 @@ version = "1.0.0"
 lto = "thin"
 
 [dependencies]
-actix-cors = "=0.6.0-beta.4" 
-actix-http = "=3.0.0-beta.14" 
-actix-web = "=4.0.0-beta.13" 
-async-trait = "0.1" 
-bs58 = "0.4" 
-cost-model = {git = "ssh://git@github.com/graphprotocol/agora.git", rev = "ae20442"} 
-eventuals = "0.6" 
-futures = "0.3" 
-futures-util = "0.3" 
-graphql-parser = {git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df"} 
-graphql_client = "0.10" 
-hdwallet = "0.3" 
-hex = "0.4" 
+actix-cors = "=0.6.0-beta.4"
+actix-http = "=3.0.0-beta.14"
+actix-web = "=4.0.0-beta.13"
+actix-router = "=0.5.0-beta.4"
+async-trait = "0.1"
+bs58 = "0.4"
+cost-model = { git = "ssh://git@github.com/graphprotocol/agora.git", rev = "ae20442" }
+eventuals = "0.6"
+futures = "0.3"
+futures-util = "0.3"
+graphql-parser = { git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df" }
+graphql_client = "0.10"
+hdwallet = "0.3"
+hex = "0.4"
 im = "15.0" # Good vector implementation, CHAMP encoding should be added if we use a hash map/set
-lazy_static = "1.4" 
-num-traits = "0.2" 
-openssl = "0.10" 
-ordered-float = "2.5" 
-postgres-openssl = "0.5" 
-primitive-types = "0.8" 
-prometheus = "0.13" 
-rand = {version = "0.8", features = ["small_rng"]} 
-receipts = {git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "ec03f80"} 
-reqwest = {version = "0.11", features = ["json"]} 
-secp256k1 = "0.20" 
-serde = "1.0" 
-serde_json = {version = "1.0", features = ["raw_value"]} 
-serde_yaml = "0.8" 
-sha3 = "0.9" 
-single = "1" 
-structopt = "0.3" 
-structopt-derive = "0.4" 
-tiny-bip39 = "0.8" 
-tokio = {version = "1.14", features = ["sync", "time", "macros", "rt-multi-thread", "parking_lot"]} 
-tokio-postgres = {version = "0.7", features = ["runtime"]} 
-tokio-tungstenite = {version = "0.16", features = ["native-tls"]} 
-tracing = "0.1" 
-tracing-subscriber = {version = "0.3", features = ["env-filter", "parking_lot", "json"]} 
-url = "2.2" 
-uuid = {version = "0.8", features = ["v4"]} 
+lazy_static = "1.4"
+num-traits = "0.2"
+openssl = "0.10"
+ordered-float = "2.5"
+postgres-openssl = "0.5"
+primitive-types = "0.8"
+prometheus = "0.13"
+rand = { version = "0.8", features = ["small_rng"] }
+receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "ec03f80" }
+reqwest = { version = "0.11", features = ["json"] }
+secp256k1 = "0.20"
+serde = "1.0"
+serde_json = { version = "1.0", features = ["raw_value"] }
+serde_yaml = "0.8"
+sha3 = "0.9"
+single = "1"
+structopt = "0.3"
+structopt-derive = "0.4"
+tiny-bip39 = "0.8"
+tokio = { version = "1.14", features = [
+  "sync",
+  "time",
+  "macros",
+  "rt-multi-thread",
+  "parking_lot",
+] }
+tokio-postgres = { version = "0.7", features = ["runtime"] }
+tokio-tungstenite = { version = "0.16", features = ["native-tls"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = [
+  "env-filter",
+  "parking_lot",
+  "json",
+] }
+url = "2.2"
+uuid = { version = "0.8", features = ["v4"] }
 
 [dev-dependencies]
-eventuals = {version = "0.6", features = ["trace"]}
-plotters = {version = "0.3", default_features = false, features = ["line_series", "svg_backend"]}
+eventuals = { version = "0.6", features = ["trace"] }
+plotters = { version = "0.3", default_features = false, features = [
+  "line_series",
+  "svg_backend",
+] }
 rand_distr = "0.4"
 regex = "1.5"
