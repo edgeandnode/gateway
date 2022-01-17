@@ -16,7 +16,7 @@ pub struct UtilityAggregator {
     mult: f64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct SelectionFactor {
     pub weight: f64,
     pub utility: f64,

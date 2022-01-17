@@ -153,8 +153,18 @@ pub struct IndexerScore {
     pub fee: GRT,
     pub slashable: USD,
     pub utility: NotNan<f64>,
+    pub utility_scores: UtilityScores,
     pub sybil: NotNan<f64>,
     pub blocks_behind: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct UtilityScores {
+    pub economic_security: f64,
+    pub price_efficiency: f64,
+    pub data_freshness: f64,
+    pub performance: f64,
+    pub reputation: f64,
 }
 
 pub struct Inputs {
@@ -506,7 +516,7 @@ impl Indexers {
             .network_params
             .economic_security_utility(indexer_stake, config.economic_security)
             .ok_or(SelectionError::MissingNetworkParams)?;
-        aggregator.add(economic_security.utility.clone());
+        aggregator.add(economic_security.utility);
 
         let selection_factors = self
             .indexings
@@ -529,24 +539,23 @@ impl Indexers {
             return Err(SelectionError::NoAllocation(indexing.clone()));
         }
 
-        aggregator.add(
-            selection_factors
-                .expected_performance_utility(config.performance)
-                .await,
-        );
+        let performance = selection_factors
+            .expected_performance_utility(config.performance)
+            .await;
+        aggregator.add(performance);
 
-        aggregator.add(selection_factors.expected_reputation_utility(3.0).await);
+        let reputation = selection_factors.expected_reputation_utility(3.0).await;
+        aggregator.add(reputation);
 
-        aggregator.add(
-            selection_factors
-                .expected_freshness_utility(
-                    freshness_requirements,
-                    config.data_freshness,
-                    latest_block.number,
-                    blocks_behind,
-                )
-                .await?,
-        );
+        let data_freshness = selection_factors
+            .expected_freshness_utility(
+                freshness_requirements,
+                config.data_freshness,
+                latest_block.number,
+                blocks_behind,
+            )
+            .await?;
+        aggregator.add(data_freshness);
 
         drop(selection_factors);
 
@@ -574,6 +583,13 @@ impl Indexers {
             fee,
             slashable: economic_security.slashable_usd,
             utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,
+            utility_scores: UtilityScores {
+                economic_security: economic_security.utility.utility,
+                price_efficiency: price_efficiency.utility,
+                data_freshness: data_freshness.utility,
+                performance: performance.utility,
+                reputation: reputation.utility,
+            },
             sybil: Self::sybil(indexer_allocation)?,
             blocks_behind,
         })

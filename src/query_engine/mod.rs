@@ -6,7 +6,8 @@ use crate::{
     fisherman_client::*,
     indexer_client::*,
     indexer_selection::{
-        self, Context, IndexerError, IndexerQuery, Indexers, SelectionError, UnresolvedBlock,
+        self, Context, IndexerError, IndexerQuery, IndexerScore, Indexers, SelectionError,
+        UnresolvedBlock,
     },
     manifest_client::{SubgraphInfo, SubgraphInfoMap},
 };
@@ -352,25 +353,15 @@ where
                 Ok(None) => return Err(NoIndexerSelected),
                 Err(err) => return Err(err.into()),
             };
-            tracing::info!(
-                indexer = ?indexer_query.indexing.indexer,
-                fee = ?indexer_query.score.fee,
-                slashable = ?indexer_query.score.slashable,
-                utility = %indexer_query.score.utility,
-                sybil = %indexer_query.score.sybil,
-                blocks_behind = ?indexer_query.score.blocks_behind,
+            Self::log_indexer_score(
+                indexer_query.indexing.indexer,
+                &indexer_query.score,
                 "Selected indexer score",
             );
             match scoring_sample.0 {
-                Some((indexer, Ok(score))) => tracing::info!(
-                    ?indexer,
-                    fee = ?score.fee,
-                    slashable = ?score.slashable,
-                    utility = %score.utility,
-                    sybil = %score.sybil,
-                    blocks_behind = ?score.blocks_behind,
-                    "ISA scoring sample",
-                ),
+                Some((indexer, Ok(score))) => {
+                    Self::log_indexer_score(indexer, &score, "ISA scoring sample")
+                }
                 Some((indexer, Err(scoring_err))) => {
                     tracing::info!(?indexer, ?scoring_err, "ISA scoring sample")
                 }
@@ -400,6 +391,23 @@ where
         }
         tracing::info!("retry limit reached");
         Err(NoIndexerSelected)
+    }
+
+    fn log_indexer_score(indexer: Address, score: &IndexerScore, message: &'static str) {
+        tracing::info!(
+            ?indexer,
+            fee = ?score.fee,
+            slashable = ?score.slashable,
+            utility = %score.utility,
+            economic_security = %score.utility_scores.economic_security,
+            price_efficiency = %score.utility_scores.price_efficiency,
+            data_freshness = %score.utility_scores.data_freshness,
+            performance = %score.utility_scores.performance,
+            reputation = %score.utility_scores.reputation,
+            sybil = %score.sybil,
+            blocks_behind = ?score.blocks_behind,
+            message,
+        );
     }
 
     async fn execute_indexer_query(
