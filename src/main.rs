@@ -512,7 +512,7 @@ async fn handle_subgraph_query_inner(
     }
     let _ = data.stats_db.send(stats_db::Msg::AddQuery {
         api_key,
-        fee: result.query.fee,
+        fee: result.query.score.fee,
         domain: domain.to_string(),
         subgraph: match subgraph {
             Subgraph::ID(id) => Some(id.to_string()),

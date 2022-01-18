@@ -44,17 +44,22 @@ use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
 
+pub struct Selection {
+    indexing: Indexing,
+    score: IndexerScore,
+    receipt: Receipt,
+    scoring_sample: ScoringSample,
+}
+
+pub struct ScoringSample(pub Option<(Address, Result<IndexerScore, SelectionError>)>);
+
 #[derive(Clone, Debug)]
 pub struct IndexerQuery {
     pub network: String,
     pub indexing: Indexing,
-    pub url: String,
     pub query: String,
     pub receipt: Receipt,
-    pub fee: GRT,
-    pub slashable_usd: USD,
-    pub utility: NotNan<f64>,
-    pub blocks_behind: Option<u64>,
+    pub score: IndexerScore,
     pub allocation: Address,
 }
 
@@ -142,14 +147,24 @@ pub struct UtilityConfig {
     pub price_efficiency: f64,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct IndexerScore {
-    url: String,
-    fee: GRT,
-    slashable: USD,
-    utility: NotNan<f64>,
-    sybil: NotNan<f64>,
-    blocks_behind: u64,
+    pub url: String,
+    pub fee: GRT,
+    pub slashable: USD,
+    pub utility: NotNan<f64>,
+    pub utility_scores: UtilityScores,
+    pub sybil: NotNan<f64>,
+    pub blocks_behind: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct UtilityScores {
+    pub economic_security: f64,
+    pub price_efficiency: f64,
+    pub data_freshness: f64,
+    pub performance: f64,
+    pub reputation: f64,
 }
 
 pub struct Inputs {
@@ -302,13 +317,13 @@ impl Indexers {
         block_resolver: &BlockResolver,
         freshness_requirements: &BlockRequirements,
         budget: USD,
-    ) -> Result<Option<IndexerQuery>, SelectionError> {
+    ) -> Result<Option<(IndexerQuery, ScoringSample)>, SelectionError> {
         let budget: GRT = self
             .network_params
             .usd_to_grt(budget)
             .ok_or(SelectionError::MissingNetworkParams)?;
 
-        let (indexing, score, receipt) = match self
+        let selection = match self
             .make_selection(
                 config,
                 subgraph,
@@ -332,29 +347,32 @@ impl Indexers {
             .ok_or(SelectionError::MissingBlock(UnresolvedBlock::WithNumber(0)))?;
         let latest_block = block_resolver
             .resolve_block(UnresolvedBlock::WithNumber(
-                head.number.saturating_sub(score.blocks_behind),
+                head.number.saturating_sub(selection.score.blocks_behind),
             ))
             .await?;
-        let query =
-            make_query_deterministic(context, block_resolver, &latest_block, score.blocks_behind)
-                .await?;
+        let query = make_query_deterministic(
+            context,
+            block_resolver,
+            &latest_block,
+            selection.score.blocks_behind,
+        )
+        .await?;
         make_query_deterministic_timer.observe_duration();
 
         let mut allocation = Address { bytes: [0; 20] };
-        allocation.bytes.copy_from_slice(&receipt.commitment[0..20]);
+        allocation
+            .bytes
+            .copy_from_slice(&selection.receipt.commitment[0..20]);
 
-        Ok(Some(IndexerQuery {
+        let indexer_query = IndexerQuery {
             network: network.into(),
-            indexing,
-            url: score.url,
+            indexing: selection.indexing,
             query: query.query,
-            receipt: receipt.commitment.into(),
-            fee: score.fee,
-            slashable_usd: score.slashable,
-            utility: score.utility,
-            blocks_behind: query.blocks_behind,
+            receipt: selection.receipt.commitment.into(),
+            score: selection.score,
             allocation,
-        }))
+        };
+        Ok(Some((indexer_query, selection.scoring_sample)))
     }
 
     /// Select random indexer, weighted by utility. Indexers with incomplete data or that do not
@@ -368,9 +386,10 @@ impl Indexers {
         indexers: &im::Vector<Address>,
         budget: USD,
         freshness_requirements: &BlockRequirements,
-    ) -> Result<Option<(Indexing, IndexerScore, Receipt)>, SelectionError> {
+    ) -> Result<Option<Selection>, SelectionError> {
         let _make_selection_timer = METRICS.make_selection_duration.start_timer();
         let mut scores = Vec::new();
+        let mut scoring_sample = WeightedSample::new();
         for indexer in indexers {
             let indexing = Indexing {
                 indexer: *indexer,
@@ -402,6 +421,7 @@ impl Indexers {
                     score_err = ?err,
                 ),
             };
+            scoring_sample.add((indexing.indexer, result.clone()), 1.0);
             let score = match result {
                 Ok(score) if score.utility > NotNan::zero() => score,
                 Err(err) => match &err {
@@ -452,13 +472,23 @@ impl Indexers {
         // and at the same time try to use another Indexer.
 
         let fee = score.fee.clone();
+        let sample = scoring_sample
+            .take()
+            .filter(|(address, _)| address != &indexing.indexer);
         self.indexings
             .get(&indexing)
             .await
             .ok_or(BadIndexerReason::MissingIndexingStatus)?
             .commit(&fee)
             .await
-            .map(|receipt| Some((indexing.clone(), score, receipt)))
+            .map(|receipt| {
+                Some(Selection {
+                    indexing: indexing.clone(),
+                    score,
+                    receipt,
+                    scoring_sample: ScoringSample(sample),
+                })
+            })
             .map_err(|_| SelectionError::NoAllocation(indexing.clone()))
     }
 
@@ -489,7 +519,7 @@ impl Indexers {
             .network_params
             .economic_security_utility(indexer_stake, config.economic_security)
             .ok_or(SelectionError::MissingNetworkParams)?;
-        aggregator.add(economic_security.utility.clone());
+        aggregator.add(economic_security.utility);
 
         let selection_factors = self
             .indexings
@@ -512,24 +542,23 @@ impl Indexers {
             return Err(SelectionError::NoAllocation(indexing.clone()));
         }
 
-        aggregator.add(
-            selection_factors
-                .expected_performance_utility(config.performance)
-                .await,
-        );
+        let performance = selection_factors
+            .expected_performance_utility(config.performance)
+            .await;
+        aggregator.add(performance);
 
-        aggregator.add(selection_factors.expected_reputation_utility(3.0).await);
+        let reputation = selection_factors.expected_reputation_utility(3.0).await;
+        aggregator.add(reputation);
 
-        aggregator.add(
-            selection_factors
-                .expected_freshness_utility(
-                    freshness_requirements,
-                    config.data_freshness,
-                    latest_block.number,
-                    blocks_behind,
-                )
-                .await?,
-        );
+        let data_freshness = selection_factors
+            .expected_freshness_utility(
+                freshness_requirements,
+                config.data_freshness,
+                latest_block.number,
+                blocks_behind,
+            )
+            .await?;
+        aggregator.add(data_freshness);
 
         drop(selection_factors);
 
@@ -557,6 +586,13 @@ impl Indexers {
             fee,
             slashable: economic_security.slashable_usd,
             utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,
+            utility_scores: UtilityScores {
+                economic_security: economic_security.utility.utility,
+                price_efficiency: price_efficiency.utility,
+                data_freshness: data_freshness.utility,
+                performance: performance.utility,
+                reputation: reputation.utility,
+            },
             sybil: Self::sybil(indexer_allocation)?,
             blocks_behind,
         })
