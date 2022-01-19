@@ -70,6 +70,7 @@ pub enum SelectionError {
     MissingBlock(UnresolvedBlock),
     BadIndexer(BadIndexerReason),
     NoAllocation(Indexing),
+    FeesTooHigh(usize),
 }
 
 impl From<UnresolvedBlock> for SelectionError {
@@ -389,6 +390,7 @@ impl Indexers {
     ) -> Result<Option<Selection>, SelectionError> {
         let _make_selection_timer = METRICS.make_selection_duration.start_timer();
         let mut scores = Vec::new();
+        let mut high_fee_count = 0;
         let mut scoring_sample = WeightedSample::new();
         for indexer in indexers {
             let indexing = Indexing {
@@ -422,20 +424,27 @@ impl Indexers {
                 ),
             };
             scoring_sample.add((indexing.indexer, result.clone()), 1.0);
-            let score = match result {
-                Ok(score) if score.utility > NotNan::zero() => score,
-                Err(err) => match &err {
+            match &result {
+                Err(err) => match err {
                     &SelectionError::BadInput
                     | &SelectionError::MissingNetworkParams
-                    | &SelectionError::MissingBlock(_) => return Err(err),
-                    _ => continue,
+                    | &SelectionError::MissingBlock(_) => return Err(err.clone()),
+                    &SelectionError::BadIndexer(BadIndexerReason::FeeTooHigh) => {
+                        high_fee_count += 1;
+                    }
+                    _ => (),
                 },
+                _ => (),
+            };
+            let score = match result {
+                Ok(score) if score.utility > NotNan::zero() => score,
                 _ => continue,
             };
             scores.push((indexing, score));
         }
         let max_utility = match scores.iter().map(|(_, score)| score.utility).max() {
             Some(n) => n,
+            _ if high_fee_count > 0 => return Err(SelectionError::FeesTooHigh(high_fee_count)),
             _ => return Ok(None),
         };
         // Having a random utility cutoff that is weighted toward 1 normalized

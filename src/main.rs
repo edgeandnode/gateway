@@ -412,7 +412,7 @@ async fn handle_subgraph_query(
             let status = payload.status().to_string();
             (payload, status)
         }
-        Err((status, msg)) => (graphql_error_response(status, msg), msg.to_string()),
+        Err((status, msg)) => (graphql_error_response(status, &msg), msg),
     };
     tracing::info!(
         parent: &span,
@@ -430,7 +430,7 @@ async fn handle_subgraph_query_inner(
     data: web::Data<SubgraphQueryData>,
     query_id: QueryID,
     subgraph: Subgraph,
-) -> Result<HttpResponse, (StatusCode, &'static str)> {
+) -> Result<HttpResponse, (StatusCode, String)> {
     let query_engine = QueryEngine::new(
         data.config.clone(),
         data.indexer_client.clone(),
@@ -448,13 +448,14 @@ async fn handle_subgraph_query_inner(
         Some(api_key) => api_key.clone(),
         None => {
             METRICS.unknown_api_key.inc();
-            return Err((StatusCode::BAD_REQUEST, "Invalid API key"));
+            return Err((StatusCode::BAD_REQUEST, "Invalid API key".into()));
         }
     };
     if !api_key.queries_activated {
         return Err((
             StatusCode::OK,
-            "Querying not activated yet; make sure to add some GRT to your balance in the studio",
+            "Querying not activated yet; make sure to add some GRT to your balance in the studio"
+                .into(),
         ));
     }
     let domain = request
@@ -471,7 +472,7 @@ async fn handle_subgraph_query_inner(
             .any(|(authorized, _)| domain.starts_with(authorized))
     {
         with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
-        return Err((StatusCode::OK, "Domain not authorized by API key"));
+        return Err((StatusCode::OK, "Domain not authorized by API key".into()));
     }
 
     let query = ClientQuery {
@@ -488,17 +489,22 @@ async fn handle_subgraph_query_inner(
             return Err((
                 StatusCode::OK,
                 match err {
-                    QueryEngineError::MalformedQuery => "Invalid query",
-                    QueryEngineError::SubgraphNotFound => "Subgraph deployment not found",
-                    QueryEngineError::NoIndexers => "No indexers found for subgraph deployment",
+                    QueryEngineError::MalformedQuery => "Invalid query".into(),
+                    QueryEngineError::SubgraphNotFound => "Subgraph deployment not found".into(),
+                    QueryEngineError::NoIndexers => {
+                        "No indexers found for subgraph deployment".into()
+                    }
                     QueryEngineError::NoIndexerSelected => {
-                        "No suitable indexer found for subgraph deployment"
+                        "No suitable indexer found for subgraph deployment".into()
+                    }
+                    QueryEngineError::FeesTooHigh(count) => {
+                        format!("No suitable indexer found, {} indexers requesting higher fees for this query", count)
                     }
                     QueryEngineError::APIKeySubgraphNotAuthorized => {
-                        "Subgraph not authorized by API key"
+                        "Subgraph not authorized by API key".into()
                     }
                     QueryEngineError::MissingBlock(_) => {
-                        "Gateway failed to resolve required blocks"
+                        "Gateway failed to resolve required blocks".into()
                     }
                 },
             ))
