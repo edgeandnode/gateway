@@ -96,6 +96,7 @@ pub enum QueryEngineError {
     SubgraphNotFound,
     NoIndexers,
     NoIndexerSelected,
+    FeesTooHigh(usize),
     APIKeySubgraphNotAuthorized,
     MalformedQuery,
     MissingBlock(UnresolvedBlock),
@@ -109,6 +110,7 @@ impl From<SelectionError> for QueryEngineError {
             | SelectionError::NoAllocation(_) => Self::NoIndexerSelected,
             SelectionError::BadInput => Self::MalformedQuery,
             SelectionError::MissingBlock(unresolved) => Self::MissingBlock(unresolved),
+            SelectionError::FeesTooHigh(count) => Self::FeesTooHigh(count),
         }
     }
 }
