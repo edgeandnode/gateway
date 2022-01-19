@@ -18,7 +18,7 @@ pub enum Msg {
         api_key: Arc<APIKey>,
         fee: GRT,
         domain: String,
-        subgraph: Option<String>,
+        subgraph: String,
     },
 }
 
@@ -204,9 +204,7 @@ impl Client {
                     .iter()
                     .find(|(d, _)| d == &domain)
                     .map(|(_, id)| *id);
-                let subgraph_id = subgraph
-                    .as_ref()
-                    .and_then(|subgraph| api_key.subgraphs.iter().find(|(s, _)| s == subgraph));
+                let subgraph_id = api_key.subgraphs.iter().find(|(s, _)| s == &subgraph);
                 match self.api_key_stats.entry(api_key.key.clone()) {
                     Entry::Vacant(entry) => {
                         entry.insert(APIKeyStats {

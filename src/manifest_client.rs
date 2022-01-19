@@ -6,8 +6,9 @@ use serde_yaml;
 use std::sync::Arc;
 use tokio::{sync::Mutex, time::sleep};
 
+#[derive(Debug)]
 pub struct SubgraphInfo {
-    pub id: SubgraphDeploymentID,
+    pub deployment: SubgraphDeploymentID,
     pub network: String,
     pub features: Vec<String>,
 }
@@ -65,14 +66,14 @@ pub fn create(
 
 pub async fn fetch_manifest(
     client: &IPFSClient,
-    id: SubgraphDeploymentID,
+    deployment: SubgraphDeploymentID,
 ) -> Result<SubgraphInfo, (SubgraphDeploymentID, String)> {
     let payload = client
-        .cat(&id.ipfs_hash())
+        .cat(&deployment.ipfs_hash())
         .await
-        .map_err(|err| (id, err.to_string()))?;
-    let manifest =
-        serde_yaml::from_str::<SubgraphManifest>(&payload).map_err(|err| (id, err.to_string()))?;
+        .map_err(|err| (deployment, err.to_string()))?;
+    let manifest = serde_yaml::from_str::<SubgraphManifest>(&payload)
+        .map_err(|err| (deployment, err.to_string()))?;
     // We are assuming that all `dataSource.network` fields are identical.
     // This is guaranteed for now.
     let network = manifest
@@ -80,9 +81,9 @@ pub async fn fetch_manifest(
         .into_iter()
         .filter_map(|data_source| data_source.network)
         .next()
-        .ok_or_else(|| (id, "Network not found".to_string()))?;
+        .ok_or_else(|| (deployment, "Network not found".to_string()))?;
     Ok(SubgraphInfo {
-        id,
+        deployment,
         network,
         features: manifest.features,
     })

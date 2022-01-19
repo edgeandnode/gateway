@@ -9,7 +9,7 @@ use crate::{
         self, Context, IndexerError, IndexerQuery, IndexerScore, Indexers, SelectionError,
         UnresolvedBlock,
     },
-    manifest_client::{SubgraphInfo, SubgraphInfoMap},
+    manifest_client::SubgraphInfo,
 };
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
@@ -30,19 +30,12 @@ use std::{
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
-pub enum Subgraph {
-    ID(SubgraphID),
-    Deployment(SubgraphDeploymentID),
-}
-
-#[derive(Clone, Debug)]
 pub struct ClientQuery {
     pub id: QueryID,
     pub api_key: Arc<APIKey>,
+    pub subgraph: Ptr<SubgraphInfo>,
     pub query: String,
     pub variables: Option<String>,
-    pub network: String,
-    pub subgraph: Subgraph,
 }
 
 #[derive(Clone, Copy)]
@@ -93,11 +86,9 @@ pub struct QueryResponse {
 
 #[derive(Debug)]
 pub enum QueryEngineError {
-    SubgraphNotFound,
     NoIndexers,
     NoIndexerSelected,
     FeesTooHigh(usize),
-    APIKeySubgraphNotAuthorized,
     MalformedQuery,
     MissingBlock(UnresolvedBlock),
 }
@@ -122,7 +113,6 @@ enum RemoveIndexer {
 
 #[derive(Clone)]
 pub struct Config {
-    pub network: String,
     pub indexer_selection_retry_limit: usize,
     pub utility: UtilityConfig,
     pub query_budget: GRT,
@@ -171,9 +161,7 @@ where
     F: FishermanInterface + Clone + Send,
 {
     indexers: Arc<Indexers>,
-    current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
-    subgraph_info: SubgraphInfoMap,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     indexer_client: I,
     fisherman_client: Option<Arc<F>>,
@@ -190,17 +178,14 @@ where
         indexer_client: I,
         fisherman_client: Option<Arc<F>>,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
-        subgraph_info: SubgraphInfoMap,
         inputs: Inputs,
     ) -> Self {
         Self {
             indexers: inputs.indexers,
-            current_deployments: inputs.current_deployments,
             deployment_indexers: inputs.deployment_indexers,
             indexer_client,
             fisherman_client,
             block_resolvers,
-            subgraph_info,
             config,
         }
     }
@@ -210,43 +195,13 @@ where
         query: ClientQuery,
     ) -> Result<QueryResponse, QueryEngineError> {
         tracing::debug!(
-            query.network = %query.network,
-            query.subgraph = ?query.subgraph,
-            indexer_selection_retry_limit = ?self.config.indexer_selection_retry_limit
+            deployment = ?query.subgraph.deployment,
+            network = %query.subgraph.network,
         );
         let api_key = query.api_key.key.clone();
         let query_start = Instant::now();
-        let name_timer = if let Subgraph::ID(id) = &query.subgraph {
-            with_metric(
-                &METRICS.subgraph_name_duration,
-                &[&id.to_string()],
-                |hist| hist.start_timer(),
-            )
-        } else {
-            None
-        };
-        let deployment = match &query.subgraph {
-            Subgraph::Deployment(deployment) => deployment.clone(),
-            Subgraph::ID(id) => self
-                .current_deployments
-                .value_immediate()
-                .and_then(|map| map.get(id).cloned())
-                .ok_or_else(|| QueryEngineError::SubgraphNotFound)?,
-        };
-        if !query.api_key.deployments.is_empty() && !query.api_key.deployments.contains(&deployment)
-        {
-            with_metric(
-                &METRICS.queries_unauthorized_deployment,
-                &[&api_key],
-                |counter| counter.inc(),
-            );
-            return Err(QueryEngineError::APIKeySubgraphNotAuthorized);
-        }
-        name_timer.map(|t| t.observe_duration());
-        let deployment_ipfs = deployment.ipfs_hash();
-        let result = self
-            .execute_deployment_query(query, deployment, &deployment_ipfs)
-            .await;
+        let deployment_ipfs = query.subgraph.deployment.ipfs_hash();
+        let result = self.execute_deployment_query(query, &deployment_ipfs).await;
         let result_counter = if let Ok(_) = result {
             &METRICS.queries.ok
         } else {
@@ -271,16 +226,17 @@ where
     async fn execute_deployment_query(
         &self,
         query: ClientQuery,
-        deployment: SubgraphDeploymentID,
         deployment_ipfs: &str,
     ) -> Result<QueryResponse, QueryEngineError> {
         use QueryEngineError::*;
         let mut indexers = self
             .deployment_indexers
             .value_immediate()
-            .and_then(|map| map.get(&deployment).cloned())
+            .and_then(|map| map.get(&query.subgraph.deployment).cloned())
             .unwrap_or_default();
-        tracing::debug!(?deployment, deployment_indexers = indexers.len());
+        tracing::debug!(
+            deployment = ?query.subgraph.deployment, deployment_indexers = indexers.len(),
+        );
         if indexers.is_empty() {
             return Err(NoIndexers);
         }
@@ -290,18 +246,12 @@ where
             |hist| hist.start_timer(),
         );
 
-        let subgraph_info = self
-            .subgraph_info
-            .value_immediate()
-            .and_then(|info| info.get(&deployment)?.value_immediate())
-            .ok_or(SubgraphNotFound)?;
-
         let mut context =
             Context::new(&query.query, query.variables.as_deref().unwrap_or_default())
                 .map_err(|_| MalformedQuery)?;
         let block_resolver = self
             .block_resolvers
-            .get(&query.network)
+            .get(&query.subgraph.network)
             .ok_or(MissingBlock(UnresolvedBlock::WithNumber(0)))?;
         let freshness_requirements =
             Indexers::freshness_requirements(&mut context, block_resolver).await?;
@@ -334,8 +284,8 @@ where
                 .indexers
                 .select_indexer(
                     &self.config.utility,
-                    &query.network,
-                    &deployment,
+                    &query.subgraph.network,
+                    &query.subgraph.deployment,
                     &indexers,
                     &mut context,
                     &block_resolver,
@@ -374,9 +324,7 @@ where
                 .execute_indexer_query(
                     &query,
                     indexer_query,
-                    &deployment,
                     deployment_ipfs,
-                    &subgraph_info,
                     &mut context,
                     block_resolver,
                     retry_count,
@@ -416,16 +364,14 @@ where
         &self,
         query: &ClientQuery,
         indexer_query: IndexerQuery,
-        deployment: &SubgraphDeploymentID,
         deployment_ipfs: &str,
-        subgraph_info: &SubgraphInfo,
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
         retry_count: usize,
     ) -> Result<QueryResponse, RemoveIndexer> {
         let indexer_id = indexer_query.indexing.indexer.to_string();
         tracing::info!(indexer = %indexer_id);
-        self.observe_indexer_selection_metrics(&deployment, &indexer_query);
+        self.observe_indexer_selection_metrics(&query.subgraph.deployment, &indexer_query);
         let t0 = Instant::now();
         let result = self.indexer_client.query_indexer(&indexer_query).await;
         let query_duration = Instant::now() - t0;
@@ -472,7 +418,7 @@ where
             |counter| counter.inc(),
         );
 
-        if !subgraph_info.features.is_empty() && response.attestation.is_none() {
+        if !query.subgraph.features.is_empty() && response.attestation.is_none() {
             tracing::info!(indexer_response_err = "Attestable response has no attestation");
             self.indexers
                 .observe_failed_query(
@@ -614,9 +560,7 @@ struct Metrics {
     indexer_selection: IndexerSelectionMetrics,
     indexer_selection_duration: prometheus::HistogramVec,
     queries: ResponseMetricVecs,
-    queries_unauthorized_deployment: prometheus::IntCounterVec,
     query_execution_duration: prometheus::HistogramVec,
-    subgraph_name_duration: prometheus::HistogramVec,
 }
 
 struct IndexerSelectionMetrics {
@@ -688,22 +632,10 @@ impl Metrics {
                 "processing queries",
                 &["deployment", "apiKey"],
             ),
-            queries_unauthorized_deployment: prometheus::register_int_counter_vec!(
-                "gateway_queries_for_excluded_deployment",
-                "Queries for a subgraph deployment not included in an API key",
-                &["apiKey"]
-            )
-            .unwrap(),
             query_execution_duration: prometheus::register_histogram_vec!(
                 "query_engine_query_execution_duration",
                 "Duration of executing the query for a deployment",
                 &["deployment"]
-            )
-            .unwrap(),
-            subgraph_name_duration: prometheus::register_histogram_vec!(
-                "query_engine_subgraph_name_duration",
-                "Duration of resolving a subgraph name to a deployment",
-                &["name"]
             )
             .unwrap(),
         }
