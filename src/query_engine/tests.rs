@@ -437,8 +437,6 @@ impl Topology {
         fn valid_indexer(indexer: &IndexerTopology) -> bool {
             // no failure to indexing the subgraph
             !indexer.indexer_err
-            // successful outcome to fisherman challenge
-            && Topology::successful_challenge_outcome(indexer.challenge_outcome)
             // more than zero stake
             && (indexer.staked_grt > TokenAmount::Zero)
             // more than zero allocation
@@ -506,15 +504,6 @@ impl Topology {
             return Ok(());
         }
         err_with(trace, "response did not match any valid indexer")
-    }
-
-    fn successful_challenge_outcome(outcome: ChallengeOutcome) -> bool {
-        match outcome {
-            ChallengeOutcome::AgreeWithTrustedIndexer | ChallengeOutcome::Unknown => true,
-            ChallengeOutcome::DisagreeWithTrustedIndexer
-            | ChallengeOutcome::DisagreeWithUntrustedIndexer
-            | ChallengeOutcome::FailedToProvideAttestation => false,
-        }
     }
 }
 
