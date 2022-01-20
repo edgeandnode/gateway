@@ -5,7 +5,7 @@ use crate::{
         test_utils::{default_cost_model, TEST_KEY},
         IndexerError, IndexingStatus, SecretKey,
     },
-    manifest_client::{SubgraphInfo, SubgraphInfoMap},
+    manifest_client::SubgraphInfo,
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
 };
@@ -17,7 +17,7 @@ use rand::{
     Rng, RngCore as _, SeedableRng,
 };
 use serde_json::json;
-use std::{collections::BTreeMap, env, fmt, iter, ops::RangeInclusive};
+use std::{collections::BTreeMap, env, fmt, ops::RangeInclusive};
 use tokio::{self, sync::Mutex};
 
 /// Query engine tests use pseudorandomly generated network state and client query as inputs.
@@ -60,8 +60,9 @@ struct Topology {
     config: TopologyConfig,
     inputs: InputWriters,
     rng: SmallRng,
-    indexers: BTreeMap<Address, IndexerTopology>,
     networks: BTreeMap<String, NetworkTopology>,
+    indexers: BTreeMap<Address, IndexerTopology>,
+    subgraphs: BTreeMap<SubgraphID, SubgraphTopology>,
 }
 
 #[derive(Clone)]
@@ -75,21 +76,21 @@ struct TopologyConfig {
 }
 
 #[derive(Clone, Debug)]
-struct NetworkTopology {
-    name: String,
-    blocks: Vec<BlockPointer>,
-    subgraphs: BTreeMap<SubgraphID, SubgraphTopology>,
-}
-
-#[derive(Clone, Debug)]
 struct SubgraphTopology {
     id: SubgraphID,
     deployments: Vec<DeploymentTopology>,
 }
 
 #[derive(Clone, Debug)]
+struct NetworkTopology {
+    name: String,
+    blocks: Vec<BlockPointer>,
+}
+
+#[derive(Clone, Debug)]
 struct DeploymentTopology {
     id: SubgraphDeploymentID,
+    network: String,
     indexings: Vec<Address>,
 }
 
@@ -126,16 +127,21 @@ impl Topology {
             config: config.clone(),
             inputs,
             rng: SmallRng::from_rng(rng.clone()).unwrap(),
-            indexers: BTreeMap::new(),
+            subgraphs: BTreeMap::new(),
             networks: BTreeMap::new(),
+            indexers: BTreeMap::new(),
         };
+        for _ in 0..topology.rng.gen_range(config.networks) {
+            let network = topology.gen_network();
+            topology.networks.insert(network.name.clone(), network);
+        }
         for _ in 0..topology.rng.gen_range(config.indexers) {
             let indexer = topology.gen_indexer();
             topology.indexers.insert(indexer.id, indexer);
         }
-        for _ in 0..topology.rng.gen_range(config.networks) {
-            let network = topology.gen_network();
-            topology.networks.insert(network.name.clone(), network);
+        for _ in 0..topology.rng.gen_range(config.subgraphs) {
+            let subgraph = topology.gen_subgraph();
+            topology.subgraphs.insert(subgraph.id.clone(), subgraph);
         }
         topology
     }
@@ -149,74 +155,25 @@ impl Topology {
         Arc::new(resolvers)
     }
 
-    fn subgraph_info(&self) -> SubgraphInfoMap {
-        let info = self
-            .subgraphs()
-            .into_iter()
-            .flat_map(|(network, subgraph)| {
-                subgraph
-                    .deployments
-                    .iter()
-                    .map(|deployment| {
-                        let info = Eventual::from_value(Ptr::new(SubgraphInfo {
-                            id: deployment.id.clone(),
-                            network: network.name.clone(),
-                            features: vec![],
-                        }));
-                        (deployment.id.clone(), info)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        Eventual::from_value(Ptr::new(info))
-    }
-
     fn gen_query(&mut self) -> ClientQuery {
-        fn choose_name<'s, I: IntoIterator<Item = &'s String>>(
-            rng: &mut SmallRng,
-            names: I,
-            invalid: &str,
-        ) -> String {
-            names
-                .into_iter()
-                .collect::<Vec<&String>>()
-                .choose(rng)
-                .map(|&name| name.clone())
-                .unwrap_or(invalid.into())
-        }
-
-        let invalid_network = self.gen_str(*self.config.networks.end() + 1);
-        let invalid_subgraph = "FzFAtwLSSzxhug4sEvUeusLxFdjAS3ByYqgseUYkFpkN"
-            .parse::<SubgraphID>()
-            .unwrap();
-        let rng = &mut self.rng;
-        let mut network = choose_name(rng, self.networks.keys(), &invalid_network);
-        let mut subgraph = self
-            .networks
-            .get(&network)
-            .map(|net| {
-                *net.subgraphs
-                    .keys()
-                    .copied()
-                    .collect::<Vec<SubgraphID>>()
-                    .choose(rng)
-                    .unwrap_or(&invalid_subgraph)
-            })
-            .unwrap_or(invalid_subgraph);
-        if self.flip_coin(32) {
-            network = invalid_network;
-        }
-        if self.flip_coin(32) {
-            subgraph = invalid_subgraph.clone();
-        }
+        let deployment = self
+            .deployments()
+            .into_iter()
+            .collect::<Vec<DeploymentTopology>>()
+            .choose(&mut self.rng)
+            .unwrap()
+            .clone();
         let query = if self.flip_coin(32) { "?" } else { BASIC_QUERY };
         ClientQuery {
             id: QueryID::new(),
             api_key: Arc::new(APIKey::default()),
             query: query.into(),
             variables: None,
-            network,
-            subgraph: Subgraph::ID(subgraph),
+            subgraph: Ptr::new(SubgraphInfo {
+                deployment: deployment.id,
+                network: deployment.network,
+                features: vec![],
+            }),
         }
     }
 
@@ -224,47 +181,36 @@ impl Topology {
         let mut network = NetworkTopology {
             name: self.gen_str(log_2(*self.config.networks.end())),
             blocks: Vec::new(),
-            subgraphs: BTreeMap::new(),
         };
         let block_count = self.gen_len(self.config.blocks.clone(), 32);
         for i in 0..block_count {
             network.blocks.push(self.gen_block(i as u64));
         }
-        for _ in 0..self.gen_len(self.config.subgraphs.clone(), 32) {
-            let subgraph = self.gen_subgraph();
-            network.subgraphs.insert(subgraph.id, subgraph);
-        }
         network
     }
 
     fn gen_subgraph(&mut self) -> SubgraphTopology {
-        let mut id = self.gen_bytes().into();
-        // TODO: For now, subgraph names must be unique across networks
-        while self
-            .subgraphs()
-            .iter()
-            .any(|(_, subgraph)| subgraph.id == id)
-        {
-            id = self.gen_bytes().into();
-        }
-
         let mut subgraph = SubgraphTopology {
-            id,
+            id: self.gen_bytes().into(),
             deployments: Vec::new(),
         };
-        for _ in 1..self.gen_len(self.config.deployments.clone(), 32) {
-            subgraph.deployments.push(DeploymentTopology {
-                id: self.gen_bytes().into(),
-                indexings: vec![],
-            });
+        for _ in 0..self.gen_len(self.config.deployments.clone(), 32) {
+            subgraph.deployments.push(self.gen_deployment());
         }
-        subgraph.deployments.push(self.gen_deployment());
         subgraph
     }
 
     fn gen_deployment(&mut self) -> DeploymentTopology {
+        let network = self
+            .networks
+            .keys()
+            .collect::<Vec<&String>>()
+            .choose(&mut self.rng)
+            .unwrap()
+            .to_string();
         let mut deployment = DeploymentTopology {
             id: self.gen_bytes().into(),
+            network,
             indexings: Vec::new(),
         };
         let indexers = self.indexers.keys().cloned().collect::<Vec<Address>>();
@@ -362,41 +308,26 @@ impl Topology {
         }
     }
 
-    fn subgraph(&self, network: &str, subgraph: &SubgraphID) -> Option<&SubgraphTopology> {
-        self.networks
-            .get(network)
-            .and_then(|net| net.subgraphs.get(subgraph))
-    }
-
-    fn subgraphs(&self) -> Vec<(NetworkTopology, SubgraphTopology)> {
-        self.networks
-            .values()
-            .flat_map(|net| iter::repeat(net.clone()).zip(net.subgraphs.values().cloned()))
+    fn deployments(&self) -> Vec<DeploymentTopology> {
+        self.subgraphs
+            .iter()
+            .flat_map(|(_, subgraph)| subgraph.deployments.clone())
             .collect()
     }
 
-    fn indexings(
-        &self,
-    ) -> Vec<(
-        NetworkTopology,
-        SubgraphTopology,
-        DeploymentTopology,
-        IndexerTopology,
-    )> {
-        self.networks
-            .values()
-            .flat_map(|net| iter::repeat(net.clone()).zip(net.subgraphs.values()))
-            .flat_map(|(net, subgraph)| {
-                let path = iter::repeat((net, subgraph.clone()));
-                path.zip(subgraph.deployments.iter())
-            })
-            .flat_map(|((net, subgraph), deployment)| {
-                let path = iter::repeat((net, subgraph, deployment.clone()));
-                path.zip(deployment.indexings.iter())
-            })
-            .map(|((net, subgraph, deployment), indexing)| {
-                let indexer = self.indexers.get(indexing).unwrap().clone();
-                (net, subgraph, deployment, indexer)
+    fn indexings(&self) -> Vec<(DeploymentTopology, IndexerTopology, NetworkTopology)> {
+        self.deployments()
+            .into_iter()
+            .flat_map(|deployment| {
+                let network = self.networks.get(&deployment.network).unwrap();
+                deployment
+                    .indexings
+                    .clone()
+                    .into_iter()
+                    .map(move |indexer| {
+                        let indexer = self.indexers.get(&indexer).unwrap().clone();
+                        (deployment.clone(), indexer, network.clone())
+                    })
             })
             .collect()
     }
@@ -419,7 +350,7 @@ impl Topology {
                 .write(indexer.staked_grt.as_udecimal(&stake_table));
         }
         let test_key = SecretKey::from_str(TEST_KEY).unwrap();
-        for (network, _, deployment, indexer) in indexings.iter() {
+        for (deployment, indexer, network) in indexings.iter() {
             let indexing = Indexing {
                 deployment: deployment.id,
                 indexer: indexer.id,
@@ -442,18 +373,17 @@ impl Topology {
             }
         }
         self.inputs.current_deployments.write(Ptr::new(
-            self.subgraphs()
-                .into_iter()
+            self.subgraphs
+                .iter()
                 .filter_map(|(_, subgraph)| Some((subgraph.id, subgraph.deployments.last()?.id)))
                 .collect(),
         ));
         self.inputs.deployment_indexers.write(Ptr::new(
-            self.subgraphs()
-                .into_iter()
-                .flat_map(|(_, subgraph)| subgraph.deployments)
+            self.deployments()
+                .iter()
                 .map(|deployment| {
-                    let indexings = deployment.indexings.iter().cloned().collect();
-                    (deployment.id, indexings)
+                    let indexers = deployment.indexings.iter().cloned().collect();
+                    (deployment.id, indexers)
                 })
                 .collect(),
         ));
@@ -472,43 +402,35 @@ impl Topology {
         let mut trace = Vec::new();
         trace.push(format!("{:#?}", query));
         trace.push(format!("{:#?}", result));
-        let subgraph_id = match &query.subgraph {
-            Subgraph::ID(id) => id,
-            Subgraph::Deployment(_) => panic!("Unexpected SubgraphDeploymentID"),
-        };
-        // Return SubgraphNotFound if the subgraph does not exist.
-        let subgraph = match self.subgraph(&query.network, subgraph_id) {
-            Some(subgraph) => subgraph,
-            None => {
-                if let Err(QueryEngineError::SubgraphNotFound) = result {
-                    return Ok(());
-                }
-                // TODO: We currently assume that the network is mainnet, so these failures are not
-                // expected. In the future there must be a check that the query network matches
-                // with the expected network of the subgraph.
-                if self.subgraphs().iter().all(|(network, subgraph)| {
-                    (network.name != query.network) || (&subgraph.id != subgraph_id)
-                }) {
-                    return Ok(());
-                }
-
-                trace.push(format!("expected SubgraphNotFound, got {:#?}", result));
-                return Err(trace);
+        // Return MalformedQuery if query is invalid.
+        if query.query == "?" {
+            if let Err(QueryEngineError::MalformedQuery) = result {
+                return Ok(());
             }
-        };
+            return err_with(trace, format!("expected MalformedQuery, got {:#?}", result));
+        }
         // Return MissingBlock if the network has no blocks.
-        if let Err(QueryEngineError::MissingBlock(_)) = result {
-            if self.networks.get(&query.network).unwrap().blocks.is_empty() {
+        if self
+            .networks
+            .get(&query.subgraph.network)
+            .unwrap()
+            .blocks
+            .is_empty()
+        {
+            if let Err(QueryEngineError::MissingBlock(_)) = result {
                 return Ok(());
             }
             return err_with(trace, format!("expected MissingBlock, got {:?}", result));
         }
-        trace.push(format!("{:#?}", subgraph));
-        let indexers = subgraph
-            .deployments
-            .last()
+        let deployment = self
+            .deployments()
+            .into_iter()
+            .find(|deployment| &deployment.id == &query.subgraph.deployment)
+            .unwrap();
+        trace.push(format!("{:#?}", deployment));
+        let indexers = deployment
+            .indexings
             .iter()
-            .flat_map(|deployment| deployment.indexings.iter())
             .map(|id| self.indexers.get(id).unwrap())
             .collect::<Vec<&IndexerTopology>>();
         // Valid indexers have the following properties:
@@ -524,16 +446,12 @@ impl Topology {
             // fee <= budget
             && (indexer.fee <= TokenAmount::Enough)
         }
-        // Return NoIndexers if no valid indexers exist.
-        if let Err(QueryEngineError::NoIndexers) = result {
-            return Ok(());
-        }
-        // Return MalformedQuery Malformed queries are rejected.
-        if query.query == "?" {
-            if let Err(QueryEngineError::MalformedQuery) = result {
+        // Return NoIndexers if no indexers exist for this deployment.
+        if indexers.is_empty() {
+            if let Err(QueryEngineError::NoIndexers) = result {
                 return Ok(());
             }
-            return err_with(trace, format!("expected MalformedQuery, got {:#?}", result));
+            return err_with(trace, format!("expected NoIndexers, got {:#?}", result));
         }
         let valid = indexers
             .iter()
@@ -541,36 +459,53 @@ impl Topology {
             .filter(|indexer| valid_indexer(indexer))
             .collect::<Vec<&IndexerTopology>>();
         trace.push(format!("valid indexers: {:#?}", valid));
-        if valid.len() > 0 {
-            // A valid indexer implies that a response is returned.
-            let response = match result {
-                Ok(response) => response,
-                Err(err) => return err_with(trace, format!("expected response, got {:?}", err)),
-            };
-            // The test resolver only gives the following response for successful queries.
-            if !response.response.payload.contains("success") {
-                return err_with(
-                    trace,
-                    format!("expected success, got {:#?}", response.response),
-                );
+        if valid.is_empty() {
+            let high_fee_count = indexers
+                .iter()
+                .filter(|indexer| indexer.fee > TokenAmount::Enough)
+                .count();
+            // Return FeesTooHigh if no valid indexers, due to high fees.
+            if high_fee_count > 0 {
+                return match result {
+                    Err(QueryEngineError::FeesTooHigh(count)) if count == high_fee_count => Ok(()),
+                    _ => err_with(
+                        trace,
+                        format!(
+                            "expected FeesTooHigh({}), got {:#?}",
+                            high_fee_count, result
+                        ),
+                    ),
+                };
             }
-            // The response is from a valid indexer.
-            if let Some(_) = valid
-                .into_iter()
-                .find(|indexer| response.query.indexing.indexer == indexer.id)
-            {
+            // Return NoIndexerSelected if no valid indexers were found.
+            if let Err(QueryEngineError::NoIndexerSelected) = result {
                 return Ok(());
             }
-            return err_with(trace, "response did not match any valid indexer");
+            return err_with(
+                trace,
+                format!("expected NoIndexerSelected, got {:#?}", result),
+            );
         }
-        // Return NoIndexerSelected if no valid indexers were found.
-        if let Err(QueryEngineError::NoIndexerSelected) = result {
+        // A valid indexer implies that a response is returned.
+        let response = match result {
+            Ok(response) => response,
+            Err(err) => return err_with(trace, format!("expected response, got {:?}", err)),
+        };
+        // The test resolver only gives the following response for successful queries.
+        if !response.response.payload.contains("success") {
+            return err_with(
+                trace,
+                format!("expected success, got {:#?}", response.response),
+            );
+        }
+        // The response is from a valid indexer.
+        if let Some(_) = valid
+            .into_iter()
+            .find(|indexer| response.query.indexing.indexer == indexer.id)
+        {
             return Ok(());
         }
-        err_with(
-            trace,
-            format!("expected NoIndexerSelected, got {:#?}", result),
-        )
+        err_with(trace, "response did not match any valid indexer")
     }
 
     fn successful_challenge_outcome(outcome: ChallengeOutcome) -> bool {
@@ -647,8 +582,8 @@ impl fmt::Debug for Topology {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "indexers: {:#?}\nnetworks: {:#?}",
-            self.indexers, self.networks
+            "subgraphs: {:#?}\nindexers: {:#?}\nnetworks: {:#?}",
+            self.subgraphs, self.indexers, self.networks
         )
     }
 }
@@ -667,20 +602,18 @@ async fn test() {
         let topology = Arc::new(Mutex::new(Topology::new(
             TopologyConfig {
                 indexers: 5..=10,
-                networks: 0..=3,
+                networks: 1..=3,
                 blocks: 0..=5,
-                subgraphs: 0..=3,
-                deployments: 0..=3,
+                subgraphs: 1..=3,
+                deployments: 1..=3,
                 indexings: 0..=3,
             },
             input_writers,
             &rng,
         )));
         let resolvers = topology.lock().await.resolvers();
-        let subgraph_info = topology.lock().await.subgraph_info();
         let query_engine = QueryEngine::new(
             Config {
-                network: "test".to_string(),
                 indexer_selection_retry_limit: 3,
                 utility: UtilityConfig::default(),
                 query_budget: 1u64.try_into().unwrap(),
@@ -692,7 +625,6 @@ async fn test() {
                 topology: topology.clone(),
             })),
             resolvers,
-            subgraph_info,
             inputs,
         );
         topology.lock().await.write_inputs().await;

@@ -49,13 +49,6 @@ async fn main() {
     tracing::info!("Graph gateway starting...");
     tracing::debug!("{:#?}", opt);
 
-    if opt.ethereum_providers.0.len() == 1 {
-        opt.ethereum_providers.0[0].network.clone()
-    } else {
-        tracing::error!("We only support a single Ethereum network provider!");
-        return;
-    };
-
     let (mut input_writers, inputs) = Inputs::new();
 
     input_writers
