@@ -403,11 +403,28 @@ impl Topology {
         trace.push(format!("{:#?}", query));
         trace.push(format!("{:#?}", result));
         // Return MalformedQuery if query is invalid.
-        if query.query == "?" {
-            if let Err(QueryEngineError::MalformedQuery) = result {
+        if let Err(QueryEngineError::MalformedQuery) = result {
+            if query.query == "?" {
                 return Ok(());
             }
-            return err_with(trace, format!("expected MalformedQuery, got {:#?}", result));
+        }
+        let deployment = self
+            .deployments()
+            .into_iter()
+            .find(|deployment| &deployment.id == &query.subgraph.deployment)
+            .unwrap();
+        trace.push(format!("{:#?}", deployment));
+        let indexers = deployment
+            .indexings
+            .iter()
+            .map(|id| self.indexers.get(id).unwrap())
+            .collect::<Vec<&IndexerTopology>>();
+        // Return NoIndexers if no indexers exist for this deployment.
+        if indexers.is_empty() {
+            if let Err(QueryEngineError::NoIndexers) = result {
+                return Ok(());
+            }
+            return err_with(trace, format!("expected NoIndexers, got {:#?}", result));
         }
         // Return MissingBlock if the network has no blocks.
         if self
@@ -422,17 +439,6 @@ impl Topology {
             }
             return err_with(trace, format!("expected MissingBlock, got {:?}", result));
         }
-        let deployment = self
-            .deployments()
-            .into_iter()
-            .find(|deployment| &deployment.id == &query.subgraph.deployment)
-            .unwrap();
-        trace.push(format!("{:#?}", deployment));
-        let indexers = deployment
-            .indexings
-            .iter()
-            .map(|id| self.indexers.get(id).unwrap())
-            .collect::<Vec<&IndexerTopology>>();
         // Valid indexers have the following properties:
         fn valid_indexer(indexer: &IndexerTopology) -> bool {
             // no failure to indexing the subgraph
@@ -443,13 +449,6 @@ impl Topology {
             && (indexer.allocated_grt > TokenAmount::Zero)
             // fee <= budget
             && (indexer.fee <= TokenAmount::Enough)
-        }
-        // Return NoIndexers if no indexers exist for this deployment.
-        if indexers.is_empty() {
-            if let Err(QueryEngineError::NoIndexers) = result {
-                return Ok(());
-            }
-            return err_with(trace, format!("expected NoIndexers, got {:#?}", result));
         }
         let valid = indexers
             .iter()
