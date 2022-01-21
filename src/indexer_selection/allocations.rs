@@ -1,9 +1,5 @@
 use crate::{indexer_selection::SecretKey, prelude::*};
-use lazy_static::lazy_static;
-pub use receipts::{
-    receipts_to_voucher, BorrowFail, QueryStatus, ReceiptPool, Voucher, VoucherError,
-};
-use secp256k1::{PublicKey, Secp256k1};
+pub use receipts::{BorrowFail, PartialVoucher, QueryStatus, ReceiptPool, Voucher, VoucherError};
 use std::{fmt, ops::Deref};
 
 #[derive(Default)]
@@ -57,17 +53,5 @@ impl Allocations {
     pub fn remove_allocation(&mut self, allocation_id: &Address, size: GRT) {
         self.receipts.remove_allocation(allocation_id);
         self.total_allocation = self.total_allocation.saturating_sub(size);
-    }
-
-    pub fn receipts_to_voucher(
-        allocation_id: &Address,
-        signer: &SecretKey,
-        receipts: &[u8],
-    ) -> Result<Voucher, VoucherError> {
-        lazy_static! {
-            static ref SECP256K1: Secp256k1<secp256k1::All> = Secp256k1::new();
-        }
-        let allocation_signer = PublicKey::from_secret_key(&SECP256K1, signer);
-        receipts_to_voucher(allocation_id, &allocation_signer, signer, receipts)
     }
 }

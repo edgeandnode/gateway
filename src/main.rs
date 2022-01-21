@@ -11,13 +11,14 @@ mod query_engine;
 mod rate_limiter;
 mod stats_db;
 mod sync_client;
+mod vouchers;
 mod ws_client;
 
 use crate::{
     block_resolver::{BlockCache, BlockResolver},
     fisherman_client::*,
     indexer_client::IndexerClient,
-    indexer_selection::{SecretKey, UtilityConfig},
+    indexer_selection::UtilityConfig,
     ipfs_client::*,
     manifest_client::*,
     opt::*,
@@ -32,7 +33,6 @@ use actix_web::{
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use eventuals::EventualExt;
-use hex;
 use lazy_static::lazy_static;
 use prometheus::{self, Encoder as _};
 use reqwest;
@@ -220,7 +220,18 @@ async fn main() {
                 web::resource("/collect-receipts")
                     .app_data(web::PayloadConfig::new(16_000_000))
                     .app_data(web::Data::new(signer_key.clone()))
-                    .route(web::post().to(handle_collect_receipts)),
+                    .route(web::post().to(vouchers::handle_collect_receipts)),
+            )
+            .service(
+                web::resource("/partial-vouchers")
+                    .app_data(web::PayloadConfig::new(4_000_000))
+                    .app_data(web::Data::new(signer_key.clone()))
+                    .route(web::post().to(vouchers::handle_partial_voucher)),
+            )
+            .service(
+                web::resource("/voucher")
+                    .app_data(web::Data::new(signer_key.clone()))
+                    .route(web::post().to(vouchers::handle_voucher)),
             );
         App::new().service(api).service(other)
     })
@@ -277,39 +288,6 @@ async fn handle_ready(
     } else {
         // Respond with 425 Too Early
         HttpResponseBuilder::new(StatusCode::from_u16(425).unwrap()).body("Not ready")
-    }
-}
-
-#[tracing::instrument(skip(data, payload))]
-async fn handle_collect_receipts(data: web::Data<SecretKey>, payload: web::Bytes) -> HttpResponse {
-    let _timer = METRICS.collect_receipts_duration.start_timer();
-    if payload.len() < 20 {
-        return HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body("Invalid receipt data");
-    }
-    let mut allocation_id = [0u8; 20];
-    allocation_id.copy_from_slice(&payload[..20]);
-    let result = indexer_selection::Allocations::receipts_to_voucher(
-        &allocation_id.into(),
-        data.as_ref(),
-        &payload[20..],
-    );
-    match result {
-        Ok(voucher) => {
-            METRICS.collect_receipts_ok.inc();
-            tracing::info!(request_size = %payload.len(), "Collect receipts");
-            HttpResponseBuilder::new(StatusCode::OK).json(json!({
-                "allocation": format!("0x{}", hex::encode(voucher.allocation_id)),
-                "amount": voucher.fees.to_string(),
-                // For now, this must not include a `0x` prefix because the indexer-agent will
-                // unconditionally create the prefix when submitting the voucher on chain.
-                "signature": hex::encode(voucher.signature),
-            }))
-        }
-        Err(voucher_err) => {
-            METRICS.collect_receipts_failed.inc();
-            tracing::info!(%voucher_err);
-            HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body(voucher_err.to_string())
-        }
     }
 }
 
@@ -538,9 +516,6 @@ pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> Ht
 
 #[derive(Clone)]
 struct Metrics {
-    collect_receipts_duration: prometheus::Histogram,
-    collect_receipts_failed: prometheus::IntCounter,
-    collect_receipts_ok: prometheus::IntCounter,
     network_subgraph_queries_duration: prometheus::Histogram,
     network_subgraph_queries_failed: prometheus::IntCounter,
     network_subgraph_queries_ok: prometheus::IntCounter,
@@ -556,23 +531,6 @@ lazy_static! {
 impl Metrics {
     fn new() -> Self {
         Self {
-            collect_receipts_duration: prometheus::register_histogram!(
-                "gateway_collect_receipts_duration",
-                "Duration of processing requests to collect receipts"
-            )
-            .unwrap(),
-            // TODO: should be renamed to gateway_collect_receipt_requests_failed
-            collect_receipts_failed: prometheus::register_int_counter!(
-                "gateway_failed_collect_receipt_requests",
-                "Failed requests to collect receipts"
-            )
-            .unwrap(),
-            // TODO: should be renamed to gateway_collect_receipt_requests_ok
-            collect_receipts_ok: prometheus::register_int_counter!(
-                "gateway_collect_receipt_requests",
-                "Incoming requests to collect receipts"
-            )
-            .unwrap(),
             network_subgraph_queries_duration: prometheus::register_histogram!(
                 "gateway_network_subgraph_query_duration",
                 "Duration of processing a network subgraph query"

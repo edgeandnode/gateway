@@ -1,33 +1,32 @@
 use bs58;
-use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
+use serde;
 use sha3::{Digest as _, Keccak256};
 pub use std::{fmt, str::FromStr};
 
 macro_rules! bytes_wrapper {
     ($vis:vis, $id:ident, $len:expr) => {
         #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        $vis struct $id {
-            pub bytes: [u8; $len],
-        }
+        $vis struct $id(pub [u8; $len]);
+
         impl From<[u8; $len]> for $id {
             fn from(bytes: [u8; $len]) -> Self {
-                Self { bytes }
+                Self(bytes)
             }
         }
         impl std::ops::Deref for $id {
             type Target = [u8; $len];
             fn deref(&self) -> &Self::Target {
-                &self.bytes
+                &self.0
             }
         }
-        impl<'de> Deserialize<'de> for $id {
-            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                let input: &str = Deserialize::deserialize(deserializer)?;
+        impl<'de> serde::Deserialize<'de> for $id {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let input: &str = serde::Deserialize::deserialize(deserializer)?;
                 input.parse::<Self>().map_err(serde::de::Error::custom)
             }
         }
-        impl Serialize for $id {
-            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        impl serde::Serialize for $id {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 serializer.serialize_str(&self.to_string())
             }
         }
@@ -40,12 +39,12 @@ macro_rules! bytes_wrapper {
                 let mut bytes = [0u8; $len];
                 let offset = if s.starts_with("0x") {2} else {0};
                 hex::decode_to_slice(&s[offset..], &mut bytes)?;
-                Ok(Self { bytes })
+                Ok(Self(bytes))
             }
         }
         impl fmt::Debug for $id {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "0x{}", hex::encode(self.bytes))
+                write!(f, "0x{}", hex::encode(self.0))
             }
         }
         impl fmt::Display for $id {
@@ -55,6 +54,8 @@ macro_rules! bytes_wrapper {
         }
     };
 }
+
+pub(crate) use bytes_wrapper;
 
 bytes_wrapper!(pub, Address, 20, "HexStr");
 bytes_wrapper!(pub, Bytes32, 32, "HexStr");

@@ -360,9 +360,9 @@ impl Indexers {
         .await?;
         make_query_deterministic_timer.observe_duration();
 
-        let mut allocation = Address { bytes: [0; 20] };
+        let mut allocation = Address([0; 20]);
         allocation
-            .bytes
+            .0
             .copy_from_slice(&selection.receipt.commitment[0..20]);
 
         let indexer_query = IndexerQuery {
