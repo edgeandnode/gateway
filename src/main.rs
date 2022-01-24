@@ -49,13 +49,6 @@ async fn main() {
     tracing::info!("Graph gateway starting...");
     tracing::debug!("{:#?}", opt);
 
-    let network = if opt.ethereum_providers.0.len() == 1 {
-        opt.ethereum_providers.0[0].network.clone()
-    } else {
-        tracing::error!("We only support a single Ethereum network provider!");
-        return;
-    };
-
     let (mut input_writers, inputs) = Inputs::new();
 
     input_writers
@@ -107,7 +100,6 @@ async fn main() {
     let (api_keys_writer, api_keys) = Eventual::new();
     // TODO: argument for timeout
     let sync_metrics = sync_client::create(
-        network.clone(),
         opt.sync_agent,
         Duration::from_secs(30),
         signer_key.clone(),
@@ -131,7 +123,6 @@ async fn main() {
         .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
     let subgraph_query_data = SubgraphQueryData {
         config: query_engine::Config {
-            network,
             indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
             utility: UtilityConfig::default(),
             query_budget: opt.query_budget,
@@ -352,26 +343,38 @@ struct SubgraphQueryData {
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
 }
 
+impl SubgraphQueryData {
+    fn resolve_subgraph_deployment(&self, subgraph_identifier: &str) -> Option<Ptr<SubgraphInfo>> {
+        let deployment = if let Ok(subgraph) = subgraph_identifier.parse::<SubgraphID>() {
+            self.inputs
+                .current_deployments
+                .value_immediate()
+                .and_then(|map| map.get(&subgraph).cloned())?
+        } else {
+            SubgraphDeploymentID::from_ipfs_hash(&subgraph_identifier)?
+        };
+        self.subgraph_info
+            .value_immediate()
+            .and_then(|map| map.get(&deployment)?.value_immediate())
+    }
+}
+
 async fn handle_subgraph_query(
     request: HttpRequest,
     payload: web::Json<QueryBody>,
     data: web::Data<SubgraphQueryData>,
 ) -> HttpResponse {
     let url_params = request.match_info();
-    let subgraph = if let Some(name) = url_params
+
+    let subgraph_info = match url_params
         .get("subgraph_id")
-        .and_then(|id| id.parse::<SubgraphID>().ok())
+        .and_then(|id| data.resolve_subgraph_deployment(id))
     {
-        Subgraph::ID(name.into())
-    } else if let Some(deployment) = url_params
-        .get("deployment_id")
-        .and_then(|id| SubgraphDeploymentID::from_ipfs_hash(&id))
-    {
-        Subgraph::Deployment(deployment)
-    } else {
-        return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier");
+        Some(subgraph) => subgraph,
+        None => {
+            return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier")
+        }
     };
-    let subgraph_info = format!("{:?}", subgraph);
 
     let t0 = Instant::now();
     let query_id = QueryID::new();
@@ -381,8 +384,9 @@ async fn handle_subgraph_query(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let span = tracing::info_span!("handle_subgraph_query", %ray_id, %query_id);
-    let response = handle_subgraph_query_inner(request, payload, data, query_id, subgraph)
+    let span =
+        tracing::info_span!("handle_subgraph_query", %ray_id, %query_id, %subgraph_info.deployment);
+    let response = handle_subgraph_query_inner(request, payload, data, query_id, subgraph_info)
         .instrument(span.clone())
         .await;
     let response_time = Instant::now() - t0;
@@ -395,7 +399,6 @@ async fn handle_subgraph_query(
     };
     tracing::info!(
         parent: &span,
-        %subgraph_info,
         %status,
         response_time_ms = response_time.as_millis() as u32,
         "client query result",
@@ -408,14 +411,13 @@ async fn handle_subgraph_query_inner(
     payload: web::Json<QueryBody>,
     data: web::Data<SubgraphQueryData>,
     query_id: QueryID,
-    subgraph: Subgraph,
+    subgraph: Ptr<SubgraphInfo>,
 ) -> Result<HttpResponse, (StatusCode, String)> {
     let query_engine = QueryEngine::new(
         data.config.clone(),
         data.indexer_client.clone(),
         data.fisherman_client.clone(),
         data.block_resolvers.clone(),
-        data.subgraph_info.clone(),
         data.inputs.clone(),
     );
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();
@@ -453,13 +455,20 @@ async fn handle_subgraph_query_inner(
         with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
         return Err((StatusCode::OK, "Domain not authorized by API key".into()));
     }
+    if !api_key.deployments.is_empty() && !api_key.deployments.contains(&subgraph.deployment) {
+        with_metric(
+            &METRICS.queries_unauthorized_deployment,
+            &[&api_key.key],
+            |counter| counter.inc(),
+        );
+        return Err((StatusCode::OK, "Subgraph not authorized by API key".into()));
+    }
 
     let query = ClientQuery {
         id: query_id,
         api_key: api_key.clone(),
         query: payload.query.clone(),
         variables: payload.variables.as_ref().map(ToString::to_string),
-        network: data.config.network.clone(),
         subgraph: subgraph.clone(),
     };
     let result = match query_engine.execute_query(query).await {
@@ -469,7 +478,6 @@ async fn handle_subgraph_query_inner(
                 StatusCode::OK,
                 match err {
                     QueryEngineError::MalformedQuery => "Invalid query".into(),
-                    QueryEngineError::SubgraphNotFound => "Subgraph deployment not found".into(),
                     QueryEngineError::NoIndexers => {
                         "No indexers found for subgraph deployment".into()
                     }
@@ -478,9 +486,6 @@ async fn handle_subgraph_query_inner(
                     }
                     QueryEngineError::FeesTooHigh(count) => {
                         format!("No suitable indexer found, {} indexers requesting higher fees for this query", count)
-                    }
-                    QueryEngineError::APIKeySubgraphNotAuthorized => {
-                        "Subgraph not authorized by API key".into()
                     }
                     QueryEngineError::MissingBlock(_) => {
                         "Gateway failed to resolve required blocks".into()
@@ -499,10 +504,7 @@ async fn handle_subgraph_query_inner(
         api_key,
         fee: result.query.score.fee,
         domain: domain.to_string(),
-        subgraph: match subgraph {
-            Subgraph::ID(id) => Some(id.to_string()),
-            Subgraph::Deployment(_) => None,
-        },
+        subgraph: subgraph.deployment.ipfs_hash(),
     });
     Ok(HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
@@ -519,6 +521,7 @@ pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> Ht
 struct Metrics {
     network_subgraph_queries: ResponseMetrics,
     query_result_size: prometheus::HistogramVec,
+    queries_unauthorized_deployment: prometheus::IntCounterVec,
     unauthorized_domain: prometheus::IntCounterVec,
     unknown_api_key: prometheus::IntCounter,
 }
@@ -538,6 +541,12 @@ impl Metrics {
                 "query_engine_query_result_size",
                 "Size of query result",
                 &["deployment"]
+            )
+            .unwrap(),
+            queries_unauthorized_deployment: prometheus::register_int_counter_vec!(
+                "gateway_queries_for_excluded_deployment",
+                "Queries for a subgraph deployment not included in an API key",
+                &["apiKey"]
             )
             .unwrap(),
             unauthorized_domain: prometheus::register_int_counter_vec!(

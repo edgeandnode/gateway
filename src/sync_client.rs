@@ -22,7 +22,6 @@ use tokio::{sync::Mutex, time::sleep};
 use tracing::{self, Instrument};
 
 pub fn create(
-    network: String,
     agent_url: String,
     poll_interval: Duration,
     signer_key: SecretKey,
@@ -89,7 +88,6 @@ pub fn create(
         current_deployments,
     );
     handle_indexers(
-        network,
         indexers,
         deployment_indexers,
         create_sync_client_input::<Indexers, _>(
@@ -592,7 +590,6 @@ fn handle_cost_models(
 }
 
 fn handle_indexers(
-    network: String,
     indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
     mut deployment_indexers: EventualWriter<
         Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
@@ -608,11 +605,7 @@ fn handle_indexers(
                 indexer_statuses
                     .iter()
                     .map(|(deployment, indexer_statuses)| {
-                        tracing::trace!(
-                            %network,
-                            ?deployment,
-                            indexer_statuses = indexer_statuses.len(),
-                        );
+                        tracing::trace!(?deployment, indexer_statuses = indexer_statuses.len(),);
                         (
                             deployment.clone(),
                             indexer_statuses.iter().map(|status| status.id).collect(),
