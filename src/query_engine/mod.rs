@@ -248,16 +248,16 @@ where
             .execute_deployment_query(query, deployment, &deployment_ipfs)
             .await;
         let result_counter = if let Ok(_) = result {
-            &METRICS.queries_ok
+            &METRICS.queries.ok
         } else {
-            &METRICS.queries_failed
+            &METRICS.queries.failed
         };
         with_metric(result_counter, &[&deployment_ipfs, &api_key], |counter| {
             counter.inc()
         });
         let query_execution_duration = Instant::now() - query_start;
         with_metric(
-            &METRICS.query_duration,
+            &METRICS.queries.duration,
             &[&deployment_ipfs, &api_key],
             |hist| {
                 hist.observe(query_execution_duration.as_secs_f64());
@@ -430,7 +430,7 @@ where
         let result = self.indexer_client.query_indexer(&indexer_query).await;
         let query_duration = Instant::now() - t0;
         with_metric(
-            &METRICS.indexer_requests_duration,
+            &METRICS.indexer_request.duration,
             &[&deployment_ipfs, &indexer_id],
             |hist| hist.observe(query_duration.as_secs_f64()),
         );
@@ -459,7 +459,7 @@ where
                     .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, err)
                     .await;
                 with_metric(
-                    &METRICS.indexer_requests_failed,
+                    &METRICS.indexer_request.failed,
                     &[&deployment_ipfs, &indexer_id],
                     |counter| counter.inc(),
                 );
@@ -467,7 +467,7 @@ where
             }
         };
         with_metric(
-            &METRICS.indexer_requests_ok,
+            &METRICS.indexer_request.ok,
             &[&deployment_ipfs, &indexer_id],
             |counter| counter.inc(),
         );
@@ -609,16 +609,12 @@ where
 }
 
 struct Metrics {
+    indexer_request: ResponseMetricVecs,
     indexer_response_unattestable: prometheus::IntCounterVec,
-    indexer_requests_duration: prometheus::HistogramVec,
-    indexer_requests_failed: prometheus::IntCounterVec,
-    indexer_requests_ok: prometheus::IntCounterVec,
     indexer_selection: IndexerSelectionMetrics,
     indexer_selection_duration: prometheus::HistogramVec,
-    queries_failed: prometheus::IntCounterVec,
-    queries_ok: prometheus::IntCounterVec,
+    queries: ResponseMetricVecs,
     queries_unauthorized_deployment: prometheus::IntCounterVec,
-    query_duration: prometheus::HistogramVec,
     query_execution_duration: prometheus::HistogramVec,
     subgraph_name_duration: prometheus::HistogramVec,
 }
@@ -638,27 +634,14 @@ lazy_static! {
 impl Metrics {
     fn new() -> Self {
         Self {
+            indexer_request: ResponseMetricVecs::new(
+                "query_engine_indexer_request",
+                "indexer responses",
+                &["deployment", "indexer"],
+            ),
             indexer_response_unattestable: prometheus::register_int_counter_vec!(
                 "query_engine_indexer_response_unattestable",
                 "Number of unattestable indexer responses",
-                &["deployment", "indexer"]
-            )
-            .unwrap(),
-            indexer_requests_duration: prometheus::register_histogram_vec!(
-                "query_engine_indexer_request_duration",
-                "Duration of making a request to an indexer",
-                &["deployment", "indexer"]
-            )
-            .unwrap(),
-            indexer_requests_failed: prometheus::register_int_counter_vec!(
-                "query_engine_indexer_requests_failed",
-                "Number of failed queries made to an indexer",
-                &["deployment", "indexer"]
-            )
-            .unwrap(),
-            indexer_requests_ok: prometheus::register_int_counter_vec!(
-                "query_engine_indexer_requests_ok",
-                "Number of successful requests made to an indexer",
                 &["deployment", "indexer"]
             )
             .unwrap(),
@@ -700,28 +683,15 @@ impl Metrics {
                 &["deployment"]
             )
             .unwrap(),
-            queries_failed: prometheus::register_int_counter_vec!(
-                "gateway_queries_failed",
-                "Queries that failed executing",
-                &["deployment", "apiKey"]
-            )
-            .unwrap(),
-            queries_ok: prometheus::register_int_counter_vec!(
-                "gateway_queries_ok",
-                "Successfully executed queries",
-                &["deployment", "apiKey"]
-            )
-            .unwrap(),
+            queries: ResponseMetricVecs::new(
+                "gateway_queries",
+                "processing queries",
+                &["deployment", "apiKey"],
+            ),
             queries_unauthorized_deployment: prometheus::register_int_counter_vec!(
                 "gateway_queries_for_excluded_deployment",
                 "Queries for a subgraph deployment not included in an API key",
                 &["apiKey"]
-            )
-            .unwrap(),
-            query_duration: prometheus::register_histogram_vec!(
-                "gateway_query_execution_duration",
-                "Duration of processing a query",
-                &["deployment", "apiKey"]
             )
             .unwrap(),
             query_execution_duration: prometheus::register_histogram_vec!(

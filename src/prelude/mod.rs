@@ -32,6 +32,67 @@ pub fn init_tracing(json: bool) {
     }
 }
 
+#[derive(Clone)]
+pub struct ResponseMetrics {
+    pub duration: prometheus::Histogram,
+    pub ok: prometheus::IntCounter,
+    pub failed: prometheus::IntCounter,
+}
+
+impl ResponseMetrics {
+    pub fn new(prefix: &str, description: &str) -> Self {
+        Self {
+            duration: prometheus::register_histogram!(
+                &format!("{}_duration", prefix),
+                &format!("Duration for {}", description),
+            )
+            .unwrap(),
+            ok: prometheus::register_int_counter!(
+                &format!("{}_ok", prefix),
+                &format!("Successful {}", description),
+            )
+            .unwrap(),
+            failed: prometheus::register_int_counter!(
+                &format!("{}_failed", prefix),
+                &format!("Failed {}", description),
+            )
+            .unwrap(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ResponseMetricVecs {
+    pub duration: prometheus::HistogramVec,
+    pub ok: prometheus::IntCounterVec,
+    pub failed: prometheus::IntCounterVec,
+}
+
+impl ResponseMetricVecs {
+    pub fn new(prefix: &str, description: &str, labels: &[&str]) -> Self {
+        Self {
+            duration: prometheus::register_histogram_vec!(
+                &format!("{}_duration", prefix),
+                &format!("Duration for {}", description),
+                labels,
+            )
+            .unwrap(),
+            ok: prometheus::register_int_counter_vec!(
+                &format!("{}_ok", prefix),
+                &format!("Successful {}", description),
+                labels,
+            )
+            .unwrap(),
+            failed: prometheus::register_int_counter_vec!(
+                &format!("{}_failed", prefix),
+                &format!("Failed {}", description),
+                labels,
+            )
+            .unwrap(),
+        }
+    }
+}
+
 pub fn with_metric<T, F, B>(metric_vec: &MetricVec<B>, label_values: &[&str], f: F) -> Option<T>
 where
     B: MetricVecBuilder,

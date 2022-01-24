@@ -52,20 +52,14 @@ impl BlockResolver {
         with_metric(&METRICS.block_cache_miss, &[&self.network], |c| c.inc());
         match self.fetch_cache_miss(unresolved.clone()).await {
             Some(block) => {
-                with_metric(
-                    &METRICS.block_resolution_requests_ok,
-                    &[&self.network],
-                    |c| c.inc(),
-                );
+                with_metric(&METRICS.block_resolution.ok, &[&self.network], |c| c.inc());
                 Ok(block)
             }
             None => {
                 tracing::error!("block resolver connection closed");
-                with_metric(
-                    &METRICS.block_resolution_requests_failed,
-                    &[&self.network],
-                    |c| c.inc(),
-                );
+                with_metric(&METRICS.block_resolution.failed, &[&self.network], |c| {
+                    c.inc()
+                });
                 Err(unresolved)
             }
         }
@@ -73,7 +67,7 @@ impl BlockResolver {
 
     async fn fetch_cache_miss(&self, unresolved: UnresolvedBlock) -> Option<BlockPointer> {
         let _block_resolution_timer =
-            with_metric(&METRICS.block_resolution_duration, &[&self.network], |h| {
+            with_metric(&METRICS.block_resolution.duration, &[&self.network], |h| {
                 h.start_timer()
             });
         let (sender, receiver) = oneshot::channel();
@@ -184,9 +178,7 @@ lazy_static! {
 }
 
 struct Metrics {
-    block_resolution_duration: prometheus::HistogramVec,
-    block_resolution_requests_failed: prometheus::IntCounterVec,
-    block_resolution_requests_ok: prometheus::IntCounterVec,
+    block_resolution: ResponseMetricVecs,
     block_cache_hit: prometheus::IntCounterVec,
     block_cache_miss: prometheus::IntCounterVec,
 }
@@ -194,24 +186,11 @@ struct Metrics {
 impl Metrics {
     fn new() -> Self {
         Self {
-            block_resolution_duration: prometheus::register_histogram_vec!(
-                "block_resolution_duration",
-                "Duration of block requests",
-                &["network"]
-            )
-            .unwrap(),
-            block_resolution_requests_failed: prometheus::register_int_counter_vec!(
-                "block_resolution_requests_failed",
-                "Number of failed block requests",
-                &["network"]
-            )
-            .unwrap(),
-            block_resolution_requests_ok: prometheus::register_int_counter_vec!(
-                "block_resolution_requests_ok",
-                "Number of successful block requests",
-                &["network"]
-            )
-            .unwrap(),
+            block_resolution: ResponseMetricVecs::new(
+                "gateway_block_resolution",
+                "block requests",
+                &["network"],
+            ),
             block_cache_hit: prometheus::register_int_counter_vec!(
                 "block_cache_hit",
                 "Number of block cache hits",

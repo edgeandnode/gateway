@@ -218,12 +218,13 @@ async fn main() {
             )
             .service(
                 web::resource("/collect-receipts")
+                    // TODO: decrease payload limit
                     .app_data(web::PayloadConfig::new(16_000_000))
                     .app_data(web::Data::new(signer_key.clone()))
                     .route(web::post().to(vouchers::handle_collect_receipts)),
             )
             .service(
-                web::resource("/partial-vouchers")
+                web::resource("/partial-voucher")
                     .app_data(web::PayloadConfig::new(4_000_000))
                     .app_data(web::Data::new(signer_key.clone()))
                     .route(web::post().to(vouchers::handle_partial_voucher)),
@@ -304,7 +305,7 @@ async fn handle_network_query(
     payload: String,
     data: web::Data<NetworkSubgraphQueryData>,
 ) -> HttpResponse {
-    let _timer = METRICS.network_subgraph_queries_duration.start_timer();
+    let _timer = METRICS.network_subgraph_queries.duration.start_timer();
     let post_request = |body: String| async {
         let response = data
             .http_client
@@ -322,12 +323,12 @@ async fn handle_network_query(
     };
     match post_request(payload).await {
         Ok(result) => {
-            METRICS.network_subgraph_queries_ok.inc();
+            METRICS.network_subgraph_queries.ok.inc();
             HttpResponseBuilder::new(StatusCode::OK).body(result)
         }
         Err(network_subgraph_post_err) => {
             tracing::error!(%network_subgraph_post_err);
-            METRICS.network_subgraph_queries_failed.inc();
+            METRICS.network_subgraph_queries.failed.inc();
             graphql_error_response(StatusCode::OK, "Failed to process network subgraph query")
         }
     }
@@ -516,9 +517,7 @@ pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> Ht
 
 #[derive(Clone)]
 struct Metrics {
-    network_subgraph_queries_duration: prometheus::Histogram,
-    network_subgraph_queries_failed: prometheus::IntCounter,
-    network_subgraph_queries_ok: prometheus::IntCounter,
+    network_subgraph_queries: ResponseMetrics,
     query_result_size: prometheus::HistogramVec,
     unauthorized_domain: prometheus::IntCounterVec,
     unknown_api_key: prometheus::IntCounter,
@@ -531,21 +530,10 @@ lazy_static! {
 impl Metrics {
     fn new() -> Self {
         Self {
-            network_subgraph_queries_duration: prometheus::register_histogram!(
-                "gateway_network_subgraph_query_duration",
-                "Duration of processing a network subgraph query"
-            )
-            .unwrap(),
-            network_subgraph_queries_failed: prometheus::register_int_counter!(
-                "gateway_network_subgraph_queries_failed",
-                "Network subgraph queries that failed executing"
-            )
-            .unwrap(),
-            network_subgraph_queries_ok: prometheus::register_int_counter!(
-                "gateway_network_subgraph_queries_ok",
-                "Successfully executed network subgraph queries"
-            )
-            .unwrap(),
+            network_subgraph_queries: ResponseMetrics::new(
+                "gateway_network_subgraph_query",
+                "network subgraph queries",
+            ),
             query_result_size: prometheus::register_histogram_vec!(
                 "query_engine_query_result_size",
                 "Size of query result",
