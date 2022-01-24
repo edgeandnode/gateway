@@ -3,7 +3,6 @@ use actix_web::{http::StatusCode, web, HttpResponse, HttpResponseBuilder};
 use hex;
 use lazy_static::lazy_static;
 use primitive_types::U256;
-use prometheus;
 use receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher};
 use secp256k1::{PublicKey, Secp256k1};
 use serde::{Deserialize, Deserializer};
@@ -18,15 +17,15 @@ pub async fn handle_collect_receipts(
     data: web::Data<SecretKey>,
     payload: web::Bytes,
 ) -> HttpResponse {
-    let _timer = METRICS.collect_receipts_duration.start_timer();
+    let _timer = METRICS.collect_receipts.duration.start_timer();
     tracing::info!(request_size = %payload.len(), "collect receipts request");
     match process_oneshot_voucher(&data, &payload) {
         Ok(response) => {
-            METRICS.collect_receipts_ok.inc();
+            METRICS.collect_receipts.ok.inc();
             response
         }
         Err(collect_receipts_err) => {
-            METRICS.collect_receipts_failed.inc();
+            METRICS.collect_receipts.failed.inc();
             tracing::info!(%collect_receipts_err);
             HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body(collect_receipts_err)
         }
@@ -53,15 +52,15 @@ pub async fn handle_partial_voucher(
     data: web::Data<SecretKey>,
     payload: web::Bytes,
 ) -> HttpResponse {
-    let _timer = METRICS.partial_voucher_duration.start_timer();
+    let _timer = METRICS.partial_voucher.duration.start_timer();
     tracing::info!(request_size = %payload.len(), "partial voucher request");
     match process_partial_voucher(&data, &payload) {
         Ok(response) => {
-            METRICS.partial_voucher_ok.inc();
+            METRICS.partial_voucher.ok.inc();
             response
         }
         Err(partial_voucher_err) => {
-            METRICS.partial_voucher_failed.inc();
+            METRICS.partial_voucher.failed.inc();
             tracing::info!(%partial_voucher_err);
             HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body(partial_voucher_err)
         }
@@ -88,15 +87,15 @@ fn process_partial_voucher(
 
 #[tracing::instrument(skip(data, payload))]
 pub async fn handle_voucher(data: web::Data<SecretKey>, payload: web::Bytes) -> HttpResponse {
-    let _timer = METRICS.voucher_duration.start_timer();
+    let _timer = METRICS.voucher.duration.start_timer();
     tracing::info!(request_size = %payload.len(), "partial voucher request");
     match process_voucher(&data, &payload) {
         Ok(response) => {
-            METRICS.voucher_ok.inc();
+            METRICS.voucher.ok.inc();
             response
         }
         Err(voucher_err) => {
-            METRICS.voucher_failed.inc();
+            METRICS.voucher.failed.inc();
             tracing::info!(%voucher_err);
             HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body(voucher_err)
         }
@@ -173,15 +172,9 @@ fn deserialize_u256<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, 
 
 #[derive(Clone)]
 struct Metrics {
-    collect_receipts_duration: prometheus::Histogram,
-    collect_receipts_failed: prometheus::IntCounter,
-    collect_receipts_ok: prometheus::IntCounter,
-    partial_voucher_duration: prometheus::Histogram,
-    partial_voucher_failed: prometheus::IntCounter,
-    partial_voucher_ok: prometheus::IntCounter,
-    voucher_duration: prometheus::Histogram,
-    voucher_failed: prometheus::IntCounter,
-    voucher_ok: prometheus::IntCounter,
+    collect_receipts: ResponseMetrics,
+    partial_voucher: ResponseMetrics,
+    voucher: ResponseMetrics,
 }
 
 lazy_static! {
@@ -191,51 +184,15 @@ lazy_static! {
 impl Metrics {
     fn new() -> Self {
         Self {
-            collect_receipts_duration: prometheus::register_histogram!(
-                "gateway_collect_receipts_duration",
-                "Duration of processing requests to collect receipts"
-            )
-            .unwrap(),
-            collect_receipts_failed: prometheus::register_int_counter!(
-                "gateway_collect_receipts_requests_failed",
-                "Failed requests to collect receipts"
-            )
-            .unwrap(),
-            collect_receipts_ok: prometheus::register_int_counter!(
-                "gateway_collect_receipts_requests_ok",
-                "Incoming requests to collect receipts"
-            )
-            .unwrap(),
-            partial_voucher_duration: prometheus::register_histogram!(
-                "gateway_partial_voucher_duration",
-                "Duration of processing requests for partial voucher"
-            )
-            .unwrap(),
-            partial_voucher_failed: prometheus::register_int_counter!(
-                "gateway_partial_voucher_requests_failed",
-                "Failed requests for partial voucher"
-            )
-            .unwrap(),
-            partial_voucher_ok: prometheus::register_int_counter!(
-                "gateway_partial_voucher_requests_ok",
-                "Incoming requests for partial voucher"
-            )
-            .unwrap(),
-            voucher_duration: prometheus::register_histogram!(
-                "gateway_voucher_duration",
-                "Duration of processing requests for voucher"
-            )
-            .unwrap(),
-            voucher_failed: prometheus::register_int_counter!(
-                "gateway_voucher_requests_failed",
-                "Failed requests for voucher"
-            )
-            .unwrap(),
-            voucher_ok: prometheus::register_int_counter!(
-                "gateway_voucher_requests_ok",
-                "Incoming requests for voucher"
-            )
-            .unwrap(),
+            collect_receipts: ResponseMetrics::new(
+                "gateway_collect_receipts",
+                "requests to collect-receipts",
+            ),
+            partial_voucher: ResponseMetrics::new(
+                "gateway_partial_voucher",
+                "requests for partial-voucher",
+            ),
+            voucher: ResponseMetrics::new("gateway_voucher", "requests for voucher"),
         }
     }
 }

@@ -166,6 +166,8 @@ fn create_sync_client<Q, T>(
             let client = reqwest::Client::new();
             let mut last_update_id = "<none>".to_string();
             loop {
+                let _timer =
+                    with_metric(&METRICS.queries.duration, &[operation], |h| h.start_timer());
                 let result = execute_query::<Q, T>(
                     &agent_url,
                     operation,
@@ -178,11 +180,11 @@ fn create_sync_client<Q, T>(
                 .await;
                 match result {
                     Some(data) => {
-                        with_metric(&METRICS.queries_ok, &[operation], |c| c.inc());
+                        with_metric(&METRICS.queries.ok, &[operation], |c| c.inc());
                         writer.write(data);
                     }
                     None => {
-                        with_metric(&METRICS.queries_failed, &[operation], |c| c.inc());
+                        with_metric(&METRICS.queries.failed, &[operation], |c| c.inc());
                     }
                 };
                 sleep(poll_interval).await;
@@ -740,30 +742,22 @@ fn handle_allocations(
 #[derive(Clone)]
 pub struct Metrics {
     pub allocations: prometheus::IntGauge,
+    pub queries: ResponseMetricVecs,
     pub total_allocation: prometheus::GaugeVec,
-    pub queries_ok: prometheus::IntCounterVec,
-    pub queries_failed: prometheus::IntCounterVec,
 }
 
 lazy_static! {
     static ref METRICS: Metrics = Metrics {
         allocations: prometheus::register_int_gauge!("allocations", "Total allocations").unwrap(),
+        queries: ResponseMetricVecs::new(
+            "gateway_network_subgraph_client_queries",
+            "network subgraph queries",
+            &["tag"],
+        ),
         total_allocation: prometheus::register_gauge_vec!(
             "total_allocation",
             "Total total_allocation",
             &["deployment", "indexer"],
-        )
-        .unwrap(),
-        queries_ok: prometheus::register_int_counter_vec!(
-            "gateway_network_subgraph_client_successful_queries",
-            "Successful network subgraph queries",
-            &["tag"],
-        )
-        .unwrap(),
-        queries_failed: prometheus::register_int_counter_vec!(
-            "gateway_network_subgraph_client_failed_queries",
-            "Failed network subgraph queries",
-            &["tag"],
         )
         .unwrap(),
     };
