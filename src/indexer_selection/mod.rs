@@ -96,7 +96,7 @@ impl From<BadIndexerReason> for SelectionError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum IndexerError {
     Timeout,
     NoAttestation,
@@ -259,7 +259,7 @@ impl Indexers {
     pub async fn observe_indexing_behind(
         &self,
         context: &mut Context<'_>,
-        query: &IndexerQuery,
+        indexing: &Indexing,
         block_resolver: &BlockResolver,
     ) {
         // Get this early to be closer to the time when the query was made so
@@ -268,7 +268,7 @@ impl Indexers {
         let latest = block_resolver.latest_block().map(|b| b.number).unwrap_or(0);
         let freshness_requirements =
             freshness_requirements(&mut context.operations, block_resolver).await;
-        let selection_factors = match self.indexings.get(&query.indexing).await {
+        let selection_factors = match self.indexings.get(indexing).await {
             Some(selection_factors) => selection_factors,
             None => return,
         };

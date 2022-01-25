@@ -6,7 +6,7 @@ use crate::{
     fisherman_client::*,
     indexer_client::*,
     indexer_selection::{
-        self, Context, IndexerError, IndexerQuery, IndexerScore, Indexers, SelectionError,
+        self, Context, IndexerError, IndexerQuery, IndexerScore, Indexers, Receipt, SelectionError,
         UnresolvedBlock,
     },
     manifest_client::SubgraphInfo,
@@ -22,6 +22,7 @@ use prometheus;
 use serde_json::value::RawValue;
 use std::{
     collections::HashMap,
+    rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
         Arc,
@@ -29,16 +30,45 @@ use std::{
 };
 use uuid::Uuid;
 
-#[derive(Clone, Debug)]
-pub struct ClientQuery {
+#[derive(Debug)]
+pub struct Query {
     pub id: QueryID,
-    pub api_key: Arc<APIKey>,
-    pub subgraph: Ptr<SubgraphInfo>,
-    pub query: String,
-    pub variables: Option<String>,
+    pub ray_id: String,
+    pub start_time: Instant,
+    pub query: Rc<String>,
+    pub variables: Rc<Option<String>>,
+    pub api_key: Option<Arc<APIKey>>,
+    pub subgraph: Option<Ptr<SubgraphInfo>>,
+    pub indexer_attempts: Vec<IndexerAttempt>,
 }
 
-#[derive(Clone, Copy)]
+impl Query {
+    pub fn new(ray_id: String, query: String, variables: Option<String>) -> Self {
+        Self {
+            id: QueryID::new(),
+            start_time: Instant::now(),
+            ray_id,
+            query: Rc::new(query),
+            variables: Rc::new(variables),
+            api_key: None,
+            subgraph: None,
+            indexer_attempts: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerAttempt {
+    pub score: IndexerScore,
+    pub indexer: Address,
+    pub allocation: Address,
+    pub query: Arc<String>,
+    pub receipt: Receipt,
+    pub result: Result<IndexerResponse, IndexerError>,
+    pub rejection: Option<String>,
+    pub duration: Duration,
+}
+
 pub struct QueryID {
     local_id: u64,
 }
@@ -84,7 +114,7 @@ pub struct QueryResponse {
     pub response: IndexerResponse,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum QueryEngineError {
     NoIndexers,
     NoIndexerSelected,
@@ -190,68 +220,58 @@ where
         }
     }
 
-    pub async fn execute_query(
-        &self,
-        query: ClientQuery,
-    ) -> Result<QueryResponse, QueryEngineError> {
-        tracing::debug!(
-            deployment = ?query.subgraph.deployment,
-            network = %query.subgraph.network,
+    pub async fn execute_query(&self, query: &mut Query) -> Result<(), QueryEngineError> {
+        let api_key = query.api_key.as_ref().unwrap().key.clone();
+        let deployment_id = query.subgraph.as_ref().unwrap().deployment.ipfs_hash();
+        let _timer = with_metric(
+            &METRICS.queries.duration,
+            &[&deployment_id, &api_key],
+            |h| h.start_timer(),
         );
-        let api_key = query.api_key.key.clone();
-        let query_start = Instant::now();
-        let deployment_ipfs = query.subgraph.deployment.ipfs_hash();
-        let result = self.execute_deployment_query(query, &deployment_ipfs).await;
+        let result = self.execute_deployment_query(query, &deployment_id).await;
         let result_counter = if let Ok(_) = result {
             &METRICS.queries.ok
         } else {
             &METRICS.queries.failed
         };
-        with_metric(result_counter, &[&deployment_ipfs, &api_key], |counter| {
-            counter.inc()
-        });
-        let query_execution_duration = Instant::now() - query_start;
-        with_metric(
-            &METRICS.queries.duration,
-            &[&deployment_ipfs, &api_key],
-            |hist| {
-                hist.observe(query_execution_duration.as_secs_f64());
-            },
-        );
-        tracing::info!(query_execution_duration_ms = query_execution_duration.as_millis() as u32);
+        with_metric(result_counter, &[&deployment_id, &api_key], |c| c.inc());
         result
     }
 
-    #[tracing::instrument(skip(self, query, deployment_ipfs))]
+    #[tracing::instrument(skip(self, query, deployment_id))]
     async fn execute_deployment_query(
         &self,
-        query: ClientQuery,
-        deployment_ipfs: &str,
-    ) -> Result<QueryResponse, QueryEngineError> {
+        query: &mut Query,
+        deployment_id: &str,
+    ) -> Result<(), QueryEngineError> {
         use QueryEngineError::*;
+        let subgraph = query.subgraph.as_ref().unwrap().clone();
         let mut indexers = self
             .deployment_indexers
             .value_immediate()
-            .and_then(|map| map.get(&query.subgraph.deployment).cloned())
+            .and_then(|map| map.get(&subgraph.deployment).cloned())
             .unwrap_or_default();
         tracing::debug!(
-            deployment = ?query.subgraph.deployment, deployment_indexers = indexers.len(),
+            deployment = ?subgraph.deployment, deployment_indexers = indexers.len(),
         );
         if indexers.is_empty() {
             return Err(NoIndexers);
         }
         let _execution_timer = with_metric(
             &METRICS.query_execution_duration,
-            &[&deployment_ipfs],
+            &[&deployment_id],
             |hist| hist.start_timer(),
         );
 
-        let mut context =
-            Context::new(&query.query, query.variables.as_deref().unwrap_or_default())
-                .map_err(|_| MalformedQuery)?;
+        let query_body = query.query.clone();
+        let query_variables = query.variables.clone();
+        let mut context = Context::new(&query_body, query_variables.as_deref().unwrap_or_default())
+            .map_err(|_| MalformedQuery)?;
+
+        // let mut context = query.context().ok_or(MalformedQuery)?;
         let block_resolver = self
             .block_resolvers
-            .get(&query.subgraph.network)
+            .get(&subgraph.network)
             .ok_or(MissingBlock(UnresolvedBlock::WithNumber(0)))?;
         let freshness_requirements =
             Indexers::freshness_requirements(&mut context, block_resolver).await?;
@@ -259,7 +279,7 @@ where
         for retry_count in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
                 &METRICS.indexer_selection_duration,
-                &[&deployment_ipfs],
+                &[&deployment_id],
                 |hist| hist.start_timer(),
             );
 
@@ -284,8 +304,8 @@ where
                 .indexers
                 .select_indexer(
                     &self.config.utility,
-                    &query.subgraph.network,
-                    &query.subgraph.deployment,
+                    &subgraph.network,
+                    &subgraph.deployment,
                     &indexers,
                     &mut context,
                     &block_resolver,
@@ -306,30 +326,31 @@ where
                 Err(err) => return Err(err.into()),
             };
             Self::log_indexer_score(
-                indexer_query.indexing.indexer,
+                &query,
+                &indexer_query.indexing.indexer,
                 &indexer_query.score,
                 "Selected indexer score",
             );
             match scoring_sample.0 {
                 Some((indexer, Ok(score))) => {
-                    Self::log_indexer_score(indexer, &score, "ISA scoring sample")
+                    Self::log_indexer_score(&query, &indexer, &score, "ISA scoring sample")
                 }
-                Some((indexer, Err(scoring_err))) => {
-                    tracing::info!(?indexer, ?scoring_err, "ISA scoring sample")
+                Some((indexer, Err(err))) => {
+                    Self::log_indexer_score_err(&query, &indexer, err, "ISA scoring sample")
                 }
                 _ => (),
             };
             let indexer = indexer_query.indexing.indexer;
             let result = self
                 .execute_indexer_query(
-                    &query,
+                    query,
                     indexer_query,
-                    deployment_ipfs,
+                    deployment_id,
                     &mut context,
                     block_resolver,
-                    retry_count,
                 )
                 .await;
+            assert_eq!(retry_count + 1, query.indexer_attempts.len());
             match result {
                 Ok(response) => return Ok(response),
                 Err(RemoveIndexer::No) => (),
@@ -343,70 +364,86 @@ where
         Err(NoIndexerSelected)
     }
 
-    fn log_indexer_score(indexer: Address, score: &IndexerScore, message: &'static str) {
+    fn log_indexer_score(
+        query: &Query,
+        indexer: &Address,
+        score: &IndexerScore,
+        message: &'static str,
+    ) {
         tracing::info!(
-            ?indexer,
-            fee = ?score.fee,
-            slashable = ?score.slashable,
-            utility = %score.utility,
-            economic_security = %score.utility_scores.economic_security,
-            price_efficiency = %score.utility_scores.price_efficiency,
-            data_freshness = %score.utility_scores.data_freshness,
-            performance = %score.utility_scores.performance,
-            reputation = %score.utility_scores.reputation,
-            sybil = %score.sybil,
-            blocks_behind = ?score.blocks_behind,
+            ray_id = %query.ray_id,
+            query_id = %query.id,
+            deployment = %query.subgraph.as_ref().unwrap().deployment,
+            %indexer,
+            fee = %score.fee,
+            slashable = %score.slashable,
+            utility = *score.utility,
+            economic_security = score.utility_scores.economic_security,
+            price_efficiency = score.utility_scores.price_efficiency,
+            data_freshness = score.utility_scores.data_freshness,
+            performance = score.utility_scores.performance,
+            reputation = score.utility_scores.reputation,
+            sybil = *score.sybil,
+            blocks_behind = score.blocks_behind,
             message,
         );
     }
 
+    fn log_indexer_score_err(
+        query: &Query,
+        indexer: &Address,
+        scoring_err: SelectionError,
+        message: &'static str,
+    ) {
+        tracing::info!(
+            ray_id = %query.ray_id,
+            query_id = %query.id,
+            deployment = %query.subgraph.as_ref().unwrap().deployment,
+            %indexer,
+            ?scoring_err,
+            message,
+        )
+    }
+
     async fn execute_indexer_query(
         &self,
-        query: &ClientQuery,
+        query: &mut Query,
         indexer_query: IndexerQuery,
-        deployment_ipfs: &str,
+        deployment_id: &str,
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
-        retry_count: usize,
-    ) -> Result<QueryResponse, RemoveIndexer> {
+    ) -> Result<(), RemoveIndexer> {
         let indexer_id = indexer_query.indexing.indexer.to_string();
         tracing::info!(indexer = %indexer_id);
-        self.observe_indexer_selection_metrics(&query.subgraph.deployment, &indexer_query);
+        self.observe_indexer_selection_metrics(deployment_id, &indexer_query);
         let t0 = Instant::now();
         let result = self.indexer_client.query_indexer(&indexer_query).await;
         let query_duration = Instant::now() - t0;
         with_metric(
             &METRICS.indexer_request.duration,
-            &[&deployment_ipfs, &indexer_id],
+            &[&deployment_id, &indexer_id],
             |hist| hist.observe(query_duration.as_secs_f64()),
         );
-
-        let indexer_response_status = match &result {
-            Ok(response) => response.status.to_string(),
-            Err(err) => err.to_string(),
-        };
-        tracing::info!(
-            api_key = %query.api_key.key,
-            indexer = %indexer_query.indexing.indexer,
-            indexer_url = %indexer_query.score.url,
-            fee = %indexer_query.score.fee,
-            blocks_behind = ?indexer_query.score.blocks_behind,
-            indexer_query_duration_ms = query_duration.as_millis() as u32,
-            %indexer_response_status,
-            indexer_query = %indexer_query.query,
-            %retry_count,
-            "indexer query result",
-        );
-
-        let response = match result {
+        query.indexer_attempts.push(IndexerAttempt {
+            score: indexer_query.score,
+            indexer: indexer_query.indexing.indexer,
+            allocation: indexer_query.allocation,
+            query: Arc::new(indexer_query.query),
+            receipt: indexer_query.receipt,
+            result: result,
+            rejection: None,
+            duration: query_duration,
+        });
+        let result = &query.indexer_attempts.last().unwrap();
+        let response = match &result.result {
             Ok(response) => response,
             Err(err) => {
                 self.indexers
-                    .observe_failed_query(&indexer_query.indexing, &indexer_query.receipt, err)
+                    .observe_failed_query(&indexer_query.indexing, &result.receipt, err.clone())
                     .await;
                 with_metric(
                     &METRICS.indexer_request.failed,
-                    &[&deployment_ipfs, &indexer_id],
+                    &[&deployment_id, &indexer_id],
                     |counter| counter.inc(),
                 );
                 return Err(RemoveIndexer::Yes);
@@ -414,16 +451,17 @@ where
         };
         with_metric(
             &METRICS.indexer_request.ok,
-            &[&deployment_ipfs, &indexer_id],
+            &[&deployment_id, &indexer_id],
             |counter| counter.inc(),
         );
 
-        if !query.subgraph.features.is_empty() && response.attestation.is_none() {
+        let subgraph = query.subgraph.as_ref().unwrap();
+        if !subgraph.features.is_empty() && response.attestation.is_none() {
             tracing::info!(indexer_response_err = "Attestable response has no attestation");
             self.indexers
                 .observe_failed_query(
                     &indexer_query.indexing,
-                    &indexer_query.receipt,
+                    &result.receipt,
                     IndexerError::NoAttestation,
                 )
                 .await;
@@ -431,63 +469,62 @@ where
         }
 
         if let Err(remove_indexer) = self
-            .check_unattestable_responses(context, &block_resolver, &indexer_query, &response)
+            .check_unattestable_responses(
+                context,
+                &block_resolver,
+                &indexer_query.indexing,
+                &result.receipt,
+                &response,
+            )
             .await
         {
             with_metric(
                 &METRICS.indexer_response_unattestable,
-                &[&deployment_ipfs, &indexer_id],
+                &[&deployment_id, &indexer_id],
                 |counter| counter.inc(),
             );
             return Err(remove_indexer);
         }
 
         if let Some(attestation) = &response.attestation {
-            self.challenge_indexer_response(indexer_query.clone(), attestation.clone());
+            self.challenge_indexer_response(
+                indexer_query.indexing.clone(),
+                result.allocation.clone(),
+                result.query.clone(),
+                attestation.clone(),
+            );
         }
 
         self.indexers
-            .observe_successful_query(
-                &indexer_query.indexing,
-                query_duration,
-                &indexer_query.receipt,
-            )
+            .observe_successful_query(&indexer_query.indexing, query_duration, &result.receipt)
             .await;
-        Ok(QueryResponse {
-            query: indexer_query,
-            response,
-        })
+        Ok(())
     }
 
-    fn observe_indexer_selection_metrics(
-        &self,
-        deployment: &SubgraphDeploymentID,
-        selection: &IndexerQuery,
-    ) {
-        let deployment = deployment.ipfs_hash();
+    fn observe_indexer_selection_metrics(&self, deployment: &str, selection: &IndexerQuery) {
         let metrics = &METRICS.indexer_selection;
         if let Ok(hist) = metrics
             .blocks_behind
-            .get_metric_with_label_values(&[&deployment])
+            .get_metric_with_label_values(&[deployment])
         {
             hist.observe(selection.score.blocks_behind as f64);
         }
-        if let Ok(hist) = metrics.fee.get_metric_with_label_values(&[&deployment]) {
+        if let Ok(hist) = metrics.fee.get_metric_with_label_values(&[deployment]) {
             hist.observe(selection.score.fee.as_f64());
         }
         if let Ok(counter) = metrics
             .indexer_selected
-            .get_metric_with_label_values(&[&deployment, &selection.indexing.indexer.to_string()])
+            .get_metric_with_label_values(&[deployment, &selection.indexing.indexer.to_string()])
         {
             counter.inc();
         }
         if let Ok(hist) = metrics
             .slashable_dollars
-            .get_metric_with_label_values(&[&deployment])
+            .get_metric_with_label_values(&[deployment])
         {
             hist.observe(selection.score.slashable.as_f64());
         }
-        if let Ok(hist) = metrics.utility.get_metric_with_label_values(&[&deployment]) {
+        if let Ok(hist) = metrics.utility.get_metric_with_label_values(&[deployment]) {
             hist.observe(*selection.score.utility);
         }
     }
@@ -496,7 +533,8 @@ where
         &self,
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
-        indexer_query: &IndexerQuery,
+        indexing: &Indexing,
+        receipt: &Receipt,
         response: &IndexerResponse,
     ) -> Result<(), RemoveIndexer> {
         // Special-casing for a few known indexer errors; the block scope here
@@ -511,7 +549,7 @@ where
         ) {
             tracing::info!(indexer_response_err = "indexing behind");
             self.indexers
-                .observe_indexing_behind(context, indexer_query, block_resolver)
+                .observe_indexing_behind(context, indexing, block_resolver)
                 .await;
             return Err(RemoveIndexer::No);
         }
@@ -519,11 +557,7 @@ where
         if indexer_response_has_error(&parsed_response, "panic processing query") {
             tracing::info!(indexer_response_err = "panic processing query");
             self.indexers
-                .observe_failed_query(
-                    &indexer_query.indexing,
-                    &indexer_query.receipt,
-                    IndexerError::NondeterministicResponse,
-                )
+                .observe_failed_query(indexing, receipt, IndexerError::NondeterministicResponse)
                 .await;
             return Err(RemoveIndexer::Yes);
         }
@@ -531,14 +565,22 @@ where
         Ok(())
     }
 
-    fn challenge_indexer_response(&self, indexer_query: IndexerQuery, attestation: Attestation) {
+    fn challenge_indexer_response(
+        &self,
+        indexing: Indexing,
+        allocation: Address,
+        indexer_query: Arc<String>,
+        attestation: Attestation,
+    ) {
         let fisherman = match &self.fisherman_client {
             Some(fisherman) => fisherman.clone(),
             None => return,
         };
         let indexers = self.indexers.clone();
         tokio::spawn(async move {
-            let outcome = fisherman.challenge(&indexer_query, &attestation).await;
+            let outcome = fisherman
+                .challenge(&indexing.indexer, &allocation, &indexer_query, &attestation)
+                .await;
             tracing::trace!(?outcome);
             let penalty = match outcome {
                 ChallengeOutcome::Unknown | ChallengeOutcome::AgreeWithTrustedIndexer => 0,
@@ -548,7 +590,7 @@ where
             };
             if penalty > 0 {
                 tracing::info!(?outcome, "penalizing for challenge outcome");
-                indexers.penalize(&indexer_query.indexing, penalty).await;
+                indexers.penalize(&indexing, penalty).await;
             }
         });
     }

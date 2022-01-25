@@ -1,4 +1,4 @@
-use crate::{indexer_client::Attestation, indexer_selection::IndexerQuery, prelude::*};
+use crate::{indexer_client::Attestation, prelude::*};
 use async_trait::async_trait;
 use reqwest;
 use serde::Deserialize;
@@ -19,7 +19,9 @@ pub enum ChallengeOutcome {
 pub trait FishermanInterface {
     async fn challenge(
         &self,
-        indexer_query: &IndexerQuery,
+        indexer: &Address,
+        allocation: &Address,
+        indexer_query: &str,
         attestation: &Attestation,
     ) -> ChallengeOutcome;
 }
@@ -34,10 +36,15 @@ pub struct FishermanClient {
 impl FishermanInterface for FishermanClient {
     async fn challenge(
         &self,
-        indexer_query: &IndexerQuery,
+        indexer: &Address,
+        allocation: &Address,
+        indexer_query: &str,
         attestation: &Attestation,
     ) -> ChallengeOutcome {
-        match self.send_challenge(&indexer_query, &attestation).await {
+        match self
+            .send_challenge(indexer, allocation, indexer_query, attestation)
+            .await
+        {
             Ok(outcome) => outcome,
             Err(fisherman_challenge_err) => {
                 tracing::error!(%fisherman_challenge_err);
@@ -54,7 +61,9 @@ impl FishermanClient {
 
     async fn send_challenge(
         &self,
-        indexer_query: &IndexerQuery,
+        indexer: &Address,
+        allocation: &Address,
+        indexer_query: &str,
         attestation: &Attestation,
     ) -> Result<ChallengeOutcome, Box<dyn Error>> {
         let challenge = serde_json::to_string(&json!({
@@ -62,12 +71,12 @@ impl FishermanClient {
             "id": 0,
             "method": "challenge",
             "params": {
-                "readOperation": &indexer_query.query,
-                "allocationID": indexer_query.allocation.to_string(),
+                "readOperation": indexer_query,
+                "allocationID": allocation.to_string(),
                 "attestation": serde_json::to_value(attestation)?,
             },
         }))?;
-        tracing::trace!(%challenge);
+        tracing::trace!(%indexer, %challenge);
         self.client
             .post(self.url.clone())
             .header("Content-Type", "application/json")
