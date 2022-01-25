@@ -364,54 +364,84 @@ async fn handle_subgraph_query(
     payload: web::Json<QueryBody>,
     data: web::Data<SubgraphQueryData>,
 ) -> HttpResponse {
-    let url_params = request.match_info();
-
-    let subgraph_info = match url_params
-        .get("subgraph_id")
-        .and_then(|id| data.resolve_subgraph_deployment(id))
-    {
-        Some(subgraph) => subgraph,
-        None => {
-            return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier")
-        }
-    };
-
-    let t0 = Instant::now();
-    let query_id = QueryID::new();
     let ray_id = request
         .headers()
         .get("cf-ray")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let span =
-        tracing::info_span!("handle_subgraph_query", %ray_id, %query_id, %subgraph_info.deployment);
-    let response = handle_subgraph_query_inner(request, payload, data, query_id, subgraph_info)
-        .instrument(span.clone())
+    let variables = payload.variables.as_ref().map(ToString::to_string);
+    let mut query = Query::new(ray_id, payload.into_inner().query, variables);
+    // We check that the requested subgraph is valid now, since we don't want to log query info for
+    // unknown subgraphs requests.
+    let subgraph_id = request.match_info().get("subgraph_id");
+    query.subgraph = match subgraph_id.and_then(|id| data.resolve_subgraph_deployment(id)) {
+        Some(subgraph) => Some(subgraph),
+        None => {
+            tracing::info!(invalid_subgraph = %subgraph_id.unwrap_or(""));
+            return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier");
+        }
+    };
+    let span = tracing::info_span!(
+        "handle_subgraph_query",
+        ray_id = %query.ray_id,
+        query_id = %query.id,
+        deployment = %query.subgraph.as_ref().unwrap().deployment,
+        network = %query.subgraph.as_ref().unwrap().network,
+    );
+    let response = handle_subgraph_query_inner(request, data, &mut query)
+        .instrument(span)
         .await;
-    let response_time = Instant::now() - t0;
     let (payload, status) = match response {
         Ok(payload) => {
             let status = payload.status().to_string();
             (payload, status)
         }
-        Err((status, msg)) => (graphql_error_response(status, &msg), msg),
+        Err((status, msg)) => (
+            graphql_error_response(status, &msg),
+            format!("{}: {}", status, msg),
+        ),
     };
     tracing::info!(
-        parent: &span,
+        ray_id = %query.ray_id,
+        query_id = %query.id,
+        deployment = %query.subgraph.as_ref().unwrap().deployment,
+        network = %query.subgraph.as_ref().unwrap().network,
+        api_key = %query.api_key.as_ref().unwrap().key,
+        query = %query.query,
+        variables = %query.variables.as_deref().unwrap_or_default(),
+        response_time_ms = (Instant::now() - query.start_time).as_millis() as u32,
         %status,
-        response_time_ms = response_time.as_millis() as u32,
-        "client query result",
+        "Client query result",
     );
+    for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
+        let status = match &attempt.result {
+            Ok(response) => response.status.to_string(),
+            Err(err) => err.to_string(),
+        };
+        tracing::info!(
+            ray_id = %query.ray_id,
+            query_id = %query.id,
+            attempt_index,
+            indexer = %attempt.indexer,
+            allocation = %attempt.allocation,
+            fee = %attempt.score.fee,
+            utility = *attempt.score.utility,
+            blocks_behind = attempt.score.blocks_behind,
+            response_time_ms = attempt.duration.as_millis() as u32,
+            %status,
+            rejection = %attempt.rejection.as_deref().unwrap_or_default(),
+            "Indexer attempt",
+        );
+    }
+
     payload
 }
 
 async fn handle_subgraph_query_inner(
     request: HttpRequest,
-    payload: web::Json<QueryBody>,
     data: web::Data<SubgraphQueryData>,
-    query_id: QueryID,
-    subgraph: Ptr<SubgraphInfo>,
+    query: &mut Query,
 ) -> Result<HttpResponse, (StatusCode, String)> {
     let query_engine = QueryEngine::new(
         data.config.clone(),
@@ -455,7 +485,8 @@ async fn handle_subgraph_query_inner(
         with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
         return Err((StatusCode::OK, "Domain not authorized by API key".into()));
     }
-    if !api_key.deployments.is_empty() && !api_key.deployments.contains(&subgraph.deployment) {
+    let deployment = &query.subgraph.as_ref().unwrap().deployment.clone();
+    if !api_key.deployments.is_empty() && !api_key.deployments.contains(&deployment) {
         with_metric(
             &METRICS.queries_unauthorized_deployment,
             &[&api_key.key],
@@ -463,52 +494,41 @@ async fn handle_subgraph_query_inner(
         );
         return Err((StatusCode::OK, "Subgraph not authorized by API key".into()));
     }
-
-    let query = ClientQuery {
-        id: query_id,
-        api_key: api_key.clone(),
-        query: payload.query.clone(),
-        variables: payload.variables.as_ref().map(ToString::to_string),
-        subgraph: subgraph.clone(),
-    };
-    let result = match query_engine.execute_query(query).await {
-        Ok(result) => result,
-        Err(err) => {
-            return Err((
-                StatusCode::OK,
-                match err {
-                    QueryEngineError::MalformedQuery => "Invalid query".into(),
-                    QueryEngineError::NoIndexers => {
-                        "No indexers found for subgraph deployment".into()
-                    }
-                    QueryEngineError::NoIndexerSelected => {
-                        "No suitable indexer found for subgraph deployment".into()
-                    }
-                    QueryEngineError::FeesTooHigh(count) => {
-                        format!("No suitable indexer found, {} indexers requesting higher fees for this query", count)
-                    }
-                    QueryEngineError::MissingBlock(_) => {
-                        "Gateway failed to resolve required blocks".into()
-                    }
-                },
-            ))
-        }
-    };
+    if let Err(err) = query_engine.execute_query(query).await {
+        return Err((
+            StatusCode::OK,
+            match err {
+                QueryEngineError::MalformedQuery => "Invalid query".into(),
+                QueryEngineError::NoIndexers => "No indexers found for subgraph deployment".into(),
+                QueryEngineError::NoIndexerSelected => {
+                    "No suitable indexer found for subgraph deployment".into()
+                }
+                QueryEngineError::FeesTooHigh(count) => {
+                    format!("No suitable indexer found, {} indexers requesting higher fees for this query", count)
+                }
+                QueryEngineError::MissingBlock(_) => {
+                    "Gateway failed to resolve required blocks".into()
+                }
+            },
+        ));
+    }
+    let last_attempt = query.indexer_attempts.last().unwrap();
+    let response = last_attempt.result.as_ref().unwrap();
     if let Ok(hist) = METRICS
         .query_result_size
-        .get_metric_with_label_values(&[&result.query.indexing.deployment.ipfs_hash()])
+        .get_metric_with_label_values(&[&deployment.ipfs_hash()])
     {
-        hist.observe(result.response.payload.len() as f64);
+        hist.observe(response.payload.len() as f64);
     }
     let _ = data.stats_db.send(stats_db::Msg::AddQuery {
         api_key,
-        fee: result.query.score.fee,
+        fee: last_attempt.score.fee,
         domain: domain.to_string(),
-        subgraph: subgraph.deployment.ipfs_hash(),
+        subgraph: query.subgraph.as_ref().unwrap().deployment.ipfs_hash(),
     });
     Ok(HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
-        .body(result.response.payload))
+        .body(&response.payload))
 }
 
 pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> HttpResponse {

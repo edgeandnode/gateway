@@ -12,7 +12,7 @@ pub trait IndexerInterface {
     async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, IndexerError>;
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct IndexerResponse {
     pub status: u16,
     pub payload: String,
