@@ -344,18 +344,25 @@ struct SubgraphQueryData {
 }
 
 impl SubgraphQueryData {
-    fn resolve_subgraph_deployment(&self, subgraph_identifier: &str) -> Option<Ptr<SubgraphInfo>> {
-        let deployment = if let Ok(subgraph) = subgraph_identifier.parse::<SubgraphID>() {
+    fn resolve_subgraph_deployment(
+        &self,
+        params: &actix_web::dev::Path<actix_web::dev::Url>,
+    ) -> Result<SubgraphDeploymentID, String> {
+        if let Some(id) = params.get("subgraph_id") {
+            let subgraph = id
+                .parse::<SubgraphID>()
+                .ok()
+                .ok_or_else(|| id.to_string())?;
             self.inputs
                 .current_deployments
                 .value_immediate()
-                .and_then(|map| map.get(&subgraph).cloned())?
+                .and_then(|map| map.get(&subgraph).cloned())
+                .ok_or_else(|| id.to_string())
+        } else if let Some(id) = params.get("deployment_id") {
+            SubgraphDeploymentID::from_ipfs_hash(id).ok_or_else(|| id.to_string())
         } else {
-            SubgraphDeploymentID::from_ipfs_hash(&subgraph_identifier)?
-        };
-        self.subgraph_info
-            .value_immediate()
-            .and_then(|map| map.get(&deployment)?.value_immediate())
+            Err("".to_string())
+        }
     }
 }
 
@@ -374,14 +381,21 @@ async fn handle_subgraph_query(
     let mut query = Query::new(ray_id, payload.into_inner().query, variables);
     // We check that the requested subgraph is valid now, since we don't want to log query info for
     // unknown subgraphs requests.
-    let subgraph_id = request.match_info().get("subgraph_id");
-    query.subgraph = match subgraph_id.and_then(|id| data.resolve_subgraph_deployment(id)) {
-        Some(subgraph) => Some(subgraph),
-        None => {
-            tracing::info!(invalid_subgraph = %subgraph_id.unwrap_or(""));
+    let deployment = match data.resolve_subgraph_deployment(request.match_info()) {
+        Ok(subgraph) => subgraph,
+        Err(invalid_subgraph) => {
+            tracing::info!(%invalid_subgraph);
             return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier");
         }
     };
+    query.subgraph = data
+        .subgraph_info
+        .value_immediate()
+        .and_then(|map| map.get(&deployment)?.value_immediate());
+    if query.subgraph == None {
+        tracing::info!(%deployment);
+        return graphql_error_response(StatusCode::NOT_FOUND, "Subgraph not found");
+    }
     let span = tracing::info_span!(
         "handle_subgraph_query",
         ray_id = %query.ray_id,
