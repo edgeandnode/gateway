@@ -403,7 +403,8 @@ async fn handle_subgraph_query(
         deployment = %query.subgraph.as_ref().unwrap().deployment,
         network = %query.subgraph.as_ref().unwrap().network,
     );
-    let response = handle_subgraph_query_inner(request, data, &mut query)
+    let api_key = request.match_info().get("api_key").unwrap_or("");
+    let response = handle_subgraph_query_inner(&request, data, &mut query, api_key)
         .instrument(span)
         .await;
     let (payload, status) = match response {
@@ -421,9 +422,9 @@ async fn handle_subgraph_query(
         query_id = %query.id,
         deployment = %query.subgraph.as_ref().unwrap().deployment,
         network = %query.subgraph.as_ref().unwrap().network,
-        api_key = %query.api_key.as_ref().unwrap().key,
+        %api_key,
         query = %query.query,
-        variables = %query.variables.as_deref().unwrap_or_default(),
+        variables = %query.variables.as_deref().unwrap_or(""),
         response_time_ms = (Instant::now() - query.start_time).as_millis() as u32,
         %status,
         "Client query result",
@@ -453,9 +454,10 @@ async fn handle_subgraph_query(
 }
 
 async fn handle_subgraph_query_inner(
-    request: HttpRequest,
+    request: &HttpRequest,
     data: web::Data<SubgraphQueryData>,
     query: &mut Query,
+    api_key: &str,
 ) -> Result<HttpResponse, (StatusCode, String)> {
     let query_engine = QueryEngine::new(
         data.config.clone(),
@@ -465,11 +467,8 @@ async fn handle_subgraph_query_inner(
         data.inputs.clone(),
     );
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();
-    let api_key = match request
-        .match_info()
-        .get("api_key")
-        .and_then(|k| api_keys.get(k))
-    {
+    query.api_key = api_keys.get(api_key).cloned();
+    let api_key = match &query.api_key {
         Some(api_key) => api_key.clone(),
         None => {
             METRICS.unknown_api_key.inc();
