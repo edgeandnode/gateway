@@ -26,7 +26,9 @@ pub fn init_tracing(json: bool) {
     let defaults = tracing_subscriber::registry().with(filter_layer);
     let fmt_layer = tracing_subscriber::fmt::layer();
     if json {
-        defaults.with(fmt_layer.json()).init();
+        defaults
+            .with(fmt_layer.json().with_current_span(false))
+            .init();
     } else {
         defaults.with(fmt_layer).init();
     }
