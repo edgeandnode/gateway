@@ -1,6 +1,5 @@
 use crate::{prelude::*, query_engine::APIKey};
-use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
-use postgres_openssl::MakeTlsConnector;
+use rustls;
 use std::{
     collections::{hash_map::Entry, HashMap},
     error::Error,
@@ -12,6 +11,7 @@ use tokio::{
     time::{interval, Interval},
 };
 use tokio_postgres::{self, types::Type};
+use tokio_postgres_rustls;
 
 pub enum Msg {
     AddQuery {
@@ -83,11 +83,13 @@ pub async fn create(
         "postgres://{}:{}@{}:{}/{}?sslmode=prefer",
         user, password, host, port, dbname,
     );
-    let mut ssl_builder = SslConnector::builder(SslMethod::tls()).unwrap();
-    ssl_builder.set_verify(SslVerifyMode::NONE);
-    let ssl_connector = ssl_builder.build();
-    let (client, connection) =
-        tokio_postgres::connect(&config, MakeTlsConnector::new(ssl_connector)).await?;
+    let tls = tokio_postgres_rustls::MakeRustlsConnect::new(
+        rustls::ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(rustls::RootCertStore::empty())
+            .with_no_client_auth(),
+    );
+    let (client, connection) = tokio_postgres::connect(&config, tls).await?;
     // The connection object performs the actual communication with the database and is intended to
     // be executed on its own spawned task.
     tokio::spawn(async move {
