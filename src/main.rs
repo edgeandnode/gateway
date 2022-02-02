@@ -539,8 +539,14 @@ async fn handle_subgraph_query_inner(
         domain: domain.to_string(),
         subgraph: query.subgraph.as_ref().unwrap().deployment.ipfs_hash(),
     });
+    let attestation = response
+        .attestation
+        .as_ref()
+        .and_then(|attestation| serde_json::to_string(attestation).ok())
+        .unwrap_or_default();
     Ok(HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
+        .insert_header(("Graph-Attestation", attestation))
         .body(&response.payload))
 }
 
