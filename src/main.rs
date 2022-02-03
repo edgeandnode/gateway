@@ -9,11 +9,12 @@ mod opt;
 mod prelude;
 mod query_engine;
 mod rate_limiter;
+mod redpanda;
+mod rp_utils;
 mod stats_db;
 mod sync_client;
 mod vouchers;
 mod ws_client;
-
 use crate::{
     block_resolver::{BlockCache, BlockResolver},
     fisherman_client::*,
@@ -42,12 +43,15 @@ use std::{collections::HashMap, sync::Arc};
 use structopt::StructOpt as _;
 use url::Url;
 
+use redpanda::client::KafkaClient;
 #[actix_web::main]
 async fn main() {
     let opt = Opt::from_args();
     init_tracing(opt.log_json);
     tracing::info!("Graph gateway starting...");
     tracing::debug!("{:#?}", opt);
+
+    let kafka_client = create_kafka_client(&opt).await.unwrap();
 
     let (mut input_writers, inputs) = Inputs::new();
 
@@ -136,7 +140,9 @@ async fn main() {
         api_keys,
         stats_db,
         fisherman_client,
+        kafka_client,
     };
+
     let network_subgraph_query_data = NetworkSubgraphQueryData {
         http_client,
         network_subgraph: opt.network_subgraph,
@@ -232,6 +238,15 @@ async fn main() {
     .run()
     .await
     .expect("Failed to start server");
+}
+
+async fn create_kafka_client(config: &Opt) -> Result<KafkaClient, anyhow::Error> {
+    let k_client = KafkaClient::new(
+        &config.redpanda_brokers,
+        "rust-gateway",
+        config.to_kafka_config(),
+    )?;
+    Ok(k_client)
 }
 
 fn request_api_key(request: &ServiceRequest) -> String {
@@ -341,6 +356,7 @@ struct SubgraphQueryData {
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
+    kafka_client: KafkaClient,
 }
 
 impl SubgraphQueryData {

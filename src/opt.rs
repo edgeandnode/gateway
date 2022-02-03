@@ -5,7 +5,6 @@ use ordered_float::NotNan;
 use std::{collections::HashMap, error::Error};
 use structopt_derive::StructOpt;
 use url::{self, Url};
-
 // TODO: Consider the security implications of passing mnemonics, passwords, etc. via environment variables or CLI arguments.
 
 #[derive(StructOpt, Debug)]
@@ -148,6 +147,90 @@ pub struct Opt {
         default_value = "dev"
     )]
     pub stats_db_password: String,
+    #[structopt(
+        help = "Redpanda broker domains",
+        long = "--brokers",
+        env = "REDPANDA_BROKERS",
+        default_value = "0.rp-43eaea8.04f9121.byoc.vectorized.cloud:30714,1.rp-43eaea8.04f9121.byoc.vectorized.cloud:30714,2.rp-43eaea8.04f9121.byoc.vectorized.cloud:30714"
+    )]
+    pub redpanda_brokers: String,
+    #[structopt(
+        help = "Security protocol",
+        long = "--ssl-method",
+        env = "REDPANDA_SECURITY_PROTOCOL",
+        default_value = "sasl_ssl",
+        name = "security.protocol"
+    )]
+    pub security_protocol: String,
+    #[structopt(
+        help = "SSL key location",
+        long = "--ssl-key",
+        env = "REDPANDA_SSL_KEY",
+        name = "ssl.key.location"
+    )]
+    pub ssl_key_location: String,
+    #[structopt(
+        help = "SSL cert location",
+        long = "--ssl-cert",
+        env = "REDPANDA_SSL_CERT",
+        name = "ssl.certificate.location"
+    )]
+    pub ssl_certificate_location: String,
+    #[structopt(
+        help = "SSL ca location",
+        long = "--ssl-ca",
+        env = "REDPANDA_SSL_CA",
+        name = "ssl.ca.location"
+    )]
+    pub ssl_ca_location: String,
+    #[structopt(
+        help = "SASL mechanism",
+        long = "--sasl",
+        env = "REDPANDA_SASL_MECHANISM",
+        name = "sasl.mechanism",
+        default_value = "SCRAM-SHA-256"
+    )]
+    pub sasl_mechanism: String,
+    #[structopt(
+        help = "SASL user",
+        long = "--sasl-user",
+        env = "REDPANDA_SASL_USER",
+        name = "sasl.username"
+    )]
+    pub sasl_username: String,
+    #[structopt(
+        help = "SASL password",
+        long = "--sasl-password",
+        env = "REDPANDA_SASL_PASSWORD",
+        name = "sasl.password"
+    )]
+    pub sasl_password: String,
+    #[structopt(
+        help = "Message encoding",
+        long = "--encoding",
+        env = "MESSAGE_ENCODING",
+        default_value = "avro"
+    )]
+    pub message_encoding: String,
+}
+
+impl Opt {
+    /// Map the input CLI arguments into tuple array that can be used to configure librdkafka
+    pub fn to_kafka_config(&self) -> Vec<(&str, &str)> {
+        let mut vec = vec![];
+        vec.push(("sasl.password", &self.sasl_password[..]));
+        vec.push(("sasl.password", &self.sasl_password[..]));
+        vec.push(("sasl.username", &self.sasl_username[..]));
+        vec.push(("sasl.mechanism", &self.sasl_mechanism[..]));
+        vec.push(("ssl.ca.location", &self.ssl_ca_location[..]));
+        vec.push((
+            "ssl.certificate.location",
+            &self.ssl_certificate_location[..],
+        ));
+        vec.push(("ssl.key.location", &self.ssl_key_location[..]));
+        vec.push(("security.protocol", &self.security_protocol[..]));
+        return vec;
+    }
 }
 
 #[derive(Debug)]
