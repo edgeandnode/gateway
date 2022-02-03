@@ -631,41 +631,59 @@ impl Indexers {
     }
 }
 
+const UTILITY_CONFIGS_DEFAULT_INDEX: usize = 1;
+const UTILITY_CONFIGS_MAX_INDEX: usize = 3;
+const UTILITY_CONFIGS_PERFORMANCE: [f64; UTILITY_CONFIGS_MAX_INDEX] = [
+    0.003, // TODO: justify
+    0.008, // TODO: justify
+    0.05,  // TODO: justify
+];
+// https://www.desmos.com/calculator/c6f6iesaw1
+const UTILITY_CONFIGS_ECONOMIC_SECURITY: [f64; UTILITY_CONFIGS_MAX_INDEX] = [
+    0.0000095,     // utility is ~0.85 at $200 thousand slashable
+    0.0000060,     // utility is ~0.91 at $400 thousand slashable
+    0.00000161757, // utility is ~0.80 at $1 million slashable, and increases linearly near $100k
+];
+// https://www.desmos.com/calculator/qwdhpcygpc
+const UTILITY_CONFIGS_DATA_FRESHNESS: [f64; UTILITY_CONFIGS_MAX_INDEX] = [
+    3.0, // utility is ~0.78 at 2 blocks behind, ~0.40 at 6
+    4.5, // utility is ~0.89 at 2 blocks behind, ~0.53 at 6
+    6.4, // utility is ~0.96 at 2 blocks behind, ~0.66 at 6
+];
+// Don't over or under value "getting a good deal"
+// Note: This is not a utility_a parameter, but is a weight.
+const UTILITY_CONFIGS_PRICE_EFFICIENCY: [f64; UTILITY_CONFIGS_MAX_INDEX] = [0.1, 0.5, 1.0];
+
 // TODO: For the user experience we should turn these into 0-1 values,
 // and from those calculate both a utility parameter and a weight
 // which should be used when combining utilities.
+impl UtilityConfig {
+    pub fn from_indexes(
+        performance: i8,
+        economic_security: i8,
+        data_freshness: i8,
+        price_efficiency: i8,
+    ) -> Self {
+        let to_index = |i: i8| -> usize {
+            let i = (UTILITY_CONFIGS_DEFAULT_INDEX as i8).saturating_add(i);
+            if i.abs() > UTILITY_CONFIGS_MAX_INDEX as i8 {
+                return UTILITY_CONFIGS_DEFAULT_INDEX;
+            }
+            i as usize
+        };
+        Self {
+            performance: UTILITY_CONFIGS_PERFORMANCE[to_index(performance)],
+            economic_security: UTILITY_CONFIGS_ECONOMIC_SECURITY[to_index(economic_security)],
+            data_freshness: UTILITY_CONFIGS_DATA_FRESHNESS[to_index(data_freshness)],
+            price_efficiency: UTILITY_CONFIGS_PRICE_EFFICIENCY[to_index(price_efficiency)],
+        }
+    }
+}
+
 impl Default for UtilityConfig {
     fn default() -> Self {
-        Self {
-            /// This value comes from the PRD and is for the web case, where ~50% of users may leave
-            /// a webpage if it takes longer than 2s to load. So - 50% utility at that point. After
-            /// playing with this I feel that the emphasis on performance should increase. For one,
-            /// the existing utility function is as though this one request were the only factor in
-            /// loading a page, when it may have other requests that must go before or after it that
-            /// should be included in that 2 second metric. The other is that this doesn't account
-            /// for the user experience difference in users that do stay around long enough for the
-            /// page to load.
-            // Before change to PRD -
-            // performance: 1.570744,
-            // After change to PRD -
-            performance: 0.01,
-            /// This value comes from the PRD and makes it such that ~80% of utility is achieved at
-            /// $1m, and utility increases linearly near $100k
-            // economic_security: 0.00000161757,
-            /// But, it turns out that it's hard to get that much slashable stake given the limited
-            /// supply of GRT spread out across multiple indexers. So instead, put ~91% utility at
-            /// $400k - which matches the testnet of Indexers having ~$5m and slashing at 10% but
-            /// not using all of their value to stake
-            economic_security: 0.000006,
-            /// Strongly prefers latest blocks. Utility is at 1 when 0 blocks behind, .95 at 1 block
-            /// behind, and 0.5 at 8 blocks behind.
-            data_freshness: 4.33,
-            // Don't over or under value "getting a good deal"
-            // Note: This is not a utility_a parameter, but is a weight.
-            price_efficiency: 0.5,
-            // TODO
-            // reputation: 0.0,
-        }
+        let i = UTILITY_CONFIGS_DEFAULT_INDEX as i8;
+        Self::from_indexes(i, i, i, i)
     }
 }
 

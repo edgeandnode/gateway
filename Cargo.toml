@@ -61,7 +61,9 @@ uuid = { version = "0.8", features = ["v4"] }
 
 [dev-dependencies]
 eventuals = { version = "0.6", features = ["trace"] }
-plotters = { version = "0.3", default_features = false, features = [
+plotters = { version = "0.3", features = [
+  "bitmap_encoder",
+  "bitmap_gif",
   "line_series",
   "svg_backend",
 ] }
