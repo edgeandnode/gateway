@@ -38,7 +38,7 @@ impl DataFreshness {
     pub fn expected_utility(
         &self,
         requirements: &BlockRequirements,
-        u_a: f64,
+        utility_parameters: (f64, f64),
         latest_block: u64,
         blocks_behind: u64,
     ) -> Result<SelectionFactor, SelectionError> {
@@ -58,10 +58,13 @@ impl DataFreshness {
                     1.0
                 } else {
                     let freshness = 1.0 / blocks_behind as f64;
-                    concave_utility(freshness, u_a)
+                    concave_utility(freshness, utility_parameters.0)
                 }
             };
-            Ok(SelectionFactor::one(utility))
+            Ok(SelectionFactor {
+                utility,
+                weight: utility_parameters.1,
+            })
         } else {
             Ok(SelectionFactor::zero())
         }

@@ -19,7 +19,7 @@ pub struct DecayBuffer<T> {
 }
 
 impl<T: DecayUtility> DecayBuffer<T> {
-    pub fn expected_utility(&self, u_a: f64) -> SelectionFactor {
+    pub fn expected_utility(&self, utility_parameters: (f64, f64)) -> SelectionFactor {
         let mut aggregator = UtilityAggregator::new();
         for (i, frame) in self.frames.iter().enumerate() {
             // 1/10 query per minute = 85% confident.
@@ -31,8 +31,8 @@ impl<T: DecayUtility> DecayBuffer<T> {
             let importance = 1.0 / (1.0 + (i as f64));
 
             aggregator.add(SelectionFactor {
-                utility: frame.expected_utility(u_a),
-                weight: confidence * importance,
+                utility: frame.expected_utility(utility_parameters.0),
+                weight: confidence * importance * utility_parameters.1,
             });
         }
 
@@ -204,7 +204,7 @@ mod tests {
                             event_value: outage_duration_m,
                             success_rate,
                             t_m: (t_s / 60),
-                            utility: reputation.expected_utility(1.0).utility,
+                            utility: reputation.expected_utility((1.0, 1.0)).utility,
                         });
                     }
                 }
@@ -254,7 +254,7 @@ mod tests {
                             event_value: penalty,
                             success_rate,
                             t_m: (t_s / 60),
-                            utility: reputation.expected_utility(1.0).utility,
+                            utility: reputation.expected_utility((1.0, 1.0)).utility,
                         });
                     }
                 }

@@ -142,9 +142,9 @@ pub struct Indexing {
 
 #[derive(Clone, Debug)]
 pub struct UtilityConfig {
-    pub economic_security: f64,
-    pub performance: f64,
-    pub data_freshness: f64,
+    pub economic_security: (f64, f64),
+    pub performance: (f64, f64),
+    pub data_freshness: (f64, f64),
     pub price_efficiency: f64,
 }
 
@@ -556,7 +556,9 @@ impl Indexers {
             .await;
         aggregator.add(performance);
 
-        let reputation = selection_factors.expected_reputation_utility(3.0).await;
+        let reputation = selection_factors
+            .expected_reputation_utility((3.0, 1.0))
+            .await;
         aggregator.add(reputation);
 
         let data_freshness = selection_factors
@@ -633,26 +635,17 @@ impl Indexers {
 
 const UTILITY_CONFIGS_DEFAULT_INDEX: usize = 1;
 const UTILITY_CONFIGS_LEN: usize = 3;
-// https://www.desmos.com/calculator/grhg7slnmt
-const UTILITY_CONFIGS_PERFORMANCE: [f64; UTILITY_CONFIGS_LEN] = [
-    0.0080, // utility is ~0.80 at 200/1000
-    0.0032, // utility is ~0.80 at 503/1000
-    0.0016, // utility is ~0.80 at 1000/1000
-];
-// https://www.desmos.com/calculator/it1c9lubwz
-const UTILITY_CONFIGS_ECONOMIC_SECURITY: [f64; UTILITY_CONFIGS_LEN] = [
-    0.000016, // utility is ~0.80 at $100 thousand slashable
-    0.000008, // utility is ~0.80 at $200 thousand slashable
-    0.000004, // utility is ~0.80 at $400 thousand slashable
-];
-// https://www.desmos.com/calculator/ypjz59zj1e
-const UTILITY_CONFIGS_DATA_FRESHNESS: [f64; UTILITY_CONFIGS_LEN] = [
-    6.5, // utility is ~0.96 at 2 blocks behind, ~0.66 at 6
-    4.0, // utility is ~0.86 at 2 blocks behind, ~0.49 at 6
-    1.8, // utility is ~0.59 at 2 blocks behind, ~0.26 at 6
-];
+// https://www.desmos.com/calculator/lzlii17feb
+const UTILITY_CONFIGS_ECONOMIC_SECURITY: [(f64, f64); UTILITY_CONFIGS_LEN] =
+    [(0.000016, 0.5), (0.000008, 1.0), (0.000004, 1.5)];
+// https://www.desmos.com/calculator/reykkamaje
+const UTILITY_CONFIGS_PERFORMANCE: [(f64, f64); UTILITY_CONFIGS_LEN] =
+    [(0.0080, 0.7), (0.0032, 1.0), (0.0016, 1.5)];
+// ?
+const UTILITY_CONFIGS_DATA_FRESHNESS: [(f64, f64); UTILITY_CONFIGS_LEN] =
+    [(6.5, 0.5), (4.0, 1.0), (1.8, 1.5)];
 // Don't over or under value "getting a good deal"
-// Note: This is not a utility_a parameter, but is a weight.
+// Note: This is only a weight.
 const UTILITY_CONFIGS_PRICE_EFFICIENCY: [f64; UTILITY_CONFIGS_LEN] = [0.5, 1.5, 2.5];
 
 // TODO: For the user experience we should turn these into 0-1 values,
@@ -660,8 +653,8 @@ const UTILITY_CONFIGS_PRICE_EFFICIENCY: [f64; UTILITY_CONFIGS_LEN] = [0.5, 1.5, 
 // which should be used when combining utilities.
 impl UtilityConfig {
     pub fn from_indexes(
-        performance: i8,
         economic_security: i8,
+        performance: i8,
         data_freshness: i8,
         price_efficiency: i8,
     ) -> Self {
@@ -671,8 +664,8 @@ impl UtilityConfig {
             default.saturating_add(i).max(0).min(max) as usize
         };
         Self {
-            performance: UTILITY_CONFIGS_PERFORMANCE[to_index(performance)],
             economic_security: UTILITY_CONFIGS_ECONOMIC_SECURITY[to_index(economic_security)],
+            performance: UTILITY_CONFIGS_PERFORMANCE[to_index(performance)],
             data_freshness: UTILITY_CONFIGS_DATA_FRESHNESS[to_index(data_freshness)],
             price_efficiency: UTILITY_CONFIGS_PRICE_EFFICIENCY[to_index(price_efficiency)],
         }

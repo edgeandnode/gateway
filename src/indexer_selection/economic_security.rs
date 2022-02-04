@@ -25,15 +25,18 @@ impl NetworkParameters {
     pub fn economic_security_utility(
         &self,
         indexer_stake: GRT,
-        u_a: f64,
+        utility_parameters: (f64, f64),
     ) -> Option<EconomicSecurity> {
         let slashing_percentage = self.slashing_percentage.value_immediate()?;
         let slashable_grt = indexer_stake * slashing_percentage.change_precision();
         let slashable_usd = self.grt_to_usd(slashable_grt)?;
-        let utility = concave_utility(slashable_usd.as_f64(), u_a);
+        let utility = concave_utility(slashable_usd.as_f64(), utility_parameters.0);
         Some(EconomicSecurity {
             slashable_usd,
-            utility: SelectionFactor::one(utility),
+            utility: SelectionFactor {
+                utility,
+                weight: utility_parameters.1,
+            },
         })
     }
 }
@@ -147,7 +150,7 @@ mod tests {
             ),
         };
         let security = params
-            .economic_security_utility(stake.try_into().unwrap(), u_a)
+            .economic_security_utility(stake.try_into().unwrap(), (u_a, 1.0))
             .unwrap();
         assert_eq!(
             security.slashable_usd,

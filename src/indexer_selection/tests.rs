@@ -205,12 +205,12 @@ async fn weights() {
     .collect::<Vec<_>>()
     .await;
     let data = vec![
-        ("performance -1", results[1].clone()),
-        ("performance 0", results[0].clone()),
-        ("performance +1", results[2].clone()),
-        ("economic_security -1", results[3].clone()),
+        ("economic_security -1", results[1].clone()),
         ("economic_security 0", results[0].clone()),
-        ("economic_security +1", results[4].clone()),
+        ("economic_security +1", results[2].clone()),
+        ("performance -1", results[3].clone()),
+        ("performance 0", results[0].clone()),
+        ("performance +1", results[4].clone()),
         ("data_freshness -1", results[5].clone()),
         ("data_freshness 0", results[0].clone()),
         ("data_freshness +1", results[6].clone()),
