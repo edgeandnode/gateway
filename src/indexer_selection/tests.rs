@@ -50,7 +50,7 @@ async fn weights() {
         },
         IndexerCharacteristics {
             label: "Great!",
-            stake: 500000u64.try_into().unwrap(),
+            stake: 800000u64.try_into().unwrap(),
             allocation: 600000u64.try_into().unwrap(),
             price: "0.000040".parse().unwrap(),
             latency_ms: 80,
@@ -110,7 +110,7 @@ async fn weights() {
         },
         IndexerCharacteristics {
             label: "Optimize economic security",
-            stake: 1000000u64.try_into().unwrap(),
+            stake: 2000000u64.try_into().unwrap(),
             allocation: 400000u64.try_into().unwrap(),
             price: "0.000045".parse().unwrap(),
             latency_ms: 120,
@@ -280,6 +280,8 @@ async fn run_simulation(
 
     const COUNT: usize = 86400;
     const QPS: u64 = 2000;
+    let mut total_latency_ms = 0;
+    let mut total_blocks_behind = 0;
     for i in 0..COUNT {
         let budget: GRT = "0.00005".parse().unwrap();
         let mut context = Context::new("{ a }", "").unwrap();
@@ -318,6 +320,8 @@ async fn run_simulation(
         };
         if data.reliability > thread_rng().gen() {
             let duration = Duration::from_millis(data.latency_ms);
+            total_latency_ms += data.latency_ms;
+            total_blocks_behind += data.blocks_behind;
             let receipt = &query.receipt;
             let fees: GRTWei =
                 primitive_types::U256::from_big_endian(&receipt[(receipt.len() - 32)..])
@@ -342,6 +346,13 @@ async fn run_simulation(
     for result in &results {
         total_fees += result.query_fees;
     }
+    println!(
+        "{:?}, fees: {}, avg. latency: {}ms, avg. blocks behind: {}",
+        utility_config,
+        total_fees,
+        total_latency_ms / COUNT as u64,
+        total_blocks_behind / COUNT as u64,
+    );
     results
         .iter()
         .map(|result| (result.query_fees / total_fees).as_f64())

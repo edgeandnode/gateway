@@ -140,7 +140,7 @@ pub struct Indexing {
     pub deployment: SubgraphDeploymentID,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UtilityConfig {
     pub economic_security: f64,
     pub performance: f64,
@@ -632,27 +632,28 @@ impl Indexers {
 }
 
 const UTILITY_CONFIGS_DEFAULT_INDEX: usize = 1;
-const UTILITY_CONFIGS_MAX_INDEX: usize = 3;
-const UTILITY_CONFIGS_PERFORMANCE: [f64; UTILITY_CONFIGS_MAX_INDEX] = [
-    0.003, // TODO: justify
-    0.008, // TODO: justify
-    0.05,  // TODO: justify
+const UTILITY_CONFIGS_LEN: usize = 3;
+// https://www.desmos.com/calculator/grhg7slnmt
+const UTILITY_CONFIGS_PERFORMANCE: [f64; UTILITY_CONFIGS_LEN] = [
+    0.0080, // utility is ~0.80 at 200/1000
+    0.0032, // utility is ~0.80 at 503/1000
+    0.0016, // utility is ~0.80 at 1000/1000
 ];
-// https://www.desmos.com/calculator/c6f6iesaw1
-const UTILITY_CONFIGS_ECONOMIC_SECURITY: [f64; UTILITY_CONFIGS_MAX_INDEX] = [
-    0.0000095,     // utility is ~0.85 at $200 thousand slashable
-    0.0000060,     // utility is ~0.91 at $400 thousand slashable
-    0.00000161757, // utility is ~0.80 at $1 million slashable, and increases linearly near $100k
+// https://www.desmos.com/calculator/it1c9lubwz
+const UTILITY_CONFIGS_ECONOMIC_SECURITY: [f64; UTILITY_CONFIGS_LEN] = [
+    0.000016, // utility is ~0.80 at $100 thousand slashable
+    0.000008, // utility is ~0.80 at $200 thousand slashable
+    0.000004, // utility is ~0.80 at $400 thousand slashable
 ];
-// https://www.desmos.com/calculator/qwdhpcygpc
-const UTILITY_CONFIGS_DATA_FRESHNESS: [f64; UTILITY_CONFIGS_MAX_INDEX] = [
-    3.0, // utility is ~0.78 at 2 blocks behind, ~0.40 at 6
-    4.5, // utility is ~0.89 at 2 blocks behind, ~0.53 at 6
-    6.4, // utility is ~0.96 at 2 blocks behind, ~0.66 at 6
+// https://www.desmos.com/calculator/ypjz59zj1e
+const UTILITY_CONFIGS_DATA_FRESHNESS: [f64; UTILITY_CONFIGS_LEN] = [
+    6.5, // utility is ~0.96 at 2 blocks behind, ~0.66 at 6
+    4.0, // utility is ~0.86 at 2 blocks behind, ~0.49 at 6
+    1.8, // utility is ~0.59 at 2 blocks behind, ~0.26 at 6
 ];
 // Don't over or under value "getting a good deal"
 // Note: This is not a utility_a parameter, but is a weight.
-const UTILITY_CONFIGS_PRICE_EFFICIENCY: [f64; UTILITY_CONFIGS_MAX_INDEX] = [0.1, 0.5, 1.0];
+const UTILITY_CONFIGS_PRICE_EFFICIENCY: [f64; UTILITY_CONFIGS_LEN] = [0.5, 1.5, 2.5];
 
 // TODO: For the user experience we should turn these into 0-1 values,
 // and from those calculate both a utility parameter and a weight
@@ -665,11 +666,9 @@ impl UtilityConfig {
         price_efficiency: i8,
     ) -> Self {
         let to_index = |i: i8| -> usize {
-            let i = (UTILITY_CONFIGS_DEFAULT_INDEX as i8).saturating_add(i);
-            if i.abs() > UTILITY_CONFIGS_MAX_INDEX as i8 {
-                return UTILITY_CONFIGS_DEFAULT_INDEX;
-            }
-            i as usize
+            let max = UTILITY_CONFIGS_LEN as i8 - 1;
+            let default = UTILITY_CONFIGS_DEFAULT_INDEX as i8;
+            default.saturating_add(i).max(0).min(max) as usize
         };
         Self {
             performance: UTILITY_CONFIGS_PERFORMANCE[to_index(performance)],

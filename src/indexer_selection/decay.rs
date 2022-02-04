@@ -37,10 +37,7 @@ impl<T: DecayUtility> DecayBuffer<T> {
         }
 
         let agg_utility = aggregator.crunch();
-        SelectionFactor {
-            utility: agg_utility,
-            weight: 1.0,
-        }
+        SelectionFactor::one(agg_utility)
     }
 }
 
