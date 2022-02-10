@@ -120,6 +120,7 @@ pub enum QueryEngineError {
     NoIndexerSelected,
     FeesTooHigh(usize),
     MalformedQuery,
+    BlockBeforeMin,
     MissingBlock(UnresolvedBlock),
 }
 
@@ -275,6 +276,12 @@ where
             .ok_or(MissingBlock(UnresolvedBlock::WithNumber(0)))?;
         let freshness_requirements =
             Indexers::freshness_requirements(&mut context, block_resolver).await?;
+
+        // Reject queries for blocks before minimum start block of subgraph manifest.
+        match freshness_requirements.minimum_block {
+            Some(min_block) if min_block < subgraph.min_block => return Err(BlockBeforeMin),
+            _ => (),
+        };
 
         for retry_count in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(

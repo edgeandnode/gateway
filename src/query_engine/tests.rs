@@ -169,6 +169,7 @@ impl Topology {
         query.subgraph = Some(Ptr::new(SubgraphInfo {
             deployment: deployment.id,
             network: deployment.network,
+            min_block: 0,
             features: vec![],
         }));
         query
