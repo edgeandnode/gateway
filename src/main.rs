@@ -519,6 +519,9 @@ async fn handle_subgraph_query_inner(
                 QueryEngineError::FeesTooHigh(count) => {
                     format!("No suitable indexer found, {} indexers requesting higher fees for this query", count)
                 }
+                QueryEngineError::BlockBeforeMin => {
+                    "Requested block before minimum `startBlock` of subgraph manifest".into()
+                }
                 QueryEngineError::MissingBlock(_) => {
                     "Gateway failed to resolve required blocks".into()
                 }

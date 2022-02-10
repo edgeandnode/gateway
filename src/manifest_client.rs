@@ -11,6 +11,7 @@ pub struct SubgraphInfo {
     pub deployment: SubgraphDeploymentID,
     pub network: String,
     pub features: Vec<String>,
+    pub min_block: u64,
 }
 
 pub type SubgraphInfoMap =
@@ -74,20 +75,30 @@ pub async fn fetch_manifest(
         .map_err(|err| (deployment, err.to_string()))?;
     let manifest = serde_yaml::from_str::<SubgraphManifest>(&payload)
         .map_err(|err| (deployment, err.to_string()))?;
+    let min_block = manifest
+        .data_sources
+        .iter()
+        .filter_map(|data_source| data_source.source.start_block)
+        .min()
+        .unwrap_or(0);
     // We are assuming that all `dataSource.network` fields are identical.
     // This is guaranteed for now.
     let network = manifest
         .data_sources
         .into_iter()
-        .filter_map(|data_source| data_source.network)
+        .map(|data_source| data_source.network)
         .next()
         .ok_or_else(|| (deployment, "Network not found".to_string()))?;
     Ok(SubgraphInfo {
         deployment,
         network,
+        min_block,
         features: manifest.features,
     })
 }
+
+// Subgraph manifest schema:
+// https://github.com/graphprotocol/graph-node/blob/master/docs/subgraph-manifest.md
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +109,14 @@ pub struct SubgraphManifest {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DataSource {
-    pub network: Option<String>,
+    pub network: String,
+    pub source: EthereumContractSource,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EthereumContractSource {
+    pub start_block: Option<u64>,
 }
