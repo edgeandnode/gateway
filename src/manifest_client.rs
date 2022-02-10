@@ -78,7 +78,7 @@ pub async fn fetch_manifest(
     let min_block = manifest
         .data_sources
         .iter()
-        .filter_map(|data_source| data_source.source.start_block)
+        .map(|data_source| data_source.source.start_block.unwrap_or(0))
         .min()
         .unwrap_or(0);
     // We are assuming that all `dataSource.network` fields are identical.
