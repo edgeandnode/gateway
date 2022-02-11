@@ -1,12 +1,8 @@
-use avro_rs::{to_value, Schema, Writer};
+use avro_rs::{Schema, Writer};
 use bincode;
 use lazy_static::lazy_static;
-use ordered_float::NotNan;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
-use crate::prelude::UDecimal;
-use crate::redpanda::messages::base_writer::MessageWriter;
 use crate::redpanda::utils::MessageKind;
 
 use serde_bytes;
@@ -18,11 +14,11 @@ lazy_static! {
         "name": "ISAScoringSample",
         "fields": [
             {"name": "ray_id", "type": "string", "default": "howdy"},
-            {"name": "query_id", "type": "string"},
+            {"name": "query_id", "type": "long"},
             {"name": "deployment", "type": "bytes"},
             {"name": "address", "type": "bytes"},
-            {"name": "fee", "type": "double"},
-            {"name": "slashable", "type": "double"},
+            {"name": "fee", "type": "string"},
+            {"name": "slashable", "type": "string"},
             {"name": "utility", "type": "double"},
             {"name": "economic_security", "type": "double"},
             {"name": "price_efficiency", "type": "double"},
@@ -43,13 +39,13 @@ lazy_static! {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ISAScoringSample {
     pub ray_id: String,
-    pub query_id: String,
+    pub query_id: u64,
     #[serde(with = "serde_bytes")]
     pub deployment: Vec<u8>,
     #[serde(with = "serde_bytes")]
     pub address: Vec<u8>,
-    pub fee: f64,
-    pub slashable: f64,
+    pub fee: String,
+    pub slashable: String,
     pub utility: f64,
     pub economic_security: f64,
     pub price_efficiency: f64,
@@ -108,7 +104,7 @@ impl Default for ISAScoringSample {
 
         ISAScoringSample {
             ray_id: String::from("null_ray"),
-            query_id: String::from("null_query"),
+            query_id: Default::default(),
             deployment: deployment_vec,
             address: address_vec,
             fee: Default::default(),

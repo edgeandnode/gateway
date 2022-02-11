@@ -1,15 +1,10 @@
-use super::base_writer::MessageWriter;
-use crate::prelude::UDecimal;
 use crate::redpanda::utils::MessageKind;
 use avro_rs::Schema;
 use avro_rs::Writer;
 use bincode;
 use lazy_static::lazy_static;
-use ordered_float::NotNan;
-use primitive_types::U256;
 use serde::{Deserialize, Serialize};
 use serde_bytes;
-use serde_json::json;
 
 lazy_static! {
     pub static ref MESSAGE_SCHEMA: Schema = Schema::parse_str(
@@ -19,8 +14,8 @@ lazy_static! {
         "name": "IndexerAttempt",
         "fields": [
             {"name": "ray_id", "type": "string", "default": "howdy"},
-            {"name": "query_id", "type": "string"},
-            {"name": "attempt_index", "type": "string"},
+            {"name": "query_id", "type": "long"},
+            {"name": "attempt_index", "type": "int"},
             {"name": "indexer", "type": "bytes"},
             {"name": "allocation", "type": "bytes"},
             {"name": "fee", "type": "string"},
@@ -41,8 +36,8 @@ lazy_static! {
 #[derive(Serialize, Deserialize)]
 pub struct IndexerAttempt {
     pub ray_id: String,
-    pub query_id: String,
-    pub attempt_index: String,
+    pub query_id: u64,
+    pub attempt_index: usize,
     #[serde(with = "serde_bytes")]
     pub indexer: Vec<u8>,
     #[serde(with = "serde_bytes")]
@@ -102,7 +97,7 @@ impl Default for IndexerAttempt {
 
         IndexerAttempt {
             ray_id: String::from("null_ray"),
-            query_id: String::from("null_query"),
+            query_id: Default::default(),
             attempt_index: Default::default(),
             indexer: indexer_vec,
             allocation: allocation_vec,

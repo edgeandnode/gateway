@@ -45,7 +45,7 @@ use url::Url;
 
 use redpanda::client::KafkaClient;
 use redpanda::messages::{client_query_result::ClientQueryResult, indexer_attempt::IndexerAttempt};
-use tokio::runtime::Runtime;
+use redpanda::utils::MessageKind;
 
 #[actix_web::main]
 async fn main() {
@@ -57,12 +57,11 @@ async fn main() {
     let kafka_config = opt.to_kafka_config();
     let config_as_ref = kafka_config.as_slice();
 
-    let kafka_client: KafkaClient =
-        create_kafka_client(opt.redpanda_brokers.as_str(), config_as_ref)
-            .await
-            .unwrap();
+    let kafka: KafkaClient = create_kafka_client(opt.redpanda_brokers.as_str(), config_as_ref)
+        .await
+        .unwrap();
 
-    let arc_client = Arc::new(kafka_client);
+    let kafka_client = Arc::new(kafka);
 
     let (mut input_writers, inputs) = Inputs::new();
 
@@ -151,7 +150,7 @@ async fn main() {
         api_keys,
         stats_db,
         fisherman_client,
-        kafka_client: arc_client,
+        kafka_client: kafka_client,
     };
 
     let network_subgraph_query_data = NetworkSubgraphQueryData {
@@ -258,20 +257,6 @@ async fn create_kafka_client(
     let k_client = KafkaClient::new(brokers, "rust-gateway", config)?;
     Ok(k_client)
 }
-
-// fn create_kafka_client(
-//     brokers: &str,
-//     config: &[(&str, &str)],
-// ) -> Result<KafkaClient, anyhow::Error> {
-//     Runtime::new()
-//         .unwrap()
-//         .block_on(async {
-//             let k_client = KafkaClient::new(brokers, "rust-gateway", config)?;
-//             Ok(k_client)
-//         })
-//         .await;
-// }
-
 fn request_api_key(request: &ServiceRequest) -> String {
     format!(
         "{}/{}",
@@ -443,7 +428,10 @@ async fn handle_subgraph_query(
         network = %query.subgraph.as_ref().unwrap().network,
     );
     let api_key = request.match_info().get("api_key").unwrap_or("");
-    let response = handle_subgraph_query_inner(&request, data, &mut query, api_key)
+
+    // inject the kafka client into the query object for ISA messaging
+    query.kafka_client = Some(data.kafka_client.clone());
+    let response = handle_subgraph_query_inner(&request, &data, &mut query, api_key)
         .instrument(span)
         .await;
     let (payload, status) = match response {
@@ -456,25 +444,49 @@ async fn handle_subgraph_query(
             format!("{}: {}", status, msg),
         ),
     };
+
+    let subgraph = query.subgraph.as_ref().unwrap();
+    let deployment = subgraph.deployment;
+    let network = (*subgraph.network).to_owned();
+    let variables = query.variables.as_deref().unwrap_or("");
+    let response_time = (Instant::now() - query.start_time).as_millis() as u32;
     tracing::info!(
-        ray_id = %query.ray_id,
+        ray_id = %&query.ray_id,
         query_id = %query.id,
-        deployment = %query.subgraph.as_ref().unwrap().deployment,
+        deployment = %deployment,
         network = %query.subgraph.as_ref().unwrap().network,
         %api_key,
         query = %query.query,
-        variables = %query.variables.as_deref().unwrap_or(""),
-        response_time_ms = (Instant::now() - query.start_time).as_millis() as u32,
+        variables = %variables,
+        response_time_ms =response_time,
         %status,
         "Client query result",
     );
-    // ClientQueryResult
+    let client_query_msg = ClientQueryResult {
+        ray_id: query.ray_id.clone(),
+        query_id: query.id.local_id,
+        deployment: deployment.to_vec().clone(),
+        network: network.clone(),
+        api_key: String::from(api_key),
+        query: std::rc::Rc::try_unwrap(query.query).unwrap(),
+        variables: String::from(variables),
+        response_time: response_time,
+        status: status.clone(),
+    };
+
+    data.kafka_client.send(
+        "gateway_client_query_results",
+        &client_query_msg.write(MessageKind::AVRO),
+    );
 
     for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
         let status = match &attempt.result {
             Ok(response) => response.status.to_string(),
             Err(err) => err.to_string(),
         };
+
+        let response_time = attempt.duration.as_millis() as u32;
+        let rejection_reason = attempt.rejection.as_deref().unwrap_or_default();
         tracing::info!(
             ray_id = %query.ray_id,
             query_id = %query.id,
@@ -484,14 +496,31 @@ async fn handle_subgraph_query(
             fee = %attempt.score.fee,
             utility = *attempt.score.utility,
             blocks_behind = attempt.score.blocks_behind,
-            response_time_ms = attempt.duration.as_millis() as u32,
+            response_time_ms =response_time,
             %status,
-            rejection = %attempt.rejection.as_deref().unwrap_or_default(),
+            rejection = %rejection_reason,
             "Indexer attempt",
         );
 
-        // grab kafka and send
         // IndexerAttempt
+        let indexer_attempt_msg = IndexerAttempt {
+            ray_id: query.ray_id.clone(),
+            query_id: query.id.local_id,
+            attempt_index: attempt_index,
+            indexer: attempt.indexer.to_vec(),
+            allocation: attempt.allocation.to_vec(),
+            fee: attempt.score.fee.to_string(),
+            utility: *attempt.score.utility,
+            blocks_behind: attempt.score.blocks_behind,
+            response_time_ms: response_time,
+            status: status.clone(),
+            rejection: rejection_reason.to_string(),
+        };
+
+        data.kafka_client.send(
+            "gateway_indexer_attempts",
+            &indexer_attempt_msg.write(MessageKind::AVRO),
+        );
     }
 
     payload
@@ -499,7 +528,7 @@ async fn handle_subgraph_query(
 
 async fn handle_subgraph_query_inner(
     request: &HttpRequest,
-    data: web::Data<SubgraphQueryData>,
+    data: &web::Data<SubgraphQueryData>,
     query: &mut Query,
     api_key: &str,
 ) -> Result<HttpResponse, (StatusCode, String)> {

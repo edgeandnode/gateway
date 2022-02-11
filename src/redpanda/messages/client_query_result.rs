@@ -2,12 +2,8 @@ use avro_rs::Schema;
 use avro_rs::Writer;
 use bincode;
 use lazy_static::lazy_static;
-use ordered_float::NotNan;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
-use super::base_writer::MessageWriter;
-use crate::prelude::UDecimal;
 use crate::redpanda::utils::MessageKind;
 
 use serde_bytes;

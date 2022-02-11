@@ -2,12 +2,8 @@ use avro_rs::Schema;
 use avro_rs::Writer;
 use bincode;
 use lazy_static::lazy_static;
-use ordered_float::NotNan;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
-use super::base_writer::MessageWriter;
-use crate::prelude::UDecimal;
 use crate::redpanda::utils::MessageKind;
 use serde_bytes;
 
@@ -19,7 +15,7 @@ lazy_static! {
         "name": "ISAScoringError",
         "fields": [
             {"name": "ray_id", "type": "string", "default": "howdy"},
-            {"name": "query_id", "type": "string"},
+            {"name": "query_id", "type": "long"},
             {"name": "deployment", "type": "bytes"},
             {"name": "indexer", "type": "bytes"},
             {"name": "scoring_err", "type": "string"}
@@ -34,7 +30,7 @@ lazy_static! {
 #[derive(Serialize, Deserialize)]
 pub struct ISAScoringError {
     pub ray_id: String,
-    pub query_id: String,
+    pub query_id: u64,
     #[serde(with = "serde_bytes")]
     pub deployment: Vec<u8>,
     #[serde(with = "serde_bytes")]
@@ -88,7 +84,7 @@ impl Default for ISAScoringError {
 
         ISAScoringError {
             ray_id: String::from("null_ray"),
-            query_id: String::from("null_query"),
+            query_id: Default::default(),
             deployment: deployment_vec,
             indexer: indexer_vec,
             scoring_err: Default::default(),

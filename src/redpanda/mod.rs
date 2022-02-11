@@ -3,4 +3,4 @@ pub mod messages;
 mod test_utils;
 #[cfg(test)]
 mod tests;
-mod utils;
+pub mod utils;

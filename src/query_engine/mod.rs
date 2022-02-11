@@ -1,9 +1,8 @@
 #[cfg(test)]
 mod tests;
 
-use crate::redpanda::messages::{
-    isa_scoring_error::ISAScoringError, isa_scoring_sample::ISAScoringSample,
-};
+use crate::redpanda::client::KafkaClient;
+
 use crate::{
     block_resolver::BlockResolver,
     fisherman_client::*,
@@ -32,6 +31,12 @@ use std::{
     },
 };
 use uuid::Uuid;
+
+use crate::redpanda::messages::{
+    isa_scoring_error::ISAScoringError, isa_scoring_sample::ISAScoringSample,
+};
+
+use crate::redpanda::utils::MessageKind;
 #[derive(Debug)]
 pub struct Query {
     pub id: QueryID,
@@ -42,6 +47,7 @@ pub struct Query {
     pub api_key: Option<Arc<APIKey>>,
     pub subgraph: Option<Ptr<SubgraphInfo>>,
     pub indexer_attempts: Vec<IndexerAttempt>,
+    pub kafka_client: Option<Arc<KafkaClient>>,
 }
 
 impl Query {
@@ -55,6 +61,7 @@ impl Query {
             api_key: None,
             subgraph: None,
             indexer_attempts: Vec::new(),
+            kafka_client: None,
         }
     }
 }
@@ -72,7 +79,7 @@ pub struct IndexerAttempt {
 }
 
 pub struct QueryID {
-    local_id: u64,
+    pub local_id: u64,
 }
 
 impl QueryID {
@@ -373,7 +380,7 @@ where
         message: &'static str,
     ) {
         tracing::info!(
-            ray_id = %query.ray_id,
+            ray_id = %query.ray_id.clone(),
             query_id = %query.id,
             deployment = %query.subgraph.as_ref().unwrap().deployment,
             %indexer,
@@ -390,9 +397,35 @@ where
             message,
         );
         //grab kafka
+        let client = &query.kafka_client;
 
-        //send message
-        // ISAScoringSample
+        match client {
+            Some(kafka_client) => {
+                let indexer_sample_msg = ISAScoringSample {
+                    ray_id: query.ray_id.clone(),
+                    query_id: query.id.local_id,
+                    deployment: query.subgraph.as_ref().unwrap().deployment.to_vec(),
+                    address: indexer.to_vec(),
+                    fee: score.fee.to_string().to_owned(),
+                    slashable: score.slashable.to_string().to_owned(),
+                    utility: score.utility.into_inner(),
+                    economic_security: score.utility_scores.economic_security,
+                    price_efficiency: score.utility_scores.price_efficiency,
+                    data_freshness: score.utility_scores.data_freshness,
+                    performance: score.utility_scores.performance,
+                    reputation: score.utility_scores.reputation,
+                    sybil: *score.sybil,
+                    blocks_behind: score.blocks_behind,
+                    message: message.to_string(),
+                };
+                let delivery = kafka_client.send(
+                    "gateway_isa_sample",
+                    &indexer_sample_msg.write(MessageKind::AVRO),
+                );
+                delivery.unwrap();
+            }
+            None => {}
+        }
     }
 
     fn log_indexer_score_err(
@@ -402,15 +435,32 @@ where
         message: &'static str,
     ) {
         tracing::info!(
-            ray_id = %query.ray_id,
+            ray_id = %query.ray_id.clone(),
             query_id = %query.id,
             deployment = %query.subgraph.as_ref().unwrap().deployment,
             %indexer,
             ?scoring_err,
             message,
         );
-        // grab kafka and send
-        // ISAScoringError
+        let client = &query.kafka_client;
+
+        match client {
+            Some(kafka_client) => {
+                let indexer_sample_error_msg = ISAScoringError {
+                    ray_id: query.ray_id.clone(),
+                    query_id: query.id.local_id,
+                    deployment: query.subgraph.as_ref().unwrap().deployment.to_vec(),
+                    indexer: indexer.to_vec(),
+                    scoring_err: message.to_string(),
+                };
+                let delivery = kafka_client.send(
+                    "gateway_isa_sample",
+                    &indexer_sample_error_msg.write(MessageKind::AVRO),
+                );
+                delivery.unwrap();
+            }
+            None => {}
+        }
     }
 
     async fn execute_indexer_query(

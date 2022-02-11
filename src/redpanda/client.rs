@@ -1,21 +1,18 @@
-use std::env;
 use std::time::Duration;
 
 use anyhow::Context;
-use futures::stream::FuturesUnordered;
-use futures::{StreamExt, TryStreamExt};
 
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::ClientContext;
-use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
+use rdkafka::config::ClientConfig;
 use rdkafka::consumer::stream_consumer::StreamConsumer;
-use rdkafka::consumer::{Consumer, ConsumerContext, Rebalance};
+use rdkafka::consumer::{ConsumerContext, Rebalance};
 use rdkafka::error::{KafkaError, KafkaResult};
-use rdkafka::message::Message;
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord};
 use rdkafka::topic_partition_list::TopicPartitionList;
 
 use log::info;
+use std::fmt;
 
 use super::utils::{setup_logger, MessageKind};
 use crate::rp_utils::client::RpClientContext;
@@ -24,6 +21,12 @@ use crate::rp_utils::client::RpClientContext;
 pub struct KafkaClient {
     pub(super) producer: FutureProducer<RpClientContext>,
     kafka_url: String,
+}
+
+impl fmt::Debug for KafkaClient {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Brokers running at: {}", self.kafka_url)
+    }
 }
 
 impl KafkaClient {
@@ -75,6 +78,31 @@ impl KafkaClient {
         crate::rp_utils::admin::ensure_topic(&client, &admin_opts, &topic)
             .await
             .context(format!("creating Kafka topic: {}", topic_name))?;
+
+        Ok(())
+    }
+
+    pub async fn delete_topic(
+        &self,
+        topic_name: &str,
+        configs: Vec<(&str, &str)>,
+        timeout: Option<Duration>,
+    ) -> Result<(), anyhow::Error> {
+        let mut config = ClientConfig::new();
+        config.set("bootstrap.servers", &self.kafka_url);
+
+        let client = config
+            .create::<AdminClient<_>>()
+            .expect("creating admin kafka client failed");
+
+        let admin_opts = AdminOptions::new().request_timeout(timeout);
+
+        let mut topics = [""; 1];
+        topics.fill(topic_name);
+        client
+            .delete_topics(&topics, &admin_opts)
+            .await
+            .context(format!("deleting Kafka topic: {}", topic_name))?;
 
         Ok(())
     }
