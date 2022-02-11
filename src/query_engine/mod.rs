@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests;
 
+use crate::redpanda::messages::{
+    isa_scoring_error::ISAScoringError, isa_scoring_sample::ISAScoringSample,
+};
 use crate::{
     block_resolver::BlockResolver,
     fisherman_client::*,
@@ -29,7 +32,6 @@ use std::{
     },
 };
 use uuid::Uuid;
-
 #[derive(Debug)]
 pub struct Query {
     pub id: QueryID,
@@ -387,6 +389,10 @@ where
             blocks_behind = score.blocks_behind,
             message,
         );
+        //grab kafka
+
+        //send message
+        // ISAScoringSample
     }
 
     fn log_indexer_score_err(
@@ -402,7 +408,9 @@ where
             %indexer,
             ?scoring_err,
             message,
-        )
+        );
+        // grab kafka and send
+        // ISAScoringError
     }
 
     async fn execute_indexer_query(

@@ -36,6 +36,7 @@ where
     create_topic_helper(client, admin_opts, new_topic, false).await
 }
 
+//IMPL delete topic
 /// Like `create_new_topic` but allow topic to already exist
 pub async fn ensure_topic<'a, C>(
     client: &'a AdminClient<C>,

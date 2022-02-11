@@ -20,9 +20,12 @@ use rdkafka::Message;
 use log::info;
 
 use super::client::KafkaClient;
-use super::messages::indexer_score;
 use super::test_utils::*;
 use super::utils::{setup_logger, MessageKind};
+use crate::redpanda::messages::{
+    client_query_result::ClientQueryResult, indexer_attempt::IndexerAttempt,
+    isa_scoring_error::ISAScoringError, isa_scoring_sample::ISAScoringSample,
+};
 use crate::rp_utils::client::RpClientContext;
 
 use super::client::{CustomContext, LoggingConsumer};
@@ -57,8 +60,12 @@ async fn run_redpanda(
     vec.push(("security.protocol", sec.as_str()));
     vec.push(("debug", "all"));
 
-    let kclient: KafkaClient = KafkaClient::new(&brokers[..], "rust-gateway-producer", vec.clone())
-        .expect("couldn't create client");
+    let kclient: KafkaClient = KafkaClient::new(
+        &brokers[..],
+        "rust-gateway-producer",
+        vec.clone().as_slice(),
+    )
+    .expect("couldn't create client");
 
     let mut new_config = ClientConfig::new();
     new_config.set("group.id", "rust-gateway-consumer");
@@ -82,51 +89,66 @@ async fn run_redpanda(
         .subscribe(&["test123"])
         .expect("Can't subscribe to specified topic");
 
-    let producer = kclient.producer;
+    let test_isa_sample = ISAScoringSample::default();
+    let test_isa_error = ISAScoringError::default();
+    let test_client_query = ClientQueryResult::default();
+    let test_indexer_attempt = IndexerAttempt::default();
 
-    let test_payload = indexer_score::IndexerScoreMessage::default();
+    let isa_sample_bytes = test_isa_sample.write(MessageKind::AVRO);
+    let isa_error_bytes = test_isa_error.write(MessageKind::AVRO);
+    let client_query_bytes = test_client_query.write(MessageKind::AVRO);
+    let indexer_attempt_bytes = test_indexer_attempt.write(MessageKind::AVRO);
 
-    let payload_bytes = test_payload.write(MessageKind::AVRO);
+    let mut payloads: Vec<Vec<u8>> = vec![];
+    payloads.push(isa_sample_bytes);
+    payloads.push(isa_error_bytes);
+    payloads.push(client_query_bytes);
+    payloads.push(indexer_attempt_bytes);
 
-    let produce_future = producer.send(
-        FutureRecord::to("test_gateway_topic")
-            .key("some key")
-            .payload(&payload_bytes),
-        Duration::from_secs(0),
-    );
+    let futures = payloads
+        .iter()
+        .map(|payload| {
+            let delivery_result = kclient.send("test_gateway_topic", payload).unwrap();
+            delivery_result
+        })
+        .collect::<Vec<_>>();
 
-    produce_future.await;
+    for future in futures {
+        info!("Future completed. Result: {:?}", future.await);
+    }
 
-    let stream_processor = consumer.stream().try_for_each(|borrowed_message| {
-        let producer = producer.clone();
+    // let as_awaited = collected.for_each(|result| async { result.unwrap() });
 
-        async move {
-            let owned_message = borrowed_message.detach();
-            record_owned_message_receipt(&owned_message).await;
+    // // let stream_processor = consumer.stream().try_for_each(|borrowed_message| {
+    // //     let producer = producer.clone();
 
-            tokio::spawn(async move {
-                let computation_result =
-                    tokio::task::spawn_blocking(|| expensive_computation(owned_message))
-                        .await
-                        .expect("failed to wait for expensive computation");
-                let produce_future = producer.send(
-                    FutureRecord::to("test_gateway_topic")
-                        .key("some key")
-                        .payload(&computation_result),
-                    Duration::from_secs(0),
-                );
-                match produce_future.await {
-                    Ok(delivery) => println!("Sent: {:?}", delivery),
-                    Err((e, _)) => println!("Error: {:?}", e),
-                }
-            });
-            Ok(())
-        }
-    });
+    // //     async move {
+    // //         let owned_message = borrowed_message.detach();
+    // //         record_owned_message_receipt(&owned_message).await;
 
-    println!("Starting event loop");
-    stream_processor.await.expect("stream processing failed");
-    println!("Stream processing terminated");
+    // //         tokio::spawn(async move {
+    // //             let computation_result =
+    // //                 tokio::task::spawn_blocking(|| expensive_computation(owned_message))
+    // //                     .await
+    // //                     .expect("failed to wait for expensive computation");
+    // //             let produce_future = producer.send(
+    // //                 FutureRecord::to("test_gateway_topic")
+    // //                     .key("some key")
+    // //                     .payload(&computation_result),
+    // //                 Duration::from_secs(0),
+    // //             );
+    // //             match produce_future.await {
+    // //                 Ok(delivery) => println!("Sent: {:?}", delivery),
+    // //                 Err((e, _)) => println!("Error: {:?}", e),
+    // //             }
+    // //         });
+    // //         Ok(())
+    // //     }
+    // // });
+
+    // println!("Starting event loop");
+    // stream_processor.await.expect("stream processing failed");
+    // println!("Stream processing terminated");
 }
 
 #[tokio::test]
@@ -142,19 +164,20 @@ async fn test_redpanda() {
     let sec = env::var("REDPANDA_SECURITY_PROTOCOL").unwrap();
     let mech = env::var("REDPANDA_SASL_MECHANISM").unwrap();
 
-    let futures = (0..1).map(|_| {
-        tokio::spawn(run_redpanda(
-            brokers.clone(),
-            ca.clone(),
-            cert.clone(),
-            key.clone(),
-            user.clone(),
-            pass.clone(),
-            sec.clone(),
-            mech.clone(),
-        ))
-    });
-    let collected = futures.collect::<FuturesUnordered<_>>();
-    let as_awaited = collected.for_each(|result| async { result.unwrap() });
-    as_awaited.await;
+    //clone one object
+    let futures = run_redpanda(
+        brokers.clone(),
+        ca.clone(),
+        cert.clone(),
+        key.clone(),
+        user.clone(),
+        pass.clone(),
+        sec.clone(),
+        mech.clone(),
+    );
+    // let collected = futures.collect::<FuturesUnordered<_>>();
+
+    let awaited = futures.await;
+
+    // let as_awaited = awaited.and_then(|results| results.unwrap());
 }

@@ -229,6 +229,7 @@ impl Opt {
         ));
         vec.push(("ssl.key.location", &self.ssl_key_location[..]));
         vec.push(("security.protocol", &self.security_protocol[..]));
+
         return vec;
     }
 }

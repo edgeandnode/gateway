@@ -44,6 +44,9 @@ use structopt::StructOpt as _;
 use url::Url;
 
 use redpanda::client::KafkaClient;
+use redpanda::messages::{client_query_result::ClientQueryResult, indexer_attempt::IndexerAttempt};
+use tokio::runtime::Runtime;
+
 #[actix_web::main]
 async fn main() {
     let opt = Opt::from_args();
@@ -51,7 +54,15 @@ async fn main() {
     tracing::info!("Graph gateway starting...");
     tracing::debug!("{:#?}", opt);
 
-    let kafka_client = create_kafka_client(&opt).await.unwrap();
+    let kafka_config = opt.to_kafka_config();
+    let config_as_ref = kafka_config.as_slice();
+
+    let kafka_client: KafkaClient =
+        create_kafka_client(opt.redpanda_brokers.as_str(), config_as_ref)
+            .await
+            .unwrap();
+
+    let arc_client = Arc::new(kafka_client);
 
     let (mut input_writers, inputs) = Inputs::new();
 
@@ -140,7 +151,7 @@ async fn main() {
         api_keys,
         stats_db,
         fisherman_client,
-        kafka_client,
+        kafka_client: arc_client,
     };
 
     let network_subgraph_query_data = NetworkSubgraphQueryData {
@@ -240,14 +251,26 @@ async fn main() {
     .expect("Failed to start server");
 }
 
-async fn create_kafka_client(config: &Opt) -> Result<KafkaClient, anyhow::Error> {
-    let k_client = KafkaClient::new(
-        &config.redpanda_brokers,
-        "rust-gateway",
-        config.to_kafka_config(),
-    )?;
+async fn create_kafka_client(
+    brokers: &str,
+    config: &[(&str, &str)],
+) -> Result<KafkaClient, anyhow::Error> {
+    let k_client = KafkaClient::new(brokers, "rust-gateway", config)?;
     Ok(k_client)
 }
+
+// fn create_kafka_client(
+//     brokers: &str,
+//     config: &[(&str, &str)],
+// ) -> Result<KafkaClient, anyhow::Error> {
+//     Runtime::new()
+//         .unwrap()
+//         .block_on(async {
+//             let k_client = KafkaClient::new(brokers, "rust-gateway", config)?;
+//             Ok(k_client)
+//         })
+//         .await;
+// }
 
 fn request_api_key(request: &ServiceRequest) -> String {
     format!(
@@ -356,7 +379,7 @@ struct SubgraphQueryData {
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
-    kafka_client: KafkaClient,
+    kafka_client: Arc<KafkaClient>,
 }
 
 impl SubgraphQueryData {
@@ -445,6 +468,8 @@ async fn handle_subgraph_query(
         %status,
         "Client query result",
     );
+    // ClientQueryResult
+
     for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
         let status = match &attempt.result {
             Ok(response) => response.status.to_string(),
@@ -464,6 +489,9 @@ async fn handle_subgraph_query(
             rejection = %attempt.rejection.as_deref().unwrap_or_default(),
             "Indexer attempt",
         );
+
+        // grab kafka and send
+        // IndexerAttempt
     }
 
     payload

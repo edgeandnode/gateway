@@ -30,14 +30,14 @@ impl KafkaClient {
     pub fn new(
         kafka_url: &str,
         group_id: &str,
-        configs: Vec<(&str, &str)>,
+        configs: &[(&str, &str)],
     ) -> Result<KafkaClient, anyhow::Error> {
         let mut config = ClientConfig::new();
         config.set("bootstrap.servers", kafka_url);
         config.set("group.id", group_id);
 
         for (key, val) in configs {
-            config.set(key, val);
+            config.set(*key, *val);
         }
 
         let producer = config
