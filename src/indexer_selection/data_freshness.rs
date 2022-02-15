@@ -1,6 +1,6 @@
 use crate::indexer_selection::{
     block_requirements::BlockRequirements,
-    utility::{concave_utility, SelectionFactor},
+    utility::{concave_utility, SelectionFactor, UtilityParameters},
     BadIndexerReason, SelectionError,
 };
 
@@ -38,7 +38,7 @@ impl DataFreshness {
     pub fn expected_utility(
         &self,
         requirements: &BlockRequirements,
-        utility_parameters: (f64, f64),
+        utility_parameters: UtilityParameters,
         latest_block: u64,
         blocks_behind: u64,
     ) -> Result<SelectionFactor, SelectionError> {
@@ -58,12 +58,12 @@ impl DataFreshness {
                     1.0
                 } else {
                     let freshness = 1.0 / blocks_behind as f64;
-                    concave_utility(freshness, utility_parameters.0)
+                    concave_utility(freshness, utility_parameters.a)
                 }
             };
             Ok(SelectionFactor {
                 utility,
-                weight: utility_parameters.1,
+                weight: utility_parameters.weight,
             })
         } else {
             Ok(SelectionFactor::zero())

@@ -142,9 +142,9 @@ pub struct Indexing {
 
 #[derive(Clone, Debug)]
 pub struct UtilityConfig {
-    pub economic_security: (f64, f64),
-    pub performance: (f64, f64),
-    pub data_freshness: (f64, f64),
+    pub economic_security: UtilityParameters,
+    pub performance: UtilityParameters,
+    pub data_freshness: UtilityParameters,
     pub price_efficiency: f64,
 }
 
@@ -557,7 +557,10 @@ impl Indexers {
         aggregator.add(performance);
 
         let reputation = selection_factors
-            .expected_reputation_utility((3.0, 1.0))
+            .expected_reputation_utility(UtilityParameters {
+                a: 3.0,
+                weight: 1.0,
+            })
             .await;
         aggregator.add(reputation);
 
@@ -636,17 +639,53 @@ impl Indexers {
 const UTILITY_CONFIGS_DEFAULT_INDEX: usize = 1;
 const UTILITY_CONFIGS_LEN: usize = 3;
 // https://www.desmos.com/calculator/lzlii17feb
-const UTILITY_CONFIGS_ECONOMIC_SECURITY: [(f64, f64); UTILITY_CONFIGS_LEN] =
-    [(0.000016, 0.5), (0.000008, 1.0), (0.000004, 1.5)];
+const UTILITY_CONFIGS_ECONOMIC_SECURITY: [UtilityParameters; UTILITY_CONFIGS_LEN] = [
+    UtilityParameters {
+        a: 0.000016,
+        weight: 0.5,
+    },
+    UtilityParameters {
+        a: 0.000008,
+        weight: 1.0,
+    },
+    UtilityParameters {
+        a: 0.000004,
+        weight: 1.5,
+    },
+];
 // https://www.desmos.com/calculator/reykkamaje
-const UTILITY_CONFIGS_PERFORMANCE: [(f64, f64); UTILITY_CONFIGS_LEN] =
-    [(0.0080, 0.7), (0.0032, 1.0), (0.0016, 1.5)];
-// ?
-const UTILITY_CONFIGS_DATA_FRESHNESS: [(f64, f64); UTILITY_CONFIGS_LEN] =
-    [(6.5, 0.5), (4.0, 1.0), (1.8, 1.5)];
+const UTILITY_CONFIGS_PERFORMANCE: [UtilityParameters; UTILITY_CONFIGS_LEN] = [
+    UtilityParameters {
+        a: 0.0080,
+        weight: 0.7,
+    },
+    UtilityParameters {
+        a: 0.0032,
+        weight: 1.0,
+    },
+    UtilityParameters {
+        a: 0.0016,
+        weight: 1.5,
+    },
+];
+// https://www.desmos.com/calculator/hircodefui
+const UTILITY_CONFIGS_DATA_FRESHNESS: [UtilityParameters; UTILITY_CONFIGS_LEN] = [
+    UtilityParameters {
+        a: 6.5,
+        weight: 0.5,
+    },
+    UtilityParameters {
+        a: 4.0,
+        weight: 1.0,
+    },
+    UtilityParameters {
+        a: 1.8,
+        weight: 1.5,
+    },
+];
 // Don't over or under value "getting a good deal"
 // Note: This is only a weight.
-const UTILITY_CONFIGS_PRICE_EFFICIENCY: [f64; UTILITY_CONFIGS_LEN] = [0.5, 1.5, 2.5];
+const UTILITY_CONFIGS_PRICE_EFFICIENCY: [f64; UTILITY_CONFIGS_LEN] = [0.1, 0.5, 1.0];
 
 // TODO: For the user experience we should turn these into 0-1 values,
 // and from those calculate both a utility parameter and a weight

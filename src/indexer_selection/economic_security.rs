@@ -1,4 +1,4 @@
-use crate::indexer_selection::utility::{concave_utility, SelectionFactor};
+use crate::indexer_selection::utility::{concave_utility, SelectionFactor, UtilityParameters};
 use crate::prelude::*;
 
 pub struct EconomicSecurity {
@@ -25,17 +25,17 @@ impl NetworkParameters {
     pub fn economic_security_utility(
         &self,
         indexer_stake: GRT,
-        utility_parameters: (f64, f64),
+        utility_parameters: UtilityParameters,
     ) -> Option<EconomicSecurity> {
         let slashing_percentage = self.slashing_percentage.value_immediate()?;
         let slashable_grt = indexer_stake * slashing_percentage.change_precision();
         let slashable_usd = self.grt_to_usd(slashable_grt)?;
-        let utility = concave_utility(slashable_usd.as_f64(), utility_parameters.0);
+        let utility = concave_utility(slashable_usd.as_f64(), utility_parameters.a);
         Some(EconomicSecurity {
             slashable_usd,
             utility: SelectionFactor {
                 utility,
-                weight: utility_parameters.1,
+                weight: utility_parameters.weight,
             },
         })
     }
@@ -150,7 +150,7 @@ mod tests {
             ),
         };
         let security = params
-            .economic_security_utility(stake.try_into().unwrap(), (u_a, 1.0))
+            .economic_security_utility(stake.try_into().unwrap(), UtilityParameters::one(u_a))
             .unwrap();
         assert_eq!(
             security.slashable_usd,

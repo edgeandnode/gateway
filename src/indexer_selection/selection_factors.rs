@@ -141,7 +141,7 @@ impl SelectionFactors {
 
     pub async fn expected_performance_utility(
         &self,
-        utility_parameters: (f64, f64),
+        utility_parameters: UtilityParameters,
     ) -> SelectionFactor {
         let lock = self.locked.read().await;
         lock.performance.expected_utility(utility_parameters)
@@ -149,7 +149,7 @@ impl SelectionFactors {
 
     pub async fn expected_reputation_utility(
         &self,
-        utility_parameters: (f64, f64),
+        utility_parameters: UtilityParameters,
     ) -> SelectionFactor {
         let lock = self.locked.read().await;
         lock.reputation.expected_utility(utility_parameters)
@@ -158,7 +158,7 @@ impl SelectionFactors {
     pub async fn expected_freshness_utility(
         &self,
         freshness_requirements: &BlockRequirements,
-        utility_parameters: (f64, f64),
+        utility_parameters: UtilityParameters,
         latest_block: u64,
         blocks_behind: u64,
     ) -> Result<SelectionFactor, SelectionError> {
