@@ -140,11 +140,11 @@ pub struct Indexing {
     pub deployment: SubgraphDeploymentID,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UtilityConfig {
-    pub economic_security: f64,
-    pub performance: f64,
-    pub data_freshness: f64,
+    pub economic_security: UtilityParameters,
+    pub performance: UtilityParameters,
+    pub data_freshness: UtilityParameters,
     pub price_efficiency: f64,
 }
 
@@ -556,7 +556,12 @@ impl Indexers {
             .await;
         aggregator.add(performance);
 
-        let reputation = selection_factors.expected_reputation_utility(3.0).await;
+        let reputation = selection_factors
+            .expected_reputation_utility(UtilityParameters {
+                a: 3.0,
+                weight: 1.0,
+            })
+            .await;
         aggregator.add(reputation);
 
         let data_freshness = selection_factors
@@ -631,41 +636,85 @@ impl Indexers {
     }
 }
 
+const UTILITY_CONFIGS_DEFAULT_INDEX: usize = 1;
+const UTILITY_CONFIGS_LEN: usize = 3;
+// https://www.desmos.com/calculator/lzlii17feb
+const UTILITY_CONFIGS_ECONOMIC_SECURITY: [UtilityParameters; UTILITY_CONFIGS_LEN] = [
+    UtilityParameters {
+        a: 0.000016,
+        weight: 0.5,
+    },
+    UtilityParameters {
+        a: 0.000008,
+        weight: 1.0,
+    },
+    UtilityParameters {
+        a: 0.000004,
+        weight: 1.5,
+    },
+];
+// https://www.desmos.com/calculator/reykkamaje
+const UTILITY_CONFIGS_PERFORMANCE: [UtilityParameters; UTILITY_CONFIGS_LEN] = [
+    UtilityParameters {
+        a: 0.0080,
+        weight: 0.7,
+    },
+    UtilityParameters {
+        a: 0.0032,
+        weight: 1.0,
+    },
+    UtilityParameters {
+        a: 0.0016,
+        weight: 1.5,
+    },
+];
+// https://www.desmos.com/calculator/hircodefui
+const UTILITY_CONFIGS_DATA_FRESHNESS: [UtilityParameters; UTILITY_CONFIGS_LEN] = [
+    UtilityParameters {
+        a: 6.5,
+        weight: 0.5,
+    },
+    UtilityParameters {
+        a: 4.0,
+        weight: 1.0,
+    },
+    UtilityParameters {
+        a: 1.8,
+        weight: 1.5,
+    },
+];
+// Don't over or under value "getting a good deal"
+// Note: This is only a weight.
+const UTILITY_CONFIGS_PRICE_EFFICIENCY: [f64; UTILITY_CONFIGS_LEN] = [0.1, 0.5, 1.0];
+
 // TODO: For the user experience we should turn these into 0-1 values,
 // and from those calculate both a utility parameter and a weight
 // which should be used when combining utilities.
+impl UtilityConfig {
+    pub fn from_indexes(
+        economic_security: i8,
+        performance: i8,
+        data_freshness: i8,
+        price_efficiency: i8,
+    ) -> Self {
+        let to_index = |i: i8| -> usize {
+            let max = UTILITY_CONFIGS_LEN as i8 - 1;
+            let default = UTILITY_CONFIGS_DEFAULT_INDEX as i8;
+            default.saturating_add(i).max(0).min(max) as usize
+        };
+        Self {
+            economic_security: UTILITY_CONFIGS_ECONOMIC_SECURITY[to_index(economic_security)],
+            performance: UTILITY_CONFIGS_PERFORMANCE[to_index(performance)],
+            data_freshness: UTILITY_CONFIGS_DATA_FRESHNESS[to_index(data_freshness)],
+            price_efficiency: UTILITY_CONFIGS_PRICE_EFFICIENCY[to_index(price_efficiency)],
+        }
+    }
+}
+
 impl Default for UtilityConfig {
     fn default() -> Self {
-        Self {
-            /// This value comes from the PRD and is for the web case, where ~50% of users may leave
-            /// a webpage if it takes longer than 2s to load. So - 50% utility at that point. After
-            /// playing with this I feel that the emphasis on performance should increase. For one,
-            /// the existing utility function is as though this one request were the only factor in
-            /// loading a page, when it may have other requests that must go before or after it that
-            /// should be included in that 2 second metric. The other is that this doesn't account
-            /// for the user experience difference in users that do stay around long enough for the
-            /// page to load.
-            // Before change to PRD -
-            // performance: 1.570744,
-            // After change to PRD -
-            performance: 0.01,
-            /// This value comes from the PRD and makes it such that ~80% of utility is achieved at
-            /// $1m, and utility increases linearly near $100k
-            // economic_security: 0.00000161757,
-            /// But, it turns out that it's hard to get that much slashable stake given the limited
-            /// supply of GRT spread out across multiple indexers. So instead, put ~91% utility at
-            /// $400k - which matches the testnet of Indexers having ~$5m and slashing at 10% but
-            /// not using all of their value to stake
-            economic_security: 0.000006,
-            /// Strongly prefers latest blocks. Utility is at 1 when 0 blocks behind, .95 at 1 block
-            /// behind, and 0.5 at 8 blocks behind.
-            data_freshness: 4.33,
-            // Don't over or under value "getting a good deal"
-            // Note: This is not a utility_a parameter, but is a weight.
-            price_efficiency: 0.5,
-            // TODO
-            // reputation: 0.0,
-        }
+        let i = UTILITY_CONFIGS_DEFAULT_INDEX as i8;
+        Self::from_indexes(i, i, i, i)
     }
 }
 

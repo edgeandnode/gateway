@@ -17,6 +17,19 @@ pub struct UtilityAggregator {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct UtilityParameters {
+    pub a: f64,
+    pub weight: f64,
+}
+
+impl UtilityParameters {
+    #[cfg(test)]
+    pub fn one(a: f64) -> Self {
+        Self { a, weight: 1.0 }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct SelectionFactor {
     pub weight: f64,
     pub utility: f64,
