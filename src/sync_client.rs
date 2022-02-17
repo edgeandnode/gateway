@@ -9,7 +9,6 @@ use crate::{
 };
 use eventuals::EventualExt as _;
 use graphql_client::{GraphQLQuery, Response};
-use im;
 use lazy_static::lazy_static;
 use prometheus;
 use reqwest;
@@ -591,9 +590,7 @@ fn handle_cost_models(
 
 fn handle_indexers(
     indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
-    mut deployment_indexers: EventualWriter<
-        Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>,
-    >,
+    mut deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     indexer_statuses: Eventual<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)>>>,
 ) {
     let indexers = Arc::new(Mutex::new(indexers));

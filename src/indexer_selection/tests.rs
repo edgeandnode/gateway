@@ -245,7 +245,7 @@ async fn run_simulation(
     let deployment: SubgraphDeploymentID = bytes_from_id(99).into();
 
     let mut results = Vec::<IndexerResults>::new();
-    let mut indexer_ids = im::Vector::new();
+    let mut indexer_ids = Vec::new();
     let test_key = SecretKey::from_str(TEST_KEY).unwrap();
     let mut special_indexers = HashMap::<Address, NotNan<f64>>::new();
     for data in tests.iter() {
@@ -254,7 +254,7 @@ async fn run_simulation(
             indexer: bytes_from_id(indexer_ids.len()).into(),
             deployment,
         };
-        indexer_ids.push_back(indexing.indexer);
+        indexer_ids.push(indexing.indexer);
         let indexing_writer = input_writers.indexings.write(&indexing).await;
         indexing_writer
             .cost_model
@@ -310,7 +310,10 @@ async fn run_simulation(
             Some((query, _)) => query,
             None => continue,
         };
-        let index = indexer_ids.index_of(&query.indexing.indexer).unwrap();
+        let index = indexer_ids
+            .iter()
+            .position(|id| id == &query.indexing.indexer)
+            .unwrap();
         let entry = results.get_mut(index).unwrap();
         entry.queries_received += 1;
         let data = tests.get(index).unwrap();
