@@ -150,7 +150,7 @@ async fn main() {
         api_keys,
         stats_db,
         fisherman_client,
-        kafka_client: kafka_client,
+        kafka_client: kafka_client.clone(),
     };
 
     let network_subgraph_query_data = NetworkSubgraphQueryData {
@@ -517,13 +517,19 @@ async fn handle_subgraph_query(
             rejection: rejection_reason.to_string(),
         };
 
-        data.kafka_client
+        let send = data
+            .kafka_client
             .send(
                 "gateway_indexer_attempts",
                 &indexer_attempt_msg.write(MessageKind::AVRO),
             )
             .unwrap()
             .await;
+
+        match send {
+            Ok(x) => {}
+            Err(e) => {}
+        }
     }
 
     payload

@@ -37,7 +37,6 @@ use crate::redpanda::messages::{
 };
 
 use crate::redpanda::utils::MessageKind;
-use futures_util::Future;
 
 use futures_channel::oneshot::Canceled;
 use rdkafka::error::KafkaError;
@@ -344,7 +343,8 @@ where
                 &indexer_query.indexing.indexer,
                 &indexer_query.score,
                 "Selected indexer score",
-            );
+            )
+            .await;
             match scoring_sample.0 {
                 Some((indexer, Ok(score))) => {
                     Self::log_indexer_score(&query, &indexer, &score, "ISA scoring sample").await
@@ -406,37 +406,32 @@ where
                 message,
             );
             //grab kafka
-            let client = &query.kafka_client;
+            let client = query.kafka_client.as_ref().unwrap().clone();
 
-            let res = match client {
-                Some(kafka_client) => {
-                    let indexer_sample_msg = ISAScoringSample {
-                        ray_id: query.ray_id.clone(),
-                        query_id: query.id.local_id,
-                        deployment: query.subgraph.as_ref().unwrap().deployment.to_vec(),
-                        address: indexer.to_vec(),
-                        fee: score.fee.to_string().to_owned(),
-                        slashable: score.slashable.to_string().to_owned(),
-                        utility: score.utility.into_inner(),
-                        economic_security: score.utility_scores.economic_security,
-                        price_efficiency: score.utility_scores.price_efficiency,
-                        data_freshness: score.utility_scores.data_freshness,
-                        performance: score.utility_scores.performance,
-                        reputation: score.utility_scores.reputation,
-                        sybil: *score.sybil,
-                        blocks_behind: score.blocks_behind,
-                        message: message.to_string(),
-                    };
-                    let delivery = kafka_client.send(
-                        "gateway_isa_sample",
-                        &indexer_sample_msg.write(MessageKind::AVRO),
-                    );
-                    delivery.unwrap().await;
-                }
-                None => (),
+            let indexer_sample_msg = ISAScoringSample {
+                ray_id: query.ray_id.clone(),
+                query_id: query.id.local_id,
+                deployment: query.subgraph.as_ref().unwrap().deployment.to_vec(),
+                address: indexer.to_vec(),
+                fee: score.fee.to_string().to_owned(),
+                slashable: score.slashable.to_string().to_owned(),
+                utility: score.utility.into_inner(),
+                economic_security: score.utility_scores.economic_security,
+                price_efficiency: score.utility_scores.price_efficiency,
+                data_freshness: score.utility_scores.data_freshness,
+                performance: score.utility_scores.performance,
+                reputation: score.utility_scores.reputation,
+                sybil: *score.sybil,
+                blocks_behind: score.blocks_behind,
+                message: message.to_string(),
             };
-            res
+            let delivery = client.send(
+                "gateway_isa_sample",
+                &indexer_sample_msg.write(MessageKind::AVRO),
+            );
+            delivery.unwrap().await;
         };
+        res.await;
     }
 
     async fn log_indexer_score_err<'a, 'b>(
@@ -456,27 +451,22 @@ where
                 ?scoring_err,
                 message,
             );
-            let client = &query.kafka_client;
+            let client = query.kafka_client.as_ref().unwrap().clone();
 
-            let res = match client {
-                Some(kafka_client) => {
-                    let indexer_sample_error_msg = ISAScoringError {
-                        ray_id: query.ray_id.clone(),
-                        query_id: query.id.local_id,
-                        deployment: query.subgraph.as_ref().unwrap().deployment.to_vec(),
-                        indexer: indexer.to_vec(),
-                        scoring_err: message.to_string(),
-                    };
-                    let delivery = kafka_client.send(
-                        "gateway_isa_sample",
-                        &indexer_sample_error_msg.write(MessageKind::AVRO),
-                    );
-                    delivery.unwrap().await;
-                }
-                None => (),
+            let indexer_sample_error_msg = ISAScoringError {
+                ray_id: query.ray_id.clone(),
+                query_id: query.id.local_id,
+                deployment: query.subgraph.as_ref().unwrap().deployment.to_vec(),
+                indexer: indexer.to_vec(),
+                scoring_err: message.to_string(),
             };
-            res
+            let delivery = client.send(
+                "gateway_isa_sample",
+                &indexer_sample_error_msg.write(MessageKind::AVRO),
+            );
+            delivery.unwrap().await;
         };
+        res.await;
     }
 
     async fn execute_indexer_query(
