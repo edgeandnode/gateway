@@ -400,7 +400,7 @@ async fn handle_subgraph_query(
         "handle_subgraph_query",
         ray_id = %query.ray_id,
         query_id = %query.id,
-        deployment = %query.subgraph.as_ref().unwrap().deployment,
+        %deployment,
         network = %query.subgraph.as_ref().unwrap().network,
     );
     let api_key = request.match_info().get("api_key").unwrap_or("");
@@ -420,7 +420,7 @@ async fn handle_subgraph_query(
     tracing::info!(
         ray_id = %query.ray_id,
         query_id = %query.id,
-        deployment = %query.subgraph.as_ref().unwrap().deployment,
+        %deployment,
         network = %query.subgraph.as_ref().unwrap().network,
         %api_key,
         query = %query.query,
@@ -437,8 +437,11 @@ async fn handle_subgraph_query(
         tracing::info!(
             ray_id = %query.ray_id,
             query_id = %query.id,
+            api_key = %api_key,
+            %deployment,
             attempt_index,
             indexer = %attempt.indexer,
+            url = %attempt.score.url,
             allocation = %attempt.allocation,
             fee = %attempt.score.fee,
             utility = *attempt.score.utility,

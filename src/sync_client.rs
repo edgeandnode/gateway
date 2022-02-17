@@ -620,7 +620,7 @@ fn handle_indexers(
                 let mut indexers = indexers.lock().await;
                 for (indexer, status) in statuses {
                     let indexer = indexers.write(&indexer).await;
-                    indexer.url.write(status.url);
+                    indexer.url.write(Arc::new(status.url));
                     indexer.stake.write(status.staked);
                 }
             }

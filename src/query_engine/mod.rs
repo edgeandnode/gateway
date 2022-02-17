@@ -315,11 +315,6 @@ where
                 .await;
             selection_timer.map(|t| t.observe_duration());
 
-            match &selection_result {
-                Ok(None) => tracing::info!(err = ?NoIndexerSelected),
-                Err(err) => tracing::info!(?err),
-                _ => (),
-            };
             let (indexer_query, scoring_sample) = match selection_result {
                 Ok(Some(indexer_query)) => indexer_query,
                 Ok(None) => return Err(NoIndexerSelected),
@@ -350,9 +345,12 @@ where
                 )
                 .await;
             assert_eq!(retry_count + 1, query.indexer_attempts.len());
-            if let Ok(()) = result {
-                return Ok(());
-            }
+            match result {
+                Ok(()) => return Ok(()),
+                Err(rejection) => {
+                    query.indexer_attempts.last_mut().unwrap().rejection = Some(rejection);
+                }
+            };
         }
         tracing::info!("retry limit reached");
         Err(NoIndexerSelected)
@@ -369,6 +367,7 @@ where
             query_id = %query.id,
             deployment = %query.subgraph.as_ref().unwrap().deployment,
             %indexer,
+            url = %score.url,
             fee = %score.fee,
             slashable = %score.slashable,
             utility = *score.utility,
@@ -406,9 +405,8 @@ where
         deployment_id: &str,
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
-    ) -> Result<(), ()> {
+    ) -> Result<(), String> {
         let indexer_id = indexer_query.indexing.indexer.to_string();
-        tracing::info!(indexer = %indexer_id);
         self.observe_indexer_selection_metrics(deployment_id, &indexer_query);
         let t0 = Instant::now();
         let result = self.indexer_client.query_indexer(&indexer_query).await;
@@ -440,7 +438,7 @@ where
                     &[&deployment_id, &indexer_id],
                     |counter| counter.inc(),
                 );
-                return Err(());
+                return Err(err.to_string());
             }
         };
         with_metric(
@@ -451,7 +449,6 @@ where
 
         let subgraph = query.subgraph.as_ref().unwrap();
         if !subgraph.features.is_empty() && response.attestation.is_none() {
-            tracing::info!(indexer_response_err = "Attestable response has no attestation");
             self.indexers
                 .observe_failed_query(
                     &indexer_query.indexing,
@@ -459,10 +456,10 @@ where
                     IndexerError::NoAttestation,
                 )
                 .await;
-            return Err(());
+            return Err("Attestable response has no attestation".into());
         }
 
-        if let Err(remove_indexer) = self
+        if let Err(rejection) = self
             .check_unattestable_responses(
                 context,
                 &block_resolver,
@@ -477,7 +474,7 @@ where
                 &[&deployment_id, &indexer_id],
                 |counter| counter.inc(),
             );
-            return Err(remove_indexer);
+            return Err(rejection);
         }
 
         if let Some(attestation) = &response.attestation {
@@ -530,30 +527,28 @@ where
         indexing: &Indexing,
         receipt: &Receipt,
         response: &IndexerResponse,
-    ) -> Result<(), ()> {
+    ) -> Result<(), String> {
         // Special-casing for a few known indexer errors; the block scope here
         // is just to separate the code neatly from the rest
 
-        let parsed_response =
-            serde_json::from_str::<Response<Box<RawValue>>>(&response.payload).map_err(|_| ())?;
+        let parsed_response = serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
+            .map_err(|_| "invalid indexer response")?;
 
         if indexer_response_has_error(
             &parsed_response,
             "Failed to decode `block.hash` value: `no block with that hash found`",
         ) {
-            tracing::info!(indexer_response_err = "indexing behind");
             self.indexers
                 .observe_indexing_behind(context, indexing, block_resolver)
                 .await;
-            return Err(());
+            return Err("indexer failed to resolve block".into());
         }
 
         if indexer_response_has_error(&parsed_response, "panic processing query") {
-            tracing::info!(indexer_response_err = "panic processing query");
             self.indexers
                 .observe_failed_query(indexing, receipt, IndexerError::NondeterministicResponse)
                 .await;
-            return Err(());
+            return Err("indexer panicked processing query".into());
         }
 
         Ok(())
