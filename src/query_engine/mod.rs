@@ -16,7 +16,6 @@ pub use crate::{
     prelude::*,
 };
 pub use graphql_client::Response;
-use im;
 use lazy_static::lazy_static;
 use prometheus;
 use serde_json::value::RawValue;
@@ -137,11 +136,6 @@ impl From<SelectionError> for QueryEngineError {
     }
 }
 
-enum RemoveIndexer {
-    Yes,
-    No,
-}
-
 #[derive(Clone)]
 pub struct Config {
     pub indexer_selection_retry_limit: usize,
@@ -153,15 +147,14 @@ pub struct Config {
 pub struct Inputs {
     pub indexers: Arc<Indexers>,
     pub current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
-    pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
+    pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
 }
 
 pub struct InputWriters {
     pub indexer_inputs: indexer_selection::InputWriters,
     pub indexers: Arc<Indexers>,
     pub current_deployments: EventualWriter<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
-    pub deployment_indexers:
-        EventualWriter<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
+    pub deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
 }
 
 impl Inputs {
@@ -192,7 +185,7 @@ where
     F: FishermanInterface + Clone + Send,
 {
     indexers: Arc<Indexers>,
-    deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
+    deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     indexer_client: I,
     fisherman_client: Option<Arc<F>>,
@@ -247,7 +240,7 @@ where
     ) -> Result<(), QueryEngineError> {
         use QueryEngineError::*;
         let subgraph = query.subgraph.as_ref().unwrap().clone();
-        let mut indexers = self
+        let indexers = self
             .deployment_indexers
             .value_immediate()
             .and_then(|map| map.get(&subgraph.deployment).cloned())
@@ -347,7 +340,6 @@ where
                 }
                 _ => (),
             };
-            let indexer = indexer_query.indexing.indexer;
             let result = self
                 .execute_indexer_query(
                     query,
@@ -358,14 +350,9 @@ where
                 )
                 .await;
             assert_eq!(retry_count + 1, query.indexer_attempts.len());
-            match result {
-                Ok(response) => return Ok(response),
-                Err(RemoveIndexer::No) => (),
-                Err(RemoveIndexer::Yes) => {
-                    // TODO: There should be a penalty here, but the indexer should not be removed.
-                    indexers.remove(indexers.iter().position(|i| i == &indexer).unwrap());
-                }
-            };
+            if let Ok(()) = result {
+                return Ok(());
+            }
         }
         tracing::info!("retry limit reached");
         Err(NoIndexerSelected)
@@ -419,7 +406,7 @@ where
         deployment_id: &str,
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
-    ) -> Result<(), RemoveIndexer> {
+    ) -> Result<(), ()> {
         let indexer_id = indexer_query.indexing.indexer.to_string();
         tracing::info!(indexer = %indexer_id);
         self.observe_indexer_selection_metrics(deployment_id, &indexer_query);
@@ -453,7 +440,7 @@ where
                     &[&deployment_id, &indexer_id],
                     |counter| counter.inc(),
                 );
-                return Err(RemoveIndexer::Yes);
+                return Err(());
             }
         };
         with_metric(
@@ -472,7 +459,7 @@ where
                     IndexerError::NoAttestation,
                 )
                 .await;
-            return Err(RemoveIndexer::Yes);
+            return Err(());
         }
 
         if let Err(remove_indexer) = self
@@ -543,12 +530,12 @@ where
         indexing: &Indexing,
         receipt: &Receipt,
         response: &IndexerResponse,
-    ) -> Result<(), RemoveIndexer> {
+    ) -> Result<(), ()> {
         // Special-casing for a few known indexer errors; the block scope here
         // is just to separate the code neatly from the rest
 
-        let parsed_response = serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
-            .map_err(|_| RemoveIndexer::Yes)?;
+        let parsed_response =
+            serde_json::from_str::<Response<Box<RawValue>>>(&response.payload).map_err(|_| ())?;
 
         if indexer_response_has_error(
             &parsed_response,
@@ -558,7 +545,7 @@ where
             self.indexers
                 .observe_indexing_behind(context, indexing, block_resolver)
                 .await;
-            return Err(RemoveIndexer::No);
+            return Err(());
         }
 
         if indexer_response_has_error(&parsed_response, "panic processing query") {
@@ -566,7 +553,7 @@ where
             self.indexers
                 .observe_failed_query(indexing, receipt, IndexerError::NondeterministicResponse)
                 .await;
-            return Err(RemoveIndexer::Yes);
+            return Err(());
         }
 
         Ok(())

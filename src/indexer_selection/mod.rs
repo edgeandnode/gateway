@@ -32,7 +32,6 @@ use crate::{
     },
 };
 use cost_model;
-use im;
 use lazy_static::lazy_static;
 use num_traits::identities::Zero as _;
 pub use ordered_float::NotNan;
@@ -313,7 +312,7 @@ impl Indexers {
         config: &UtilityConfig,
         network: &str,
         subgraph: &SubgraphDeploymentID,
-        indexers: &im::Vector<Address>,
+        indexers: &[Address],
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
         freshness_requirements: &BlockRequirements,
@@ -384,7 +383,7 @@ impl Indexers {
         deployment: &SubgraphDeploymentID,
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
-        indexers: &im::Vector<Address>,
+        indexers: &[Address],
         budget: USD,
         freshness_requirements: &BlockRequirements,
     ) -> Result<Option<Selection>, SelectionError> {
