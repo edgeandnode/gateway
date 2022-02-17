@@ -342,7 +342,7 @@ impl Topology {
         let stake_table = [0.0, 50e3, 100e3, 150e3];
         for indexer in self.indexers.values() {
             let indexer_writer = indexer_inputs.indexers.write(&indexer.id).await;
-            indexer_writer.url.write("".into());
+            indexer_writer.url.write(Arc::default());
             indexer_writer
                 .stake
                 .write(indexer.staked_grt.as_udecimal(&stake_table));

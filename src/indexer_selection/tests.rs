@@ -12,7 +12,7 @@ use plotters::{
 };
 use rand::{thread_rng, Rng as _};
 use secp256k1::SecretKey;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone)]
 struct IndexerCharacteristics {
@@ -267,7 +267,7 @@ async fn run_simulation(
             latest: latest.number,
         });
         let indexer_writer = input_writers.indexers.write(&indexing.indexer).await;
-        indexer_writer.url.write("".to_string());
+        indexer_writer.url.write(Arc::default());
         indexer_writer.stake.write(data.stake);
         if let Some(special_weight) = data.special_weight {
             special_indexers.insert(indexing.indexer, special_weight.try_into().unwrap());

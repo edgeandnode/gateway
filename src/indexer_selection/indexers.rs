@@ -1,12 +1,13 @@
 use crate::prelude::*;
+use std::sync::Arc;
 
 pub struct IndexerDataReader {
-    pub url: Eventual<String>,
+    pub url: Eventual<Arc<String>>,
     pub stake: Eventual<GRT>,
 }
 
 pub struct IndexerDataWriter {
-    pub url: EventualWriter<String>,
+    pub url: EventualWriter<Arc<String>>,
     pub stake: EventualWriter<GRT>,
 }
 
