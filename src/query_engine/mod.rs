@@ -262,7 +262,6 @@ where
         let mut context = Context::new(&query_body, query_variables.as_deref().unwrap_or_default())
             .map_err(|_| MalformedQuery)?;
 
-        // let mut context = query.context().ok_or(MalformedQuery)?;
         let block_resolver = self
             .block_resolvers
             .get(&subgraph.network)
