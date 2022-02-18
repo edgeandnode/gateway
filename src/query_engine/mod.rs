@@ -64,7 +64,6 @@ pub struct IndexerAttempt {
     pub query: Arc<String>,
     pub receipt: Receipt,
     pub result: Result<IndexerResponse, IndexerError>,
-    pub rejection: Option<IndexerError>,
     pub duration: Duration,
 }
 
@@ -356,7 +355,7 @@ where
                             .observe_indexing_behind(&mut context, &indexing, block_resolver)
                             .await;
                     }
-                    attempt.rejection = Some(err);
+                    attempt.result = Err(err);
                 }
             };
         }
@@ -429,7 +428,6 @@ where
             query: Arc::new(indexer_query.query),
             receipt: indexer_query.receipt,
             result: result,
-            rejection: None,
             duration: query_duration,
         });
         let result = &query.indexer_attempts.last().unwrap();
@@ -455,13 +453,13 @@ where
             return Err(IndexerError::NoAttestation);
         }
 
-        if let Err(rejection) = self.check_unattestable_responses(&response).await {
+        if let Err(err) = self.check_unattestable_responses(&response).await {
             with_metric(
                 &METRICS.indexer_response_unattestable,
                 &[&deployment_id, &indexer_id],
                 |counter| counter.inc(),
             );
-            return Err(rejection);
+            return Err(err);
         }
 
         if let Some(attestation) = &response.attestation {
