@@ -5,7 +5,6 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
 use crate::redpanda::utils::MessageKind;
-use serde_bytes;
 
 lazy_static! {
     pub static ref MESSAGE_SCHEMA: Schema = Schema::parse_str(
@@ -16,8 +15,8 @@ lazy_static! {
         "fields": [
             {"name": "ray_id", "type": "string", "default": "howdy"},
             {"name": "query_id", "type": "long"},
-            {"name": "deployment", "type": "bytes"},
-            {"name": "indexer", "type": "bytes"},
+            {"name": "deployment", "type": "string"},
+            {"name": "indexer", "type": "string"},
             {"name": "scoring_err", "type": "string"}
         ]
     }
@@ -31,10 +30,8 @@ lazy_static! {
 pub struct ISAScoringError {
     pub ray_id: String,
     pub query_id: u64,
-    #[serde(with = "serde_bytes")]
-    pub deployment: Vec<u8>,
-    #[serde(with = "serde_bytes")]
-    pub indexer: Vec<u8>,
+    pub deployment: String,
+    pub indexer: String,
     pub scoring_err: String,
 }
 
@@ -79,14 +76,11 @@ fn random_bytes(size: u32) -> Vec<u8> {
 
 impl Default for ISAScoringError {
     fn default() -> ISAScoringError {
-        let deployment_vec = random_bytes(20);
-        let indexer_vec = random_bytes(30);
-
         ISAScoringError {
             ray_id: String::from("null_ray"),
             query_id: Default::default(),
-            deployment: deployment_vec,
-            indexer: indexer_vec,
+            deployment: Default::default(),
+            indexer: Default::default(),
             scoring_err: Default::default(),
         }
     }

@@ -4,7 +4,6 @@ use avro_rs::Writer;
 use bincode;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use serde_bytes;
 
 lazy_static! {
     pub static ref MESSAGE_SCHEMA: Schema = Schema::parse_str(
@@ -16,8 +15,8 @@ lazy_static! {
             {"name": "ray_id", "type": "string", "default": "howdy"},
             {"name": "query_id", "type": "long"},
             {"name": "attempt_index", "type": "int"},
-            {"name": "indexer", "type": "bytes"},
-            {"name": "allocation", "type": "bytes"},
+            {"name": "indexer", "type": "string"},
+            {"name": "allocation", "type": "string"},
             {"name": "fee", "type": "string"},
             {"name": "utility", "type": "double"},
             {"name": "blocks_behind", "type": "long"},
@@ -38,10 +37,8 @@ pub struct IndexerAttempt {
     pub ray_id: String,
     pub query_id: u64,
     pub attempt_index: usize,
-    #[serde(with = "serde_bytes")]
-    pub indexer: Vec<u8>,
-    #[serde(with = "serde_bytes")]
-    pub allocation: Vec<u8>,
+    pub indexer: String,
+    pub allocation: String,
     pub fee: String,
     pub utility: f64,
     pub blocks_behind: u64,
@@ -92,15 +89,12 @@ fn random_bytes(size: u32) -> Vec<u8> {
 
 impl Default for IndexerAttempt {
     fn default() -> IndexerAttempt {
-        let indexer_vec = random_bytes(20);
-        let allocation_vec = random_bytes(30);
-
         IndexerAttempt {
             ray_id: String::from("null_ray"),
             query_id: Default::default(),
             attempt_index: Default::default(),
-            indexer: indexer_vec,
-            allocation: allocation_vec,
+            indexer: Default::default(),
+            allocation: Default::default(),
             fee: Default::default(),
             utility: Default::default(),
             blocks_behind: Default::default(),

@@ -2,12 +2,9 @@ use avro_rs::Schema;
 use avro_rs::Writer;
 use bincode;
 use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
 
 use crate::redpanda::utils::MessageKind;
-
-use serde_bytes;
-
+use serde::{Deserialize, Serialize};
 lazy_static! {
     pub static ref MESSAGE_SCHEMA: Schema = Schema::parse_str(
         r#"
@@ -17,7 +14,7 @@ lazy_static! {
         "fields": [
             {"name": "ray_id", "type": "string", "default": "howdy"},
             {"name": "query_id", "type": "long"},
-            {"name": "deployment", "type": "bytes"},
+            {"name": "deployment", "type": "string"},
             {"name": "network", "type": "string"},
             {"name": "api_key", "type": "string"},
             {"name": "query", "type": "string"},
@@ -37,8 +34,7 @@ lazy_static! {
 pub struct ClientQueryResult {
     pub ray_id: String,
     pub query_id: u64,
-    #[serde(with = "serde_bytes")]
-    pub deployment: Vec<u8>,
+    pub deployment: String,
     pub network: String,
     pub api_key: String,
     pub query: String,
@@ -89,12 +85,10 @@ fn random_bytes(size: u32) -> Vec<u8> {
 
 impl Default for ClientQueryResult {
     fn default() -> ClientQueryResult {
-        let deployment_vec = random_bytes(20);
-
         ClientQueryResult {
             ray_id: String::from("null_ray"),
             query_id: Default::default(),
-            deployment: deployment_vec,
+            deployment: Default::default(),
             network: Default::default(),
             api_key: Default::default(),
             query: Default::default(),

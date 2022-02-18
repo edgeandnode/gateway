@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::redpanda::utils::MessageKind;
 
-use serde_bytes;
 lazy_static! {
     pub static ref MESSAGE_SCHEMA: Schema = Schema::parse_str(
         r#"
@@ -15,8 +14,8 @@ lazy_static! {
         "fields": [
             {"name": "ray_id", "type": "string", "default": "howdy"},
             {"name": "query_id", "type": "long"},
-            {"name": "deployment", "type": "bytes"},
-            {"name": "address", "type": "bytes"},
+            {"name": "deployment", "type": "string"},
+            {"name": "address", "type": "string"},
             {"name": "fee", "type": "string"},
             {"name": "slashable", "type": "string"},
             {"name": "utility", "type": "double"},
@@ -40,10 +39,8 @@ lazy_static! {
 pub struct ISAScoringSample {
     pub ray_id: String,
     pub query_id: u64,
-    #[serde(with = "serde_bytes")]
-    pub deployment: Vec<u8>,
-    #[serde(with = "serde_bytes")]
-    pub address: Vec<u8>,
+    pub deployment: String,
+    pub address: String,
     pub fee: String,
     pub slashable: String,
     pub utility: f64,
@@ -99,14 +96,11 @@ fn random_bytes(size: u32) -> Vec<u8> {
 
 impl Default for ISAScoringSample {
     fn default() -> ISAScoringSample {
-        let deployment_vec = random_bytes(20);
-        let address_vec = random_bytes(30);
-
         ISAScoringSample {
             ray_id: String::from("null_ray"),
             query_id: Default::default(),
-            deployment: deployment_vec,
-            address: address_vec,
+            deployment: Default::default(),
+            address: Default::default(),
             fee: Default::default(),
             slashable: Default::default(),
             utility: Default::default(),

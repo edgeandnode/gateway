@@ -411,8 +411,8 @@ where
             let indexer_sample_msg = ISAScoringSample {
                 ray_id: query.ray_id.clone(),
                 query_id: query.id.local_id,
-                deployment: query.subgraph.as_ref().unwrap().deployment.to_vec(),
-                address: indexer.to_vec(),
+                deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
+                address: indexer.to_string(),
                 fee: score.fee.to_string().to_owned(),
                 slashable: score.slashable.to_string().to_owned(),
                 utility: score.utility.into_inner(),
@@ -456,8 +456,8 @@ where
             let indexer_sample_error_msg = ISAScoringError {
                 ray_id: query.ray_id.clone(),
                 query_id: query.id.local_id,
-                deployment: query.subgraph.as_ref().unwrap().deployment.to_vec(),
-                indexer: indexer.to_vec(),
+                deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
+                indexer: indexer.to_string(),
                 scoring_err: message.to_string(),
             };
             let delivery = client.send(
