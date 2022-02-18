@@ -91,13 +91,17 @@ impl SelectionFactors {
         lock.allocations.release(receipt, QueryStatus::Success);
     }
 
-    pub async fn observe_failed_query(&self, receipt: &[u8], error: IndexerError) {
+    pub async fn observe_failed_query(&self, receipt: &[u8], error: &IndexerError) {
         let mut lock = self.locked.write().await;
         lock.reputation.current_mut().add_failed_query();
         let status = match error {
+            // The indexer is potentially unaware that it failed, since it may have sent a response
+            // back with an attestation.
             IndexerError::Timeout => QueryStatus::Unknown,
             IndexerError::NoAttestation
-            | IndexerError::NondeterministicResponse
+            | IndexerError::Panic
+            | IndexerError::UnexpectedPayload
+            | IndexerError::UnresolvedBlock
             | IndexerError::Other(_) => QueryStatus::Failure,
         };
         lock.allocations.release(receipt, status);

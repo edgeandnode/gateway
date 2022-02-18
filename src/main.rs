@@ -448,7 +448,7 @@ async fn handle_subgraph_query(
             blocks_behind = attempt.score.blocks_behind,
             response_time_ms = attempt.duration.as_millis() as u32,
             %status,
-            rejection = %attempt.rejection.as_deref().unwrap_or_default(),
+            rejection = %attempt.rejection.as_ref().map(|err| err.to_string()).unwrap_or_default(),
             "Indexer attempt",
         );
     }

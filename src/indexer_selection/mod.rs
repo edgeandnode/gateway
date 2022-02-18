@@ -95,11 +95,14 @@ impl From<BadIndexerReason> for SelectionError {
     }
 }
 
+// TODO: error codes
 #[derive(Clone, Debug)]
 pub enum IndexerError {
-    Timeout,
     NoAttestation,
-    NondeterministicResponse,
+    Panic,
+    Timeout,
+    UnexpectedPayload,
+    UnresolvedBlock,
     Other(String),
 }
 
@@ -246,7 +249,7 @@ impl Indexers {
         &self,
         indexing: &Indexing,
         receipt: &[u8],
-        error: IndexerError,
+        error: &IndexerError,
     ) {
         let selection_factors = match self.indexings.get(indexing).await {
             Some(selection_factors) => selection_factors,
