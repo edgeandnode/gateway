@@ -427,7 +427,7 @@ where
             };
             let delivery = client.send(
                 "gateway_isa_sample",
-                &indexer_sample_msg.write(MessageKind::AVRO),
+                &indexer_sample_msg.write(MessageKind::JSON),
             );
             delivery.unwrap().await;
         };
@@ -461,8 +461,8 @@ where
                 scoring_err: message.to_string(),
             };
             let delivery = client.send(
-                "gateway_isa_sample",
-                &indexer_sample_error_msg.write(MessageKind::AVRO),
+                "gateway_isa_error",
+                &indexer_sample_error_msg.write(MessageKind::JSON),
             );
             delivery.unwrap().await;
         };

@@ -476,7 +476,7 @@ async fn handle_subgraph_query(
 
     data.kafka_client.send(
         "gateway_client_query_results",
-        &client_query_msg.write(MessageKind::AVRO),
+        &client_query_msg.write(MessageKind::JSON),
     );
 
     for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
@@ -521,7 +521,7 @@ async fn handle_subgraph_query(
             .kafka_client
             .send(
                 "gateway_indexer_attempts",
-                &indexer_attempt_msg.write(MessageKind::AVRO),
+                &indexer_attempt_msg.write(MessageKind::JSON),
             )
             .unwrap()
             .await;

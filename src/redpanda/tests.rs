@@ -139,10 +139,10 @@ async fn run_redpanda(
     let test_client_query = ClientQueryResult::default();
     let test_indexer_attempt = IndexerAttempt::default();
 
-    let isa_sample_bytes = test_isa_sample.write(MessageKind::AVRO);
-    let isa_error_bytes = test_isa_error.write(MessageKind::AVRO);
-    let client_query_bytes = test_client_query.write(MessageKind::AVRO);
-    let indexer_attempt_bytes = test_indexer_attempt.write(MessageKind::AVRO);
+    let isa_sample_bytes = test_isa_sample.write(MessageKind::JSON);
+    let isa_error_bytes = test_isa_error.write(MessageKind::JSON);
+    let client_query_bytes = test_client_query.write(MessageKind::JSON);
+    let indexer_attempt_bytes = test_indexer_attempt.write(MessageKind::JSON);
 
     let mut payloads: Vec<Vec<u8>> = vec![];
     payloads.push(isa_sample_bytes);
