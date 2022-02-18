@@ -6,9 +6,12 @@ use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::ClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::stream_consumer::StreamConsumer;
-use rdkafka::consumer::{ConsumerContext, Rebalance};
+use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::error::{KafkaError, KafkaResult};
-use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord};
+use rdkafka::producer::{
+    BaseRecord, DefaultProducerContext, DeliveryFuture, FutureProducer, FutureRecord,
+    ThreadedProducer,
+};
 use rdkafka::topic_partition_list::TopicPartitionList;
 
 use log::info;
@@ -17,9 +20,10 @@ use std::fmt;
 use super::utils::{setup_logger, MessageKind};
 use crate::rp_utils::client::RpClientContext;
 
-#[derive(Clone)]
+// #[derive(Clone)]
 pub struct KafkaClient {
-    pub(super) producer: FutureProducer<RpClientContext>,
+    pub(super) producer: ThreadedProducer<DefaultProducerContext>,
+    // pub(super) thread_producer: FutureProducer<RpClientContext>,
     kafka_url: String,
 }
 
@@ -44,7 +48,7 @@ impl KafkaClient {
         }
 
         let producer = config
-            .create_with_context(RpClientContext)
+            .create_with_context(DefaultProducerContext)
             .expect("Producer creation error");
 
         Ok(KafkaClient {
@@ -107,27 +111,33 @@ impl KafkaClient {
         Ok(())
     }
 
-    pub fn send(&self, topic_name: &str, message: &[u8]) -> Result<DeliveryFuture, KafkaError> {
-        let record: FutureRecord<&Vec<u8>, _> = FutureRecord::to(&topic_name)
-            .payload(message)
-            .timestamp(chrono::Utc::now().timestamp_millis());
-        self.producer.send_result(record).map_err(|(e, _message)| e)
+    pub fn send(&self, topic_name: &str, message: &[u8]) {
+        //     let record: FutureRecord<&Vec<u8>, _> = FutureRecord::to(&topic_name)
+        //         .payload(message)
+        //         .timestamp(chrono::Utc::now().timestamp_millis());
+        //     self.producer.send_result(record).map_err(|(e, _message)| e)
+
+        let mut record = BaseRecord::to(topic_name).payload(message).key("1");
+        match self.producer.send(record) {
+            Ok(()) => (),
+            _ => (),
+        }
     }
 
-    pub fn send_key_value(
-        &self,
-        topic_name: &str,
-        key: &[u8],
-        message: Option<Vec<u8>>,
-    ) -> Result<DeliveryFuture, KafkaError> {
-        let mut record: FutureRecord<_, _> = FutureRecord::to(&topic_name)
-            .key(key)
-            .timestamp(chrono::Utc::now().timestamp_millis());
-        if let Some(message) = &message {
-            record = record.payload(message);
-        }
-        self.producer.send_result(record).map_err(|(e, _message)| e)
-    }
+    // pub fn send_key_value(
+    //     &self,
+    //     topic_name: &str,
+    //     key: &[u8],
+    //     message: Option<Vec<u8>>,
+    // ) -> Result<DeliveryFuture, KafkaError> {
+    //     let mut record: FutureRecord<_, _> = FutureRecord::to(&topic_name)
+    //         .key(key)
+    //         .timestamp(chrono::Utc::now().timestamp_millis());
+    //     if let Some(message) = &message {
+    //         record = record.payload(message);
+    //     }
+    //     self.producer.send_result(record).map_err(|(e, _message)| e)
+    // }
 }
 
 pub struct CustomContext;

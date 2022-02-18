@@ -429,7 +429,7 @@ where
                 "gateway_isa_sample",
                 &indexer_sample_msg.write(MessageKind::JSON),
             );
-            delivery.unwrap().await;
+            // delivery.unwrap().await;
         };
         res.await;
     }
@@ -464,7 +464,7 @@ where
                 "gateway_isa_error",
                 &indexer_sample_error_msg.write(MessageKind::JSON),
             );
-            delivery.unwrap().await;
+            // delivery.unwrap().await;
         };
         res.await;
     }
