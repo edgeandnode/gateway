@@ -95,7 +95,6 @@ impl From<BadIndexerReason> for SelectionError {
     }
 }
 
-// TODO: error codes
 #[derive(Clone, Debug)]
 pub enum IndexerError {
     NoAttestation,
@@ -112,12 +111,6 @@ impl IndexerError {
             Self::Timeout => true,
             _ => false,
         }
-    }
-}
-
-impl fmt::Display for IndexerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
     }
 }
 

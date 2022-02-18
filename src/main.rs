@@ -17,8 +17,8 @@ mod ws_client;
 use crate::{
     block_resolver::{BlockCache, BlockResolver},
     fisherman_client::*,
-    indexer_client::IndexerClient,
-    indexer_selection::UtilityConfig,
+    indexer_client::{IndexerClient, IndexerResponse},
+    indexer_selection::{IndexerError, UtilityConfig},
     ipfs_client::*,
     manifest_client::*,
     opt::*,
@@ -38,7 +38,11 @@ use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 use structopt::StructOpt as _;
 use url::Url;
 
@@ -432,8 +436,9 @@ async fn handle_subgraph_query(
     for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
         let status = match &attempt.result {
             Ok(response) => response.status.to_string(),
-            Err(err) => err.to_string(),
+            Err(err) => format!("{:?}", err),
         };
+        let status_code = encode_indexer_attempt_status(&attempt.result);
         tracing::info!(
             ray_id = %query.ray_id,
             query_id = %query.id,
@@ -448,12 +453,32 @@ async fn handle_subgraph_query(
             blocks_behind = attempt.score.blocks_behind,
             response_time_ms = attempt.duration.as_millis() as u32,
             %status,
-            rejection = %attempt.rejection.as_ref().map(|err| err.to_string()).unwrap_or_default(),
+            status_code,
             "Indexer attempt",
         );
     }
 
     payload
+}
+
+// 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
+fn encode_indexer_attempt_status(result: &Result<IndexerResponse, IndexerError>) -> u32 {
+    let (prefix, data) = match result {
+        // prefix 0x0, followed by the HTTP status code
+        Ok(response) => (0x0, (response.status as u32).to_be()),
+        Err(IndexerError::NoAttestation) => (0x1, 0x0),
+        Err(IndexerError::Panic) => (0x2, 0x0),
+        Err(IndexerError::Timeout) => (0x3, 0x0),
+        Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
+        Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
+        // prefix 0x6, followed by a 28-bit hash of the error message
+        Err(IndexerError::Other(msg)) => {
+            let mut hasher = DefaultHasher::new();
+            msg.hash(&mut hasher);
+            (0x6, hasher.finish() as u32)
+        }
+    };
+    (prefix << 28) | (data & (u32::MAX >> 4))
 }
 
 async fn handle_subgraph_query_inner(

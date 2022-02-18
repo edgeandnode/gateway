@@ -434,15 +434,12 @@ impl Topology {
 
         let mut failed_attempts = query.indexer_attempts.clone();
         let last_attempt = failed_attempts.pop();
-        let success_check =
-            last_attempt
-                .as_ref()
-                .and_then(|attempt| match (&attempt.result, &attempt.rejection) {
-                    (Ok(_), None) => {
-                        Some(self.check_successful_attempt(&mut trace, &result, &valid, &attempt))
-                    }
-                    _ => None,
-                });
+        let success_check = last_attempt
+            .as_ref()
+            .and_then(|attempt| match &attempt.result {
+                Ok(_) => Some(self.check_successful_attempt(&mut trace, &result, &valid, &attempt)),
+                Err(_) => None,
+            });
         match last_attempt {
             Some(attempt) if success_check.is_none() => failed_attempts.push(attempt),
             _ => (),
@@ -508,7 +505,7 @@ impl Topology {
         valid: &[&IndexerTopology],
         attempt: &IndexerAttempt,
     ) -> Result<(), Vec<String>> {
-        if let (Ok(_), None) = (&attempt.result, &attempt.rejection) {
+        if attempt.result.is_ok() {
             return Self::err_with(
                 trace,
                 format!("expected indexer query error, got: {:#?}", attempt),
