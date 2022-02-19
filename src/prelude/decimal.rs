@@ -207,9 +207,9 @@ impl<const P: u8> UDecimal<P> {
             .iter()
             .enumerate()
             .take(le_u64.len() - ctz)
-            .map(|(i, &n)| 2.0f64.powf((i * 64) as f64) * (n as f64))
+            .map(|(i, &n)| 2.0f64.powi(i as i32 * 64) * n as f64)
             .sum::<f64>()
-            / 10.0f64.powf(P as f64)
+            / 10.0f64.powi(P as i32)
     }
 
     pub fn to_little_endian(&self) -> [u8; 32] {
@@ -229,6 +229,33 @@ impl<const P: u8> UDecimal<P> {
             internal: self.internal.saturating_sub(other.internal),
         }
     }
+}
+
+impl<const P: u8> TryFrom<f64> for UDecimal<P> {
+    type Error = FromF64Error;
+    fn try_from(mut from: f64) -> Result<Self, Self::Error> {
+        if from.is_nan() || (from < 0.0) {
+            return Err(FromF64Error::InvalidInput);
+        }
+        const U128_MAX: f64 = u128::MAX as f64;
+        from = from * 10.0f64.powi(P as i32);
+        let lower = from.min(U128_MAX);
+        from -= lower;
+        let lower = lower as u128;
+        // This can result in some nasty loss of precision for low (nonzero) values of upper.
+        let upper = (from / U128_MAX).round() as u128;
+        let mut le_u8 = [0u8; 32];
+        le_u8[0..16].copy_from_slice(&lower.to_le_bytes());
+        le_u8[16..32].copy_from_slice(&upper.to_le_bytes());
+        Ok(Self {
+            internal: U256::from_little_endian(&le_u8),
+        })
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum FromF64Error {
+    InvalidInput,
 }
 
 #[cfg(test)]
@@ -286,5 +313,47 @@ mod test {
                 None => assert_eq!(d, Err(ParseStrError::InvalidInput)),
             }
         }
+    }
+
+    #[test]
+    fn udecimal_from_f64() {
+        let tests = [
+            0.0,
+            0.5,
+            0.01,
+            0.0042,
+            1.0,
+            123.456,
+            1e14,
+            1e18,
+            2.0f64.powi(128) - 1.0,
+            2.0f64.powi(128),
+            1e26,
+            // 1e27, // -> 2.085% error @ P = 12
+            // 1e28, // -> 1.318% error @ P = 12
+            1e29,
+            1e30,
+            1e32,
+        ];
+        for test in tests {
+            test_udecimal_from_f64::<0>(test);
+            test_udecimal_from_f64::<1>(test);
+            test_udecimal_from_f64::<6>(test);
+            test_udecimal_from_f64::<12>(test);
+        }
+    }
+
+    fn test_udecimal_from_f64<const P: u8>(value: f64) {
+        let expected = (value * 10.0f64.powi(P as i32)).floor();
+        let decimal = UDecimal::<P>::try_from(value).unwrap();
+        let output = decimal.internal.to_string().parse::<f64>().unwrap();
+        let error = (expected - output).abs() / expected.max(1e-30);
+        println!(
+            "expected: {}\n decimal: {}\n   error: {:.3}%\n---",
+            expected / 10.0f64.powi(P as i32),
+            decimal,
+            error * 100.0
+        );
+        assert!(error < 0.005);
     }
 }
