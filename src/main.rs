@@ -524,13 +524,6 @@ async fn handle_subgraph_query(
             "gateway_indexer_attempts",
             &indexer_attempt_msg.write(MessageKind::JSON),
         );
-        // .unwrap()
-        // .await;
-
-        // match send {
-        //     Ok(x) => {}
-        //     Err(e) => {}
-        // }
     }
 
     payload
