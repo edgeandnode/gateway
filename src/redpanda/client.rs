@@ -42,6 +42,9 @@ impl KafkaClient {
         let mut config = ClientConfig::new();
         config.set("bootstrap.servers", kafka_url);
         config.set("group.id", group_id);
+        config.set("message.timeout.ms", "3000");
+        config.set("queue.buffering.max.ms", "1000");
+        config.set("queue.buffering.max.messages", "1000000");
 
         for (key, val) in configs {
             config.set(*key, *val);
