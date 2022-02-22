@@ -58,7 +58,7 @@ impl IndexerAttempt {
         let res = writer.append_ser(self);
 
         match res {
-            Ok(res) => (),
+            Ok(_res) => (),
             Err(err) => {
                 panic!("{:?}", err);
             }
@@ -80,11 +80,6 @@ impl IndexerAttempt {
             _ => self.write_default(),
         }
     }
-}
-
-fn random_bytes(size: u32) -> Vec<u8> {
-    let random_bytes: Vec<u8> = (0..size).map(|_| rand::random::<u8>()).collect();
-    return random_bytes;
 }
 
 impl Default for IndexerAttempt {

@@ -37,9 +37,6 @@ use crate::redpanda::messages::{
 
 use crate::redpanda::utils::MessageKind;
 
-use futures_channel::oneshot::Canceled;
-use rdkafka::error::KafkaError;
-use rdkafka::message::OwnedMessage;
 #[derive(Debug)]
 pub struct Query {
     pub id: QueryID,
@@ -418,7 +415,7 @@ where
                 url: score.url.to_string(),
                 message: message.to_string(),
             };
-            let delivery = client.send(
+            client.send(
                 "gateway_isa_sample",
                 &indexer_sample_msg.write(MessageKind::JSON),
             );
@@ -452,7 +449,7 @@ where
                 indexer: indexer.to_string(),
                 scoring_err: message.to_string(),
             };
-            let delivery = client.send(
+            client.send(
                 "gateway_isa_error",
                 &indexer_sample_error_msg.write(MessageKind::JSON),
             );

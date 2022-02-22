@@ -79,3 +79,10 @@ You will also need to set the `rust-rdkafka` package feature to contain `dynamic
 rustup target add aarch64-apple-darwin 
 cargo build 
 
+RUST_LOG="librdkafka=trace,rdkafka::client=debug" cargo test  --package graph-gateway -- redpanda::tests::test_redpanda --exact --show-output --nocapture
+
+
+
+Passing Kafka client through the requests:
+  -Add into middleware?
+  -Make available to the Query object

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
 use rdkafka::message::{BorrowedMessage, OwnedMessage};
 use rdkafka::Message;
 use std::thread;

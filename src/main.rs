@@ -520,7 +520,7 @@ async fn handle_subgraph_query(
             rejection: rejection_reason.to_string(),
         };
 
-        let send = data.kafka_client.send(
+        data.kafka_client.send(
             "gateway_indexer_attempts",
             &indexer_attempt_msg.write(MessageKind::JSON),
         );

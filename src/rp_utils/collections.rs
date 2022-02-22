@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
 use std::fmt::Display;
 
 /// Extension methods for collections.

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
 use env_logger::fmt::Formatter;
 use env_logger::Builder;
 use log::{LevelFilter, Record};
@@ -10,6 +12,7 @@ use chrono::prelude::*;
 pub enum MessageKind {
     JSON,
     AVRO,
+    OTHER,
 }
 
 pub fn setup_logger(log_thread: bool, rust_log: Option<&str>) {

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
 use std::cmp;
 use std::future::Future;
 use std::pin::Pin;

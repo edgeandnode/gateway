@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
 use avro_rs::Schema;
 use avro_rs::Writer;
 use bincode;
@@ -67,11 +69,6 @@ impl ISAScoringError {
             _ => self.write_default(),
         }
     }
-}
-
-fn random_bytes(size: u32) -> Vec<u8> {
-    let random_bytes: Vec<u8> = (0..size).map(|_| rand::random::<u8>()).collect();
-    return random_bytes;
 }
 
 impl Default for ISAScoringError {

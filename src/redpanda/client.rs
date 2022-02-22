@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
 use std::time::Duration;
 
 use anyhow::Context;
@@ -120,7 +123,7 @@ impl KafkaClient {
         //         .timestamp(chrono::Utc::now().timestamp_millis());
         //     self.producer.send_result(record).map_err(|(e, _message)| e)
 
-        let mut record = BaseRecord::to(topic_name).payload(message).key("1");
+        let record = BaseRecord::to(topic_name).payload(message).key("1");
         match self.producer.send(record) {
             Ok(()) => (),
             _ => (),

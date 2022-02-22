@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
 use super::collections::CollectionExt;
 use anyhow::bail;
 use rdkafka::client::Client;
