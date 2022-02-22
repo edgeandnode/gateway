@@ -1,4 +1,37 @@
 use crate::indexer_selection::utility::*;
+use std::time::Duration;
+
+// This could have been done more automatically by using a proc-macro, but this is simpler.
+macro_rules! impl_struct_decay {
+    ($name:ty {$($field:ident),*}) => {
+        impl Decay for $name {
+            fn shift(&mut self, mut next: Option<&mut Self>, fraction: f64, keep: f64) {
+                $(
+                    self.$field.shift(
+                        next.as_deref_mut().map(|n| &mut n.$field),
+                        fraction,
+                        keep,
+                    );
+                )*
+            }
+
+            fn clear(&mut self) {
+                // Doing a destructure ensures that we don't miss any fields,
+                // should they be added in the future. I tried it and the compiler
+                // even gives you a nice error message...
+                //
+                // missing structure fields:
+                //    -{name}
+                let Self { $($field),* } = self;
+
+                $(
+                    $field.clear();
+                )*
+            }
+        }
+    };
+}
+pub(crate) use impl_struct_decay;
 
 pub trait Decay {
     fn shift(&mut self, next: Option<&mut Self>, fraction: f64, keep: f64);
@@ -13,12 +46,26 @@ pub trait DecayUtility {
 /// The DecayBuffer accounts for selection factors over various time-frames. Currently, these time
 /// frames are 7 consecutive powers of 4 minute intervals, i.e. [1m, 4m, 16m, ... 4096m]. This
 /// assumes that `decay` is called once every minute.
-#[derive(Default)]
-pub struct DecayBuffer<T> {
-    frames: [T; 7],
+#[derive(Debug)]
+pub struct DecayBufferUnconfigured<T, const LOSS_POINTS: u16, const LEN: usize> {
+    frames: [T; LEN],
 }
 
-impl<T: DecayUtility> DecayBuffer<T> {
+impl<T, const D: u16, const L: usize> Default for DecayBufferUnconfigured<T, D, L>
+where
+    [T; L]: Default,
+{
+    fn default() -> Self {
+        Self {
+            frames: Default::default(),
+        }
+    }
+}
+
+pub type DecayBuffer<T> = DecayBufferUnconfigured<T, 5, 7>;
+pub type FastDecayBuffer<T> = DecayBufferUnconfigured<T, 10, 6>;
+
+impl<T: DecayUtility, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L> {
     pub fn expected_utility(&self, utility_parameters: UtilityParameters) -> SelectionFactor {
         let mut aggregator = UtilityAggregator::new();
         for (i, frame) in self.frames.iter().enumerate() {
@@ -41,13 +88,26 @@ impl<T: DecayUtility> DecayBuffer<T> {
     }
 }
 
-impl<T> DecayBuffer<T> {
-    pub fn current_mut(&mut self) -> &mut T {
-        &mut self.frames[0]
+impl<T, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L>
+where
+    Self: Default,
+{
+    pub fn new() -> Self {
+        Default::default()
     }
 }
 
-impl<T: Decay> DecayBuffer<T> {
+impl<T, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L> {
+    pub fn current_mut(&mut self) -> &mut T {
+        &mut self.frames[0]
+    }
+
+    pub fn frames(&self) -> &[T] {
+        &self.frames
+    }
+}
+
+impl<T: Decay, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L> {
     /*
     The idea here is to pretend that we have a whole bunch of buckets of the minimum window size (1 min each)
     A whole 8191 of them! Queries contribute to the bucket they belong, and each time we decay each bucket shifts down
@@ -59,7 +119,7 @@ impl<T: Decay> DecayBuffer<T> {
     of the data, but reduces the size of our array from 8191 to just 7 at the expense of slight complexity and loss of accuracy.
     */
     pub fn decay(&mut self) {
-        for i in (0..7).rev() {
+        for i in (0..L).rev() {
             // Select buckets [i], [i+]
             let (l, r) = self.frames.split_at_mut(i + 1);
             let (this, next) = (l.last_mut().unwrap(), r.get_mut(0));
@@ -67,7 +127,10 @@ impl<T: Decay> DecayBuffer<T> {
             // Decay rate of 0.5% per smallest bucket resolution
             // That is, each time we shift decay 0.5% per non-aggregated bucket
             // and aggregate the results into frames.
-            let retain = 0.995_f64.powf(4_f64.powf(i as f64));
+            //const RETAIN: f64 = 0.995;
+            //const RETAIN: f64 = 0.98;
+            let retain = 1.0 - ((D as f64) * 0.001f64);
+            let retain = retain.powf(4_f64.powf(i as f64));
 
             // Shift one bucket, aggregating the results.
             this.shift(next, 0.25_f64.powf(i as f64), retain);
@@ -89,6 +152,21 @@ impl Decay for f64 {
 
     fn clear(&mut self) {
         *self = 0.0;
+    }
+}
+
+impl Decay for Duration {
+    fn shift(&mut self, next: Option<&mut Self>, fraction: f64, keep: f64) {
+        let secs = self.as_secs_f64();
+        let take = secs * fraction;
+        *self = Duration::from_secs_f64(secs - take);
+        if let Some(next) = next {
+            *next += Duration::from_secs_f64(take * keep);
+        }
+    }
+
+    fn clear(&mut self) {
+        *self = Duration::ZERO;
     }
 }
 

@@ -125,7 +125,11 @@ async fn main() {
         config: query_engine::Config {
             indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
             utility: UtilityConfig::default(),
-            query_budget: opt.query_budget,
+            budget_factors: QueryBudgetFactors {
+                scale: opt.query_budget_scale,
+                discount: opt.query_budget_discount,
+                processes: (opt.replica_count * opt.location_count) as f64,
+            },
         },
         indexer_client: IndexerClient {
             client: http_client.clone(),

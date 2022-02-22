@@ -50,11 +50,49 @@ impl PriceEfficiency {
             }
             Ok(cost) => cost,
         };
-        let fee: GRT = cost.to_string().parse::<GRTWei>().unwrap().shift();
+        let mut fee: GRT = cost.to_string().parse::<GRTWei>().unwrap().shift();
 
         // Anything overpriced is refused.
         if fee > *max_budget {
             return Err(BadIndexerReason::FeeTooHigh.into());
+        }
+
+        // Set the minimum fee to a value which is lower than the
+        // revenue maximizing price. This is sort of a hack because
+        // indexers can't be bothered to optimize their cost models.
+        // We avoid query fees going too low, but also make it so that
+        // indexers can maximize their revenue by raising their prices
+        // to reward those who are putting more effort in than "default => 0.0000001;"
+        //
+        // This is somewhat hard, so we'll make some assumptions:
+        // First assumption: queries are proportional to utility. This is wrong,
+        // but it would simplify our revenue function to queries * utility
+        // Given:
+        //   s = (-1.0 + 5.0f64.sqrt()) / 2.0
+        //   x = queries
+        //   w = weight
+        //   p = normalized price
+        //   u = utility = ((1.0 / (p + s)) - s) ^ w
+        // Then the derivative of x * u is:
+        //   ((1 / (p + s) - s)^w - (w*p / (((p + s)^2) * ((1/(p+s)) - s)^w)
+        // And, given a w, we want to solve for p such that the derivative is 0.
+        // This gives us the lower bound for the revenue maximizing price.
+        //
+        // I think this approximation is of a lower bound is reasonable
+        // (better not to overestimate and hurt the indexer's revenue)
+        // Solving for the correct revenue-maximizing value is complex and recursive (since the revenue
+        // maximizing price depends on the utility of all other indexers which itself depends
+        // on their revenue maximizing price... ad infinitum)
+        //
+        // TODO: I didn't solve for this generally over w yet. But, I know that if w is 0.5,
+        // then the correct value is ~ 0.601. Since price utility weights
+        // are currently hardcoded, then the closed solution over w can go in on the next iteration.
+        let min_rate = GRT::try_from(0.6).unwrap();
+        let min_optimal_fee = *max_budget * min_rate;
+        // If their fee is less than the min optimal, lerp between them so that
+        // indexers are rewarded for being closer.
+        if fee < min_optimal_fee {
+            fee = (min_optimal_fee + fee) * GRT::try_from(0.5).unwrap();
         }
 
         // I went over a bunch of options and am not happy with any of them.
@@ -148,7 +186,12 @@ mod test {
         eventuals::idle().await;
         let mut context = Context::new(BASIC_QUERY, "").unwrap();
         // Expected values based on https://www.desmos.com/calculator/kxd4kpjxi5
-        let tests = [(0.01, 0.0), (0.02, 0.2763), (0.1, 0.7746), (1.0, 0.9742)];
+        let tests = [
+            (0.01, 0.0),
+            (0.02, 0.487960),
+            (0.1, 0.64419),
+            (1.0, 0.68216),
+        ];
         for (budget, expected_utility) in tests {
             let (fee, utility) = efficiency
                 .get_price(
@@ -158,9 +201,10 @@ mod test {
                 )
                 .await
                 .unwrap();
+            let utility = utility.utility.powf(utility.weight);
             println!("fee: {}, {:?}", fee, utility);
-            assert_eq!(fee, "0.01".parse::<GRT>().unwrap());
-            assert_within(utility.utility, expected_utility, 0.0001);
+            assert!(fee >= "0.01".parse::<GRT>().unwrap());
+            assert_within(utility, expected_utility, 0.0001);
         }
     }
 }

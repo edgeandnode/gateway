@@ -673,7 +673,11 @@ async fn test() {
             Config {
                 indexer_selection_retry_limit: 3,
                 utility: UtilityConfig::default(),
-                query_budget: 1u64.try_into().unwrap(),
+                budget_factors: QueryBudgetFactors {
+                    scale: 1.0,
+                    discount: 0.0,
+                    processes: 1.0,
+                },
             },
             TopologyIndexer {
                 topology: topology.clone(),
