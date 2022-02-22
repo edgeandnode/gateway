@@ -60,6 +60,9 @@ url = "2.2"
 uuid = { version = "0.8", features = ["v4"] }
 
 [dev-dependencies]
+# core-foundation is added because it is a transitive dependency of plotters (through font-kit)
+# and the selected version (0.9.1) fails to build on MacOS
+core-foundation = "0.9.3"
 eventuals = { version = "0.6", features = ["trace"] }
 plotters = { version = "0.3", features = [
   "bitmap_encoder",
