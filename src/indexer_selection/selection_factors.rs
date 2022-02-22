@@ -139,26 +139,36 @@ impl SelectionFactors {
         lock.allocations.commit(fee)
     }
 
-    pub async fn expected_performance_utility(&self, u_a: f64) -> SelectionFactor {
+    pub async fn expected_performance_utility(
+        &self,
+        utility_parameters: UtilityParameters,
+    ) -> SelectionFactor {
         let lock = self.locked.read().await;
-        lock.performance.expected_utility(u_a)
+        lock.performance.expected_utility(utility_parameters)
     }
 
-    pub async fn expected_reputation_utility(&self, u_a: f64) -> SelectionFactor {
+    pub async fn expected_reputation_utility(
+        &self,
+        utility_parameters: UtilityParameters,
+    ) -> SelectionFactor {
         let lock = self.locked.read().await;
-        lock.reputation.expected_utility(u_a)
+        lock.reputation.expected_utility(utility_parameters)
     }
 
     pub async fn expected_freshness_utility(
         &self,
         freshness_requirements: &BlockRequirements,
-        u_a: f64,
+        utility_parameters: UtilityParameters,
         latest_block: u64,
         blocks_behind: u64,
     ) -> Result<SelectionFactor, SelectionError> {
         let lock = self.locked.read().await;
-        lock.freshness
-            .expected_utility(freshness_requirements, u_a, latest_block, blocks_behind)
+        lock.freshness.expected_utility(
+            freshness_requirements,
+            utility_parameters,
+            latest_block,
+            blocks_behind,
+        )
     }
 
     pub async fn total_allocation(&self) -> GRT {

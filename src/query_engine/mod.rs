@@ -18,7 +18,6 @@ pub use crate::{
     prelude::*,
 };
 pub use graphql_client::Response;
-use im;
 use lazy_static::lazy_static;
 use prometheus;
 use serde_json::value::RawValue;
@@ -133,6 +132,7 @@ pub enum QueryEngineError {
     NoIndexerSelected,
     FeesTooHigh(usize),
     MalformedQuery,
+    BlockBeforeMin,
     MissingBlock(UnresolvedBlock),
 }
 
@@ -149,11 +149,6 @@ impl From<SelectionError> for QueryEngineError {
     }
 }
 
-enum RemoveIndexer {
-    Yes,
-    No,
-}
-
 #[derive(Clone)]
 pub struct Config {
     pub indexer_selection_retry_limit: usize,
@@ -165,15 +160,14 @@ pub struct Config {
 pub struct Inputs {
     pub indexers: Arc<Indexers>,
     pub current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
-    pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
+    pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
 }
 
 pub struct InputWriters {
     pub indexer_inputs: indexer_selection::InputWriters,
     pub indexers: Arc<Indexers>,
     pub current_deployments: EventualWriter<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
-    pub deployment_indexers:
-        EventualWriter<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
+    pub deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
 }
 
 impl Inputs {
@@ -204,7 +198,7 @@ where
     F: FishermanInterface + Clone + Send,
 {
     indexers: Arc<Indexers>,
-    deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, im::Vector<Address>>>>,
+    deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     indexer_client: I,
     fisherman_client: Option<Arc<F>>,
@@ -259,7 +253,7 @@ where
     ) -> Result<(), QueryEngineError> {
         use QueryEngineError::*;
         let subgraph = query.subgraph.as_ref().unwrap().clone();
-        let mut indexers = self
+        let indexers = self
             .deployment_indexers
             .value_immediate()
             .and_then(|map| map.get(&subgraph.deployment).cloned())
@@ -281,13 +275,18 @@ where
         let mut context = Context::new(&query_body, query_variables.as_deref().unwrap_or_default())
             .map_err(|_| MalformedQuery)?;
 
-        // let mut context = query.context().ok_or(MalformedQuery)?;
         let block_resolver = self
             .block_resolvers
             .get(&subgraph.network)
             .ok_or(MissingBlock(UnresolvedBlock::WithNumber(0)))?;
         let freshness_requirements =
             Indexers::freshness_requirements(&mut context, block_resolver).await?;
+
+        // Reject queries for blocks before minimum start block of subgraph manifest.
+        match freshness_requirements.minimum_block {
+            Some(min_block) if min_block < subgraph.min_block => return Err(BlockBeforeMin),
+            _ => (),
+        };
 
         for retry_count in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
@@ -328,11 +327,6 @@ where
                 .await;
             selection_timer.map(|t| t.observe_duration());
 
-            match &selection_result {
-                Ok(None) => tracing::info!(err = ?NoIndexerSelected),
-                Err(err) => tracing::info!(?err),
-                _ => (),
-            };
             let (indexer_query, scoring_sample) = match selection_result {
                 Ok(Some(indexer_query)) => indexer_query,
                 Ok(None) => return Err(NoIndexerSelected),
@@ -354,7 +348,6 @@ where
                 }
                 _ => (),
             };
-            let indexer = indexer_query.indexing.indexer;
             let result = self
                 .execute_indexer_query(
                     query,
@@ -366,11 +359,9 @@ where
                 .await;
             assert_eq!(retry_count + 1, query.indexer_attempts.len());
             match result {
-                Ok(response) => return Ok(response),
-                Err(RemoveIndexer::No) => (),
-                Err(RemoveIndexer::Yes) => {
-                    // TODO: There should be a penalty here, but the indexer should not be removed.
-                    indexers.remove(indexers.iter().position(|i| i == &indexer).unwrap());
+                Ok(()) => return Ok(()),
+                Err(rejection) => {
+                    query.indexer_attempts.last_mut().unwrap().rejection = Some(rejection);
                 }
             };
         }
@@ -389,10 +380,11 @@ where
     {
         let res = async move {
             tracing::info!(
-                ray_id = %query.ray_id.clone(),
+                ray_id = %query.ray_id,
                 query_id = %query.id,
                 deployment = %query.subgraph.as_ref().unwrap().deployment,
                 %indexer,
+                url = %score.url,
                 fee = %score.fee,
                 slashable = %score.slashable,
                 utility = *score.utility,
@@ -423,13 +415,13 @@ where
                 reputation: score.utility_scores.reputation,
                 sybil: *score.sybil,
                 blocks_behind: score.blocks_behind,
+                url: score.url.to_string(),
                 message: message.to_string(),
             };
             let delivery = client.send(
                 "gateway_isa_sample",
                 &indexer_sample_msg.write(MessageKind::JSON),
             );
-            // delivery.unwrap().await;
         };
         res.await;
     }
@@ -464,7 +456,6 @@ where
                 "gateway_isa_error",
                 &indexer_sample_error_msg.write(MessageKind::JSON),
             );
-            // delivery.unwrap().await;
         };
         res.await;
     }
@@ -476,9 +467,8 @@ where
         deployment_id: &str,
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
-    ) -> Result<(), RemoveIndexer> {
+    ) -> Result<(), String> {
         let indexer_id = indexer_query.indexing.indexer.to_string();
-        tracing::info!(indexer = %indexer_id);
         self.observe_indexer_selection_metrics(deployment_id, &indexer_query);
         let t0 = Instant::now();
         let result = self.indexer_client.query_indexer(&indexer_query).await;
@@ -510,7 +500,7 @@ where
                     &[&deployment_id, &indexer_id],
                     |counter| counter.inc(),
                 );
-                return Err(RemoveIndexer::Yes);
+                return Err(err.to_string());
             }
         };
         with_metric(
@@ -521,7 +511,6 @@ where
 
         let subgraph = query.subgraph.as_ref().unwrap();
         if !subgraph.features.is_empty() && response.attestation.is_none() {
-            tracing::info!(indexer_response_err = "Attestable response has no attestation");
             self.indexers
                 .observe_failed_query(
                     &indexer_query.indexing,
@@ -529,10 +518,10 @@ where
                     IndexerError::NoAttestation,
                 )
                 .await;
-            return Err(RemoveIndexer::Yes);
+            return Err("Attestable response has no attestation".into());
         }
 
-        if let Err(remove_indexer) = self
+        if let Err(rejection) = self
             .check_unattestable_responses(
                 context,
                 &block_resolver,
@@ -547,7 +536,7 @@ where
                 &[&deployment_id, &indexer_id],
                 |counter| counter.inc(),
             );
-            return Err(remove_indexer);
+            return Err(rejection);
         }
 
         if let Some(attestation) = &response.attestation {
@@ -600,30 +589,28 @@ where
         indexing: &Indexing,
         receipt: &Receipt,
         response: &IndexerResponse,
-    ) -> Result<(), RemoveIndexer> {
+    ) -> Result<(), String> {
         // Special-casing for a few known indexer errors; the block scope here
         // is just to separate the code neatly from the rest
 
         let parsed_response = serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
-            .map_err(|_| RemoveIndexer::Yes)?;
+            .map_err(|_| "invalid indexer response")?;
 
         if indexer_response_has_error(
             &parsed_response,
             "Failed to decode `block.hash` value: `no block with that hash found`",
         ) {
-            tracing::info!(indexer_response_err = "indexing behind");
             self.indexers
                 .observe_indexing_behind(context, indexing, block_resolver)
                 .await;
-            return Err(RemoveIndexer::No);
+            return Err("indexer failed to resolve block".into());
         }
 
         if indexer_response_has_error(&parsed_response, "panic processing query") {
-            tracing::info!(indexer_response_err = "panic processing query");
             self.indexers
                 .observe_failed_query(indexing, receipt, IndexerError::NondeterministicResponse)
                 .await;
-            return Err(RemoveIndexer::Yes);
+            return Err("indexer panicked processing query".into());
         }
 
         Ok(())

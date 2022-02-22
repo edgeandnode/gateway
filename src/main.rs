@@ -424,7 +424,7 @@ async fn handle_subgraph_query(
         "handle_subgraph_query",
         ray_id = %query.ray_id,
         query_id = %query.id,
-        deployment = %query.subgraph.as_ref().unwrap().deployment,
+        %deployment,
         network = %query.subgraph.as_ref().unwrap().network,
     );
     let api_key = request.match_info().get("api_key").unwrap_or("");
@@ -490,8 +490,11 @@ async fn handle_subgraph_query(
         tracing::info!(
             ray_id = %query.ray_id,
             query_id = %query.id,
+            api_key = %api_key,
+            %deployment,
             attempt_index,
             indexer = %attempt.indexer,
+            url = %attempt.score.url,
             allocation = %attempt.allocation,
             fee = %attempt.score.fee,
             utility = *attempt.score.utility,
@@ -599,6 +602,9 @@ async fn handle_subgraph_query_inner(
                 QueryEngineError::FeesTooHigh(count) => {
                     format!("No suitable indexer found, {} indexers requesting higher fees for this query", count)
                 }
+                QueryEngineError::BlockBeforeMin => {
+                    "Requested block before minimum `startBlock` of subgraph manifest".into()
+                }
                 QueryEngineError::MissingBlock(_) => {
                     "Gateway failed to resolve required blocks".into()
                 }
@@ -619,8 +625,14 @@ async fn handle_subgraph_query_inner(
         domain: domain.to_string(),
         subgraph: query.subgraph.as_ref().unwrap().deployment.ipfs_hash(),
     });
+    let attestation = response
+        .attestation
+        .as_ref()
+        .and_then(|attestation| serde_json::to_string(attestation).ok())
+        .unwrap_or_default();
     Ok(HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
+        .insert_header(("Graph-Attestation", attestation))
         .body(&response.payload))
 }
 

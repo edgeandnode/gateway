@@ -6,11 +6,17 @@ use crate::{
     },
     prelude::{test_utils::*, *},
 };
+use plotters::{
+    prelude::{DrawingBackend, *},
+    style,
+};
 use rand::{thread_rng, Rng as _};
 use secp256k1::SecretKey;
-use std::collections::{BTreeMap, HashMap};
+use std::{collections::HashMap, sync::Arc};
 
+#[derive(Clone)]
 struct IndexerCharacteristics {
+    label: &'static str,
     stake: GRT,
     allocation: GRT,
     blocks_behind: u64,
@@ -26,9 +32,203 @@ struct IndexerResults {
     query_fees: GRT,
 }
 
-#[tokio::test]
-async fn battle_high_and_low() {
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "Writes output to disk"]
+async fn weights() {
     init_test_tracing();
+
+    let tests = [
+        IndexerCharacteristics {
+            label: "Overpriced",
+            stake: 500000u64.try_into().unwrap(),
+            allocation: 600000u64.try_into().unwrap(),
+            price: "0.000999".parse().unwrap(),
+            latency_ms: 80,
+            reliability: 0.999,
+            blocks_behind: 0,
+            special_weight: None,
+        },
+        IndexerCharacteristics {
+            label: "Great!",
+            stake: 800000u64.try_into().unwrap(),
+            allocation: 600000u64.try_into().unwrap(),
+            price: "0.000040".parse().unwrap(),
+            latency_ms: 80,
+            reliability: 0.999,
+            blocks_behind: 0,
+            special_weight: None,
+        },
+        IndexerCharacteristics {
+            label: "Also great!",
+            stake: 400000u64.try_into().unwrap(),
+            allocation: 800000u64.try_into().unwrap(),
+            price: "0.000040".parse().unwrap(),
+            latency_ms: 70,
+            reliability: 0.995,
+            blocks_behind: 1,
+            special_weight: None,
+        },
+        IndexerCharacteristics {
+            label: "Ok!",
+            stake: 300000u64.try_into().unwrap(),
+            allocation: 400000u64.try_into().unwrap(),
+            price: "0.000034".parse().unwrap(),
+            latency_ms: 130,
+            reliability: 0.95,
+            blocks_behind: 2,
+            special_weight: None,
+        },
+        IndexerCharacteristics {
+            label: "Race to the bottom",
+            stake: 400000u64.try_into().unwrap(),
+            allocation: 40000u64.try_into().unwrap(),
+            price: "0.000005".parse().unwrap(),
+            latency_ms: 250,
+            reliability: 0.96,
+            blocks_behind: 3,
+            special_weight: None,
+        },
+        IndexerCharacteristics {
+            label: "Meh",
+            stake: 100000u64.try_into().unwrap(),
+            allocation: 100000u64.try_into().unwrap(),
+            price: "0.000024".parse().unwrap(),
+            latency_ms: 200,
+            reliability: 0.80,
+            blocks_behind: 8,
+            special_weight: None,
+        },
+        IndexerCharacteristics {
+            label: "Bad",
+            stake: 100000u64.try_into().unwrap(),
+            allocation: 100000u64.try_into().unwrap(),
+            price: "0.000040".parse().unwrap(),
+            latency_ms: 1900,
+            reliability: 0.80,
+            blocks_behind: 8,
+            special_weight: None,
+        },
+        IndexerCharacteristics {
+            label: "Optimize economic security",
+            stake: 2000000u64.try_into().unwrap(),
+            allocation: 400000u64.try_into().unwrap(),
+            price: "0.000045".parse().unwrap(),
+            latency_ms: 120,
+            reliability: 0.99,
+            blocks_behind: 2,
+            special_weight: None,
+        },
+        IndexerCharacteristics {
+            label: "Optimize performance",
+            stake: 400000u64.try_into().unwrap(),
+            allocation: 400000u64.try_into().unwrap(),
+            price: "0.000040".parse().unwrap(),
+            latency_ms: 60,
+            reliability: 0.95,
+            blocks_behind: 1,
+            special_weight: None,
+        },
+        IndexerCharacteristics {
+            label: "Optimize reliability",
+            stake: 300000u64.try_into().unwrap(),
+            allocation: 400000u64.try_into().unwrap(),
+            price: "0.000035".parse().unwrap(),
+            latency_ms: 120,
+            reliability: 0.999,
+            blocks_behind: 4,
+            special_weight: None,
+        },
+        IndexerCharacteristics {
+            label: "Backstop",
+            stake: 300000u64.try_into().unwrap(),
+            allocation: 400000u64.try_into().unwrap(),
+            price: "0.00003".parse().unwrap(),
+            latency_ms: 70,
+            reliability: 0.999,
+            blocks_behind: 1,
+            special_weight: Some(0.2),
+        },
+    ];
+
+    let columns = vec![
+        "ID",
+        "Stake",
+        "Allocation",
+        "Blocks Behind",
+        "Price",
+        "Latency",
+        "Reliability",
+        "Special Weight",
+    ];
+    println!("| {} |", columns.join(" | "));
+    println!(
+        "| {}",
+        std::iter::repeat("--- |")
+            .take(columns.len())
+            .collect::<String>()
+    );
+    for test in &tests {
+        println!(
+            "| {} | {} GRT | {} GRT | {} | {} USD | {} ms | {}% | {:?} |",
+            test.label,
+            test.stake,
+            test.allocation,
+            test.blocks_behind,
+            test.price,
+            test.latency_ms,
+            test.reliability * 100.0,
+            test.special_weight,
+        );
+    }
+
+    use futures::{stream::FuturesOrdered, StreamExt as _};
+    let results = vec![
+        (0, 0, 0, 0),
+        (-1, 0, 0, 0),
+        (1, 0, 0, 0),
+        (0, -1, 0, 0),
+        (0, 1, 0, 0),
+        (0, 0, -1, 0),
+        (0, 0, 1, 0),
+        (0, 0, 0, -1),
+        (0, 0, 0, 1),
+    ]
+    .into_iter()
+    .map(|cfg| {
+        let tests = tests.clone();
+        async move {
+            let config = UtilityConfig::from_indexes(cfg.0, cfg.1, cfg.2, cfg.3);
+            run_simulation(&tests, &config).await
+        }
+    })
+    .collect::<FuturesOrdered<_>>()
+    .collect::<Vec<_>>()
+    .await;
+    let data = vec![
+        ("economic_security -1", results[1].clone()),
+        ("economic_security 0", results[0].clone()),
+        ("economic_security +1", results[2].clone()),
+        ("performance -1", results[3].clone()),
+        ("performance 0", results[0].clone()),
+        ("performance +1", results[4].clone()),
+        ("data_freshness -1", results[5].clone()),
+        ("data_freshness 0", results[0].clone()),
+        ("data_freshness +1", results[6].clone()),
+        ("price_efficiency -1", results[7].clone()),
+        ("price_efficiency 0", results[0].clone()),
+        ("price_efficiency +1", results[8].clone()),
+    ];
+    let labels = tests
+        .iter()
+        .map(|data| data.label)
+        .collect::<Vec<&'static str>>();
+    visualize_outcomes(data, 3, &labels);
+}
+
+async fn run_simulation(
+    tests: &[IndexerCharacteristics],
+    utility_config: &UtilityConfig,
+) -> Vec<f64> {
     let (mut input_writers, inputs) = Indexers::inputs();
     let indexers = Indexers::new(inputs);
     input_writers
@@ -43,147 +243,34 @@ async fn battle_high_and_low() {
     let resolver = BlockResolver::test(&blocks);
     let latest = blocks.last().unwrap();
     let deployment: SubgraphDeploymentID = bytes_from_id(99).into();
-    let tests = [
-        // Great!
-        IndexerCharacteristics {
-            stake: 500000u64.try_into().unwrap(),
-            allocation: 600000u64.try_into().unwrap(),
-            price: "0.000040".parse().unwrap(),
-            latency_ms: 80,
-            reliability: 0.999,
-            blocks_behind: 0,
-            special_weight: None,
-        },
-        // Also great!
-        IndexerCharacteristics {
-            stake: 400000u64.try_into().unwrap(),
-            allocation: 800000u64.try_into().unwrap(),
-            price: "0.000040".parse().unwrap(),
-            latency_ms: 70,
-            reliability: 0.995,
-            blocks_behind: 1,
-            special_weight: None,
-        },
-        // Ok!
-        IndexerCharacteristics {
-            stake: 300000u64.try_into().unwrap(),
-            allocation: 400000u64.try_into().unwrap(),
-            price: "0.000034".parse().unwrap(),
-            latency_ms: 130,
-            reliability: 0.95,
-            blocks_behind: 1,
-            special_weight: None,
-        },
-        // Race to the bottom
-        IndexerCharacteristics {
-            stake: 400000u64.try_into().unwrap(),
-            allocation: 40000u64.try_into().unwrap(),
-            price: "0.000005".parse().unwrap(),
-            latency_ms: 250,
-            reliability: 0.96,
-            blocks_behind: 1,
-            special_weight: None,
-        },
-        // Meh
-        IndexerCharacteristics {
-            stake: 100000u64.try_into().unwrap(),
-            allocation: 100000u64.try_into().unwrap(),
-            price: "0.000024".parse().unwrap(),
-            latency_ms: 200,
-            reliability: 0.80,
-            blocks_behind: 8,
-            special_weight: None,
-        },
-        // Bad
-        IndexerCharacteristics {
-            stake: 100000u64.try_into().unwrap(),
-            allocation: 100000u64.try_into().unwrap(),
-            price: "0.000040".parse().unwrap(),
-            latency_ms: 1900,
-            reliability: 0.80,
-            blocks_behind: 8,
-            special_weight: None,
-        },
-        // Overpriced
-        IndexerCharacteristics {
-            stake: 500000u64.try_into().unwrap(),
-            allocation: 600000u64.try_into().unwrap(),
-            price: "0.000999".parse().unwrap(),
-            latency_ms: 80,
-            reliability: 0.999,
-            blocks_behind: 0,
-            special_weight: None,
-        },
-        // Optimize economic security
-        IndexerCharacteristics {
-            stake: 1000000u64.try_into().unwrap(),
-            allocation: 400000u64.try_into().unwrap(),
-            price: "0.000045".parse().unwrap(),
-            latency_ms: 120,
-            reliability: 0.99,
-            blocks_behind: 1,
-            special_weight: None,
-        },
-        // Optimize performance
-        IndexerCharacteristics {
-            stake: 400000u64.try_into().unwrap(),
-            allocation: 400000u64.try_into().unwrap(),
-            price: "0.000040".parse().unwrap(),
-            latency_ms: 60,
-            reliability: 0.99,
-            blocks_behind: 1,
-            special_weight: None,
-        },
-        // Optimize reliability
-        IndexerCharacteristics {
-            stake: 300000u64.try_into().unwrap(),
-            allocation: 400000u64.try_into().unwrap(),
-            price: "0.000035".parse().unwrap(),
-            latency_ms: 120,
-            reliability: 0.999,
-            blocks_behind: 0,
-            special_weight: None,
-        },
-        // MIPs
-        IndexerCharacteristics {
-            stake: 300000u64.try_into().unwrap(),
-            allocation: 400000u64.try_into().unwrap(),
-            price: "0.00003".parse().unwrap(),
-            latency_ms: 70,
-            reliability: 0.999,
-            blocks_behind: 0,
-            special_weight: Some(0.2),
-        },
-    ];
 
-    let mut data = HashMap::new();
-    let mut indexer_ids = im::Vector::new();
+    let mut results = Vec::<IndexerResults>::new();
+    let mut indexer_ids = Vec::new();
     let test_key = SecretKey::from_str(TEST_KEY).unwrap();
     let mut special_indexers = HashMap::<Address, NotNan<f64>>::new();
-    for indexer in tests.iter() {
-        let address = bytes_from_id(indexer_ids.len()).into();
+    for data in tests.iter() {
+        results.push(IndexerResults::default());
         let indexing = Indexing {
-            indexer: address,
+            indexer: bytes_from_id(indexer_ids.len()).into(),
             deployment,
         };
+        indexer_ids.push(indexing.indexer);
         let indexing_writer = input_writers.indexings.write(&indexing).await;
         indexing_writer
             .cost_model
-            .write(default_cost_model(indexer.price));
+            .write(default_cost_model(data.price));
         indexing_writer
-            .add_allocation(Address::default(), test_key.clone(), indexer.allocation)
+            .add_allocation(Address::default(), test_key.clone(), data.allocation)
             .await;
         indexing_writer.status.write(IndexingStatus {
-            block: latest.number - indexer.blocks_behind,
+            block: latest.number - data.blocks_behind,
             latest: latest.number,
         });
         let indexer_writer = input_writers.indexers.write(&indexing.indexer).await;
-        indexer_writer.url.write("".to_string());
-        indexer_writer.stake.write(indexer.stake);
-        data.insert(indexing.indexer, indexer);
-        indexer_ids.push_back(indexing.indexer);
-        if let Some(special_weight) = indexer.special_weight {
-            special_indexers.insert(address, special_weight.try_into().unwrap());
+        indexer_writer.url.write(Arc::default());
+        indexer_writer.stake.write(data.stake);
+        if let Some(special_weight) = data.special_weight {
+            special_indexers.insert(indexing.indexer, special_weight.try_into().unwrap());
         }
     }
 
@@ -191,12 +278,10 @@ async fn battle_high_and_low() {
 
     eventuals::idle().await;
 
-    let config = UtilityConfig::default();
-    let mut results = BTreeMap::<Address, IndexerResults>::new();
-
-    let query_time = Instant::now();
     const COUNT: usize = 86400;
     const QPS: u64 = 2000;
+    let mut total_latency_ms = 0;
+    let mut total_blocks_behind = 0;
     for i in 0..COUNT {
         let budget: GRT = "0.00005".parse().unwrap();
         let mut context = Context::new("{ a }", "").unwrap();
@@ -205,7 +290,7 @@ async fn battle_high_and_low() {
             .unwrap();
         let result = indexers
             .select_indexer(
-                &config,
+                &utility_config,
                 network,
                 &deployment,
                 &indexer_ids,
@@ -225,15 +310,21 @@ async fn battle_high_and_low() {
             Some((query, _)) => query,
             None => continue,
         };
-        let entry = results.entry(query.indexing.indexer).or_default();
+        let index = indexer_ids
+            .iter()
+            .position(|id| id == &query.indexing.indexer)
+            .unwrap();
+        let entry = results.get_mut(index).unwrap();
         entry.queries_received += 1;
-        let data = data.get(&query.indexing.indexer).unwrap();
+        let data = tests.get(index).unwrap();
         let indexing = Indexing {
             deployment,
             indexer: query.indexing.indexer,
         };
         if data.reliability > thread_rng().gen() {
             let duration = Duration::from_millis(data.latency_ms);
+            total_latency_ms += data.latency_ms;
+            total_blocks_behind += data.blocks_behind;
             let receipt = &query.receipt;
             let fees: GRTWei =
                 primitive_types::U256::from_big_endian(&receipt[(receipt.len() - 32)..])
@@ -254,48 +345,80 @@ async fn battle_high_and_low() {
         }
     }
 
-    let query_time = Instant::now() - query_time;
-    println!("Thoughput: {} /s", COUNT as f64 / query_time.as_secs_f64());
-    let columns = vec![
-        "ID",
-        "Stake",
-        "Allocation",
-        "Blocks Behind",
-        "Price",
-        "Latency",
-        "Reliability",
-        "Special Weight",
-        "Daily Fees",
-        "Queries Served",
-    ];
-    println!("| {} |", columns.join(" | "));
-    println!(
-        "| {}",
-        std::iter::repeat("--- |")
-            .take(columns.len())
-            .collect::<String>()
-    );
-
     let mut total_fees = GRT::zero();
-    for (name, indexer_id) in indexer_ids.iter().enumerate() {
-        let data = data.get(indexer_id).unwrap();
-        let results = results.get(indexer_id).cloned().unwrap_or_default();
-
-        println!(
-            "| {} | {} GRT | {} GRT | {} | {} USD | {} ms | {}% | {:?} | {} USD | {:.1}% |",
-            name,
-            data.stake,
-            data.allocation,
-            data.blocks_behind,
-            data.price,
-            data.latency_ms,
-            data.reliability * 100.0,
-            data.special_weight,
-            (results.query_fees * QPS.try_into().unwrap()),
-            (results.queries_received * 100) as f64 / COUNT as f64,
-        );
-
-        total_fees += results.query_fees;
+    for result in &results {
+        total_fees += result.query_fees;
     }
-    println!("Total Fees: {}", (total_fees * QPS.try_into().unwrap()));
+    println!(
+        "{:?}, fees: {}, avg. latency: {}ms, avg. blocks behind: {}",
+        utility_config,
+        total_fees,
+        total_latency_ms / COUNT as u64,
+        total_blocks_behind / COUNT as u64,
+    );
+    results
+        .iter()
+        .map(|result| (result.query_fees / total_fees).as_f64())
+        .collect::<Vec<f64>>()
+}
+
+fn visualize_outcomes(data: Vec<(&str, Vec<f64>)>, columns: usize, labels: &[&'static str]) {
+    create_dir("test-outputs");
+    let output_file = "test-outputs/isa-weights.png";
+
+    let mut root = BitMapBackend::new(output_file, (2100, 480));
+    let text_style = TextStyle::from(("sans-serif", 28.0).into_font());
+    // Fill background
+    let (width, height) = root.get_size();
+    root.draw_rect((0, 0), (width as i32, height as i32), &WHITE, true)
+        .unwrap();
+    // Add legend
+    {
+        let x = 1750;
+        let y = 10;
+        for (i, label) in labels.iter().enumerate().map(|(i, l)| (i as i32, l)) {
+            let style = style::Palette99::pick(i as usize).to_rgba();
+            root.draw_text(label, &text_style, (x + 20, y + 40 * i))
+                .unwrap();
+            let color_pos = ((x, y + 40 * i), (x + 15, y + 40 * i + 15));
+            root.draw_rect(color_pos.0, color_pos.1, &style, true)
+                .unwrap();
+            root.draw_rect(color_pos.0, color_pos.1, &BLACK, false)
+                .unwrap();
+        }
+    }
+    // Add bars
+    for (i, (label, data)) in data.iter().enumerate().map(|(i, d)| (i as i32, d)) {
+        let x = 440 * (i / columns as i32);
+        let y = 150 * (i % columns as i32);
+        draw_bar(&mut root, (x + 10, y + 50), (x + 400, y + 150), &data);
+        root.draw_text(&label, &text_style, (x + 20, y + 16))
+            .unwrap();
+    }
+    root.present().unwrap();
+}
+
+fn draw_bar<B: DrawingBackend>(
+    root: &mut B,
+    upper_left: (i32, i32),
+    bottom_right: (i32, i32),
+    data: &[f64],
+) {
+    let len = (bottom_right.0 - upper_left.0) as f64;
+    let mut start = upper_left.0;
+    for (i, fraction) in data.iter().enumerate() {
+        let style = style::Palette99::pick(i).to_rgba();
+        let end = start + (len * fraction) as i32;
+        root.draw_rect((start, upper_left.1), (end, bottom_right.1), &style, true)
+            .unwrap();
+        root.draw_rect((start, upper_left.1), (end, bottom_right.1), &BLACK, false)
+            .unwrap();
+        start = end;
+    }
+    // Pad rounding errors
+    root.draw_rect((start, upper_left.1), bottom_right, &BLACK, true)
+        .unwrap();
+    // Draw outline
+    root.draw_rect(upper_left, bottom_right, &BLACK, false)
+        .unwrap();
 }

@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "graph-gateway"
-version = "2.0.0"
+version = "3.0.0"
 
 [profile.release]
 lto = "thin"
@@ -30,7 +30,7 @@ postgres-openssl = "0.5"
 primitive-types = "0.8"
 prometheus = "0.13"
 rand = { version = "0.8", features = ["small_rng"] }
-receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "74dec24" }
+receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "02d09da" }
 reqwest = { version = "0.11", features = ["json"] }
 secp256k1 = "0.20"
 serde = "1.0"
@@ -74,8 +74,13 @@ futures-channel = "0.3.21"
 
 
 [dev-dependencies]
+# core-foundation is added because it is a transitive dependency of plotters (through font-kit)
+# and the selected version (0.9.1) fails to build on MacOS
+core-foundation = "0.9.3"
 eventuals = { version = "0.6", features = ["trace"] }
-plotters = { version = "0.3", default_features = false, features = [
+plotters = { version = "0.3", features = [
+  "bitmap_encoder",
+  "bitmap_gif",
   "line_series",
   "svg_backend",
 ] }

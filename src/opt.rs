@@ -79,7 +79,7 @@ pub struct Opt {
         env = "QUERY_BUDGET",
         default_value = "0.0005"
     )]
-    pub query_budget: GRT,
+    pub query_budget: USD,
     #[structopt(long = "--port", env = "PORT", default_value = "6700")]
     pub port: u16,
     #[structopt(long = "--metrics-port", env = "METRICS_PORT", default_value = "7300")]

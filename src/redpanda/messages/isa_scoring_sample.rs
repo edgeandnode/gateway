@@ -26,6 +26,7 @@ lazy_static! {
             {"name": "reputation", "type": "double"},
             {"name": "sybil", "type": "double"},
             {"name": "blocks_behind", "type": "long"},
+            {"name": "url", "type": "string"},
             {"name": "message", "type": "string"}
         ]
     }
@@ -51,6 +52,7 @@ pub struct ISAScoringSample {
     pub reputation: f64,
     pub sybil: f64,
     pub blocks_behind: u64,
+    pub url: String,
     pub message: String,
 }
 
@@ -111,6 +113,7 @@ impl Default for ISAScoringSample {
             reputation: Default::default(),
             sybil: Default::default(),
             blocks_behind: Default::default(),
+            url: Default::default(),
             message: Default::default(),
         }
     }
