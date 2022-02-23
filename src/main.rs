@@ -411,6 +411,7 @@ async fn handle_subgraph_query(
     let response = handle_subgraph_query_inner(&request, data, &mut query, api_key)
         .instrument(span)
         .await;
+    let status_code = encode_client_query_status(&response);
     let (payload, status) = match response {
         Ok(payload) => {
             let status = payload.status().to_string();
@@ -431,6 +432,7 @@ async fn handle_subgraph_query(
         variables = %query.variables.as_deref().unwrap_or(""),
         response_time_ms = (Instant::now() - query.start_time).as_millis() as u32,
         %status,
+        status_code,
         "Client query result",
     );
     for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
@@ -459,6 +461,22 @@ async fn handle_subgraph_query(
     }
 
     payload
+}
+
+// 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
+fn encode_client_query_status(result: &Result<HttpResponse, (reqwest::StatusCode, String)>) -> u32 {
+    let (prefix, data) = match result {
+        // prefix 0x0, followed by the HTTP status code
+        Ok(payload) => (0x0, payload.status().as_u16() as u32),
+        // prefix 0x1, followed by a 28-bit hash of the error message
+        Err((status, msg)) => {
+            let mut hasher = DefaultHasher::new();
+            status.hash(&mut hasher);
+            msg.hash(&mut hasher);
+            (0x1, hasher.finish() as u32)
+        }
+    };
+    (prefix << 28) | (data & (u32::MAX >> 4))
 }
 
 // 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
