@@ -74,7 +74,7 @@ impl PriceEfficiency {
         //   p = normalized price
         //   u = utility = ((1.0 / (p + s)) - s) ^ w
         // Then the derivative of x * u is:
-        //   ((1 / (p + s) - s)^w - (w*p / (((p + s)^2) * ((1/(p+s)) - s)^w)
+        //   ((1 / (p + s) - s)^w - (w*p / (((p + s)^2) * ((1/(p+s)) - s)^(1.0-w))
         // And, given a w, we want to solve for p such that the derivative is 0.
         // This gives us the lower bound for the revenue maximizing price.
         //
