@@ -44,8 +44,8 @@ pub trait DecayUtility {
 }
 
 /// The DecayBuffer accounts for selection factors over various time-frames. Currently, these time
-/// frames are 7 consecutive powers of 4 minute intervals, i.e. [1m, 4m, 16m, ... 4096m]. This
-/// assumes that `decay` is called once every minute.
+/// frames are LEN consecutive powers of 4 intervals, i.e. [1m, 4m, 16m, ... 4096m] if LEN is 7 and
+/// `decay` is called once every minute.
 #[derive(Debug)]
 pub struct DecayBufferUnconfigured<T, const LOSS_POINTS: u16, const LEN: usize> {
     frames: [T; LEN],
@@ -116,7 +116,8 @@ impl<T: Decay, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L> {
     The above would be bad for performance, so we achieve almost the same result by creating "frames"
     of increasing size, each of which can hold many buckets. When we decay we do the same operation as above,
     assuming that each bucket within a frame holds the average value of all buckets within that frame. This results in some "smearing"
-    of the data, but reduces the size of our array from 8191 to just 7 at the expense of slight complexity and loss of accuracy.
+    of the data, but reduces the size of our array from 8191 to just 7 (assuming a LEN of 7) at the expense of
+    slight complexity and loss of accuracy.
     */
     pub fn decay(&mut self) {
         for i in (0..L).rev() {

@@ -280,7 +280,7 @@ where
             _ => (),
         };
 
-        let query_count = context.operations.len() as u64;
+        let query_count = context.operations.len().max(1) as u64;
         let budget = query
             .api_key
             .as_ref()
