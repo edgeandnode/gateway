@@ -124,11 +124,9 @@ impl<T: Decay, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L> {
             let (l, r) = self.frames.split_at_mut(i + 1);
             let (this, next) = (l.last_mut().unwrap(), r.get_mut(0));
 
-            // Decay rate of 0.5% per smallest bucket resolution
-            // That is, each time we shift decay 0.5% per non-aggregated bucket
+            // Decay rate of 0.1% per smallest bucket resolution per point.
+            // That is, each time we shift decay 0.1% * points per non-aggregated bucket
             // and aggregate the results into frames.
-            //const RETAIN: f64 = 0.995;
-            //const RETAIN: f64 = 0.98;
             let retain = 1.0 - ((D as f64) * 0.001f64);
             let retain = retain.powf(4_f64.powf(i as f64));
 
