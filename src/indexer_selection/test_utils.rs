@@ -14,6 +14,7 @@ pub fn default_cost_model(price: GRT) -> CostModelSource {
     }
 }
 
+#[track_caller]
 pub fn assert_within(value: f64, expected: f64, tolerance: f64) {
     let diff = (value - expected).abs();
     assert!(

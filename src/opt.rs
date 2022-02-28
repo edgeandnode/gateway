@@ -76,11 +76,29 @@ pub struct Opt {
     )]
     pub block_cache_size: usize,
     #[structopt(
-        long = "--query-budget",
-        env = "QUERY_BUDGET",
-        default_value = "0.0005"
+        long = "--query-budget-scale",
+        env = "QUERY_BUDGET_SCALE",
+        default_value = "3.1"
     )]
-    pub query_budget: USD,
+    pub query_budget_scale: f64,
+    #[structopt(
+        long = "--query-budget-discount",
+        env = "QUERY_BUDGET_DISCOUNT",
+        default_value = "0.595"
+    )]
+    pub query_budget_discount: f64,
+    #[structopt(
+        help = "The number of processes per Gateway location. This is used when approximating worldwide query volume.",
+        long = "--replica-count",
+        env = "REPLICA_COUNT"
+    )]
+    pub replica_count: u64,
+    #[structopt(
+        help = "The number of geographic Gateway locations. This is used when approximating worldwide query volume.",
+        long = "--location-count",
+        env = "LOCATION_COUNT"
+    )]
+    pub location_count: u64,
     #[structopt(long = "--port", env = "PORT", default_value = "6700")]
     pub port: u16,
     #[structopt(long = "--metrics-port", env = "METRICS_PORT", default_value = "7300")]

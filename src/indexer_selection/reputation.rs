@@ -1,16 +1,22 @@
-use crate::indexer_selection::decay::{Decay, DecayUtility};
+use crate::indexer_selection::decay::{impl_struct_decay, Decay, DecayUtility};
 
 // TODO: Other factors like how long the indexer has been in the network.
 // Because reliability (which is what is captured here now) is useful on it's own, it may be useful
 // to separate this into it's own utility rather than figure out how to combine that with other
 // "reputation" factors which are much more subjective.
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Reputation {
     successful_queries: f64,
     failed_queries: f64,
     penalties: f64,
 }
+
+impl_struct_decay!(Reputation {
+    successful_queries,
+    failed_queries,
+    penalties
+});
 
 impl DecayUtility for Reputation {
     fn expected_utility(&self, _u_a: f64) -> f64 {
@@ -38,32 +44,6 @@ impl DecayUtility for Reputation {
 
     fn count(&self) -> f64 {
         self.successful_queries + self.failed_queries
-    }
-}
-
-impl Decay for Reputation {
-    fn shift(&mut self, mut next: Option<&mut Self>, fraction: f64, keep: f64) {
-        self.successful_queries.shift(
-            next.as_deref_mut().map(|s| &mut s.successful_queries),
-            fraction,
-            keep,
-        );
-        self.failed_queries.shift(
-            next.as_deref_mut().map(|s| &mut s.failed_queries),
-            fraction,
-            keep,
-        );
-        self.penalties.shift(
-            next.as_deref_mut().map(|s| &mut s.penalties),
-            fraction,
-            keep,
-        );
-    }
-
-    fn clear(&mut self) {
-        self.successful_queries.clear();
-        self.failed_queries.clear();
-        self.penalties.clear();
     }
 }
 

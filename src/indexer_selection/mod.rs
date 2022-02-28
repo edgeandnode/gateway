@@ -1,7 +1,7 @@
 mod allocations;
 mod block_requirements;
 mod data_freshness;
-mod decay;
+pub mod decay;
 mod economic_security;
 mod indexers;
 mod performance;
@@ -180,7 +180,7 @@ pub struct InputWriters {
 }
 
 pub struct Indexers {
-    network_params: NetworkParameters,
+    pub network_params: NetworkParameters,
     indexers: SharedLookup<Address, IndexerDataReader>,
     indexings: SharedLookup<Indexing, SelectionFactors>,
     special_indexers: Eventual<HashMap<Address, NotNan<f64>>>,
@@ -301,8 +301,6 @@ impl Indexers {
         freshness_requirements(&mut context.operations, block_resolver).await
     }
 
-    // TODO: Specify budget in terms of a cost model -
-    // the budget should be different per query
     pub async fn select_indexer(
         &self,
         config: &UtilityConfig,
@@ -312,13 +310,8 @@ impl Indexers {
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
         freshness_requirements: &BlockRequirements,
-        budget: USD,
+        budget: GRT,
     ) -> Result<Option<(IndexerQuery, ScoringSample)>, SelectionError> {
-        let budget: GRT = self
-            .network_params
-            .usd_to_grt(budget)
-            .ok_or(SelectionError::MissingNetworkParams)?;
-
         let selection = match self
             .make_selection(
                 config,

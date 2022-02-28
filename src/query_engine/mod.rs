@@ -1,3 +1,5 @@
+mod clock;
+mod price_automation;
 #[cfg(test)]
 mod tests;
 
@@ -17,6 +19,7 @@ pub use crate::{
 };
 pub use graphql_client::Response;
 use lazy_static::lazy_static;
+pub use price_automation::{QueryBudgetFactors, VolumeEstimator};
 use prometheus;
 use serde_json::value::RawValue;
 use std::{
@@ -27,6 +30,7 @@ use std::{
         Arc,
     },
 };
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -104,6 +108,7 @@ pub struct APIKey {
     pub deployments: Vec<SubgraphDeploymentID>,
     pub subgraphs: Vec<(String, i32)>,
     pub domains: Vec<(String, i32)>,
+    pub usage: Arc<Mutex<VolumeEstimator>>,
 }
 
 #[derive(Debug)]
@@ -139,7 +144,7 @@ impl From<SelectionError> for QueryEngineError {
 pub struct Config {
     pub indexer_selection_retry_limit: usize,
     pub utility: UtilityConfig,
-    pub query_budget: GRT,
+    pub budget_factors: QueryBudgetFactors,
 }
 
 #[derive(Clone)]
@@ -274,6 +279,22 @@ where
             _ => (),
         };
 
+        let query_count = context.operations.len().max(1) as u64;
+        let budget = query
+            .api_key
+            .as_ref()
+            .unwrap()
+            .usage
+            .lock()
+            .await
+            .budget_for_queries(query_count, &self.config.budget_factors);
+
+        let budget: GRT = self
+            .indexers
+            .network_params
+            .usd_to_grt(USD::try_from(budget).unwrap())
+            .ok_or(SelectionError::MissingNetworkParams)?;
+
         for retry_count in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
                 &METRICS.indexer_selection_duration,
@@ -308,7 +329,7 @@ where
                     &mut context,
                     &block_resolver,
                     &freshness_requirements,
-                    self.config.query_budget,
+                    budget,
                 )
                 .await;
             selection_timer.map(|t| t.observe_duration());
