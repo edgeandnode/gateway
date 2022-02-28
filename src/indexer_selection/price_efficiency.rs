@@ -99,7 +99,7 @@ impl PriceEfficiency {
         // If their fee is less than the min optimal, lerp between them so that
         // indexers are rewarded for being closer.
         if fee < min_optimal_fee {
-            fee = (min_optimal_fee + fee) * GRT::try_from(0.5).unwrap();
+            fee = (min_optimal_fee + fee) * GRT::try_from(0.75).unwrap();
         }
 
         //
