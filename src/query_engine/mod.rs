@@ -47,7 +47,6 @@ pub struct Query {
     pub api_key: Option<Arc<APIKey>>,
     pub subgraph: Option<Ptr<SubgraphInfo>>,
     pub indexer_attempts: Vec<IndexerAttempt>,
-    pub kafka_client: Option<Arc<KafkaClient>>,
 }
 
 impl Query {
@@ -61,7 +60,6 @@ impl Query {
             api_key: None,
             subgraph: None,
             indexer_attempts: Vec::new(),
-            kafka_client: None,
         }
     }
 }
@@ -200,6 +198,7 @@ where
     indexer_client: I,
     fisherman_client: Option<Arc<F>>,
     config: Config,
+    kafka_client: Option<Arc<KafkaClient>>,
 }
 
 impl<I, F> QueryEngine<I, F>
@@ -213,6 +212,7 @@ where
         fisherman_client: Option<Arc<F>>,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
         inputs: Inputs,
+        kafka_client: Option<Arc<KafkaClient>>,
     ) -> Self {
         Self {
             indexers: inputs.indexers,
@@ -221,6 +221,7 @@ where
             fisherman_client,
             block_resolvers,
             config,
+            kafka_client: kafka_client,
         }
     }
 
@@ -330,6 +331,7 @@ where
                 Err(err) => return Err(err.into()),
             };
             Self::log_indexer_score(
+                &self,
                 &query,
                 &indexer_query.indexing.indexer,
                 &indexer_query.score,
@@ -338,10 +340,12 @@ where
             .await;
             match scoring_sample.0 {
                 Some((indexer, Ok(score))) => {
-                    Self::log_indexer_score(&query, &indexer, &score, "ISA scoring sample").await
+                    Self::log_indexer_score(&self, &query, &indexer, &score, "ISA scoring sample")
+                        .await
                 }
                 Some((indexer, Err(err))) => {
-                    Self::log_indexer_score_err(&query, &indexer, err, "ISA scoring sample").await
+                    Self::log_indexer_score_err(&self, &query, &indexer, err, "ISA scoring sample")
+                        .await
                 }
                 _ => (),
             };
@@ -368,6 +372,7 @@ where
 
     //https://stackoverflow.com/questions/70067281/why-doesnt-an-async-function-with-two-non-static-references-and-a-static-refere
     async fn log_indexer_score<'a, 'b>(
+        &'a self,
         query: &'a Query,
         indexer: &'b Address,
         score: &'b IndexerScore,
@@ -395,7 +400,6 @@ where
                 message,
             );
             //grab kafka
-            let client = query.kafka_client.as_ref().unwrap().clone();
 
             let indexer_sample_msg = ISAScoringSample {
                 ray_id: query.ray_id.clone(),
@@ -415,7 +419,7 @@ where
                 url: score.url.to_string(),
                 message: message.to_string(),
             };
-            client.send(
+            self.kafka_client.as_ref().unwrap().send(
                 "gateway_isa_sample",
                 &indexer_sample_msg.write(MessageKind::JSON),
             );
@@ -424,6 +428,7 @@ where
     }
 
     async fn log_indexer_score_err<'a, 'b>(
+        &'a self,
         query: &'a Query,
         indexer: &'b Address,
         scoring_err: SelectionError,
@@ -440,7 +445,6 @@ where
                 ?scoring_err,
                 message,
             );
-            let client = query.kafka_client.as_ref().unwrap().clone();
 
             let indexer_sample_error_msg = ISAScoringError {
                 ray_id: query.ray_id.clone(),
@@ -449,7 +453,8 @@ where
                 indexer: indexer.to_string(),
                 scoring_err: message.to_string(),
             };
-            client.send(
+
+            self.kafka_client.as_ref().unwrap().send(
                 "gateway_isa_error",
                 &indexer_sample_error_msg.write(MessageKind::JSON),
             );

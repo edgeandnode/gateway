@@ -85,9 +85,7 @@ impl KafkaClient {
             topic = topic.set(key, val);
         }
 
-        crate::rp_utils::admin::ensure_topic(&client, &admin_opts, &topic)
-            .await
-            .context(format!("creating Kafka topic: {}", topic_name))?;
+        let res = client.create_topics([&topic], &admin_opts).await?;
 
         Ok(())
     }
@@ -118,32 +116,12 @@ impl KafkaClient {
     }
 
     pub fn send(&self, topic_name: &str, message: &[u8]) {
-        //     let record: FutureRecord<&Vec<u8>, _> = FutureRecord::to(&topic_name)
-        //         .payload(message)
-        //         .timestamp(chrono::Utc::now().timestamp_millis());
-        //     self.producer.send_result(record).map_err(|(e, _message)| e)
-
         let record = BaseRecord::to(topic_name).payload(message).key("1");
         match self.producer.send(record) {
             Ok(()) => (),
             _ => (),
         }
     }
-
-    // pub fn send_key_value(
-    //     &self,
-    //     topic_name: &str,
-    //     key: &[u8],
-    //     message: Option<Vec<u8>>,
-    // ) -> Result<DeliveryFuture, KafkaError> {
-    //     let mut record: FutureRecord<_, _> = FutureRecord::to(&topic_name)
-    //         .key(key)
-    //         .timestamp(chrono::Utc::now().timestamp_millis());
-    //     if let Some(message) = &message {
-    //         record = record.payload(message);
-    //     }
-    //     self.producer.send_result(record).map_err(|(e, _message)| e)
-    // }
 }
 
 pub struct CustomContext;

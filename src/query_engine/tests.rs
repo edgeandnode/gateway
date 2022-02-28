@@ -683,6 +683,7 @@ async fn test() {
             })),
             resolvers,
             inputs,
+            None,
         );
         topology.lock().await.write_inputs().await;
         for _ in 0..100 {

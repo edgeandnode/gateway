@@ -150,8 +150,7 @@ pub struct Opt {
     #[structopt(
         help = "Redpanda broker domains",
         long = "--brokers",
-        env = "REDPANDA_BROKERS",
-        default_value = "0.rp-43eaea8.04f9121.byoc.vectorized.cloud:30714,1.rp-43eaea8.04f9121.byoc.vectorized.cloud:30714,2.rp-43eaea8.04f9121.byoc.vectorized.cloud:30714"
+        env = "REDPANDA_BROKERS"
     )]
     pub redpanda_brokers: String,
     #[structopt(
@@ -206,29 +205,30 @@ pub struct Opt {
     )]
     pub sasl_password: String,
     #[structopt(
-        help = "Message encoding",
+        help = "Redpanda message encoding",
         long = "--encoding",
-        env = "MESSAGE_ENCODING",
-        default_value = "avro"
+        env = "REDPANDA_MESSAGE_ENCODING",
+        default_value = "json"
     )]
     pub message_encoding: String,
 }
 
 impl Opt {
     /// Map the input CLI arguments into tuple array that can be used to configure librdkafka
-    pub fn to_kafka_config(&self) -> Vec<(&str, &str)> {
-        let mut vec = vec![];
-        vec.push(("sasl.password", &self.sasl_password[..]));
-        vec.push(("sasl.password", &self.sasl_password[..]));
-        vec.push(("sasl.username", &self.sasl_username[..]));
-        vec.push(("sasl.mechanism", &self.sasl_mechanism[..]));
-        vec.push(("ssl.ca.location", &self.ssl_ca_location[..]));
-        vec.push((
-            "ssl.certificate.location",
-            &self.ssl_certificate_location[..],
-        ));
-        vec.push(("ssl.key.location", &self.ssl_key_location[..]));
-        vec.push(("security.protocol", &self.security_protocol[..]));
+    pub fn kafka_config(&self) -> Vec<(&str, &str)> {
+        let vec = vec![
+            ("sasl.password", &self.sasl_password[..]),
+            ("sasl.password", &self.sasl_password[..]),
+            ("sasl.username", &self.sasl_username[..]),
+            ("sasl.mechanism", &self.sasl_mechanism[..]),
+            ("ssl.ca.location", &self.ssl_ca_location[..]),
+            (
+                "ssl.certificate.location",
+                &self.ssl_certificate_location[..],
+            ),
+            ("ssl.key.location", &self.ssl_key_location[..]),
+            ("security.protocol", &self.security_protocol[..]),
+        ];
 
         return vec;
     }

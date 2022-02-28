@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y \
   build-essential \
   git \
   libssl-dev \
+  libsasl2-dev\
+  librdkafka-dev \ 
+  cmake \ 
   npm \
   python3 \
   && rm -rf /var/lib/apt/lists/*

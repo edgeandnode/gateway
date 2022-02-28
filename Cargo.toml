@@ -34,7 +34,7 @@ receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "02d09
 reqwest = { version = "0.11", features = ["json"] }
 secp256k1 = "0.20"
 serde = "1.0"
-serde_json = { version = "1.0.78", features = ["raw_value"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
 serde_yaml = "0.8"
 sha3 = "0.9"
 single = "1"
@@ -58,7 +58,8 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 url = "2.2"
 uuid = { version = "0.8", features = ["v4"] }
-rdkafka = { version = "0.25", features =  ["dynamic-linking", "ssl","gssapi"] }
+#For M1 machines on arm64 rdkafka = { version = "0.28.0", features =  ["dynamic-linking","ssl","gssapi"] } 
+rdkafka = { version = "0.28.0", features =  ["ssl-vendored","gssapi-vendored"] }
 log = "0.4.14"
 anyhow = "1.0.53"
 ore = "0.0.1"

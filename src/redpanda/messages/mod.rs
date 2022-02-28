@@ -2,7 +2,6 @@
 //!
 //! Provides data types encapsulating messages along with serialization methods.
 
-pub mod base_writer;
 pub mod client_query_result;
 pub mod indexer_attempt;
 pub mod isa_scoring_error;

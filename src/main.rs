@@ -43,9 +43,11 @@ use std::{collections::HashMap, sync::Arc};
 use structopt::StructOpt as _;
 use url::Url;
 
-use redpanda::client::KafkaClient;
-use redpanda::messages::{client_query_result::ClientQueryResult, indexer_attempt::IndexerAttempt};
-use redpanda::utils::MessageKind;
+use redpanda::{
+    client::KafkaClient,
+    messages::{client_query_result::ClientQueryResult, indexer_attempt::IndexerAttempt},
+    utils::MessageKind,
+};
 
 #[actix_web::main]
 async fn main() {
@@ -54,14 +56,14 @@ async fn main() {
     tracing::info!("Graph gateway starting...");
     tracing::debug!("{:#?}", opt);
 
-    let kafka_config = opt.to_kafka_config();
-    let config_as_ref = kafka_config.as_slice();
-
-    let kafka: KafkaClient = create_kafka_client(opt.redpanda_brokers.as_str(), config_as_ref)
-        .await
-        .unwrap();
-
-    let kafka_client = Arc::new(kafka);
+    let kafka_client =
+        match KafkaClient::new(&opt.redpanda_brokers, "rust-gateway", &opt.kafka_config()) {
+            Ok(kafka_client) => Arc::new(kafka_client),
+            Err(kafka_client_err) => {
+                tracing::error!(%kafka_client_err);
+                return;
+            }
+        };
 
     let (mut input_writers, inputs) = Inputs::new();
 
@@ -150,7 +152,7 @@ async fn main() {
         api_keys,
         stats_db,
         fisherman_client,
-        kafka_client: kafka_client.clone(),
+        kafka_client,
     };
 
     let network_subgraph_query_data = NetworkSubgraphQueryData {
@@ -250,13 +252,6 @@ async fn main() {
     .expect("Failed to start server");
 }
 
-async fn create_kafka_client(
-    brokers: &str,
-    config: &[(&str, &str)],
-) -> Result<KafkaClient, anyhow::Error> {
-    let k_client = KafkaClient::new(brokers, "rust-gateway", config)?;
-    Ok(k_client)
-}
 fn request_api_key(request: &ServiceRequest) -> String {
     format!(
         "{}/{}",
@@ -430,7 +425,6 @@ async fn handle_subgraph_query(
     let api_key = request.match_info().get("api_key").unwrap_or("");
 
     // inject the kafka client into the query object for ISA messaging
-    query.kafka_client = Some(data.kafka_client.clone());
     let response = handle_subgraph_query_inner(&request, &data, &mut query, api_key)
         .instrument(span)
         .await;
@@ -541,6 +535,7 @@ async fn handle_subgraph_query_inner(
         data.fisherman_client.clone(),
         data.block_resolvers.clone(),
         data.inputs.clone(),
+        Some(data.kafka_client.clone()),
     );
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();
     query.api_key = api_keys.get(api_key).cloned();

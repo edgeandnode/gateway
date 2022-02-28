@@ -1,32 +1,14 @@
 use std::env;
-use std::thread;
-use std::time::Duration;
 
-use anyhow::Context;
-use futures::stream::FuturesUnordered;
-use futures::{StreamExt, TryStreamExt};
-
-use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
-use rdkafka::client::ClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rdkafka::consumer::stream_consumer::StreamConsumer;
-use rdkafka::consumer::{Consumer, ConsumerContext, Rebalance};
-use rdkafka::error::{KafkaError, KafkaResult};
-use rdkafka::message::{BorrowedMessage, OwnedMessage};
-use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord};
-use rdkafka::topic_partition_list::TopicPartitionList;
-use rdkafka::Message;
-
-use log::info;
+use rdkafka::consumer::Consumer;
 
 use super::client::KafkaClient;
-use super::test_utils::*;
 use super::utils::{setup_logger, MessageKind};
 use crate::redpanda::messages::{
     client_query_result::ClientQueryResult, indexer_attempt::IndexerAttempt,
     isa_scoring_error::ISAScoringError, isa_scoring_sample::ISAScoringSample,
 };
-use crate::rp_utils::client::RpClientContext;
 
 use super::client::{CustomContext, LoggingConsumer};
 
@@ -150,17 +132,13 @@ async fn run_redpanda(
     payloads.push(client_query_bytes);
     payloads.push(indexer_attempt_bytes);
 
-    let futures = payloads
+    let sends = payloads
         .iter()
         .map(|payload| {
-            let delivery_result = kclient.send("test_gateway_topic", payload).unwrap();
+            let delivery_result = kclient.send("test_gateway_topic", payload);
             delivery_result
         })
         .collect::<Vec<_>>();
-
-    for future in futures {
-        future.await;
-    }
 }
 
 #[tokio::test]
@@ -187,7 +165,7 @@ async fn test_redpanda() {
         sec.clone(),
         mech.clone(),
     );
-    let awaited = futures.await;
+    futures.await;
 }
 
 #[tokio::test]
