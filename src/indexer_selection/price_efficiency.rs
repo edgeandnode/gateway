@@ -78,22 +78,31 @@ impl PriceEfficiency {
         // And, given a w, we want to solve for p such that the derivative is 0.
         // This gives us the lower bound for the revenue maximizing price.
         //
+        // Solving gives us the following:
+        // https://www.desmos.com/calculator/of533qsdla
+        //
         // I think this approximation is of a lower bound is reasonable
         // (better not to overestimate and hurt the indexer's revenue)
         // Solving for the correct revenue-maximizing value is complex and recursive (since the revenue
         // maximizing price depends on the utility of all other indexers which itself depends
         // on their revenue maximizing price... ad infinitum)
         //
-        // TODO: I didn't solve for this generally over w yet. But, I know that if w is 0.5,
-        // then the correct value is ~ 0.601. Since price utility weights
-        // are currently hardcoded, then the closed solution over w can go in on the next iteration.
-        let min_rate = GRT::try_from(0.6).unwrap();
+        // Solve the equation (1/(x+n))-n for n to intersect axis at desired places
+        let s = (-1.0 + 5.0f64.sqrt()) / 2.0;
+        let w = weight;
+        let min_rate =
+            ((4.0 * s.powi(2) * w + w.powi(2) - 2.0 * w + 1.0).sqrt() - 2.0 * s.powi(2) - w + 1.0)
+                / (2.0 * s);
+
+        let min_rate = GRT::try_from(min_rate).unwrap();
         let min_optimal_fee = *max_budget * min_rate;
         // If their fee is less than the min optimal, lerp between them so that
         // indexers are rewarded for being closer.
         if fee < min_optimal_fee {
-            fee = (min_optimal_fee + fee) * GRT::try_from(0.5).unwrap();
+            fee = (min_optimal_fee + fee) * GRT::try_from(0.75).unwrap();
         }
+
+        //
 
         // I went over a bunch of options and am not happy with any of them.
         // Also this is hard to summarize but I'll take a shot.
@@ -132,11 +141,9 @@ impl PriceEfficiency {
         // But my hunch is that the utility combining function captures this and it's ok
         // to have it be separate like this.
 
-        // Solve the equation (1/(x+n))-n for n to intersect axis at desired places
-        let scale = (-1.0 + 5.0f64.sqrt()) / 2.0;
         let one_wei: GRT = GRTWei::try_from(1u64).unwrap().shift();
         let scaled_fee = fee / max_budget.saturating_add(one_wei);
-        let mut utility = (1.0 / (scaled_fee.as_f64() + scale)) - scale;
+        let mut utility = (1.0 / (scaled_fee.as_f64() + s)) - s;
         // Set minimum utility, since small negative utility can result from loss of precision when the fee approaches the budget.
         utility = utility.max(1e-18);
 
