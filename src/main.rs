@@ -434,6 +434,7 @@ async fn handle_subgraph_query(
         %api_key,
         query = %query.query,
         variables = %query.variables.as_deref().unwrap_or(""),
+        budget = %query.budget.as_ref().map(ToString::to_string).unwrap_or_default(),
         response_time_ms = (Instant::now() - query.start_time).as_millis() as u32,
         %status,
         status_code,

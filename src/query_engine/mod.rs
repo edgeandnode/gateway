@@ -42,6 +42,7 @@ pub struct Query {
     pub variables: Rc<Option<String>>,
     pub api_key: Option<Arc<APIKey>>,
     pub subgraph: Option<Ptr<SubgraphInfo>>,
+    pub budget: Option<GRT>,
     pub indexer_attempts: Vec<IndexerAttempt>,
 }
 
@@ -55,6 +56,7 @@ impl Query {
             variables: Rc::new(variables),
             api_key: None,
             subgraph: None,
+            budget: None,
             indexer_attempts: Vec::new(),
         }
     }
@@ -288,12 +290,12 @@ where
             .lock()
             .await
             .budget_for_queries(query_count, &self.config.budget_factors);
-
         let budget: GRT = self
             .indexers
             .network_params
             .usd_to_grt(USD::try_from(budget).unwrap())
             .ok_or(SelectionError::MissingNetworkParams)?;
+        query.budget = Some(budget);
 
         for retry_count in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
