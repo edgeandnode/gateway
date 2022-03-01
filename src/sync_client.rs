@@ -27,6 +27,7 @@ pub fn create(
     inputs: InputWriters,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     api_keys: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
+    accept_empty: bool,
 ) -> &'static Metrics {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
     let InputWriters {
@@ -52,6 +53,7 @@ pub fn create(
         api_keys::QUERY,
         move |v| parse_api_keys(v, &mut api_key_usage),
         api_keys,
+        accept_empty,
     );
     create_sync_client::<ConversionRates, _, _>(
         agent_url.clone(),
@@ -60,6 +62,7 @@ pub fn create(
         conversion_rates::QUERY,
         parse_conversion_rates,
         usd_to_grt_conversion,
+        accept_empty,
     );
     create_sync_client::<NetworkParameters, _, _>(
         agent_url.clone(),
@@ -68,6 +71,7 @@ pub fn create(
         network_parameters::QUERY,
         parse_network_parameters,
         slashing_percentage,
+        accept_empty,
     );
     handle_cost_models(
         indexings.clone(),
@@ -77,6 +81,7 @@ pub fn create(
             cost_models::OPERATION_NAME,
             cost_models::QUERY,
             parse_cost_models,
+            accept_empty,
         ),
     );
     create_sync_client::<CurrentDeployments, _, _>(
@@ -86,6 +91,7 @@ pub fn create(
         current_deployments::QUERY,
         parse_current_deployments,
         current_deployments,
+        accept_empty,
     );
     handle_indexers(
         indexers,
@@ -96,6 +102,7 @@ pub fn create(
             indexers::OPERATION_NAME,
             indexers::QUERY,
             parse_indexers,
+            accept_empty,
         ),
     );
     handle_indexing_statuses(
@@ -107,6 +114,7 @@ pub fn create(
             indexing_statuses::OPERATION_NAME,
             indexing_statuses::QUERY,
             parse_indexing_statuses,
+            accept_empty,
         ),
     );
     handle_allocations(
@@ -118,6 +126,7 @@ pub fn create(
             usable_allocations::OPERATION_NAME,
             usable_allocations::QUERY,
             parse_usable_allocations,
+            accept_empty,
         ),
     );
     &METRICS
@@ -129,6 +138,7 @@ fn create_sync_client_input<Q, T>(
     operation: &'static str,
     query: &'static str,
     parse_data: fn(Q::ResponseData) -> Option<T>,
+    accept_empty: bool,
 ) -> Eventual<T>
 where
     T: 'static + Clone + Eq + Send,
@@ -143,6 +153,7 @@ where
         query,
         parse_data,
         writer,
+        accept_empty,
     );
     reader
 }
@@ -154,6 +165,7 @@ fn create_sync_client<Q, T, F>(
     query: &'static str,
     mut parse_data: F,
     mut writer: EventualWriter<T>,
+    accept_empty: bool,
 ) where
     F: 'static + FnMut(Q::ResponseData) -> Option<T> + Send,
     T: 'static + Clone + Eq + Send,
@@ -174,6 +186,7 @@ fn create_sync_client<Q, T, F>(
                     &mut parse_data,
                     &client,
                     &mut last_update_id,
+                    accept_empty,
                 )
                 .in_current_span()
                 .await;
@@ -200,6 +213,7 @@ async fn execute_query<'f, Q, T, F>(
     parse_data: &'f mut F,
     client: &'f reqwest::Client,
     last_update_id: &'f mut String,
+    accept_empty: bool,
 ) -> Option<T>
 where
     F: 'static + FnMut(Q::ResponseData) -> Option<T>,
@@ -250,6 +264,17 @@ where
     } else {
         tracing::warn!("updateId not found in {} response", operation);
     }
+    if !accept_empty
+        && response_data
+            .as_ref()
+            .and_then(|data| data.get("value"))
+            .and_then(|value| Some(value.as_array()?.is_empty()))
+            .unwrap_or(false)
+    {
+        tracing::warn!("ignoring empty value");
+        return None;
+    }
+
     let response: Response<Q::ResponseData> = match serde_json::from_str(&response_raw) {
         Ok(response) => response,
         Err(query_response_parse_err) => {
