@@ -373,7 +373,7 @@ impl Indexers {
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
         indexers: &[Address],
-        budget: USD,
+        budget: GRT,
         freshness_requirements: &BlockRequirements,
     ) -> Result<Option<Selection>, SelectionError> {
         let _make_selection_timer = METRICS.make_selection_duration.start_timer();
