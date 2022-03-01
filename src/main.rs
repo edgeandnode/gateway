@@ -110,6 +110,7 @@ async fn main() {
         input_writers,
         block_resolvers.clone(),
         api_keys_writer,
+        opt.sync_agent_accept_empty,
     );
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
