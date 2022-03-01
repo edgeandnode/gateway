@@ -5,7 +5,7 @@ use crate::{
         IndexingStatus, SecretKey, SelectionFactors,
     },
     prelude::{shared_lookup::SharedLookupWriter, *},
-    query_engine::{APIKey, InputWriters},
+    query_engine::{APIKey, InputWriters, VolumeEstimator},
 };
 use eventuals::EventualExt as _;
 use graphql_client::{GraphQLQuery, Response};
@@ -44,15 +44,16 @@ pub fn create(
     } = inputs;
     let indexings = Arc::new(Mutex::new(indexings));
 
-    create_sync_client::<APIKeys, _>(
+    let mut api_key_usage = VolumeEstimations::new();
+    create_sync_client::<APIKeys, _, _>(
         agent_url.clone(),
         poll_interval,
         api_keys::OPERATION_NAME,
         api_keys::QUERY,
-        parse_api_keys,
+        move |v| parse_api_keys(v, &mut api_key_usage),
         api_keys,
     );
-    create_sync_client::<ConversionRates, _>(
+    create_sync_client::<ConversionRates, _, _>(
         agent_url.clone(),
         poll_interval,
         conversion_rates::OPERATION_NAME,
@@ -60,7 +61,7 @@ pub fn create(
         parse_conversion_rates,
         usd_to_grt_conversion,
     );
-    create_sync_client::<NetworkParameters, _>(
+    create_sync_client::<NetworkParameters, _, _>(
         agent_url.clone(),
         poll_interval,
         network_parameters::OPERATION_NAME,
@@ -78,7 +79,7 @@ pub fn create(
             parse_cost_models,
         ),
     );
-    create_sync_client::<CurrentDeployments, _>(
+    create_sync_client::<CurrentDeployments, _, _>(
         agent_url.clone(),
         poll_interval,
         current_deployments::OPERATION_NAME,
@@ -135,7 +136,7 @@ where
     Q::ResponseData: 'static,
 {
     let (writer, reader) = Eventual::new();
-    create_sync_client::<Q, T>(
+    create_sync_client::<Q, T, _>(
         agent_url,
         poll_interval,
         operation,
@@ -146,14 +147,15 @@ where
     reader
 }
 
-fn create_sync_client<Q, T>(
+fn create_sync_client<Q, T, F>(
     agent_url: String,
     poll_interval: Duration,
     operation: &'static str,
     query: &'static str,
-    parse_data: fn(Q::ResponseData) -> Option<T>,
+    mut parse_data: F,
     mut writer: EventualWriter<T>,
 ) where
+    F: 'static + FnMut(Q::ResponseData) -> Option<T> + Send,
     T: 'static + Clone + Eq + Send,
     Q: GraphQLQuery,
     Q::ResponseData: 'static,
@@ -165,11 +167,11 @@ fn create_sync_client<Q, T>(
             loop {
                 let _timer =
                     with_metric(&METRICS.queries.duration, &[operation], |h| h.start_timer());
-                let result = execute_query::<Q, T>(
+                let result = execute_query::<Q, T, F>(
                     &agent_url,
                     operation,
                     query,
-                    parse_data,
+                    &mut parse_data,
                     &client,
                     &mut last_update_id,
                 )
@@ -191,15 +193,16 @@ fn create_sync_client<Q, T>(
     );
 }
 
-async fn execute_query<'f, Q, T>(
+async fn execute_query<'f, Q, T, F>(
     agent_url: &'f str,
     operation: &'static str,
     query: &'static str,
-    parse_data: fn(Q::ResponseData) -> Option<T>,
+    parse_data: &'f mut F,
     client: &'f reqwest::Client,
     last_update_id: &'f mut String,
 ) -> Option<T>
 where
+    F: 'static + FnMut(Q::ResponseData) -> Option<T>,
     T: 'static + Clone + Eq + Send,
     Q: GraphQLQuery,
     Q::ResponseData: 'static,
@@ -275,7 +278,71 @@ where
 )]
 struct APIKeys;
 
-fn parse_api_keys(data: api_keys::ResponseData) -> Option<Ptr<HashMap<String, Arc<APIKey>>>> {
+struct VolumeEstimations {
+    by_api_key: HashMap<String, Arc<Mutex<VolumeEstimator>>>,
+    decay_list: Arc<parking_lot::Mutex<Option<Vec<Arc<Mutex<VolumeEstimator>>>>>>,
+}
+
+impl Drop for VolumeEstimations {
+    fn drop(&mut self) {
+        *self.decay_list.lock() = None;
+    }
+}
+
+impl VolumeEstimations {
+    pub fn new() -> Self {
+        let decay_list = Arc::new(parking_lot::Mutex::new(Some(Vec::new())));
+        let result = Self {
+            by_api_key: HashMap::new(),
+            decay_list: decay_list.clone(),
+        };
+
+        // Every 2 minutes, call decay on every VolumeEstimator in our collection.
+        // This task will finish when the VolumeEstimations is dropped, because
+        // drop sets the decay_list to None which breaks the loop.
+        tokio::spawn(async move {
+            loop {
+                let start = Instant::now();
+                let len = if let Some(decay_list) = decay_list.lock().as_deref() {
+                    decay_list.len()
+                } else {
+                    return;
+                };
+                for i in 0..len {
+                    let item = if let Some(decay_list) = decay_list.lock().as_deref() {
+                        decay_list[i].clone()
+                    } else {
+                        return;
+                    };
+                    item.lock().await.decay();
+                }
+                let next = start + Duration::from_secs(120);
+                tokio::time::sleep_until(next).await;
+            }
+        });
+        result
+    }
+    pub fn get(&mut self, key: &str) -> Arc<Mutex<VolumeEstimator>> {
+        match self.by_api_key.get(key) {
+            Some(exist) => exist.clone(),
+            None => {
+                let result = Arc::new(Mutex::new(VolumeEstimator::default()));
+                self.by_api_key.insert(key.to_owned(), result.clone());
+                self.decay_list
+                    .lock()
+                    .as_mut()
+                    .unwrap()
+                    .push(result.clone());
+                result
+            }
+        }
+    }
+}
+
+fn parse_api_keys(
+    data: api_keys::ResponseData,
+    usage: &mut VolumeEstimations,
+) -> Option<Ptr<HashMap<String, Arc<APIKey>>>> {
     match data {
         api_keys::ResponseData {
             data: Some(api_keys::ApiKeysData { value, .. }),
@@ -284,6 +351,7 @@ fn parse_api_keys(data: api_keys::ResponseData) -> Option<Ptr<HashMap<String, Ar
                 .into_iter()
                 .filter_map(|value| {
                     Some(APIKey {
+                        usage: usage.get(&value.api_key.key),
                         id: value.api_key.id,
                         key: value.api_key.key,
                         user_id: value.user.id,

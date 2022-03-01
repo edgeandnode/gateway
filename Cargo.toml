@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "graph-gateway"
-version = "3.0.0"
+version = "4.0.0"
 
 [profile.release]
 lto = "thin"
@@ -26,6 +26,7 @@ lazy_static = "1.4"
 num-traits = "0.2"
 openssl = "0.10"
 ordered-float = "2.5"
+parking_lot = "0.12.0"
 postgres-openssl = "0.5"
 primitive-types = "0.8"
 prometheus = "0.13"

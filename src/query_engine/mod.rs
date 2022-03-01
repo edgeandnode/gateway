@@ -1,3 +1,5 @@
+mod clock;
+mod price_automation;
 #[cfg(test)]
 mod tests;
 
@@ -19,6 +21,7 @@ pub use crate::{
 };
 pub use graphql_client::Response;
 use lazy_static::lazy_static;
+pub use price_automation::{QueryBudgetFactors, VolumeEstimator};
 use prometheus;
 use serde_json::value::RawValue;
 use std::{
@@ -29,6 +32,7 @@ use std::{
         Arc,
     },
 };
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::redpanda::messages::{
@@ -72,7 +76,6 @@ pub struct IndexerAttempt {
     pub query: Arc<String>,
     pub receipt: Receipt,
     pub result: Result<IndexerResponse, IndexerError>,
-    pub rejection: Option<String>,
     pub duration: Duration,
 }
 
@@ -113,6 +116,7 @@ pub struct APIKey {
     pub deployments: Vec<SubgraphDeploymentID>,
     pub subgraphs: Vec<(String, i32)>,
     pub domains: Vec<(String, i32)>,
+    pub usage: Arc<Mutex<VolumeEstimator>>,
 }
 
 #[derive(Debug)]
@@ -148,7 +152,7 @@ impl From<SelectionError> for QueryEngineError {
 pub struct Config {
     pub indexer_selection_retry_limit: usize,
     pub utility: UtilityConfig,
-    pub query_budget: GRT,
+    pub budget_factors: QueryBudgetFactors,
 }
 
 #[derive(Clone)]
@@ -286,6 +290,22 @@ where
             _ => (),
         };
 
+        let query_count = context.operations.len().max(1) as u64;
+        let budget = query
+            .api_key
+            .as_ref()
+            .unwrap()
+            .usage
+            .lock()
+            .await
+            .budget_for_queries(query_count, &self.config.budget_factors);
+
+        let budget: GRT = self
+            .indexers
+            .network_params
+            .usd_to_grt(USD::try_from(budget).unwrap())
+            .ok_or(SelectionError::MissingNetworkParams)?;
+
         for retry_count in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
                 &METRICS.indexer_selection_duration,
@@ -320,7 +340,7 @@ where
                     &mut context,
                     &block_resolver,
                     &freshness_requirements,
-                    self.config.query_budget,
+                    budget,
                 )
                 .await;
             selection_timer.map(|t| t.observe_duration());
@@ -349,20 +369,29 @@ where
                 }
                 _ => (),
             };
+            let indexing = indexer_query.indexing.clone();
             let result = self
-                .execute_indexer_query(
-                    query,
-                    indexer_query,
-                    deployment_id,
-                    &mut context,
-                    block_resolver,
-                )
+                .execute_indexer_query(query, indexer_query, deployment_id)
                 .await;
             assert_eq!(retry_count + 1, query.indexer_attempts.len());
+            let attempt = query.indexer_attempts.last_mut().unwrap();
             match result {
-                Ok(()) => return Ok(()),
-                Err(rejection) => {
-                    query.indexer_attempts.last_mut().unwrap().rejection = Some(rejection);
+                Ok(()) => {
+                    self.indexers
+                        .observe_successful_query(&indexing, attempt.duration, &attempt.receipt)
+                        .await;
+                    return Ok(());
+                }
+                Err(err) => {
+                    self.indexers
+                        .observe_failed_query(&indexing, &attempt.receipt, &err)
+                        .await;
+                    if let IndexerError::UnresolvedBlock = err {
+                        self.indexers
+                            .observe_indexing_behind(&mut context, &indexing, block_resolver)
+                            .await;
+                    }
+                    attempt.result = Err(err);
                 }
             };
         }
@@ -467,9 +496,7 @@ where
         query: &mut Query,
         indexer_query: IndexerQuery,
         deployment_id: &str,
-        context: &mut Context<'_>,
-        block_resolver: &BlockResolver,
-    ) -> Result<(), String> {
+    ) -> Result<(), IndexerError> {
         let indexer_id = indexer_query.indexing.indexer.to_string();
         self.observe_indexer_selection_metrics(deployment_id, &indexer_query);
         let t0 = Instant::now();
@@ -487,22 +514,18 @@ where
             query: Arc::new(indexer_query.query),
             receipt: indexer_query.receipt,
             result: result,
-            rejection: None,
             duration: query_duration,
         });
         let result = &query.indexer_attempts.last().unwrap();
         let response = match &result.result {
             Ok(response) => response,
             Err(err) => {
-                self.indexers
-                    .observe_failed_query(&indexer_query.indexing, &result.receipt, err.clone())
-                    .await;
                 with_metric(
                     &METRICS.indexer_request.failed,
                     &[&deployment_id, &indexer_id],
                     |counter| counter.inc(),
                 );
-                return Err(err.to_string());
+                return Err(err.clone());
             }
         };
         with_metric(
@@ -513,32 +536,16 @@ where
 
         let subgraph = query.subgraph.as_ref().unwrap();
         if !subgraph.features.is_empty() && response.attestation.is_none() {
-            self.indexers
-                .observe_failed_query(
-                    &indexer_query.indexing,
-                    &result.receipt,
-                    IndexerError::NoAttestation,
-                )
-                .await;
-            return Err("Attestable response has no attestation".into());
+            return Err(IndexerError::NoAttestation);
         }
 
-        if let Err(rejection) = self
-            .check_unattestable_responses(
-                context,
-                &block_resolver,
-                &indexer_query.indexing,
-                &result.receipt,
-                &response,
-            )
-            .await
-        {
+        if let Err(err) = self.check_unattestable_responses(&response).await {
             with_metric(
                 &METRICS.indexer_response_unattestable,
                 &[&deployment_id, &indexer_id],
                 |counter| counter.inc(),
             );
-            return Err(rejection);
+            return Err(err);
         }
 
         if let Some(attestation) = &response.attestation {
@@ -550,9 +557,6 @@ where
             );
         }
 
-        self.indexers
-            .observe_successful_query(&indexer_query.indexing, query_duration, &result.receipt)
-            .await;
         Ok(())
     }
 
@@ -586,33 +590,20 @@ where
 
     async fn check_unattestable_responses(
         &self,
-        context: &mut Context<'_>,
-        block_resolver: &BlockResolver,
-        indexing: &Indexing,
-        receipt: &Receipt,
         response: &IndexerResponse,
-    ) -> Result<(), String> {
-        // Special-casing for a few known indexer errors; the block scope here
-        // is just to separate the code neatly from the rest
-
+    ) -> Result<(), IndexerError> {
         let parsed_response = serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
-            .map_err(|_| "invalid indexer response")?;
+            .map_err(|_| IndexerError::UnexpectedPayload)?;
 
         if indexer_response_has_error(
             &parsed_response,
             "Failed to decode `block.hash` value: `no block with that hash found`",
         ) {
-            self.indexers
-                .observe_indexing_behind(context, indexing, block_resolver)
-                .await;
-            return Err("indexer failed to resolve block".into());
+            return Err(IndexerError::UnresolvedBlock);
         }
 
         if indexer_response_has_error(&parsed_response, "panic processing query") {
-            self.indexers
-                .observe_failed_query(indexing, receipt, IndexerError::NondeterministicResponse)
-                .await;
-            return Err("indexer panicked processing query".into());
+            return Err(IndexerError::Panic);
         }
 
         Ok(())

@@ -339,7 +339,7 @@ async fn run_simulation(
                 .observe_failed_query(
                     &indexing,
                     &query.receipt,
-                    IndexerError::Other("error".to_string()),
+                    &IndexerError::Other("error".to_string()),
                 )
                 .await;
         }

@@ -1,7 +1,7 @@
 mod allocations;
 mod block_requirements;
 mod data_freshness;
-mod decay;
+pub mod decay;
 mod economic_security;
 mod indexers;
 mod performance;
@@ -97,9 +97,11 @@ impl From<BadIndexerReason> for SelectionError {
 
 #[derive(Clone, Debug)]
 pub enum IndexerError {
-    Timeout,
     NoAttestation,
-    NondeterministicResponse,
+    Panic,
+    Timeout,
+    UnexpectedPayload,
+    UnresolvedBlock,
     Other(String),
 }
 
@@ -109,12 +111,6 @@ impl IndexerError {
             Self::Timeout => true,
             _ => false,
         }
-    }
-}
-
-impl fmt::Display for IndexerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
     }
 }
 
@@ -184,7 +180,7 @@ pub struct InputWriters {
 }
 
 pub struct Indexers {
-    network_params: NetworkParameters,
+    pub network_params: NetworkParameters,
     indexers: SharedLookup<Address, IndexerDataReader>,
     indexings: SharedLookup<Indexing, SelectionFactors>,
     special_indexers: Eventual<HashMap<Address, NotNan<f64>>>,
@@ -246,7 +242,7 @@ impl Indexers {
         &self,
         indexing: &Indexing,
         receipt: &[u8],
-        error: IndexerError,
+        error: &IndexerError,
     ) {
         let selection_factors = match self.indexings.get(indexing).await {
             Some(selection_factors) => selection_factors,
@@ -305,8 +301,6 @@ impl Indexers {
         freshness_requirements(&mut context.operations, block_resolver).await
     }
 
-    // TODO: Specify budget in terms of a cost model -
-    // the budget should be different per query
     pub async fn select_indexer(
         &self,
         config: &UtilityConfig,
@@ -316,13 +310,8 @@ impl Indexers {
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
         freshness_requirements: &BlockRequirements,
-        budget: USD,
+        budget: GRT,
     ) -> Result<Option<(IndexerQuery, ScoringSample)>, SelectionError> {
-        let budget: GRT = self
-            .network_params
-            .usd_to_grt(budget)
-            .ok_or(SelectionError::MissingNetworkParams)?;
-
         let selection = match self
             .make_selection(
                 config,
@@ -384,7 +373,7 @@ impl Indexers {
         context: &mut Context<'_>,
         block_resolver: &BlockResolver,
         indexers: &[Address],
-        budget: USD,
+        budget: GRT,
         freshness_requirements: &BlockRequirements,
     ) -> Result<Option<Selection>, SelectionError> {
         let _make_selection_timer = METRICS.make_selection_duration.start_timer();

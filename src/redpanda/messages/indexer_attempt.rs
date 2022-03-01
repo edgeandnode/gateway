@@ -22,7 +22,7 @@ lazy_static! {
             {"name": "blocks_behind", "type": "long"},
             {"name": "response_time_ms", "type": "int"},
             {"name": "status", "type": "string"},
-            {"name": "rejection", "type": "string"}
+            {"name": "status_code", "type": "int"}
 
         ]
     }
@@ -44,7 +44,7 @@ pub struct IndexerAttempt {
     pub blocks_behind: u64,
     pub response_time_ms: u32,
     pub status: String,
-    pub rejection: String,
+    pub status_code: u32,
 }
 
 impl IndexerAttempt {
@@ -95,7 +95,7 @@ impl Default for IndexerAttempt {
             blocks_behind: Default::default(),
             response_time_ms: Default::default(),
             status: Default::default(),
-            rejection: Default::default(),
+            status_code: Default::default(),
         }
     }
 }
