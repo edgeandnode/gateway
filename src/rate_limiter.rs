@@ -1,8 +1,5 @@
 use crate::{graphql_error_response, prelude::*};
-use actix_web::{
-    dev::{Service, ServiceRequest, ServiceResponse, Transform},
-    http::StatusCode,
-};
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use eventuals::{self, EventualExt as _};
 use futures_util::future::{FutureExt as _, LocalBoxFuture};
 use lazy_static::lazy_static;
@@ -76,7 +73,7 @@ where
                 with_metric(&METRICS.rate_limited, &[&key], |c| c.inc());
                 return Ok(ServiceResponse::new(
                     request.into_parts().0,
-                    graphql_error_response(StatusCode::OK, "Too many requests, try again later"),
+                    graphql_error_response("Too many requests, try again later"),
                 ));
             }
             service.call(request).await
