@@ -70,15 +70,3 @@ impl ISAScoringError {
         }
     }
 }
-
-impl Default for ISAScoringError {
-    fn default() -> ISAScoringError {
-        ISAScoringError {
-            ray_id: String::from("null_ray"),
-            query_id: Default::default(),
-            deployment: Default::default(),
-            indexer: Default::default(),
-            scoring_err: Default::default(),
-        }
-    }
-}

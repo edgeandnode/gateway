@@ -1,7 +1,9 @@
 use std::env;
+use std::time::Duration;
+use std::{thread, time};
 
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rdkafka::consumer::Consumer;
+use rdkafka::producer::Producer;
 
 use super::client::KafkaClient;
 use super::utils::{setup_logger, MessageKind};
@@ -95,7 +97,6 @@ async fn run_redpanda(
     .expect("couldn't create client");
 
     let mut new_config = ClientConfig::new();
-    new_config.set("group.id", "rust-gateway-consumer");
     new_config.set("bootstrap.servers", &brokers[..]);
     new_config.set("enable.partition.eof", "false");
     new_config.set("session.timeout.ms", "6000");
@@ -106,39 +107,19 @@ async fn run_redpanda(
         new_config.set(key, val);
     }
 
-    let context = CustomContext;
+    let test_isa_error = ISAScoringError {
+        ray_id: "null-ray".to_string(),
+        query_id: 123456,
+        deployment: "Qmsdadasdghrfhefjhad".to_string(),
+        indexer: "0xassd3rr4f4r1".to_string(),
+        scoring_err: "Test Error".to_string(),
+    };
 
-    let consumer: LoggingConsumer = new_config
-        .create_with_context(context)
-        .expect("Consumer creation failed");
-
-    consumer
-        .subscribe(&["test123"])
-        .expect("Can't subscribe to specified topic");
-
-    let test_isa_sample = ISAScoringSample::default();
-    let test_isa_error = ISAScoringError::default();
-    let test_client_query = ClientQueryResult::default();
-    let test_indexer_attempt = IndexerAttempt::default();
-
-    let isa_sample_bytes = test_isa_sample.write(MessageKind::JSON);
     let isa_error_bytes = test_isa_error.write(MessageKind::JSON);
-    let client_query_bytes = test_client_query.write(MessageKind::JSON);
-    let indexer_attempt_bytes = test_indexer_attempt.write(MessageKind::JSON);
 
-    let mut payloads: Vec<Vec<u8>> = vec![];
-    payloads.push(isa_sample_bytes);
-    payloads.push(isa_error_bytes);
-    payloads.push(client_query_bytes);
-    payloads.push(indexer_attempt_bytes);
+    kclient.send("test_gateway_topic", &isa_error_bytes);
 
-    let sends = payloads
-        .iter()
-        .map(|payload| {
-            let delivery_result = kclient.send("test_gateway_topic", payload);
-            delivery_result
-        })
-        .collect::<Vec<_>>();
+    kclient.producer.flush(Duration::from_secs(1));
 }
 
 #[tokio::test]
@@ -153,7 +134,6 @@ async fn test_redpanda() {
     let pass = env::var("REDPANDA_SASL_PASSWORD").unwrap();
     let sec = env::var("REDPANDA_SECURITY_PROTOCOL").unwrap();
     let mech = env::var("REDPANDA_SASL_MECHANISM").unwrap();
-
     //clone one object
     let futures = run_redpanda(
         brokers.clone(),

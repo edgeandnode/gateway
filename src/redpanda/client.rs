@@ -1,9 +1,10 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
-use std::time::Duration;
-
 use anyhow::Context;
+use rdkafka::types::RDKafkaErrorCode;
+use std::thread;
+use std::time::Duration;
 
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::ClientContext;
@@ -116,10 +117,25 @@ impl KafkaClient {
     }
 
     pub fn send(&self, topic_name: &str, message: &[u8]) {
-        let record = BaseRecord::to(topic_name).payload(message).key("1");
-        match self.producer.send(record) {
-            Ok(()) => (),
-            _ => (),
+        let mut errors = 0;
+        let mut record = BaseRecord::to(topic_name).payload(message).key(&[1, 2, 3]);
+
+        loop {
+            match self.producer.send(record) {
+                Ok(()) => break,
+                //if the queue is full, try again.
+                Err((KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull), rec)) => {
+                    // Retry after 500ms
+                    record = rec;
+                    thread::sleep(Duration::from_millis(500));
+                }
+                //otherwise just break
+                Err((e, _)) => {
+                    println!("Failed to publish on kafka {:?}", e);
+                    errors += 1;
+                    break;
+                }
+            }
         }
     }
 }

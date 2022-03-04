@@ -81,21 +81,3 @@ impl IndexerAttempt {
         }
     }
 }
-
-impl Default for IndexerAttempt {
-    fn default() -> IndexerAttempt {
-        IndexerAttempt {
-            ray_id: String::from("null_ray"),
-            query_id: Default::default(),
-            attempt_index: Default::default(),
-            indexer: Default::default(),
-            allocation: Default::default(),
-            fee: Default::default(),
-            utility: Default::default(),
-            blocks_behind: Default::default(),
-            response_time_ms: Default::default(),
-            status: Default::default(),
-            status_code: Default::default(),
-        }
-    }
-}

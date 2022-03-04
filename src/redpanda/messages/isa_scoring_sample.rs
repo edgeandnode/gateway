@@ -90,26 +90,3 @@ impl ISAScoringSample {
         }
     }
 }
-
-impl Default for ISAScoringSample {
-    fn default() -> ISAScoringSample {
-        ISAScoringSample {
-            ray_id: String::from("null_ray"),
-            query_id: Default::default(),
-            deployment: Default::default(),
-            address: Default::default(),
-            fee: Default::default(),
-            slashable: Default::default(),
-            utility: Default::default(),
-            economic_security: Default::default(),
-            price_efficiency: Default::default(),
-            data_freshness: Default::default(),
-            performance: Default::default(),
-            reputation: Default::default(),
-            sybil: Default::default(),
-            blocks_behind: Default::default(),
-            url: Default::default(),
-            message: Default::default(),
-        }
-    }
-}

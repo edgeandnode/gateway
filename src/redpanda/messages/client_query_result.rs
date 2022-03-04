@@ -77,19 +77,3 @@ impl ClientQueryResult {
         }
     }
 }
-
-impl Default for ClientQueryResult {
-    fn default() -> ClientQueryResult {
-        ClientQueryResult {
-            ray_id: String::from("null_ray"),
-            query_id: Default::default(),
-            deployment: Default::default(),
-            network: Default::default(),
-            api_key: Default::default(),
-            query: Default::default(),
-            response_time: Default::default(),
-            variables: Default::default(),
-            status: Default::default(),
-        }
-    }
-}
