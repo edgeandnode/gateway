@@ -452,6 +452,12 @@ async fn handle_subgraph_query(
     let network = (*subgraph.network).to_owned();
     let variables = query.variables.as_deref().unwrap_or("");
     let response_time = (Instant::now() - query.start_time).as_millis() as u32;
+    let budget = query
+        .budget
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+
     tracing::info!(
         ray_id = %&query.ray_id,
         query_id = %query.id,
@@ -460,11 +466,13 @@ async fn handle_subgraph_query(
         %api_key,
         query = %query.query,
         variables = %variables,
+        budget = %budget,
         response_time_ms =response_time,
         %status,
         status_code,
         "Client query result",
     );
+
     let client_query_msg = ClientQueryResult {
         ray_id: query.ray_id.clone(),
         query_id: query.id.local_id,
@@ -473,6 +481,7 @@ async fn handle_subgraph_query(
         api_key: String::from(api_key),
         query: std::rc::Rc::try_unwrap(query.query).unwrap(),
         variables: String::from(variables),
+        budget: budget,
         response_time: response_time,
         status: status.clone(),
     };

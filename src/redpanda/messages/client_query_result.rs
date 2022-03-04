@@ -20,6 +20,7 @@ lazy_static! {
             {"name": "query", "type": "string"},
             {"name": "response_time", "type": "int"},
             {"name": "variables", "type": "string"},
+            {"name": "budget", "type": "string"},
             {"name": "status", "type": "string"}
         ]
     }
@@ -39,6 +40,7 @@ pub struct ClientQueryResult {
     pub query: String,
     pub response_time: u32,
     pub variables: String,
+    pub budget: String,
     pub status: String,
 }
 
