@@ -1,11 +1,11 @@
-use anyhow::bail;
+#![allow(unused)] // AVRO and Other MessageKind enums are used, they just aren't currently constructed. Commenting/cutting them out would break other files.
+
 use chrono::prelude::*;
 use env_logger::{fmt::Formatter, Builder};
 use log::{LevelFilter, Record};
-use std::{fmt::Display, io::Write, thread, time::Duration};
+use std::{fmt::Display, io::Write, thread};
 
 use rdkafka::{
-    client::Client,
     consumer::ConsumerContext,
     producer::{DefaultProducerContext, DeliveryResult, ProducerContext},
     ClientContext,
@@ -132,33 +132,4 @@ impl ProducerContext for RpClientContext {
     ) {
         DefaultProducerContext.delivery(delivery_result, delivery_opaque);
     }
-}
-
-pub fn get_partitions<C: ClientContext>(
-    client: &Client<C>,
-    topic: &str,
-    timeout: Duration,
-) -> Result<Vec<i32>, anyhow::Error> {
-    let meta = client.fetch_metadata(Some(&topic), timeout)?;
-    if meta.topics().len() != 1 {
-        bail!(
-            "topic {} has {} metadata entries; expected 1",
-            topic,
-            meta.topics().len()
-        );
-    }
-    let meta_topic = meta.topics().into_element();
-    if meta_topic.name() != topic {
-        bail!(
-            "got results for wrong topic {} (expected {})",
-            meta_topic.name(),
-            topic
-        );
-    }
-
-    if meta_topic.partitions().len() == 0 {
-        bail!("topic {} does not exist", topic);
-    }
-
-    Ok(meta_topic.partitions().iter().map(|x| x.id()).collect())
 }

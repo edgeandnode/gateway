@@ -1,9 +1,7 @@
-use anyhow::Context;
 use rdkafka::types::RDKafkaErrorCode;
 use std::{fmt, thread, time::Duration};
 
 use rdkafka::{
-    admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     client::ClientContext,
     config::ClientConfig,
     consumer::{ConsumerContext, Rebalance},
@@ -38,6 +36,7 @@ impl KafkaClient {
         config.set("message.timeout.ms", "3000");
         config.set("queue.buffering.max.ms", "1000");
         config.set("queue.buffering.max.messages", "1000000");
+        config.set("allow.auto.create.topics", "true");
 
         for (key, val) in configs {
             config.set(*key, *val);
@@ -53,58 +52,6 @@ impl KafkaClient {
         })
     }
 
-    pub async fn create_topic(
-        &self,
-        topic_name: &str,
-        partitions: i32,
-        replication: i32,
-        configs: Vec<(&str, &str)>,
-        timeout: Option<Duration>,
-    ) -> Result<(), anyhow::Error> {
-        let mut config = ClientConfig::new();
-        config.set("bootstrap.servers", &self.kafka_url);
-
-        let client = config
-            .create::<AdminClient<_>>()
-            .expect("creating admin kafka client failed");
-
-        let admin_opts = AdminOptions::new().request_timeout(timeout);
-
-        let mut topic = NewTopic::new(topic_name, partitions, TopicReplication::Fixed(replication));
-        for (key, val) in configs {
-            topic = topic.set(key, val);
-        }
-
-        let res = client.create_topics([&topic], &admin_opts).await?;
-
-        Ok(())
-    }
-
-    pub async fn delete_topic(
-        &self,
-        topic_name: &str,
-        configs: Vec<(&str, &str)>,
-        timeout: Option<Duration>,
-    ) -> Result<(), anyhow::Error> {
-        let mut config = ClientConfig::new();
-        config.set("bootstrap.servers", &self.kafka_url);
-
-        let client = config
-            .create::<AdminClient<_>>()
-            .expect("creating admin kafka client failed");
-
-        let admin_opts = AdminOptions::new().request_timeout(timeout);
-
-        let mut topics = [""; 1];
-        topics.fill(topic_name);
-        client
-            .delete_topics(&topics, &admin_opts)
-            .await
-            .context(format!("deleting Kafka topic: {}", topic_name))?;
-
-        Ok(())
-    }
-
     pub fn send(&self, topic_name: &str, message: &[u8]) {
         let mut record = BaseRecord::<'_, (), [u8]>::to(topic_name).payload(message);
 
@@ -117,6 +64,7 @@ impl KafkaClient {
                     record = rec;
                     thread::sleep(Duration::from_millis(500));
                 }
+
                 //otherwise just break
                 Err((e, _)) => {
                     println!("Failed to publish on kafka {:?}", e);

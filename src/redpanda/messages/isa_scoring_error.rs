@@ -44,7 +44,7 @@ impl ISAScoringError {
         let res = writer.append_ser(self);
 
         match res {
-            Ok(res) => (),
+            Ok(_res) => (),
             Err(err) => {
                 panic!("{:?}", err);
             }

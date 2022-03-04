@@ -9,51 +9,6 @@ use super::client::KafkaClient;
 use super::utils::{setup_logger, MessageKind};
 use crate::redpanda::messages::isa_scoring_error::ISAScoringError;
 
-async fn create_topic(
-    brokers: String,
-    ca: String,
-    cert: String,
-    key: String,
-    user: String,
-    pass: String,
-    sec: String,
-    mech: String,
-    broker_ver: String,
-) {
-    println!("{}", brokers);
-    println!("{}", ca);
-    println!("{}", cert);
-    println!("{}", key);
-    println!("{}", user);
-    println!("{}", pass);
-    println!("{}", sec);
-    println!("{}", mech);
-
-    let mut vec = vec![];
-    vec.push(("bootstrap.servers", brokers.as_str()));
-    vec.push(("sasl.password", pass.as_str()));
-    vec.push(("sasl.username", user.as_str()));
-    vec.push(("sasl.mechanism", mech.as_str()));
-    vec.push(("ssl.ca.location", ca.as_str()));
-    vec.push(("ssl.certificate.location", cert.as_str()));
-    vec.push(("ssl.key.location", key.as_str()));
-    vec.push(("security.protocol", sec.as_str()));
-    vec.push(("debug", "all"));
-    vec.push(("broker.version.fallback", broker_ver.as_str()));
-
-    let kclient: KafkaClient = KafkaClient::new(
-        &brokers[..],
-        "rust-gateway-producer",
-        vec.clone().as_slice(),
-    )
-    .expect("couldn't create client");
-
-    kclient
-        .create_topic("ephemeral_gateway_topic", 1, 1, vec, None)
-        .await
-        .unwrap();
-}
-
 async fn run_redpanda(
     brokers: String,
     ca: String,
@@ -141,33 +96,4 @@ async fn test_redpanda() {
         mech.clone(),
     );
     futures.await;
-}
-
-#[tokio::test]
-async fn test_topic_creation() {
-    setup_logger(true, Some("rdkafka=trace"));
-
-    let brokers = env::var("REDPANDA_BROKERS").unwrap();
-    let ca = env::var("REDPANDA_SSL_CA").unwrap();
-    let cert = env::var("REDPANDA_SSL_CERT").unwrap();
-    let key = env::var("REDPANDA_SSL_KEY").unwrap();
-    let user = env::var("REDPANDA_SASL_USER").unwrap();
-    let pass = env::var("REDPANDA_SASL_PASSWORD").unwrap();
-    let sec = env::var("REDPANDA_SECURITY_PROTOCOL").unwrap();
-    let mech = env::var("REDPANDA_SASL_MECHANISM").unwrap();
-    let broker_ver = env::var("BROKER_VERSION").unwrap();
-
-    //clone one object
-    let result = create_topic(
-        brokers.clone(),
-        ca.clone(),
-        cert.clone(),
-        key.clone(),
-        user.clone(),
-        pass.clone(),
-        sec.clone(),
-        mech.clone(),
-        broker_ver.clone(),
-    );
-    result.await
 }
