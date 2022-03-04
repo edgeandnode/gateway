@@ -1,6 +1,5 @@
 use crate::redpanda::utils::MessageKind;
-use avro_rs::Schema;
-use avro_rs::Writer;
+use avro_rs::{Schema, Writer};
 use bincode;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};

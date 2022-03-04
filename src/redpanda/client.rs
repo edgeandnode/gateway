@@ -1,30 +1,19 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
-#![allow(unused_variables)]
 use anyhow::Context;
 use rdkafka::types::RDKafkaErrorCode;
-use std::thread;
-use std::time::Duration;
+use std::{fmt, thread, time::Duration};
 
-use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
-use rdkafka::client::ClientContext;
-use rdkafka::config::ClientConfig;
-use rdkafka::consumer::stream_consumer::StreamConsumer;
-use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
-use rdkafka::error::{KafkaError, KafkaResult};
-use rdkafka::producer::{
-    BaseRecord, DefaultProducerContext, DeliveryFuture, FutureProducer, FutureRecord,
-    ThreadedProducer,
+use rdkafka::{
+    admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
+    client::ClientContext,
+    config::ClientConfig,
+    consumer::{ConsumerContext, Rebalance},
+    error::{KafkaError, KafkaResult},
+    producer::{BaseRecord, DefaultProducerContext, ThreadedProducer},
+    topic_partition_list::TopicPartitionList,
 };
-use rdkafka::topic_partition_list::TopicPartitionList;
 
 use log::info;
-use std::fmt;
 
-use super::utils::{setup_logger, MessageKind};
-use crate::rp_utils::client::RpClientContext;
-
-// #[derive(Clone)]
 pub struct KafkaClient {
     pub(super) producer: ThreadedProducer<DefaultProducerContext>,
     // pub(super) thread_producer: FutureProducer<RpClientContext>,
@@ -117,7 +106,6 @@ impl KafkaClient {
     }
 
     pub fn send(&self, topic_name: &str, message: &[u8]) {
-        let mut errors = 0;
         let mut record = BaseRecord::<'_, (), [u8]>::to(topic_name).payload(message);
 
         loop {
@@ -132,7 +120,6 @@ impl KafkaClient {
                 //otherwise just break
                 Err((e, _)) => {
                     println!("Failed to publish on kafka {:?}", e);
-                    errors += 1;
                     break;
                 }
             }
@@ -157,6 +144,3 @@ impl ConsumerContext for CustomContext {
         info!("Committing offsets: {:?}", result);
     }
 }
-
-// Type alias for custom consumer.
-pub type LoggingConsumer = StreamConsumer<CustomContext>;

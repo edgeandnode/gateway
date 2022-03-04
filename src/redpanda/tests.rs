@@ -1,18 +1,13 @@
-use std::env;
-use std::time::Duration;
-use std::{thread, time};
+use std::{env, time::Duration};
 
-use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rdkafka::producer::Producer;
+use rdkafka::{
+    config::{ClientConfig, RDKafkaLogLevel},
+    producer::Producer,
+};
 
 use super::client::KafkaClient;
 use super::utils::{setup_logger, MessageKind};
-use crate::redpanda::messages::{
-    client_query_result::ClientQueryResult, indexer_attempt::IndexerAttempt,
-    isa_scoring_error::ISAScoringError, isa_scoring_sample::ISAScoringSample,
-};
-
-use super::client::{CustomContext, LoggingConsumer};
+use crate::redpanda::messages::isa_scoring_error::ISAScoringError;
 
 async fn create_topic(
     brokers: String,

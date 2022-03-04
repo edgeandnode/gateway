@@ -1,10 +1,10 @@
-use avro_rs::Schema;
-use avro_rs::Writer;
+use avro_rs::{Schema, Writer};
 use bincode;
 use lazy_static::lazy_static;
 
 use crate::redpanda::utils::MessageKind;
 use serde::{Deserialize, Serialize};
+
 lazy_static! {
     pub static ref MESSAGE_SCHEMA: Schema = Schema::parse_str(
         r#"
@@ -21,7 +21,6 @@ lazy_static! {
             {"name": "response_time", "type": "int"},
             {"name": "variables", "type": "string"},
             {"name": "status", "type": "string"}
-
         ]
     }
     "#,

@@ -10,7 +10,6 @@ mod prelude;
 mod query_engine;
 mod rate_limiter;
 mod redpanda;
-mod rp_utils;
 mod stats_db;
 mod sync_client;
 mod vouchers;
