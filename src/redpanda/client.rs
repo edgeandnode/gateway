@@ -118,7 +118,7 @@ impl KafkaClient {
 
     pub fn send(&self, topic_name: &str, message: &[u8]) {
         let mut errors = 0;
-        let mut record = BaseRecord::to(topic_name).payload(message).key(&[1, 2, 3]);
+        let mut record = BaseRecord::<'_, (), [u8]>::to(topic_name).payload(message);
 
         loop {
             match self.producer.send(record) {

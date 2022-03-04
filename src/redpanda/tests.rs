@@ -119,7 +119,7 @@ async fn run_redpanda(
 
     kclient.send("test_gateway_topic", &isa_error_bytes);
 
-    kclient.producer.flush(Duration::from_secs(1));
+    kclient.producer.flush(Duration::from_secs(5));
 }
 
 #[tokio::test]
