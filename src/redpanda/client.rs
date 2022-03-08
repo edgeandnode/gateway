@@ -1,6 +1,5 @@
+use log::info;
 use rdkafka::types::RDKafkaErrorCode;
-use std::{fmt, thread, time::Duration};
-
 use rdkafka::{
     client::ClientContext,
     config::ClientConfig,
@@ -9,8 +8,7 @@ use rdkafka::{
     producer::{BaseRecord, DefaultProducerContext, ThreadedProducer},
     topic_partition_list::TopicPartitionList,
 };
-
-use log::info;
+use std::{fmt, thread, time::Duration};
 
 pub struct KafkaClient {
     pub(super) producer: ThreadedProducer<DefaultProducerContext>,
@@ -25,30 +23,13 @@ impl fmt::Debug for KafkaClient {
 }
 
 impl KafkaClient {
-    pub fn new(
-        kafka_url: &str,
-        group_id: &str,
-        configs: &[(&str, &str)],
-    ) -> Result<KafkaClient, anyhow::Error> {
-        let mut config = ClientConfig::new();
-        config.set("bootstrap.servers", kafka_url);
-        config.set("group.id", group_id);
-        config.set("message.timeout.ms", "3000");
-        config.set("queue.buffering.max.ms", "1000");
-        config.set("queue.buffering.max.messages", "1000000");
-        config.set("allow.auto.create.topics", "true");
-
-        for (key, val) in configs {
-            config.set(*key, *val);
-        }
-
+    pub fn new(config: &ClientConfig) -> Result<KafkaClient, anyhow::Error> {
         let producer = config
             .create_with_context(DefaultProducerContext)
             .expect("Producer creation error");
-
         Ok(KafkaClient {
             producer,
-            kafka_url: kafka_url.to_string(),
+            kafka_url: config.get("bootstrap.servers").unwrap().to_string(),
         })
     }
 

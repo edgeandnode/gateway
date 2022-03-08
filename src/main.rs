@@ -35,6 +35,11 @@ use actix_web::{
 use eventuals::EventualExt;
 use lazy_static::lazy_static;
 use prometheus::{self, Encoder as _};
+use redpanda::{
+    client::KafkaClient,
+    messages::{client_query_result::ClientQueryResult, indexer_attempt::IndexerAttempt},
+    utils::MessageKind,
+};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
@@ -46,12 +51,6 @@ use std::{
 use structopt::StructOpt as _;
 use url::Url;
 
-use redpanda::{
-    client::KafkaClient,
-    messages::{client_query_result::ClientQueryResult, indexer_attempt::IndexerAttempt},
-    utils::MessageKind,
-};
-
 #[actix_web::main]
 async fn main() {
     let opt = Opt::from_args();
@@ -59,14 +58,13 @@ async fn main() {
     tracing::info!("Graph gateway starting...");
     tracing::debug!("{:#?}", opt);
 
-    let kafka_client =
-        match KafkaClient::new(&opt.redpanda_brokers, "rust-gateway", &opt.kafka_config()) {
-            Ok(kafka_client) => Arc::new(kafka_client),
-            Err(kafka_client_err) => {
-                tracing::error!(%kafka_client_err);
-                return;
-            }
-        };
+    let kafka_client = match KafkaClient::new(&opt.kafka_config()) {
+        Ok(kafka_client) => Arc::new(kafka_client),
+        Err(kafka_client_err) => {
+            tracing::error!(%kafka_client_err);
+            return;
+        }
+    };
 
     let (mut input_writers, inputs) = Inputs::new();
 
