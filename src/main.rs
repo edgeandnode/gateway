@@ -17,10 +17,10 @@ mod ws_client;
 use crate::{
     block_resolver::{BlockCache, BlockResolver},
     fisherman_client::*,
-    indexer_client::{IndexerClient, IndexerResponse},
-    indexer_selection::{IndexerError, UtilityConfig},
+    indexer_client::IndexerClient,
+    indexer_selection::UtilityConfig,
     ipfs_client::*,
-    kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
+    kafka_client::{ClientQueryResult, KafkaClient, KafkaInterface as _},
     manifest_client::*,
     opt::*,
     prelude::*,
@@ -39,12 +39,7 @@ use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
-use siphasher::sip::SipHasher24;
-use std::{
-    collections::HashMap,
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use structopt::StructOpt as _;
 use url::Url;
 
@@ -427,132 +422,18 @@ async fn handle_subgraph_query(
     );
     let api_key = request.match_info().get("api_key").unwrap_or("");
 
-    // inject the kafka client into the query object for ISA messaging
     let response = handle_subgraph_query_inner(&request, &data, &mut query, api_key)
         .instrument(span)
         .await;
-    let status_code = encode_client_query_status(&response);
-    let (payload, status) = match response {
-        Ok(payload) => (payload, StatusCode::OK.to_string()),
-        Err(msg) => (graphql_error_response(&msg), msg),
+
+    let (payload, status_result) = match response {
+        Ok(payload) => (payload, Ok(StatusCode::OK.to_string())),
+        Err(msg) => (graphql_error_response(&msg), Err(msg)),
     };
-
-    let subgraph = query.subgraph.as_ref().unwrap();
-    let deployment = subgraph.deployment;
-    let network = (*subgraph.network).to_owned();
-    let variables = query.variables.as_deref().unwrap_or("");
-    let response_time = (Instant::now() - query.start_time).as_millis() as u32;
-    let budget = query
-        .budget
-        .as_ref()
-        .map(ToString::to_string)
-        .unwrap_or_default();
-
-    tracing::info!(
-        ray_id = %&query.ray_id,
-        query_id = %query.id,
-        deployment = %deployment,
-        network = %query.subgraph.as_ref().unwrap().network,
-        %api_key,
-        query = %query.query,
-        variables = %variables,
-        budget = %budget,
-        response_time_ms =response_time,
-        %status,
-        status_code,
-        "Client query result",
-    );
-
-    let client_query_msg = ClientQueryResult {
-        ray_id: query.ray_id.clone(),
-        query_id: query.id.local_id,
-        deployment: deployment.to_string().clone(),
-        network: network.clone(),
-        api_key: String::from(api_key),
-        query: std::rc::Rc::try_unwrap(query.query).unwrap(),
-        variables: String::from(variables),
-        budget: budget,
-        response_time: response_time,
-        status: status.clone(),
-    };
-    data.kafka_client.send(&client_query_msg);
-
-    for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
-        let status = match &attempt.result {
-            Ok(response) => response.status.to_string(),
-            Err(err) => format!("{:?}", err),
-        };
-
-        let response_time = attempt.duration.as_millis() as u32;
-        let status_code = encode_indexer_attempt_status(&attempt.result);
-        tracing::info!(
-            ray_id = %query.ray_id,
-            query_id = %query.id,
-            api_key = %api_key,
-            %deployment,
-            attempt_index,
-            indexer = %attempt.indexer,
-            url = %attempt.score.url,
-            allocation = %attempt.allocation,
-            fee = %attempt.score.fee,
-            utility = *attempt.score.utility,
-            blocks_behind = attempt.score.blocks_behind,
-            response_time_ms =response_time,
-            %status,
-            status_code,
-            "Indexer attempt",
-        );
-
-        // IndexerAttempt
-        let indexer_attempt_msg = IndexerAttempt {
-            ray_id: query.ray_id.clone(),
-            query_id: query.id.local_id,
-            attempt_index: attempt_index,
-            indexer: attempt.indexer.to_string(),
-            allocation: attempt.allocation.to_string(),
-            fee: attempt.score.fee.to_string(),
-            utility: *attempt.score.utility,
-            blocks_behind: attempt.score.blocks_behind,
-            response_time_ms: response_time,
-            status: status.clone(),
-            status_code: status_code,
-        };
-        data.kafka_client.send(&indexer_attempt_msg);
-    }
+    data.kafka_client
+        .send(&ClientQueryResult::new(&query, status_result));
 
     payload
-}
-
-// 32-bit status, encoded as zero for success and nonzero for errors
-fn encode_client_query_status(result: &Result<HttpResponse, String>) -> u32 {
-    match result {
-        Ok(_) => 0,
-        Err(msg) => {
-            let mut hasher = SipHasher24::default();
-            msg.hash(&mut hasher);
-            hasher.finish() as u32 | 0x1
-        }
-    }
-}
-
-// 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
-fn encode_indexer_attempt_status(result: &Result<IndexerResponse, IndexerError>) -> u32 {
-    let (prefix, data) = match result {
-        // prefix 0x0, followed by the HTTP status code
-        Ok(response) => (0x0, (response.status as u32).to_be()),
-        Err(IndexerError::NoAttestation) => (0x1, 0x0),
-        Err(IndexerError::Panic) => (0x2, 0x0),
-        Err(IndexerError::Timeout) => (0x3, 0x0),
-        Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
-        Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
-        // prefix 0x6, followed by a 28-bit hash of the error message
-        Err(IndexerError::Other(msg)) => {
-            let mut hasher = SipHasher24::default();
-            msg.hash(&mut hasher);
-            (0x6, hasher.finish() as u32)
-        }
-    };
-    (prefix << 28) | (data & (u32::MAX >> 4))
 }
 
 async fn handle_subgraph_query_inner(
