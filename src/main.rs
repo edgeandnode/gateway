@@ -38,8 +38,9 @@ use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
+use siphasher::sip::SipHasher24;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::HashMap,
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -467,7 +468,7 @@ fn encode_client_query_status(result: &Result<HttpResponse, String>) -> u32 {
     match result {
         Ok(_) => 0,
         Err(msg) => {
-            let mut hasher = DefaultHasher::new();
+            let mut hasher = SipHasher24::default();
             msg.hash(&mut hasher);
             hasher.finish() as u32 | 0x1
         }
@@ -486,7 +487,7 @@ fn encode_indexer_attempt_status(result: &Result<IndexerResponse, IndexerError>)
         Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
         // prefix 0x6, followed by a 28-bit hash of the error message
         Err(IndexerError::Other(msg)) => {
-            let mut hasher = DefaultHasher::new();
+            let mut hasher = SipHasher24::default();
             msg.hash(&mut hasher);
             (0x6, hasher.finish() as u32)
         }
