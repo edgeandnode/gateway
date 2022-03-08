@@ -11,8 +11,8 @@ use crate::{
         self, Context, IndexerError, IndexerQuery, IndexerScore, Indexers, Receipt, SelectionError,
         UnresolvedBlock,
     },
+    kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
-    redpanda::client::{ISAScoringError, ISAScoringSample, KafkaInterface},
 };
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},

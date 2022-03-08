@@ -4,12 +4,12 @@ mod fisherman_client;
 mod indexer_client;
 mod indexer_selection;
 mod ipfs_client;
+mod kafka_client;
 mod manifest_client;
 mod opt;
 mod prelude;
 mod query_engine;
 mod rate_limiter;
-mod redpanda;
 mod stats_db;
 mod sync_client;
 mod vouchers;
@@ -20,12 +20,12 @@ use crate::{
     indexer_client::{IndexerClient, IndexerResponse},
     indexer_selection::{IndexerError, UtilityConfig},
     ipfs_client::*,
+    kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
     manifest_client::*,
     opt::*,
     prelude::*,
     query_engine::*,
     rate_limiter::*,
-    redpanda::client::KafkaInterface as _,
 };
 use actix_cors::Cors;
 use actix_web::{
@@ -36,7 +36,6 @@ use actix_web::{
 use eventuals::EventualExt;
 use lazy_static::lazy_static;
 use prometheus::{self, Encoder as _};
-use redpanda::client::{ClientQueryResult, IndexerAttempt, KafkaClient};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
