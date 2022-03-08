@@ -2,9 +2,11 @@ use crate::{ethereum_client, indexer_selection::SecretKey, prelude::*};
 use bip39;
 use hdwallet::{self, KeyChain as _};
 use ordered_float::NotNan;
+use rdkafka::config::ClientConfig as KafkaConfig;
 use std::{collections::HashMap, error::Error};
 use structopt_derive::StructOpt;
 use url::{self, Url};
+
 // TODO: Consider the security implications of passing mnemonics, passwords, etc. via environment variables or CLI arguments.
 
 #[derive(StructOpt, Debug)]
@@ -178,83 +180,78 @@ pub struct Opt {
     )]
     pub redpanda_brokers: String,
     #[structopt(
-        help = "Security protocol",
-        long = "--ssl-method",
-        env = "REDPANDA_SECURITY_PROTOCOL",
-        default_value = "sasl_ssl",
-        name = "security.protocol"
-    )]
-    pub security_protocol: String,
-    #[structopt(
-        help = "SSL key location",
-        long = "--ssl-key",
-        env = "REDPANDA_SSL_KEY",
-        name = "ssl.key.location"
-    )]
-    pub ssl_key_location: String,
-    #[structopt(
-        help = "SSL cert location",
-        long = "--ssl-cert",
-        env = "REDPANDA_SSL_CERT",
-        name = "ssl.certificate.location"
-    )]
-    pub ssl_certificate_location: String,
-    #[structopt(
-        help = "SSL ca location",
-        long = "--ssl-ca",
-        env = "REDPANDA_SSL_CA",
-        name = "ssl.ca.location"
-    )]
-    pub ssl_ca_location: String,
-    #[structopt(
-        help = "SASL mechanism",
-        long = "--sasl",
-        env = "REDPANDA_SASL_MECHANISM",
-        name = "sasl.mechanism",
-        default_value = "SCRAM-SHA-256"
-    )]
-    pub sasl_mechanism: String,
-    #[structopt(
-        help = "SASL user",
-        long = "--sasl-user",
-        env = "REDPANDA_SASL_USER",
-        name = "sasl.username"
-    )]
-    pub sasl_username: String,
-    #[structopt(
-        help = "SASL password",
-        long = "--sasl-password",
-        env = "REDPANDA_SASL_PASSWORD",
-        name = "sasl.password"
-    )]
-    pub sasl_password: String,
-    #[structopt(
         help = "Redpanda message encoding",
         long = "--encoding",
         env = "REDPANDA_MESSAGE_ENCODING",
         default_value = "json"
     )]
     pub message_encoding: String,
+    #[structopt(
+        help = "Security protocol",
+        long = "--ssl-method",
+        env = "REDPANDA_SECURITY_PROTOCOL"
+    )]
+    pub security_protocol: Option<String>,
+    #[structopt(
+        help = "SASL mechanism",
+        long = "--sasl",
+        env = "REDPANDA_SASL_MECHANISM",
+        default_value = "SCRAM-SHA-256"
+    )]
+    pub sasl_mechanism: String,
+    #[structopt(help = "SASL user", long = "--sasl-user", env = "REDPANDA_SASL_USER")]
+    pub sasl_username: Option<String>,
+    #[structopt(
+        help = "SASL password",
+        long = "--sasl-password",
+        env = "REDPANDA_SASL_PASSWORD"
+    )]
+    pub sasl_password: Option<String>,
+    #[structopt(help = "SSL ca location", long = "--ssl-ca", env = "REDPANDA_SSL_CA")]
+    pub ssl_ca_location: Option<String>,
+    #[structopt(
+        help = "SSL cert location",
+        long = "--ssl-cert",
+        env = "REDPANDA_SSL_CERT"
+    )]
+    pub ssl_certificate_location: Option<String>,
+    #[structopt(
+        help = "SSL key location",
+        long = "--ssl-key",
+        env = "REDPANDA_SSL_KEY"
+    )]
+    pub ssl_key_location: Option<String>,
 }
 
 impl Opt {
-    /// Map the input CLI arguments into tuple array that can be used to configure librdkafka
-    pub fn kafka_config(&self) -> Vec<(&str, &str)> {
-        let vec = vec![
-            ("sasl.password", &self.sasl_password[..]),
-            ("sasl.password", &self.sasl_password[..]),
-            ("sasl.username", &self.sasl_username[..]),
-            ("sasl.mechanism", &self.sasl_mechanism[..]),
-            ("ssl.ca.location", &self.ssl_ca_location[..]),
-            (
-                "ssl.certificate.location",
-                &self.ssl_certificate_location[..],
-            ),
-            ("ssl.key.location", &self.ssl_key_location[..]),
-            ("security.protocol", &self.security_protocol[..]),
-        ];
-
-        return vec;
+    pub fn kafka_config(&self) -> KafkaConfig {
+        let mut config = KafkaConfig::new();
+        config.set("bootstrap.servers", &self.redpanda_brokers);
+        config.set("group.id", "graph-gateway");
+        config.set("message.timeout.ms", "3000");
+        config.set("queue.buffering.max.ms", "1000");
+        config.set("queue.buffering.max.messages", "1000000");
+        config.set("allow.auto.create.topics", "true");
+        config.set("sasl.mechanism", &self.sasl_mechanism);
+        if let Some(security_protocol) = self.security_protocol.as_ref() {
+            config.set("security.protocol", security_protocol);
+        }
+        if let Some(sasl_username) = self.sasl_username.as_ref() {
+            config.set("sasl.username", sasl_username);
+        }
+        if let Some(sasl_password) = self.sasl_password.as_ref() {
+            config.set("sasl.passwrsasl_password", sasl_password);
+        }
+        if let Some(ssl_ca_location) = self.ssl_ca_location.as_ref() {
+            config.set("ssl.ca.location", ssl_ca_location);
+        }
+        if let Some(ssl_certificate_location) = self.ssl_certificate_location.as_ref() {
+            config.set("ssl.certificate.location", ssl_certificate_location);
+        }
+        if let Some(ssl_key_location) = self.ssl_key_location.as_ref() {
+            config.set("ssl.key.location", ssl_key_location);
+        }
+        config
     }
 }
 
