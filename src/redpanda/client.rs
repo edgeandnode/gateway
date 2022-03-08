@@ -1,75 +1,107 @@
-use log::info;
-use rdkafka::types::RDKafkaErrorCode;
+use crate::prelude::*;
 use rdkafka::{
-    client::ClientContext,
     config::ClientConfig,
-    consumer::{ConsumerContext, Rebalance},
-    error::{KafkaError, KafkaResult},
+    error::KafkaResult,
     producer::{BaseRecord, DefaultProducerContext, ThreadedProducer},
-    topic_partition_list::TopicPartitionList,
 };
-use std::{fmt, thread, time::Duration};
+use serde::Serialize;
 
-pub struct KafkaClient {
-    pub(super) producer: ThreadedProducer<DefaultProducerContext>,
-    // pub(super) thread_producer: FutureProducer<RpClientContext>,
-    kafka_url: String,
+pub trait Msg: Serialize {
+    const TOPIC: &'static str;
 }
 
-impl fmt::Debug for KafkaClient {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Brokers running at: {}", self.kafka_url)
-    }
+pub struct KafkaClient {
+    producer: ThreadedProducer<DefaultProducerContext>,
 }
 
 impl KafkaClient {
-    pub fn new(config: &ClientConfig) -> Result<KafkaClient, anyhow::Error> {
-        let producer = config
-            .create_with_context(DefaultProducerContext)
-            .expect("Producer creation error");
-        Ok(KafkaClient {
-            producer,
-            kafka_url: config.get("bootstrap.servers").unwrap().to_string(),
-        })
+    pub fn new(config: &ClientConfig) -> KafkaResult<KafkaClient> {
+        let producer = config.create_with_context(DefaultProducerContext)?;
+        Ok(KafkaClient { producer })
     }
 
-    pub fn send(&self, topic_name: &str, message: &[u8]) {
-        let mut record = BaseRecord::<'_, (), [u8]>::to(topic_name).payload(message);
-
-        loop {
-            match self.producer.send(record) {
-                Ok(()) => break,
-                //if the queue is full, try again.
-                Err((KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull), rec)) => {
-                    // Retry after 500ms
-                    record = rec;
-                    thread::sleep(Duration::from_millis(500));
-                }
-
-                //otherwise just break
-                Err((e, _)) => {
-                    println!("Failed to publish on kafka {:?}", e);
-                    break;
-                }
+    pub fn send<M: Msg>(&self, msg: &M) {
+        let payload = serde_json::to_vec(msg).unwrap();
+        let record = BaseRecord::<'_, (), [u8]>::to(M::TOPIC).payload(&payload);
+        match self.producer.send(record) {
+            Ok(()) => (),
+            Err((kafka_producer_err, _)) => {
+                tracing::error!(%kafka_producer_err)
             }
         }
     }
 }
 
-pub struct CustomContext;
+#[derive(Serialize)]
+pub struct ClientQueryResult {
+    pub ray_id: String,
+    pub query_id: u64,
+    pub deployment: String,
+    pub network: String,
+    pub api_key: String,
+    pub query: String,
+    pub response_time: u32,
+    pub variables: String,
+    pub budget: String,
+    pub status: String,
+}
 
-impl ClientContext for CustomContext {}
+impl Msg for ClientQueryResult {
+    const TOPIC: &'static str = "gateway_client_query_results";
+}
 
-impl ConsumerContext for CustomContext {
-    fn pre_rebalance(&self, rebalance: &Rebalance) {
-        info!("Pre rebalance {:?}", rebalance);
-    }
+#[derive(Serialize)]
+pub struct IndexerAttempt {
+    pub ray_id: String,
+    pub query_id: u64,
+    pub attempt_index: usize,
+    pub indexer: String,
+    pub allocation: String,
+    pub fee: String,
+    pub utility: f64,
+    pub blocks_behind: u64,
+    pub response_time_ms: u32,
+    pub status: String,
+    pub status_code: u32,
+}
 
-    fn post_rebalance(&self, rebalance: &Rebalance) {
-        info!("Post rebalance {:?}", rebalance);
-    }
+impl Msg for IndexerAttempt {
+    const TOPIC: &'static str = "gateway_indexer_attempts";
+}
 
-    fn commit_callback(&self, result: KafkaResult<()>, _offsets: &TopicPartitionList) {
-        info!("Committing offsets: {:?}", result);
-    }
+#[derive(Serialize)]
+pub struct ISAScoringSample {
+    pub ray_id: String,
+    pub query_id: u64,
+    pub deployment: String,
+    pub address: String,
+    pub fee: String,
+    pub slashable: String,
+    pub utility: f64,
+    pub economic_security: f64,
+    pub price_efficiency: f64,
+    pub data_freshness: f64,
+    pub performance: f64,
+    pub reputation: f64,
+    pub sybil: f64,
+    pub blocks_behind: u64,
+    pub url: String,
+    pub message: String,
+}
+
+impl Msg for ISAScoringSample {
+    const TOPIC: &'static str = "gateway_isa_samples";
+}
+
+#[derive(Serialize)]
+pub struct ISAScoringError {
+    pub ray_id: String,
+    pub query_id: u64,
+    pub deployment: String,
+    pub indexer: String,
+    pub scoring_err: String,
+}
+
+impl Msg for ISAScoringError {
+    const TOPIC: &'static str = "gateway_isa_errors";
 }

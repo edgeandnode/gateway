@@ -35,11 +35,7 @@ use actix_web::{
 use eventuals::EventualExt;
 use lazy_static::lazy_static;
 use prometheus::{self, Encoder as _};
-use redpanda::{
-    client::KafkaClient,
-    messages::{client_query_result::ClientQueryResult, indexer_attempt::IndexerAttempt},
-    utils::MessageKind,
-};
+use redpanda::client::{ClientQueryResult, IndexerAttempt, KafkaClient};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
@@ -484,11 +480,7 @@ async fn handle_subgraph_query(
         response_time: response_time,
         status: status.clone(),
     };
-
-    data.kafka_client.send(
-        "gateway_client_query_results",
-        &client_query_msg.write(MessageKind::JSON),
-    );
+    data.kafka_client.send(&client_query_msg);
 
     for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
         let status = match &attempt.result {
@@ -530,11 +522,7 @@ async fn handle_subgraph_query(
             status: status.clone(),
             status_code: status_code,
         };
-
-        data.kafka_client.send(
-            "gateway_indexer_attempts",
-            &indexer_attempt_msg.write(MessageKind::JSON),
-        );
+        data.kafka_client.send(&indexer_attempt_msg);
     }
 
     payload

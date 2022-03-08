@@ -3,8 +3,6 @@ mod price_automation;
 #[cfg(test)]
 mod tests;
 
-use crate::redpanda::client::KafkaClient;
-
 use crate::{
     block_resolver::BlockResolver,
     fisherman_client::*,
@@ -14,6 +12,7 @@ use crate::{
         UnresolvedBlock,
     },
     manifest_client::SubgraphInfo,
+    redpanda::client::{ISAScoringError, ISAScoringSample, KafkaClient},
 };
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
@@ -34,12 +33,6 @@ use std::{
 };
 use tokio::sync::Mutex;
 use uuid::Uuid;
-
-use crate::redpanda::messages::{
-    isa_scoring_error::ISAScoringError, isa_scoring_sample::ISAScoringSample,
-};
-
-use crate::redpanda::utils::MessageKind;
 
 #[derive(Debug)]
 pub struct Query {
@@ -450,10 +443,10 @@ where
                 url: score.url.to_string(),
                 message: message.to_string(),
             };
-            self.kafka_client.as_ref().unwrap().send(
-                "gateway_isa_sample",
-                &indexer_sample_msg.write(MessageKind::JSON),
-            );
+            self.kafka_client
+                .as_ref()
+                .unwrap()
+                .send(&indexer_sample_msg);
         };
         res.await;
     }
@@ -485,10 +478,10 @@ where
                 scoring_err: message.to_string(),
             };
 
-            self.kafka_client.as_ref().unwrap().send(
-                "gateway_isa_error",
-                &indexer_sample_error_msg.write(MessageKind::JSON),
-            );
+            self.kafka_client
+                .as_ref()
+                .unwrap()
+                .send(&indexer_sample_error_msg);
         };
         res.await;
     }
