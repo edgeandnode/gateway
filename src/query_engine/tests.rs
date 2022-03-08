@@ -5,6 +5,7 @@ use crate::{
         test_utils::{default_cost_model, TEST_KEY},
         IndexerError, IndexingStatus, SecretKey,
     },
+    kafka_client::{self, KafkaInterface},
     manifest_client::SubgraphInfo,
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
@@ -608,6 +609,12 @@ impl IndexerInterface for TopologyIndexer {
     }
 }
 
+struct DummyKafka;
+
+impl KafkaInterface for DummyKafka {
+    fn send<M: kafka_client::Msg>(&self, _: &M) {}
+}
+
 #[derive(Clone)]
 struct TopologyFisherman {
     topology: Arc<Mutex<Topology>>,
@@ -679,6 +686,7 @@ async fn test() {
             TopologyIndexer {
                 topology: topology.clone(),
             },
+            Arc::new(DummyKafka),
             Some(Arc::new(TopologyFisherman {
                 topology: topology.clone(),
             })),

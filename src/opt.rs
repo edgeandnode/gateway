@@ -2,6 +2,7 @@ use crate::{ethereum_client, indexer_selection::SecretKey, prelude::*};
 use bip39;
 use hdwallet::{self, KeyChain as _};
 use ordered_float::NotNan;
+use rdkafka::config::ClientConfig as KafkaConfig;
 use std::{collections::HashMap, error::Error};
 use structopt_derive::StructOpt;
 use url::{self, Url};
@@ -172,6 +173,79 @@ pub struct Opt {
         default_value = "dev"
     )]
     pub stats_db_password: String,
+    #[structopt(
+        help = "Redpanda broker domains",
+        long = "--brokers",
+        env = "REDPANDA_BROKERS"
+    )]
+    pub redpanda_brokers: String,
+    #[structopt(
+        help = "Security protocol",
+        long = "--ssl-method",
+        env = "REDPANDA_SECURITY_PROTOCOL"
+    )]
+    pub security_protocol: Option<String>,
+    #[structopt(
+        help = "SASL mechanism",
+        long = "--sasl",
+        env = "REDPANDA_SASL_MECHANISM",
+        default_value = "SCRAM-SHA-256"
+    )]
+    pub sasl_mechanism: String,
+    #[structopt(help = "SASL user", long = "--sasl-user", env = "REDPANDA_SASL_USER")]
+    pub sasl_username: Option<String>,
+    #[structopt(
+        help = "SASL password",
+        long = "--sasl-password",
+        env = "REDPANDA_SASL_PASSWORD"
+    )]
+    pub sasl_password: Option<String>,
+    #[structopt(help = "SSL ca location", long = "--ssl-ca", env = "REDPANDA_SSL_CA")]
+    pub ssl_ca_location: Option<String>,
+    #[structopt(
+        help = "SSL cert location",
+        long = "--ssl-cert",
+        env = "REDPANDA_SSL_CERT"
+    )]
+    pub ssl_certificate_location: Option<String>,
+    #[structopt(
+        help = "SSL key location",
+        long = "--ssl-key",
+        env = "REDPANDA_SSL_KEY"
+    )]
+    pub ssl_key_location: Option<String>,
+}
+
+impl Opt {
+    pub fn kafka_config(&self) -> KafkaConfig {
+        let mut config = KafkaConfig::new();
+        config.set("bootstrap.servers", &self.redpanda_brokers);
+        config.set("group.id", "graph-gateway");
+        config.set("message.timeout.ms", "3000");
+        config.set("queue.buffering.max.ms", "1000");
+        config.set("queue.buffering.max.messages", "1000000");
+        config.set("allow.auto.create.topics", "true");
+        config.set("sasl.mechanism", &self.sasl_mechanism);
+        if let Some(security_protocol) = self.security_protocol.as_ref() {
+            config.set("security.protocol", security_protocol);
+        }
+        if let Some(sasl_username) = self.sasl_username.as_ref() {
+            config.set("sasl.username", sasl_username);
+        }
+        if let Some(sasl_password) = self.sasl_password.as_ref() {
+            config.set("sasl.passwrsasl_password", sasl_password);
+        }
+        if let Some(ssl_ca_location) = self.ssl_ca_location.as_ref() {
+            config.set("ssl.ca.location", ssl_ca_location);
+        }
+        if let Some(ssl_certificate_location) = self.ssl_certificate_location.as_ref() {
+            config.set("ssl.certificate.location", ssl_certificate_location);
+        }
+        if let Some(ssl_key_location) = self.ssl_key_location.as_ref() {
+            config.set("ssl.key.location", ssl_key_location);
+        }
+        config
+    }
 }
 
 #[derive(Debug)]

@@ -12,6 +12,8 @@ pub use prometheus::{
     self,
     core::{MetricVec, MetricVecBuilder},
 };
+use siphasher::sip::SipHasher24;
+use std::hash::{Hash, Hasher as _};
 pub use std::{cmp::Ordering, fmt, str::FromStr};
 pub use tokio::{
     sync::{mpsc, oneshot},
@@ -32,6 +34,12 @@ pub fn init_tracing(json: bool) {
     } else {
         defaults.with(fmt_layer).init();
     }
+}
+
+pub fn sip24_hash(value: &impl Hash) -> u64 {
+    let mut hasher = SipHasher24::default();
+    value.hash(&mut hasher);
+    hasher.finish()
 }
 
 #[derive(Clone)]

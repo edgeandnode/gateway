@@ -43,7 +43,7 @@ siphasher = "0.3"
 structopt = "0.3"
 structopt-derive = "0.4"
 tiny-bip39 = "0.8"
-tokio = { version = "1.14", features = [
+tokio = { version = "1.14.0", features = [
   "sync",
   "time",
   "macros",
@@ -60,6 +60,10 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 url = "2.2"
 uuid = { version = "0.8", features = ["v4"] }
+rdkafka = { version = "0.28.0", features = [
+  "ssl-vendored",
+  "gssapi-vendored",
+] } # TODO: For M1 machines on arm64 rdkafka = { version = "0.28.0", features =  ["dynamic-linking","ssl","gssapi"] }
 
 [dev-dependencies]
 # core-foundation is added because it is a transitive dependency of plotters (through font-kit)
