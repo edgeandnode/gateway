@@ -430,8 +430,7 @@ async fn handle_subgraph_query(
         Ok(payload) => (payload, Ok(StatusCode::OK.to_string())),
         Err(msg) => (graphql_error_response(&msg), Err(msg)),
     };
-    data.kafka_client
-        .send(&ClientQueryResult::new(&query, status_result));
+    notify_query_result(&data.kafka_client, &query, status_result);
 
     payload
 }
@@ -538,6 +537,55 @@ pub fn graphql_error_response<S: ToString>(message: S) -> HttpResponse {
     HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
         .body(json!({"errors": {"message": message.to_string()}}).to_string())
+}
+
+fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result<String, String>) {
+    kafka_client.send(&ClientQueryResult::new(&query, result.clone()));
+
+    let (status, status_code) = match &result {
+        Ok(status) => (status, 0),
+        Err(status) => (status, sip24_hash(status) | 0x1),
+    };
+    let api_key = &query.api_key.as_ref().unwrap().key;
+    let subgraph = query.subgraph.as_ref().unwrap();
+    let deployment = subgraph.deployment.to_string();
+    tracing::info!(
+        ray_id = %query.ray_id,
+        query_id = %query.id,
+        %deployment,
+        network = %query.subgraph.as_ref().unwrap().network,
+        %api_key,
+        query = %query.query,
+        variables = %query.variables.as_deref().unwrap_or(""),
+        budget = %query.budget.as_ref().map(ToString::to_string).unwrap_or_default(),
+        response_time_ms = (Instant::now() - query.start_time).as_millis() as u32,
+        %status,
+        status_code,
+        "Client query result",
+    );
+    for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
+        let status = match &attempt.result {
+            Ok(response) => response.status.to_string(),
+            Err(err) => format!("{:?}", err),
+        };
+        tracing::info!(
+            ray_id = %query.ray_id,
+            query_id = %query.id,
+            api_key = %api_key,
+            %deployment,
+            attempt_index,
+            indexer = %attempt.indexer,
+            url = %attempt.score.url,
+            allocation = %attempt.allocation,
+            fee = %attempt.score.fee,
+            utility = *attempt.score.utility,
+            blocks_behind = attempt.score.blocks_behind,
+            response_time_ms = attempt.duration.as_millis() as u32,
+            %status,
+            status_code = attempt.status_code() as u32,
+            "Indexer attempt",
+        );
+    }
 }
 
 #[derive(Clone)]

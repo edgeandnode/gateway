@@ -74,6 +74,24 @@ pub struct IndexerAttempt {
     pub duration: Duration,
 }
 
+impl IndexerAttempt {
+    // 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
+    pub fn status_code(&self) -> u32 {
+        let (prefix, data) = match &self.result {
+            // prefix 0x0, followed by the HTTP status code
+            Ok(response) => (0x0, (response.status as u32).to_be()),
+            Err(IndexerError::NoAttestation) => (0x1, 0x0),
+            Err(IndexerError::Panic) => (0x2, 0x0),
+            Err(IndexerError::Timeout) => (0x3, 0x0),
+            Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
+            Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
+            // prefix 0x6, followed by a 28-bit hash of the error message
+            Err(IndexerError::Other(msg)) => (0x6, sip24_hash(&msg) as u32),
+        };
+        (prefix << 28) | (data & (u32::MAX >> 4))
+    }
+}
+
 pub struct QueryID {
     pub local_id: u64,
 }
@@ -347,25 +365,19 @@ where
                 Ok(None) => return Err(NoIndexerSelected),
                 Err(err) => return Err(err.into()),
             };
-            self.kafka_client.send(&ISAScoringSample::new(
+            self.notify_isa_sample(
                 &query,
                 &indexer_query.indexing.indexer,
                 &indexer_query.score,
                 "Selected indexer score",
-            ));
+            );
             match scoring_sample.0 {
-                Some((indexer, Ok(score))) => self.kafka_client.send(&ISAScoringSample::new(
-                    &query,
-                    &indexer,
-                    &score,
-                    "ISA scoring sample",
-                )),
-                Some((indexer, Err(err))) => self.kafka_client.send(&ISAScoringError::new(
-                    &query,
-                    &indexer,
-                    err,
-                    "ISA scoring sample",
-                )),
+                Some((indexer, Ok(score))) => {
+                    self.notify_isa_sample(&query, &indexer, &score, "ISA scoring sample")
+                }
+                Some((indexer, Err(err))) => {
+                    self.notify_isa_err(&query, &indexer, err, "ISA scoring sample")
+                }
                 _ => (),
             };
             let indexing = indexer_query.indexing.clone();
@@ -465,6 +477,48 @@ where
         }
 
         Ok(())
+    }
+
+    fn notify_isa_sample(
+        &self,
+        query: &Query,
+        indexer: &Address,
+        score: &IndexerScore,
+        message: &str,
+    ) {
+        self.kafka_client
+            .send(&ISAScoringSample::new(&query, &indexer, &score, message));
+        tracing::info!(
+            ray_id = %query.ray_id,
+            query_id = %query.id,
+            deployment = %query.subgraph.as_ref().unwrap().deployment,
+            %indexer,
+            url = %score.url,
+            fee = %score.fee,
+            slashable = %score.slashable,
+            utility = *score.utility,
+            economic_security = score.utility_scores.economic_security,
+            price_efficiency = score.utility_scores.price_efficiency,
+            data_freshness = score.utility_scores.data_freshness,
+            performance = score.utility_scores.performance,
+            reputation = score.utility_scores.reputation,
+            sybil = *score.sybil,
+            blocks_behind = score.blocks_behind,
+            message,
+        );
+    }
+
+    fn notify_isa_err(&self, query: &Query, indexer: &Address, err: SelectionError, message: &str) {
+        self.kafka_client
+            .send(&ISAScoringError::new(&query, &indexer, &err, message));
+        tracing::info!(
+            ray_id = %query.ray_id.clone(),
+            query_id = %query.id,
+            deployment = %query.subgraph.as_ref().unwrap().deployment,
+            %indexer,
+            scoring_err = ?err,
+            message,
+        );
     }
 
     fn observe_indexer_selection_metrics(&self, deployment: &str, selection: &IndexerQuery) {
