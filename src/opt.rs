@@ -22,6 +22,12 @@ pub struct Opt {
     )]
     pub sync_agent: String,
     #[structopt(
+        help = "Accept empty values from the gateway agent syncing API (useful for testing)",
+        long = "--sync-agent-accept-empty",
+        env = "SYNC_AGENT_ACCEPT_EMPTY"
+    )]
+    pub sync_agent_accept_empty: bool,
+    #[structopt(
         help = "IPFS endpoint with access to the subgraph files",
         long = "--ipfs",
         env = "IPFS"
