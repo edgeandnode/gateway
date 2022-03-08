@@ -39,8 +39,9 @@ use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
+use siphasher::sip::SipHasher24;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::HashMap,
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -196,7 +197,7 @@ async fn main() {
             .app_data(web::JsonConfig::default().error_handler(|err, _| {
                 actix_web::error::InternalError::from_response(
                     err,
-                    graphql_error_response(StatusCode::OK, "Invalid query"),
+                    graphql_error_response("Invalid query"),
                 )
                 .into()
             }))
@@ -340,7 +341,7 @@ async fn handle_network_query(
         Err(network_subgraph_post_err) => {
             tracing::error!(%network_subgraph_post_err);
             METRICS.network_subgraph_queries.failed.inc();
-            graphql_error_response(StatusCode::OK, "Failed to process network subgraph query")
+            graphql_error_response("Failed to process network subgraph query")
         }
     }
 }
@@ -406,7 +407,7 @@ async fn handle_subgraph_query(
         Ok(subgraph) => subgraph,
         Err(invalid_subgraph) => {
             tracing::info!(%invalid_subgraph);
-            return graphql_error_response(StatusCode::BAD_REQUEST, "Invalid subgraph identifier");
+            return graphql_error_response("Invalid subgraph identifier");
         }
     };
     query.subgraph = data
@@ -415,7 +416,7 @@ async fn handle_subgraph_query(
         .and_then(|map| map.get(&deployment)?.value_immediate());
     if query.subgraph == None {
         tracing::info!(%deployment);
-        return graphql_error_response(StatusCode::NOT_FOUND, "Subgraph not found");
+        return graphql_error_response("Subgraph not found");
     }
     let span = tracing::info_span!(
         "handle_subgraph_query",
@@ -432,14 +433,8 @@ async fn handle_subgraph_query(
         .await;
     let status_code = encode_client_query_status(&response);
     let (payload, status) = match response {
-        Ok(payload) => {
-            let status = payload.status().to_string();
-            (payload, status)
-        }
-        Err((status, msg)) => (
-            graphql_error_response(status, &msg),
-            format!("{}: {}", status, msg),
-        ),
+        Ok(payload) => (payload, StatusCode::OK.to_string()),
+        Err(msg) => (graphql_error_response(&msg), msg),
     };
 
     let subgraph = query.subgraph.as_ref().unwrap();
@@ -528,20 +523,16 @@ async fn handle_subgraph_query(
     payload
 }
 
-// 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
-fn encode_client_query_status(result: &Result<HttpResponse, (reqwest::StatusCode, String)>) -> u32 {
-    let (prefix, data) = match result {
-        // prefix 0x0, followed by the HTTP status code
-        Ok(payload) => (0x0, payload.status().as_u16() as u32),
-        // prefix 0x1, followed by a 28-bit hash of the error message
-        Err((status, msg)) => {
-            let mut hasher = DefaultHasher::new();
-            status.hash(&mut hasher);
+// 32-bit status, encoded as zero for success and nonzero for errors
+fn encode_client_query_status(result: &Result<HttpResponse, String>) -> u32 {
+    match result {
+        Ok(_) => 0,
+        Err(msg) => {
+            let mut hasher = SipHasher24::default();
             msg.hash(&mut hasher);
-            (0x1, hasher.finish() as u32)
+            hasher.finish() as u32 | 0x1
         }
-    };
-    (prefix << 28) | (data & (u32::MAX >> 4))
+    }
 }
 
 // 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
@@ -556,7 +547,7 @@ fn encode_indexer_attempt_status(result: &Result<IndexerResponse, IndexerError>)
         Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
         // prefix 0x6, followed by a 28-bit hash of the error message
         Err(IndexerError::Other(msg)) => {
-            let mut hasher = DefaultHasher::new();
+            let mut hasher = SipHasher24::default();
             msg.hash(&mut hasher);
             (0x6, hasher.finish() as u32)
         }
@@ -569,7 +560,7 @@ async fn handle_subgraph_query_inner(
     data: &web::Data<SubgraphQueryData>,
     query: &mut Query,
     api_key: &str,
-) -> Result<HttpResponse, (StatusCode, String)> {
+) -> Result<HttpResponse, String> {
     let query_engine = QueryEngine::new(
         data.config.clone(),
         data.indexer_client.clone(),
@@ -584,15 +575,14 @@ async fn handle_subgraph_query_inner(
         Some(api_key) => api_key.clone(),
         None => {
             METRICS.unknown_api_key.inc();
-            return Err((StatusCode::BAD_REQUEST, "Invalid API key".into()));
+            return Err("Invalid API key".into());
         }
     };
     if !api_key.queries_activated {
-        return Err((
-            StatusCode::OK,
+        return Err(
             "Querying not activated yet; make sure to add some GRT to your balance in the studio"
                 .into(),
-        ));
+        );
     }
     let domain = request
         .headers()
@@ -608,7 +598,7 @@ async fn handle_subgraph_query_inner(
             .any(|(authorized, _)| domain.starts_with(authorized))
     {
         with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
-        return Err((StatusCode::OK, "Domain not authorized by API key".into()));
+        return Err("Domain not authorized by API key".into());
     }
     let deployment = &query.subgraph.as_ref().unwrap().deployment.clone();
     if !api_key.deployments.is_empty() && !api_key.deployments.contains(&deployment) {
@@ -617,28 +607,26 @@ async fn handle_subgraph_query_inner(
             &[&api_key.key],
             |counter| counter.inc(),
         );
-        return Err((StatusCode::OK, "Subgraph not authorized by API key".into()));
+        return Err("Subgraph not authorized by API key".into());
     }
     if let Err(err) = query_engine.execute_query(query).await {
-        return Err((
-            StatusCode::OK,
-            match err {
-                QueryEngineError::MalformedQuery => "Invalid query".into(),
-                QueryEngineError::NoIndexers => "No indexers found for subgraph deployment".into(),
-                QueryEngineError::NoIndexerSelected => {
-                    "No suitable indexer found for subgraph deployment".into()
-                }
-                QueryEngineError::FeesTooHigh(count) => {
-                    format!("No suitable indexer found, {} indexers requesting higher fees for this query", count)
-                }
-                QueryEngineError::BlockBeforeMin => {
-                    "Requested block before minimum `startBlock` of subgraph manifest".into()
-                }
-                QueryEngineError::MissingBlock(_) => {
-                    "Gateway failed to resolve required blocks".into()
-                }
-            },
-        ));
+        return Err(match err {
+            QueryEngineError::MalformedQuery => "Invalid query".into(),
+            QueryEngineError::NoIndexers => "No indexers found for subgraph deployment".into(),
+            QueryEngineError::NoIndexerSelected => {
+                "No suitable indexer found for subgraph deployment".into()
+            }
+            QueryEngineError::FeesTooHigh(count) => {
+                format!(
+                    "No suitable indexer found, {} indexers requesting higher fees for this query",
+                    count
+                )
+            }
+            QueryEngineError::BlockBeforeMin => {
+                "Requested block before minimum `startBlock` of subgraph manifest".into()
+            }
+            QueryEngineError::MissingBlock(_) => "Gateway failed to resolve required blocks".into(),
+        });
     }
     let last_attempt = query.indexer_attempts.last().unwrap();
     let response = last_attempt.result.as_ref().unwrap();
@@ -665,8 +653,8 @@ async fn handle_subgraph_query_inner(
         .body(&response.payload))
 }
 
-pub fn graphql_error_response<S: ToString>(status: StatusCode, message: S) -> HttpResponse {
-    HttpResponseBuilder::new(status)
+pub fn graphql_error_response<S: ToString>(message: S) -> HttpResponse {
+    HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
         .body(json!({"errors": {"message": message.to_string()}}).to_string())
 }
