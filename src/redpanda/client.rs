@@ -10,6 +10,10 @@ pub trait Msg: Serialize {
     const TOPIC: &'static str;
 }
 
+pub trait KafkaInterface {
+    fn send<M: Msg>(&self, msg: &M);
+}
+
 pub struct KafkaClient {
     producer: ThreadedProducer<DefaultProducerContext>,
 }
@@ -19,8 +23,10 @@ impl KafkaClient {
         let producer = config.create_with_context(DefaultProducerContext)?;
         Ok(KafkaClient { producer })
     }
+}
 
-    pub fn send<M: Msg>(&self, msg: &M) {
+impl KafkaInterface for KafkaClient {
+    fn send<M: Msg>(&self, msg: &M) {
         let payload = serde_json::to_vec(msg).unwrap();
         let record = BaseRecord::<'_, (), [u8]>::to(M::TOPIC).payload(&payload);
         match self.producer.send(record) {

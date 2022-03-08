@@ -8,6 +8,7 @@ use crate::{
     manifest_client::SubgraphInfo,
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
+    redpanda::{self, client::KafkaInterface},
 };
 use async_trait::async_trait;
 use rand::{
@@ -608,6 +609,12 @@ impl IndexerInterface for TopologyIndexer {
     }
 }
 
+struct DummyKafka;
+
+impl KafkaInterface for DummyKafka {
+    fn send<M: redpanda::client::Msg>(&self, _: &M) {}
+}
+
 #[derive(Clone)]
 struct TopologyFisherman {
     topology: Arc<Mutex<Topology>>,
@@ -679,12 +686,12 @@ async fn test() {
             TopologyIndexer {
                 topology: topology.clone(),
             },
+            Arc::new(DummyKafka),
             Some(Arc::new(TopologyFisherman {
                 topology: topology.clone(),
             })),
             resolvers,
             inputs,
-            None,
         );
         topology.lock().await.write_inputs().await;
         for _ in 0..100 {

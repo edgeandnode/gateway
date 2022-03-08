@@ -25,6 +25,7 @@ use crate::{
     prelude::*,
     query_engine::*,
     rate_limiter::*,
+    redpanda::client::KafkaInterface as _,
 };
 use actix_cors::Cors;
 use actix_web::{
@@ -573,10 +574,10 @@ async fn handle_subgraph_query_inner(
     let query_engine = QueryEngine::new(
         data.config.clone(),
         data.indexer_client.clone(),
+        data.kafka_client.clone(),
         data.fisherman_client.clone(),
         data.block_resolvers.clone(),
         data.inputs.clone(),
-        Some(data.kafka_client.clone()),
     );
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();
     query.api_key = api_keys.get(api_key).cloned();
