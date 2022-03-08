@@ -5,10 +5,10 @@ use crate::{
         test_utils::{default_cost_model, TEST_KEY},
         IndexerError, IndexingStatus, SecretKey,
     },
+    kafka_client::{self, KafkaInterface},
     manifest_client::SubgraphInfo,
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
-    redpanda::{self, client::KafkaInterface},
 };
 use async_trait::async_trait;
 use rand::{
@@ -612,7 +612,7 @@ impl IndexerInterface for TopologyIndexer {
 struct DummyKafka;
 
 impl KafkaInterface for DummyKafka {
-    fn send<M: redpanda::client::Msg>(&self, _: &M) {}
+    fn send<M: kafka_client::Msg>(&self, _: &M) {}
 }
 
 #[derive(Clone)]
