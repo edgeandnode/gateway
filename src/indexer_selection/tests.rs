@@ -183,21 +183,22 @@ async fn weights() {
 
     use futures::{stream::FuturesOrdered, StreamExt as _};
     let results = vec![
-        (0, 0, 0, 0),
-        (-1, 0, 0, 0),
-        (1, 0, 0, 0),
-        (0, -1, 0, 0),
-        (0, 1, 0, 0),
-        (0, 0, -1, 0),
-        (0, 0, 1, 0),
-        (0, 0, 0, -1),
-        (0, 0, 0, 1),
+        (0.0, 0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, 0.0),
+        (0.0, 0.0, 0.0, 1.0),
     ]
     .into_iter()
     .map(|cfg| {
         let tests = tests.clone();
         async move {
-            let config = UtilityConfig::from_indexes(cfg.0, cfg.1, cfg.2, cfg.3);
+            let config = UtilityConfig::from_preferences(&IndexerPreferences {
+                economic_security: cfg.0,
+                performance: cfg.1,
+                data_freshness: cfg.2,
+                price_efficiency: cfg.3,
+            });
             run_simulation(&tests, &config).await
         }
     })
@@ -205,24 +206,20 @@ async fn weights() {
     .collect::<Vec<_>>()
     .await;
     let data = vec![
-        ("economic_security -1", results[1].clone()),
-        ("economic_security 0", results[0].clone()),
-        ("economic_security +1", results[2].clone()),
-        ("performance -1", results[3].clone()),
-        ("performance 0", results[0].clone()),
-        ("performance +1", results[4].clone()),
-        ("data_freshness -1", results[5].clone()),
-        ("data_freshness 0", results[0].clone()),
-        ("data_freshness +1", results[6].clone()),
-        ("price_efficiency -1", results[7].clone()),
-        ("price_efficiency 0", results[0].clone()),
-        ("price_efficiency +1", results[8].clone()),
+        ("economic_security 0.0", results[0].clone()),
+        ("economic_security 1.0", results[1].clone()),
+        ("performance 0.0", results[0].clone()),
+        ("performance 1.0", results[2].clone()),
+        ("data_freshness 0.0", results[0].clone()),
+        ("data_freshness 1.0", results[3].clone()),
+        ("price_efficiency 0.0", results[0].clone()),
+        ("price_efficiency 1.0", results[4].clone()),
     ];
     let labels = tests
         .iter()
         .map(|data| data.label)
         .collect::<Vec<&'static str>>();
-    visualize_outcomes(data, 3, &labels);
+    visualize_outcomes(data, 2, &labels);
 }
 
 async fn run_simulation(
