@@ -1,6 +1,5 @@
 use crate::{
-    indexer_client::IndexerResponse,
-    indexer_selection::{IndexerError, IndexerScore, SelectionError},
+    indexer_selection::{IndexerScore, SelectionError},
     prelude::*,
     query_engine::Query,
 };
@@ -11,8 +10,6 @@ use rdkafka::{
     producer::{BaseRecord, DefaultProducerContext, ThreadedProducer},
 };
 use serde::Serialize;
-use siphasher::sip::SipHasher24;
-use std::hash::{Hash as _, Hasher as _};
 
 pub trait Msg: Serialize {
     const TOPIC: &'static str;
@@ -91,22 +88,8 @@ impl ClientQueryResult {
             .unwrap_or_default();
         let (status, status_code) = match &result {
             Ok(status) => (status, 0),
-            Err(status) => (status, Self::hash_msg(status) | 0x1),
+            Err(status) => (status, sip24_hash(status) as u32 | 0x1),
         };
-        tracing::info!(
-            ray_id = %query.ray_id,
-            query_id = %query.id,
-            %deployment,
-            %network,
-            %api_key,
-            query = %query.query,
-            variables = %variables,
-            budget = %budget,
-            response_time_ms,
-            %status,
-            status_code,
-            "Client query result",
-        );
         let indexer_attempts = query
             .indexer_attempts
             .iter()
@@ -122,29 +105,9 @@ impl ClientQueryResult {
                     Ok(response) => response.status.to_string(),
                     Err(err) => format!("{:?}", err),
                 },
-                status_code: Self::encode_indexer_attempt_status(&attempt.result),
+                status_code: attempt.status_code(),
             })
             .collect::<Vec<IndexerAttempt>>();
-        for (attempt_index, attempt) in indexer_attempts.iter().enumerate() {
-            tracing::info!(
-                ray_id = %query.ray_id,
-                query_id = %query.id,
-                %api_key,
-                %deployment,
-                attempt_index,
-                indexer = %attempt.indexer,
-                url = %attempt.url,
-                allocation = %attempt.allocation,
-                fee = attempt.fee,
-                utility = attempt.utility,
-                blocks_behind = attempt.blocks_behind,
-                response_time_ms = attempt.response_time_ms,
-                %status,
-                status_code,
-                "Indexer attempt",
-            );
-        }
-
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.to_string(),
@@ -159,28 +122,6 @@ impl ClientQueryResult {
             status_code,
             indexer_attempts,
         }
-    }
-
-    // 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
-    fn encode_indexer_attempt_status(result: &Result<IndexerResponse, IndexerError>) -> u32 {
-        let (prefix, data) = match result {
-            // prefix 0x0, followed by the HTTP status code
-            Ok(response) => (0x0, (response.status as u32).to_be()),
-            Err(IndexerError::NoAttestation) => (0x1, 0x0),
-            Err(IndexerError::Panic) => (0x2, 0x0),
-            Err(IndexerError::Timeout) => (0x3, 0x0),
-            Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
-            Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
-            // prefix 0x6, followed by a 28-bit hash of the error message
-            Err(IndexerError::Other(msg)) => (0x6, Self::hash_msg(&msg)),
-        };
-        (prefix << 28) | (data & (u32::MAX >> 4))
-    }
-
-    fn hash_msg(msg: &String) -> u32 {
-        let mut hasher = SipHasher24::default();
-        msg.hash(&mut hasher);
-        hasher.finish() as u32
     }
 }
 
@@ -210,24 +151,6 @@ pub struct ISAScoringSample {
 
 impl ISAScoringSample {
     pub fn new(query: &Query, indexer: &Address, score: &IndexerScore, message: &str) -> Self {
-        tracing::info!(
-            ray_id = %query.ray_id,
-            query_id = %query.id,
-            deployment = %query.subgraph.as_ref().unwrap().deployment,
-            %indexer,
-            url = %score.url,
-            fee = %score.fee,
-            slashable = %score.slashable,
-            utility = *score.utility,
-            economic_security = score.utility_scores.economic_security,
-            price_efficiency = score.utility_scores.price_efficiency,
-            data_freshness = score.utility_scores.data_freshness,
-            performance = score.utility_scores.performance,
-            reputation = score.utility_scores.reputation,
-            sybil = *score.sybil,
-            blocks_behind = score.blocks_behind,
-            message,
-        );
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.local_id,
@@ -260,29 +183,18 @@ pub struct ISAScoringError {
     pub deployment: String,
     pub indexer: String,
     pub scoring_err: String,
+    pub message: String,
 }
 
 impl ISAScoringError {
-    pub fn new(
-        query: &Query,
-        indexer: &Address,
-        scoring_err: SelectionError,
-        message: &str,
-    ) -> Self {
-        tracing::info!(
-            ray_id = %query.ray_id.clone(),
-            query_id = %query.id,
-            deployment = %query.subgraph.as_ref().unwrap().deployment,
-            %indexer,
-            ?scoring_err,
-            message,
-        );
+    pub fn new(query: &Query, indexer: &Address, err: &SelectionError, message: &str) -> Self {
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.local_id,
             deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
             indexer: indexer.to_string(),
-            scoring_err: message.to_string(),
+            scoring_err: format!("{:?}", err),
+            message: message.to_string(),
         }
     }
 }
