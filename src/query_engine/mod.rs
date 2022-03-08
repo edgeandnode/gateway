@@ -12,7 +12,7 @@ use crate::{
         UnresolvedBlock,
     },
     manifest_client::SubgraphInfo,
-    redpanda::client::{ISAScoringError, ISAScoringSample, KafkaClient},
+    redpanda::client::{ISAScoringError, ISAScoringSample, KafkaInterface},
 };
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
@@ -186,41 +186,43 @@ impl Inputs {
     }
 }
 
-pub struct QueryEngine<I, F>
+pub struct QueryEngine<I, K, F>
 where
     I: IndexerInterface + Clone + Send,
+    K: KafkaInterface + Send,
     F: FishermanInterface + Clone + Send,
 {
     indexers: Arc<Indexers>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     indexer_client: I,
+    kafka_client: Arc<K>,
     fisherman_client: Option<Arc<F>>,
     config: Config,
-    kafka_client: Option<Arc<KafkaClient>>,
 }
 
-impl<I, F> QueryEngine<I, F>
+impl<I, K, F> QueryEngine<I, K, F>
 where
     I: IndexerInterface + Clone + Send + 'static,
+    K: KafkaInterface + Send,
     F: FishermanInterface + Clone + Send + Sync + 'static,
 {
     pub fn new(
         config: Config,
         indexer_client: I,
+        kafka_client: Arc<K>,
         fisherman_client: Option<Arc<F>>,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
         inputs: Inputs,
-        kafka_client: Option<Arc<KafkaClient>>,
     ) -> Self {
         Self {
             indexers: inputs.indexers,
             deployment_indexers: inputs.deployment_indexers,
             indexer_client,
+            kafka_client,
             fisherman_client,
             block_resolvers,
             config,
-            kafka_client: kafka_client,
         }
     }
 
@@ -443,10 +445,7 @@ where
                 url: score.url.to_string(),
                 message: message.to_string(),
             };
-            self.kafka_client
-                .as_ref()
-                .unwrap()
-                .send(&indexer_sample_msg);
+            self.kafka_client.send(&indexer_sample_msg);
         };
         res.await;
     }
@@ -478,10 +477,7 @@ where
                 scoring_err: message.to_string(),
             };
 
-            self.kafka_client
-                .as_ref()
-                .unwrap()
-                .send(&indexer_sample_error_msg);
+            self.kafka_client.send(&indexer_sample_error_msg);
         };
         res.await;
     }
