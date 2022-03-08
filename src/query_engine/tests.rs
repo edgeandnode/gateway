@@ -676,7 +676,6 @@ async fn test() {
         let query_engine = QueryEngine::new(
             Config {
                 indexer_selection_retry_limit: 3,
-                utility: UtilityConfig::default(),
                 budget_factors: QueryBudgetFactors {
                     scale: 1.0,
                     discount: 0.0,

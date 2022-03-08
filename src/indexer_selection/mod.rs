@@ -697,6 +697,41 @@ impl UtilityConfig {
             price_efficiency: UTILITY_CONFIGS_PRICE_EFFICIENCY[to_index(price_efficiency)],
         }
     }
+
+    pub fn from_preferences(preferences: &IndexerPreferences) -> Self {
+        const MIN: usize = UTILITY_CONFIGS_DEFAULT_INDEX;
+        const MAX: usize = UTILITY_CONFIGS_LEN - 1;
+        fn interp(min: f64, max: f64, mut x: f64) -> f64 {
+            debug_assert!(max > min);
+            x = x.max(0.0).min(1.0);
+            min + ((max - min) * x)
+        }
+        fn interp_utility(
+            cfgs: [UtilityParameters; UTILITY_CONFIGS_LEN],
+            x: f64,
+        ) -> UtilityParameters {
+            UtilityParameters {
+                a: interp(cfgs[MAX].a, cfgs[MIN].a, 1.0 - x),
+                weight: interp(cfgs[MIN].weight, cfgs[MAX].weight, x),
+            }
+        }
+        Self {
+            economic_security: interp_utility(
+                UTILITY_CONFIGS_ECONOMIC_SECURITY,
+                preferences.economic_security,
+            ),
+            performance: interp_utility(UTILITY_CONFIGS_PERFORMANCE, preferences.performance),
+            data_freshness: interp_utility(
+                UTILITY_CONFIGS_DATA_FRESHNESS,
+                preferences.data_freshness,
+            ),
+            price_efficiency: interp(
+                UTILITY_CONFIGS_PRICE_EFFICIENCY[MIN],
+                UTILITY_CONFIGS_PRICE_EFFICIENCY[MAX],
+                preferences.price_efficiency,
+            ),
+        }
+    }
 }
 
 impl Default for UtilityConfig {
@@ -704,6 +739,14 @@ impl Default for UtilityConfig {
         let i = UTILITY_CONFIGS_DEFAULT_INDEX as i8;
         Self::from_indexes(i, i, i, i)
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct IndexerPreferences {
+    pub economic_security: f64,
+    pub performance: f64,
+    pub data_freshness: f64,
+    pub price_efficiency: f64,
 }
 
 struct Metrics {

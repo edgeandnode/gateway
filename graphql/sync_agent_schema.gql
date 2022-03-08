@@ -99,6 +99,13 @@ type ApiKeyDomainInfo {
   name: String!
 }
 
+type ApiKeyIndexerPreference {
+  id: Int!
+  name: String!
+  description: String!
+  weight: Float!
+}
+
 type ApiKey {
   apiKey: ApiKeyInfo!
   user: ApiKeyUserInfo!
@@ -107,6 +114,7 @@ type ApiKey {
 
   subgraphs: [ApiKeySubgraphInfo!]!
   domains: [ApiKeyDomainInfo!]!
+  indexerPreferences: [ApiKeyIndexerPreference!]!
 }
 
 type NetworkParametersResult {

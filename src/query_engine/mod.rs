@@ -8,8 +8,8 @@ use crate::{
     fisherman_client::*,
     indexer_client::*,
     indexer_selection::{
-        self, Context, IndexerError, IndexerQuery, IndexerScore, Indexers, Receipt, SelectionError,
-        UnresolvedBlock,
+        self, Context, IndexerError, IndexerPreferences, IndexerQuery, IndexerScore, Indexers,
+        Receipt, SelectionError, UnresolvedBlock,
     },
     kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
@@ -129,6 +129,7 @@ pub struct APIKey {
     pub deployments: Vec<SubgraphDeploymentID>,
     pub subgraphs: Vec<(String, i32)>,
     pub domains: Vec<(String, i32)>,
+    pub indexer_preferences: IndexerPreferences,
     pub usage: Arc<Mutex<VolumeEstimator>>,
 }
 
@@ -164,7 +165,6 @@ impl From<SelectionError> for QueryEngineError {
 #[derive(Clone)]
 pub struct Config {
     pub indexer_selection_retry_limit: usize,
-    pub utility: UtilityConfig,
     pub budget_factors: QueryBudgetFactors,
 }
 
@@ -306,10 +306,8 @@ where
         };
 
         let query_count = context.operations.len().max(1) as u64;
-        let budget = query
-            .api_key
-            .as_ref()
-            .unwrap()
+        let api_key = query.api_key.as_ref().unwrap();
+        let budget = api_key
             .usage
             .lock()
             .await
@@ -320,6 +318,8 @@ where
             .usd_to_grt(USD::try_from(budget).unwrap())
             .ok_or(SelectionError::MissingNetworkParams)?;
         query.budget = Some(budget);
+
+        let utility_config = UtilityConfig::from_preferences(&api_key.indexer_preferences);
 
         for retry_count in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
@@ -348,7 +348,7 @@ where
             let selection_result = self
                 .indexers
                 .select_indexer(
-                    &self.config.utility,
+                    &utility_config,
                     &subgraph.network,
                     &subgraph.deployment,
                     &indexers,
