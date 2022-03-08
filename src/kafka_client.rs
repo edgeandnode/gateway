@@ -182,18 +182,30 @@ pub struct ISAScoringError {
     pub query_id: u64,
     pub deployment: String,
     pub indexer: String,
-    pub scoring_err: String,
+    pub error: String,
+    pub error_code: u8,
+    pub error_data: String,
     pub message: String,
 }
 
 impl ISAScoringError {
     pub fn new(query: &Query, indexer: &Address, err: &SelectionError, message: &str) -> Self {
+        let (error_code, error_data) = match &err {
+            SelectionError::BadInput => (1, "".into()),
+            SelectionError::MissingNetworkParams => (2, "".into()),
+            SelectionError::MissingBlock(block) => (3, format!("{:?}", block)),
+            SelectionError::BadIndexer(reason) => (4, format!("{:?}", reason)),
+            SelectionError::NoAllocation(indexing) => (5, format!("{:?}", indexing)),
+            SelectionError::FeesTooHigh(count) => (6, count.to_string()),
+        };
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.local_id,
             deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
             indexer: indexer.to_string(),
-            scoring_err: format!("{:?}", err),
+            error: format!("{:?}", err),
+            error_code,
+            error_data,
             message: message.to_string(),
         }
     }
