@@ -180,13 +180,6 @@ pub struct Opt {
     )]
     pub redpanda_brokers: String,
     #[structopt(
-        help = "Redpanda message encoding",
-        long = "--encoding",
-        env = "REDPANDA_MESSAGE_ENCODING",
-        default_value = "json"
-    )]
-    pub message_encoding: String,
-    #[structopt(
         help = "Security protocol",
         long = "--ssl-method",
         env = "REDPANDA_SECURITY_PROTOCOL"

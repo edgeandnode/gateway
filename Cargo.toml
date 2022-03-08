@@ -59,17 +59,15 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 url = "2.2"
 uuid = { version = "0.8", features = ["v4"] }
-#For M1 machines on arm64 rdkafka = { version = "0.28.0", features =  ["dynamic-linking","ssl","gssapi"] } 
-rdkafka = { version = "0.28.0", features =  ["ssl-vendored","gssapi-vendored"] }
-log = "0.4.14"
-anyhow = "1.0.53"
+# TODO: check imports
+# For M1 machines on arm64 rdkafka = { version = "0.28.0", features =  ["dynamic-linking","ssl","gssapi"] }
+rdkafka = { version = "0.28.0", features = ["ssl-vendored", "gssapi-vendored"] }
 ore = "0.0.1"
 pin-project = "1.0.10"
 chrono = "0.4.19"
 clap = "3.0.13"
 env_logger = "0.9.0"
-schema_registry_converter = { version = "2.0.0", features= ["avro"]}
-avro-rs = "0.13.0"
+schema_registry_converter = { version = "2.0.0", features = ["avro"] }
 bincode = "1.3.3"
 serde_bytes = "0.11.5"
 futures-channel = "0.3.21"
