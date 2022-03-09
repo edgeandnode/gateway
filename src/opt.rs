@@ -248,8 +248,13 @@ impl Opt {
     }
 }
 
-#[derive(Debug)]
 pub struct SignerKey(pub SecretKey);
+
+impl fmt::Debug for SignerKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "SignerKey(..)")
+    }
+}
 
 impl FromStr for SignerKey {
     type Err = Box<dyn Error>;
