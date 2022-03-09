@@ -544,7 +544,7 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
         Ok(status) => (status, 0),
         Err(status) => (status, sip24_hash(status) | 0x1),
     };
-    let api_key = &query.api_key.as_ref().unwrap().key;
+    let api_key = &query.api_key.as_ref().map(|k| k.key.as_ref()).unwrap_or("");
     let subgraph = query.subgraph.as_ref().unwrap();
     let deployment = subgraph.deployment.to_string();
     tracing::info!(

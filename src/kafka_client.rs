@@ -75,7 +75,7 @@ pub struct IndexerAttempt {
 
 impl ClientQueryResult {
     pub fn new(query: &Query, result: Result<String, String>) -> Self {
-        let api_key = &query.api_key.as_ref().unwrap().key;
+        let api_key = query.api_key.as_ref().map(|k| k.key.as_ref()).unwrap_or("");
         let subgraph = query.subgraph.as_ref().unwrap();
         let deployment = subgraph.deployment.to_string();
         let network = &query.subgraph.as_ref().unwrap().network;
@@ -111,7 +111,7 @@ impl ClientQueryResult {
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.to_string(),
-            api_key: api_key.clone(),
+            api_key: api_key.to_string(),
             deployment: deployment,
             network: network.clone(),
             query: query.query.to_string(),
