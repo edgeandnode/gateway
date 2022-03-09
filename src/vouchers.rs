@@ -18,7 +18,6 @@ pub async fn handle_collect_receipts(
     payload: web::Bytes,
 ) -> HttpResponse {
     let _timer = METRICS.collect_receipts.duration.start_timer();
-    tracing::info!(request_size = %payload.len(), "collect receipts request");
     match process_oneshot_voucher(&data, &payload) {
         Ok(response) => {
             METRICS.collect_receipts.ok.inc();
@@ -40,6 +39,12 @@ fn process_oneshot_voucher(
     let allocation_signer = PublicKey::from_secret_key(&SECP256K1, signer);
     let voucher = receipts_to_voucher(&allocation_id, &allocation_signer, signer, &receipts)
         .map_err(|err| err.to_string())?;
+    tracing::info!(
+        allocation = %Address(allocation_id),
+        receipts_size = receipts.len(),
+        fees = %voucher.fees.to_string(),
+        "collect receipts request",
+    );
     Ok(HttpResponseBuilder::new(StatusCode::OK).json(json!({
         "allocation": format!("0x{}", hex::encode(voucher.allocation_id)),
         "amount": voucher.fees.to_string(),
@@ -53,7 +58,6 @@ pub async fn handle_partial_voucher(
     payload: web::Bytes,
 ) -> HttpResponse {
     let _timer = METRICS.partial_voucher.duration.start_timer();
-    tracing::info!(request_size = %payload.len(), "partial voucher request");
     match process_partial_voucher(&data, &payload) {
         Ok(response) => {
             METRICS.partial_voucher.ok.inc();
@@ -76,6 +80,12 @@ fn process_partial_voucher(
     let partial_voucher =
         receipts_to_partial_voucher(&allocation_id, &allocation_signer, signer, &receipts)
             .map_err(|err| err.to_string())?;
+    tracing::info!(
+        allocation = %Address(allocation_id),
+        receipts_size = receipts.len(),
+        fees = %partial_voucher.voucher.fees.to_string(),
+        "partial voucher request",
+    );
     Ok(HttpResponseBuilder::new(StatusCode::OK).json(json!({
         "allocation": format!("0x{}", hex::encode(partial_voucher.voucher.allocation_id)),
         "fees": partial_voucher.voucher.fees.to_string(),
@@ -88,7 +98,6 @@ fn process_partial_voucher(
 #[tracing::instrument(skip(data, payload))]
 pub async fn handle_voucher(data: web::Data<SecretKey>, payload: web::Bytes) -> HttpResponse {
     let _timer = METRICS.voucher.duration.start_timer();
-    tracing::info!(request_size = %payload.len(), "partial voucher request");
     match process_voucher(&data, &payload) {
         Ok(response) => {
             METRICS.voucher.ok.inc();
@@ -121,6 +130,12 @@ fn process_voucher(signer: &SecretKey, payload: &web::Bytes) -> Result<HttpRespo
         .collect::<Vec<receipts::PartialVoucher>>();
     let voucher = combine_partial_vouchers(&allocation_id, signer, &partial_vouchers)
         .map_err(|err| err.to_string())?;
+    tracing::info!(
+        allocation = %allocation_id,
+        partial_vouchers = partial_vouchers.len(),
+        fees = %voucher.fees.to_string(),
+        "voucher request",
+    );
     Ok(HttpResponseBuilder::new(StatusCode::OK).json(json!({
         "allocation": allocation_id.to_string(),
         "fees": voucher.fees.to_string(),
