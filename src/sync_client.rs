@@ -1,8 +1,8 @@
 use crate::{
     block_resolver::BlockResolver,
     indexer_selection::{
-        self, CostModelSource, IndexerDataReader, IndexerDataWriter, Indexing, IndexingData,
-        IndexingStatus, SecretKey, SelectionFactors,
+        self, CostModelSource, IndexerDataReader, IndexerDataWriter, IndexerPreferences, Indexing,
+        IndexingData, IndexingStatus, SecretKey, SelectionFactors,
     },
     prelude::{shared_lookup::SharedLookupWriter, *},
     query_engine::{APIKey, InputWriters, VolumeEstimator},
@@ -375,6 +375,24 @@ fn parse_api_keys(
             let parsed = value
                 .into_iter()
                 .filter_map(|value| {
+                    let mut indexer_preferences = IndexerPreferences::default();
+                    for preference in value.indexer_preferences {
+                        match preference.name.as_ref() {
+                            "Fastest speed" => indexer_preferences.performance = preference.weight,
+                            "Lowest price" => {
+                                indexer_preferences.price_efficiency = preference.weight
+                            }
+                            "Data freshness" => {
+                                indexer_preferences.data_freshness = preference.weight
+                            }
+                            "Economic security" => {
+                                indexer_preferences.economic_security = preference.weight
+                            }
+                            unexpected_indexer_preference_name => {
+                                tracing::warn!(%unexpected_indexer_preference_name)
+                            }
+                        }
+                    }
                     Some(APIKey {
                         usage: usage.get(&value.api_key.key),
                         id: value.api_key.id,
@@ -397,6 +415,7 @@ fn parse_api_keys(
                             .into_iter()
                             .map(|domain| (domain.name, domain.id as i32))
                             .collect(),
+                        indexer_preferences,
                     })
                 })
                 .collect::<Vec<APIKey>>();

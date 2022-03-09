@@ -18,7 +18,6 @@ use crate::{
     block_resolver::{BlockCache, BlockResolver},
     fisherman_client::*,
     indexer_client::IndexerClient,
-    indexer_selection::UtilityConfig,
     ipfs_client::*,
     kafka_client::{ClientQueryResult, KafkaClient, KafkaInterface as _},
     manifest_client::*,
@@ -134,7 +133,6 @@ async fn main() {
     let subgraph_query_data = SubgraphQueryData {
         config: query_engine::Config {
             indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
-            utility: UtilityConfig::default(),
             budget_factors: QueryBudgetFactors {
                 scale: opt.query_budget_scale,
                 discount: opt.query_budget_discount,

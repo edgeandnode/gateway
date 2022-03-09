@@ -624,14 +624,8 @@ impl Indexers {
     }
 }
 
-const UTILITY_CONFIGS_DEFAULT_INDEX: usize = 1;
-const UTILITY_CONFIGS_LEN: usize = 3;
 // https://www.desmos.com/calculator/lzlii17feb
-const UTILITY_CONFIGS_ECONOMIC_SECURITY: [UtilityParameters; UTILITY_CONFIGS_LEN] = [
-    UtilityParameters {
-        a: 0.000016,
-        weight: 0.5,
-    },
+const UTILITY_CONFIGS_ECONOMIC_SECURITY: (UtilityParameters, UtilityParameters) = (
     UtilityParameters {
         a: 0.000008,
         weight: 1.0,
@@ -640,13 +634,9 @@ const UTILITY_CONFIGS_ECONOMIC_SECURITY: [UtilityParameters; UTILITY_CONFIGS_LEN
         a: 0.000004,
         weight: 1.5,
     },
-];
+);
 // https://www.desmos.com/calculator/reykkamaje
-const UTILITY_CONFIGS_PERFORMANCE: [UtilityParameters; UTILITY_CONFIGS_LEN] = [
-    UtilityParameters {
-        a: 0.0080,
-        weight: 0.7,
-    },
+const UTILITY_CONFIGS_PERFORMANCE: (UtilityParameters, UtilityParameters) = (
     UtilityParameters {
         a: 0.0032,
         weight: 1.0,
@@ -655,13 +645,9 @@ const UTILITY_CONFIGS_PERFORMANCE: [UtilityParameters; UTILITY_CONFIGS_LEN] = [
         a: 0.0016,
         weight: 1.5,
     },
-];
+);
 // https://www.desmos.com/calculator/hircodefui
-const UTILITY_CONFIGS_DATA_FRESHNESS: [UtilityParameters; UTILITY_CONFIGS_LEN] = [
-    UtilityParameters {
-        a: 6.5,
-        weight: 0.5,
-    },
+const UTILITY_CONFIGS_DATA_FRESHNESS: (UtilityParameters, UtilityParameters) = (
     UtilityParameters {
         a: 4.0,
         weight: 1.0,
@@ -670,40 +656,66 @@ const UTILITY_CONFIGS_DATA_FRESHNESS: [UtilityParameters; UTILITY_CONFIGS_LEN] =
         a: 1.8,
         weight: 1.5,
     },
-];
+);
 // Don't over or under value "getting a good deal"
 // Note: This is only a weight.
-const UTILITY_CONFIGS_PRICE_EFFICIENCY: [f64; UTILITY_CONFIGS_LEN] = [0.1, 0.5, 1.0];
+const UTILITY_CONFIGS_PRICE_EFFICIENCY: (f64, f64) = (0.5, 1.0);
 
 // TODO: For the user experience we should turn these into 0-1 values,
 // and from those calculate both a utility parameter and a weight
 // which should be used when combining utilities.
 impl UtilityConfig {
-    pub fn from_indexes(
-        economic_security: i8,
-        performance: i8,
-        data_freshness: i8,
-        price_efficiency: i8,
-    ) -> Self {
-        let to_index = |i: i8| -> usize {
-            let max = UTILITY_CONFIGS_LEN as i8 - 1;
-            let default = UTILITY_CONFIGS_DEFAULT_INDEX as i8;
-            default.saturating_add(i).max(0).min(max) as usize
-        };
+    pub fn from_preferences(preferences: &IndexerPreferences) -> Self {
+        fn interp(min: f64, max: f64, mut x: f64) -> f64 {
+            debug_assert!(max > min);
+            x = x.max(0.0).min(1.0);
+            min + ((max - min) * x)
+        }
+        fn interp_utility(
+            bounds: (UtilityParameters, UtilityParameters),
+            x: f64,
+        ) -> UtilityParameters {
+            UtilityParameters {
+                a: interp(bounds.1.a, bounds.0.a, 1.0 - x),
+                weight: interp(bounds.0.weight, bounds.1.weight, x),
+            }
+        }
         Self {
-            economic_security: UTILITY_CONFIGS_ECONOMIC_SECURITY[to_index(economic_security)],
-            performance: UTILITY_CONFIGS_PERFORMANCE[to_index(performance)],
-            data_freshness: UTILITY_CONFIGS_DATA_FRESHNESS[to_index(data_freshness)],
-            price_efficiency: UTILITY_CONFIGS_PRICE_EFFICIENCY[to_index(price_efficiency)],
+            economic_security: interp_utility(
+                UTILITY_CONFIGS_ECONOMIC_SECURITY,
+                preferences.economic_security,
+            ),
+            performance: interp_utility(UTILITY_CONFIGS_PERFORMANCE, preferences.performance),
+            data_freshness: interp_utility(
+                UTILITY_CONFIGS_DATA_FRESHNESS,
+                preferences.data_freshness,
+            ),
+            price_efficiency: interp(
+                UTILITY_CONFIGS_PRICE_EFFICIENCY.0,
+                UTILITY_CONFIGS_PRICE_EFFICIENCY.1,
+                preferences.price_efficiency,
+            ),
         }
     }
 }
 
 impl Default for UtilityConfig {
     fn default() -> Self {
-        let i = UTILITY_CONFIGS_DEFAULT_INDEX as i8;
-        Self::from_indexes(i, i, i, i)
+        Self {
+            economic_security: UTILITY_CONFIGS_ECONOMIC_SECURITY.0,
+            performance: UTILITY_CONFIGS_PERFORMANCE.0,
+            data_freshness: UTILITY_CONFIGS_DATA_FRESHNESS.0,
+            price_efficiency: UTILITY_CONFIGS_PRICE_EFFICIENCY.0,
+        }
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct IndexerPreferences {
+    pub economic_security: f64,
+    pub performance: f64,
+    pub data_freshness: f64,
+    pub price_efficiency: f64,
 }
 
 struct Metrics {

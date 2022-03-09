@@ -20,6 +20,11 @@ query APIKeys($lastUpdateId: String!) {
         id
         name
       }
+      indexerPreferences {
+        id
+        name
+        weight
+      }
     }
   }
 }
