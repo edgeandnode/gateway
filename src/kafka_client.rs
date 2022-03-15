@@ -10,6 +10,7 @@ use rdkafka::{
     producer::{BaseRecord, DefaultProducerContext, ThreadedProducer},
 };
 use serde::Serialize;
+use std::time::SystemTime;
 
 pub trait Msg: Serialize {
     const TOPIC: &'static str;
@@ -44,10 +45,18 @@ impl KafkaInterface for KafkaClient {
     }
 }
 
+fn timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
 #[derive(Serialize)]
 pub struct ClientQueryResult {
     pub ray_id: String,
     pub query_id: String,
+    pub timestamp: u64,
     pub api_key: String,
     pub deployment: String,
     pub network: String,
@@ -111,6 +120,7 @@ impl ClientQueryResult {
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.to_string(),
+            timestamp: timestamp(),
             api_key: api_key.to_string(),
             deployment: deployment,
             network: network.clone(),
@@ -133,6 +143,7 @@ impl Msg for ClientQueryResult {
 pub struct ISAScoringSample {
     pub ray_id: String,
     pub query_id: u64,
+    pub timestamp: u64,
     pub deployment: String,
     pub address: String,
     pub fee: String,
@@ -154,6 +165,7 @@ impl ISAScoringSample {
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.local_id,
+            timestamp: timestamp(),
             deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
             address: indexer.to_string(),
             fee: score.fee.to_string(),
@@ -180,6 +192,7 @@ impl Msg for ISAScoringSample {
 pub struct ISAScoringError {
     pub ray_id: String,
     pub query_id: u64,
+    pub timestamp: u64,
     pub deployment: String,
     pub indexer: String,
     pub error: String,
@@ -201,6 +214,7 @@ impl ISAScoringError {
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.local_id,
+            timestamp: timestamp(),
             deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
             indexer: indexer.to_string(),
             error: format!("{:?}", err),
