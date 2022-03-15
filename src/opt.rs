@@ -233,7 +233,7 @@ impl Opt {
             config.set("sasl.username", sasl_username);
         }
         if let Some(sasl_password) = self.sasl_password.as_ref() {
-            config.set("sasl.passwrsasl_password", sasl_password);
+            config.set("sasl.password", sasl_password);
         }
         if let Some(ssl_ca_location) = self.ssl_ca_location.as_ref() {
             config.set("ssl.ca.location", ssl_ca_location);
