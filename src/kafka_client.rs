@@ -86,7 +86,6 @@ impl ClientQueryResult {
         let subgraph = query.subgraph.as_ref().unwrap();
         let deployment = subgraph.deployment.to_string();
         let network = &query.subgraph.as_ref().unwrap().network;
-        let variables = query.variables.as_deref().unwrap_or("");
         let response_time_ms = (Instant::now() - query.start_time).as_millis() as u32;
         let budget = query
             .budget
