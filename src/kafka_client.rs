@@ -60,8 +60,6 @@ pub struct ClientQueryResult {
     pub api_key: String,
     pub deployment: String,
     pub network: String,
-    pub query: String,
-    pub variables: String,
     pub response_time_ms: u32,
     pub budget: String,
     pub status: String,
@@ -124,8 +122,6 @@ impl ClientQueryResult {
             api_key: api_key.to_string(),
             deployment: deployment,
             network: network.clone(),
-            query: query.query.to_string(),
-            variables: variables.to_string(),
             response_time_ms,
             budget,
             status: status.clone(),
@@ -142,7 +138,6 @@ impl Msg for ClientQueryResult {
 #[derive(Serialize)]
 pub struct ISAScoringSample {
     pub ray_id: String,
-    pub query_id: u64,
     pub timestamp: u64,
     pub deployment: String,
     pub address: String,
@@ -164,7 +159,6 @@ impl ISAScoringSample {
     pub fn new(query: &Query, indexer: &Address, score: &IndexerScore, message: &str) -> Self {
         Self {
             ray_id: query.ray_id.clone(),
-            query_id: query.id.local_id,
             timestamp: timestamp(),
             deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
             address: indexer.to_string(),
@@ -191,7 +185,6 @@ impl Msg for ISAScoringSample {
 #[derive(Serialize)]
 pub struct ISAScoringError {
     pub ray_id: String,
-    pub query_id: u64,
     pub timestamp: u64,
     pub deployment: String,
     pub indexer: String,
@@ -213,7 +206,6 @@ impl ISAScoringError {
         };
         Self {
             ray_id: query.ray_id.clone(),
-            query_id: query.id.local_id,
             timestamp: timestamp(),
             deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
             indexer: indexer.to_string(),
