@@ -38,7 +38,7 @@ use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use structopt::StructOpt as _;
 use url::Url;
 
@@ -537,7 +537,17 @@ pub fn graphql_error_response<S: ToString>(message: S) -> HttpResponse {
         .body(json!({"errors": {"message": message.to_string()}}).to_string())
 }
 
+fn timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
 fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result<String, String>) {
+    let ts = timestamp();
+    kafka_client.send(&ClientQueryResult::new(&query, result.clone(), ts));
+
     let indexer_attempts = query
         .indexer_attempts
         .iter()
@@ -554,14 +564,13 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
                 Err(err) => format!("{:?}", err),
             },
             status_code: attempt.status_code(),
+            timestamp: ts,
         })
         .collect::<Vec<IndexerAttemptKafka>>();
 
     for attempt in indexer_attempts {
         kafka_client.send(&attempt);
     }
-
-    kafka_client.send(&ClientQueryResult::new(&query, result.clone()));
 
     let (status, status_code) = match &result {
         Ok(status) => (status, 0),
