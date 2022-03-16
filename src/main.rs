@@ -19,7 +19,7 @@ use crate::{
     fisherman_client::*,
     indexer_client::IndexerClient,
     ipfs_client::*,
-    kafka_client::{ClientQueryResult, KafkaClient, KafkaInterface as _},
+    kafka_client::{ClientQueryResult, IndexerAttemptKafka, KafkaClient, KafkaInterface as _},
     manifest_client::*,
     opt::*,
     prelude::*,
@@ -538,6 +538,29 @@ pub fn graphql_error_response<S: ToString>(message: S) -> HttpResponse {
 }
 
 fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result<String, String>) {
+    let indexer_attempts = query
+        .indexer_attempts
+        .iter()
+        .map(|attempt| IndexerAttemptKafka {
+            indexer: attempt.indexer.to_string(),
+            url: attempt.score.url.to_string(),
+            allocation: attempt.allocation.to_string(),
+            fee: attempt.score.fee.as_f64(),
+            utility: *attempt.score.utility,
+            blocks_behind: attempt.score.blocks_behind,
+            response_time_ms: attempt.duration.as_millis() as u32,
+            status: match &attempt.result {
+                Ok(response) => response.status.to_string(),
+                Err(err) => format!("{:?}", err),
+            },
+            status_code: attempt.status_code(),
+        })
+        .collect::<Vec<IndexerAttemptKafka>>();
+
+    for attempt in indexer_attempts {
+        kafka_client.send(&attempt);
+    }
+
     kafka_client.send(&ClientQueryResult::new(&query, result.clone()));
 
     let (status, status_code) = match &result {

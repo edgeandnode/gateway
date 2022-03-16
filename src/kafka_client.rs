@@ -64,11 +64,10 @@ pub struct ClientQueryResult {
     pub budget: String,
     pub status: String,
     pub status_code: u32,
-    pub indexer_attempts: Vec<IndexerAttempt>,
 }
 
 #[derive(Serialize)]
-pub struct IndexerAttempt {
+pub struct IndexerAttemptKafka {
     pub indexer: String,
     pub url: String,
     pub allocation: String,
@@ -96,24 +95,7 @@ impl ClientQueryResult {
             Ok(status) => (status, 0),
             Err(status) => (status, sip24_hash(status) as u32 | 0x1),
         };
-        let indexer_attempts = query
-            .indexer_attempts
-            .iter()
-            .map(|attempt| IndexerAttempt {
-                indexer: attempt.indexer.to_string(),
-                url: attempt.score.url.to_string(),
-                allocation: attempt.allocation.to_string(),
-                fee: attempt.score.fee.as_f64(),
-                utility: *attempt.score.utility,
-                blocks_behind: attempt.score.blocks_behind,
-                response_time_ms: attempt.duration.as_millis() as u32,
-                status: match &attempt.result {
-                    Ok(response) => response.status.to_string(),
-                    Err(err) => format!("{:?}", err),
-                },
-                status_code: attempt.status_code(),
-            })
-            .collect::<Vec<IndexerAttempt>>();
+
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.to_string(),
@@ -125,9 +107,12 @@ impl ClientQueryResult {
             budget,
             status: status.clone(),
             status_code,
-            indexer_attempts,
         }
     }
+}
+
+impl Msg for IndexerAttemptKafka {
+    const TOPIC: &'static str = "gateway_indexer_attempts";
 }
 
 impl Msg for ClientQueryResult {
