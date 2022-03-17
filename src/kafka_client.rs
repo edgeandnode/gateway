@@ -68,6 +68,9 @@ pub struct ClientQueryResult {
 
 #[derive(Serialize)]
 pub struct IndexerAttempt {
+    pub ray_id: String,
+    pub api_key: String,
+    pub deployment: String,
     pub indexer: String,
     pub url: String,
     pub allocation: String,
