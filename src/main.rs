@@ -546,12 +546,16 @@ fn timestamp() -> u64 {
 
 fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result<String, String>) {
     let ts = timestamp();
-    kafka_client.send(&ClientQueryResult::new(&query, result.clone(), ts));
+    let query_result = ClientQueryResult::new(&query, result.clone(), ts);
+    kafka_client.send(&query_result);
 
     let indexer_attempts = query
         .indexer_attempts
         .iter()
         .map(|attempt| IndexerAttempt {
+            api_key: query_result.api_key.clone(),
+            deployment: query_result.deployment.clone(),
+            ray_id: query_result.ray_id.clone(),
             indexer: attempt.indexer.to_string(),
             url: attempt.score.url.to_string(),
             allocation: attempt.allocation.to_string(),
