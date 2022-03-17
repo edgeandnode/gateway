@@ -19,7 +19,7 @@ use crate::{
     fisherman_client::*,
     indexer_client::IndexerClient,
     ipfs_client::*,
-    kafka_client::{ClientQueryResult, KafkaClient, KafkaInterface as _},
+    kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
     manifest_client::*,
     opt::*,
     prelude::*,
@@ -38,7 +38,7 @@ use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use structopt::StructOpt as _;
 use url::Url;
 
@@ -537,8 +537,40 @@ pub fn graphql_error_response<S: ToString>(message: S) -> HttpResponse {
         .body(json!({"errors": {"message": message.to_string()}}).to_string())
 }
 
+fn timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
 fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result<String, String>) {
-    kafka_client.send(&ClientQueryResult::new(&query, result.clone()));
+    let ts = timestamp();
+    kafka_client.send(&ClientQueryResult::new(&query, result.clone(), ts));
+
+    let indexer_attempts = query
+        .indexer_attempts
+        .iter()
+        .map(|attempt| IndexerAttempt {
+            indexer: attempt.indexer.to_string(),
+            url: attempt.score.url.to_string(),
+            allocation: attempt.allocation.to_string(),
+            fee: attempt.score.fee.as_f64(),
+            utility: *attempt.score.utility,
+            blocks_behind: attempt.score.blocks_behind,
+            response_time_ms: attempt.duration.as_millis() as u32,
+            status: match &attempt.result {
+                Ok(response) => response.status.to_string(),
+                Err(err) => format!("{:?}", err),
+            },
+            status_code: attempt.status_code(),
+            timestamp: ts,
+        })
+        .collect::<Vec<IndexerAttempt>>();
+
+    for attempt in indexer_attempts {
+        kafka_client.send(&attempt);
+    }
 
     let (status, status_code) = match &result {
         Ok(status) => (status, 0),

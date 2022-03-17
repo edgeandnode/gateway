@@ -64,7 +64,6 @@ pub struct ClientQueryResult {
     pub budget: String,
     pub status: String,
     pub status_code: u32,
-    pub indexer_attempts: Vec<IndexerAttempt>,
 }
 
 #[derive(Serialize)]
@@ -78,10 +77,11 @@ pub struct IndexerAttempt {
     pub response_time_ms: u32,
     pub status: String,
     pub status_code: u32,
+    pub timestamp: u64,
 }
 
 impl ClientQueryResult {
-    pub fn new(query: &Query, result: Result<String, String>) -> Self {
+    pub fn new(query: &Query, result: Result<String, String>, timestamp: u64) -> Self {
         let api_key = query.api_key.as_ref().map(|k| k.key.as_ref()).unwrap_or("");
         let subgraph = query.subgraph.as_ref().unwrap();
         let deployment = subgraph.deployment.to_string();
@@ -96,28 +96,11 @@ impl ClientQueryResult {
             Ok(status) => (status, 0),
             Err(status) => (status, sip24_hash(status) as u32 | 0x1),
         };
-        let indexer_attempts = query
-            .indexer_attempts
-            .iter()
-            .map(|attempt| IndexerAttempt {
-                indexer: attempt.indexer.to_string(),
-                url: attempt.score.url.to_string(),
-                allocation: attempt.allocation.to_string(),
-                fee: attempt.score.fee.as_f64(),
-                utility: *attempt.score.utility,
-                blocks_behind: attempt.score.blocks_behind,
-                response_time_ms: attempt.duration.as_millis() as u32,
-                status: match &attempt.result {
-                    Ok(response) => response.status.to_string(),
-                    Err(err) => format!("{:?}", err),
-                },
-                status_code: attempt.status_code(),
-            })
-            .collect::<Vec<IndexerAttempt>>();
+
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.to_string(),
-            timestamp: timestamp(),
+            timestamp,
             api_key: api_key.to_string(),
             deployment: deployment,
             network: network.clone(),
@@ -125,9 +108,12 @@ impl ClientQueryResult {
             budget,
             status: status.clone(),
             status_code,
-            indexer_attempts,
         }
     }
+}
+
+impl Msg for IndexerAttempt {
+    const TOPIC: &'static str = "gateway_indexer_attempts";
 }
 
 impl Msg for ClientQueryResult {
