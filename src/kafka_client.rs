@@ -67,7 +67,7 @@ pub struct ClientQueryResult {
 }
 
 #[derive(Serialize)]
-pub struct IndexerAttemptKafka {
+pub struct IndexerAttempt {
     pub indexer: String,
     pub url: String,
     pub allocation: String,
@@ -100,7 +100,7 @@ impl ClientQueryResult {
         Self {
             ray_id: query.ray_id.clone(),
             query_id: query.id.to_string(),
-            timestamp: timestamp,
+            timestamp,
             api_key: api_key.to_string(),
             deployment: deployment,
             network: network.clone(),
@@ -112,7 +112,7 @@ impl ClientQueryResult {
     }
 }
 
-impl Msg for IndexerAttemptKafka {
+impl Msg for IndexerAttempt {
     const TOPIC: &'static str = "gateway_indexer_attempts";
 }
 

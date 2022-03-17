@@ -19,7 +19,7 @@ use crate::{
     fisherman_client::*,
     indexer_client::IndexerClient,
     ipfs_client::*,
-    kafka_client::{ClientQueryResult, IndexerAttemptKafka, KafkaClient, KafkaInterface as _},
+    kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
     manifest_client::*,
     opt::*,
     prelude::*,
@@ -551,7 +551,7 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
     let indexer_attempts = query
         .indexer_attempts
         .iter()
-        .map(|attempt| IndexerAttemptKafka {
+        .map(|attempt| IndexerAttempt {
             indexer: attempt.indexer.to_string(),
             url: attempt.score.url.to_string(),
             allocation: attempt.allocation.to_string(),
@@ -566,7 +566,7 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
             status_code: attempt.status_code(),
             timestamp: ts,
         })
-        .collect::<Vec<IndexerAttemptKafka>>();
+        .collect::<Vec<IndexerAttempt>>();
 
     for attempt in indexer_attempts {
         kafka_client.send(&attempt);
