@@ -307,6 +307,10 @@ where
 
         let query_count = context.operations.len().max(1) as u64;
         let api_key = query.api_key.as_ref().unwrap();
+        tracing::debug!(
+            indexer_preferences = ?api_key.indexer_preferences,
+            max_budget = ?api_key.max_budget,
+        );
         let budget = api_key
             .usage
             .lock()
