@@ -5,6 +5,8 @@ query APIKeys($lastUpdateId: String!) {
       apiKey {
         id
         key
+        queryBudgetUSD
+        queryBudgetSelectionType
       }
       user {
         id

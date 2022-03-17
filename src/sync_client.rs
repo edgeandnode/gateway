@@ -393,6 +393,15 @@ fn parse_api_keys(
                             }
                         }
                     }
+                    let max_budget = match value.api_key.query_budget_selection_type.as_str() {
+                        "USER_SET" => value
+                            .api_key
+                            .query_budget_usd
+                            .parse::<f64>()
+                            .ok()
+                            .and_then(|b| USD::try_from(b).ok()),
+                        "DYNAMIC" | _ => None,
+                    };
                     Some(APIKey {
                         usage: usage.get(&value.api_key.key),
                         id: value.api_key.id,
@@ -400,6 +409,7 @@ fn parse_api_keys(
                         user_id: value.user.id,
                         user_address: value.user.eth_address.parse().ok()?,
                         queries_activated: value.user.queries_activated,
+                        max_budget,
                         subgraphs: value
                             .subgraphs
                             .into_iter()

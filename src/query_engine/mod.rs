@@ -126,6 +126,7 @@ pub struct APIKey {
     pub user_id: i64,
     pub user_address: Address,
     pub queries_activated: bool,
+    pub max_budget: Option<USD>,
     pub deployments: Vec<SubgraphDeploymentID>,
     pub subgraphs: Vec<(String, i32)>,
     pub domains: Vec<(String, i32)>,
@@ -316,6 +317,12 @@ where
             .lock()
             .await
             .budget_for_queries(query_count, &self.config.budget_factors);
+        let mut budget = USD::try_from(budget).unwrap();
+        if let Some(max_budget) = api_key.max_budget {
+            if max_budget < budget {
+                budget = max_budget;
+            }
+        }
         let budget: GRT = self
             .indexers
             .network_params

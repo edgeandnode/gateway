@@ -81,6 +81,8 @@ type Transfer {
 type ApiKeyInfo {
   id: Int!
   key: String!
+  queryBudgetUSD: String!
+  queryBudgetSelectionType: String!
 }
 
 type ApiKeyUserInfo {
