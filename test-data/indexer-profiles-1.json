@@ -1,0 +1,72 @@
+[
+  {
+    "label": "RocketPool-p2p",
+    "stake": "150000",
+    "allocation": "1",
+    "price": "0.0000019193",
+    "latency_ms": 167,
+    "reliability": 0.8521,
+    "blocks_behind": 8,
+    "special_weight": null
+  },
+  {
+    "label": "RocketPool-staked-7",
+    "stake": "161120519.31",
+    "allocation": "433090.11",
+    "price": "0.0000050975",
+    "latency_ms": 667,
+    "reliability": 0.9282,
+    "blocks_behind": 2,
+    "special_weight": null
+  },
+  {
+    "label": "RocketPool-staked-0",
+    "stake": "26743794.27",
+    "allocation": "433090.11",
+    "price": "0.0000047855",
+    "latency_ms": 694,
+    "reliability": 0.9292,
+    "blocks_behind": 2,
+    "special_weight": null
+  },
+  {
+    "label": "RocketPool-framework-labs",
+    "stake": "405771275.52",
+    "allocation": "11689295",
+    "price": "0.0000018851",
+    "latency_ms": 271,
+    "reliability": 0.9662,
+    "blocks_behind": 2,
+    "special_weight": null
+  },
+  {
+    "label": "RocketPool-backstop-eu-west",
+    "stake": "100831.01",
+    "allocation": "1",
+    "price": "0.0000018682",
+    "latency_ms": 400,
+    "reliability": 0.9666,
+    "blocks_behind": 2,
+    "special_weight": 0.2
+  },
+  {
+    "label": "RocketPool-backstop-us-central",
+    "stake": "107949.41",
+    "allocation": "1",
+    "price": "0.0000017402",
+    "latency_ms": 459,
+    "reliability": 0.9611,
+    "blocks_behind": 3,
+    "special_weight": 0.2
+  },
+  {
+    "label": "RocketPool-backstop-us-west",
+    "stake": "100000.01",
+    "allocation": "1",
+    "price": "0.000017523",
+    "latency_ms": 500,
+    "reliability": 0.9676,
+    "blocks_behind": 2,
+    "special_weight": 0.2
+  }
+]

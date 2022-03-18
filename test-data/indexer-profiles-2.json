@@ -1,0 +1,72 @@
+[
+  {
+    "label": "Unstoppable-staked-7",
+    "stake": "161120519.31",
+    "allocation": "188659",
+    "price": "0.000010058",
+    "latency_ms": 424,
+    "reliability": 0.9310,
+    "blocks_behind": 2,
+    "special_weight": null
+  },
+  {
+    "label": "Unstoppable-staked-6",
+    "stake": "8339057.42",
+    "allocation": "400000",
+    "price": "0.0000088953",
+    "latency_ms": 398,
+    "reliability": 0.8889,
+    "blocks_behind": 1,
+    "special_weight": null
+  },
+  {
+    "label": "Unstoppable-backstop-eu-west",
+    "stake": "100832.20",
+    "allocation": "1",
+    "price": "0.0000073846",
+    "latency_ms": 68,
+    "reliability": 0.9989,
+    "blocks_behind": 5,
+    "special_weight": 0.2
+  },
+  {
+    "label": "Unstoppable-backstop-us-west",
+    "stake": "100000.01",
+    "allocation": "1",
+    "price": "0.0000081828",
+    "latency_ms": 209,
+    "reliability": 0.9989,
+    "blocks_behind": 2,
+    "special_weight": 0.2
+  },
+  {
+    "label": "Unstoppable-figment-lemniscap",
+    "stake": "145720471.93",
+    "allocation": "716739",
+    "price": "0.0000144925",
+    "latency_ms": 116,
+    "reliability": 0.9565,
+    "blocks_behind": 2,
+    "special_weight": null
+  },
+  {
+    "label": "Unstoppable-backstop-us-central",
+    "stake": "113401.62",
+    "allocation": "1",
+    "price": "0.000007796",
+    "latency_ms": 158,
+    "reliability": 0.9989,
+    "blocks_behind": 6,
+    "special_weight": 0.2
+  },
+  {
+    "label": "Unstoppable-p2p",
+    "stake": "150000.00",
+    "allocation": "1",
+    "price": "0.000007049",
+    "latency_ms": 27,
+    "reliability": 0.9167,
+    "blocks_behind": 9,
+    "special_weight": null
+  }
+]

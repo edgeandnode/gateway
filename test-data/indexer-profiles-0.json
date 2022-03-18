@@ -1,0 +1,112 @@
+[
+  {
+    "label": "Overpriced",
+    "stake": "500000",
+    "allocation": "600000",
+    "price": "0.000999",
+    "latency_ms": 80,
+    "reliability": 0.999,
+    "blocks_behind": 0,
+    "special_weight": null
+  },
+  {
+    "label": "Great!",
+    "stake": "800000",
+    "allocation": "600000",
+    "price": "0.000040",
+    "latency_ms": 80,
+    "reliability": 0.999,
+    "blocks_behind": 0,
+    "special_weight": null
+  },
+  {
+    "label": "Also great!",
+    "stake": "400000",
+    "allocation": "800000",
+    "price": "0.000040",
+    "latency_ms": 70,
+    "reliability": 0.995,
+    "blocks_behind": 1,
+    "special_weight": null
+  },
+  {
+    "label": "Ok!",
+    "stake": "300000",
+    "allocation": "400000",
+    "price": "0.000034",
+    "latency_ms": 130,
+    "reliability": 0.95,
+    "blocks_behind": 2,
+    "special_weight": null
+  },
+  {
+    "label": "Race to the bottom",
+    "stake": "400000",
+    "allocation": "40000",
+    "price": "0.000005",
+    "latency_ms": 250,
+    "reliability": 0.96,
+    "blocks_behind": 3,
+    "special_weight": null
+  },
+  {
+    "label": "Meh",
+    "stake": "100000",
+    "allocation": "100000",
+    "price": "0.000024",
+    "latency_ms": 200,
+    "reliability": 0.8,
+    "blocks_behind": 8,
+    "special_weight": null
+  },
+  {
+    "label": "Bad",
+    "stake": "100000",
+    "allocation": "100000",
+    "price": "0.000040",
+    "latency_ms": 1900,
+    "reliability": 0.8,
+    "blocks_behind": 8,
+    "special_weight": null
+  },
+  {
+    "label": "Optimize economic security",
+    "stake": "2000000",
+    "allocation": "400000",
+    "price": "0.000045",
+    "latency_ms": 120,
+    "reliability": 0.99,
+    "blocks_behind": 2,
+    "special_weight": null
+  },
+  {
+    "label": "Optimize performance",
+    "stake": "400000",
+    "allocation": "400000",
+    "price": "0.000040",
+    "latency_ms": 60,
+    "reliability": 0.95,
+    "blocks_behind": 1,
+    "special_weight": null
+  },
+  {
+    "label": "Optimize reliability",
+    "stake": "300000",
+    "allocation": "400000",
+    "price": "0.000035",
+    "latency_ms": 120,
+    "reliability": 0.999,
+    "blocks_behind": 4,
+    "special_weight": null
+  },
+  {
+    "label": "Backstop",
+    "stake": "300000",
+    "allocation": "400000",
+    "price": "0.00003",
+    "latency_ms": 70,
+    "reliability": 0.999,
+    "blocks_behind": 1,
+    "special_weight": 0.2
+  }
+]

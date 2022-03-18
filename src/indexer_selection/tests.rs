@@ -6,24 +6,36 @@ use crate::{
     },
     prelude::{test_utils::*, *},
 };
+use futures::{stream::FuturesOrdered, StreamExt as _};
 use plotters::{
     prelude::{DrawingBackend, *},
     style,
 };
 use rand::{thread_rng, Rng as _};
 use secp256k1::SecretKey;
+use serde::{de::Error as _, Deserialize, Deserializer};
+use serde_json;
 use std::{collections::HashMap, sync::Arc};
 
-#[derive(Clone)]
-struct IndexerCharacteristics {
-    label: &'static str,
+#[derive(Clone, Deserialize)]
+struct IndexerProfile {
+    label: String,
+    #[serde(deserialize_with = "deserialize_grt")]
     stake: GRT,
+    #[serde(deserialize_with = "deserialize_grt")]
     allocation: GRT,
     blocks_behind: u64,
+    #[serde(deserialize_with = "deserialize_grt")]
     price: GRT,
     latency_ms: u64,
     reliability: f64,
     special_weight: Option<f64>,
+}
+
+fn deserialize_grt<'de, D: Deserializer<'de>>(deserializer: D) -> Result<GRT, D::Error> {
+    String::deserialize(deserializer)?
+        .parse::<GRT>()
+        .map_err(D::Error::custom)
 }
 
 #[derive(Debug, Default, Clone)]
@@ -36,119 +48,19 @@ struct IndexerResults {
 #[ignore = "Writes output to disk"]
 async fn weights() {
     init_test_tracing();
+    let profile_suffixes = ["0", "1", "2"];
+    for suffix in profile_suffixes {
+        run_simulations(suffix).await;
+    }
+}
 
-    let tests = [
-        IndexerCharacteristics {
-            label: "Overpriced",
-            stake: 500000u64.try_into().unwrap(),
-            allocation: 600000u64.try_into().unwrap(),
-            price: "0.000999".parse().unwrap(),
-            latency_ms: 80,
-            reliability: 0.999,
-            blocks_behind: 0,
-            special_weight: None,
-        },
-        IndexerCharacteristics {
-            label: "Great!",
-            stake: 800000u64.try_into().unwrap(),
-            allocation: 600000u64.try_into().unwrap(),
-            price: "0.000040".parse().unwrap(),
-            latency_ms: 80,
-            reliability: 0.999,
-            blocks_behind: 0,
-            special_weight: None,
-        },
-        IndexerCharacteristics {
-            label: "Also great!",
-            stake: 400000u64.try_into().unwrap(),
-            allocation: 800000u64.try_into().unwrap(),
-            price: "0.000040".parse().unwrap(),
-            latency_ms: 70,
-            reliability: 0.995,
-            blocks_behind: 1,
-            special_weight: None,
-        },
-        IndexerCharacteristics {
-            label: "Ok!",
-            stake: 300000u64.try_into().unwrap(),
-            allocation: 400000u64.try_into().unwrap(),
-            price: "0.000034".parse().unwrap(),
-            latency_ms: 130,
-            reliability: 0.95,
-            blocks_behind: 2,
-            special_weight: None,
-        },
-        IndexerCharacteristics {
-            label: "Race to the bottom",
-            stake: 400000u64.try_into().unwrap(),
-            allocation: 40000u64.try_into().unwrap(),
-            price: "0.000005".parse().unwrap(),
-            latency_ms: 250,
-            reliability: 0.96,
-            blocks_behind: 3,
-            special_weight: None,
-        },
-        IndexerCharacteristics {
-            label: "Meh",
-            stake: 100000u64.try_into().unwrap(),
-            allocation: 100000u64.try_into().unwrap(),
-            price: "0.000024".parse().unwrap(),
-            latency_ms: 200,
-            reliability: 0.80,
-            blocks_behind: 8,
-            special_weight: None,
-        },
-        IndexerCharacteristics {
-            label: "Bad",
-            stake: 100000u64.try_into().unwrap(),
-            allocation: 100000u64.try_into().unwrap(),
-            price: "0.000040".parse().unwrap(),
-            latency_ms: 1900,
-            reliability: 0.80,
-            blocks_behind: 8,
-            special_weight: None,
-        },
-        IndexerCharacteristics {
-            label: "Optimize economic security",
-            stake: 2000000u64.try_into().unwrap(),
-            allocation: 400000u64.try_into().unwrap(),
-            price: "0.000045".parse().unwrap(),
-            latency_ms: 120,
-            reliability: 0.99,
-            blocks_behind: 2,
-            special_weight: None,
-        },
-        IndexerCharacteristics {
-            label: "Optimize performance",
-            stake: 400000u64.try_into().unwrap(),
-            allocation: 400000u64.try_into().unwrap(),
-            price: "0.000040".parse().unwrap(),
-            latency_ms: 60,
-            reliability: 0.95,
-            blocks_behind: 1,
-            special_weight: None,
-        },
-        IndexerCharacteristics {
-            label: "Optimize reliability",
-            stake: 300000u64.try_into().unwrap(),
-            allocation: 400000u64.try_into().unwrap(),
-            price: "0.000035".parse().unwrap(),
-            latency_ms: 120,
-            reliability: 0.999,
-            blocks_behind: 4,
-            special_weight: None,
-        },
-        IndexerCharacteristics {
-            label: "Backstop",
-            stake: 300000u64.try_into().unwrap(),
-            allocation: 400000u64.try_into().unwrap(),
-            price: "0.00003".parse().unwrap(),
-            latency_ms: 70,
-            reliability: 0.999,
-            blocks_behind: 1,
-            special_weight: Some(0.2),
-        },
-    ];
+async fn run_simulations(profile_suffix: &str) {
+    let profiles_src = std::fs::read_to_string(format!(
+        "test-data/indexer-profiles-{}.json",
+        profile_suffix
+    ))
+    .unwrap();
+    let profiles = serde_json::from_str::<Vec<IndexerProfile>>(&profiles_src).unwrap();
 
     let columns = vec![
         "ID",
@@ -167,7 +79,7 @@ async fn weights() {
             .take(columns.len())
             .collect::<String>()
     );
-    for test in &tests {
+    for test in &profiles {
         println!(
             "| {} | {} GRT | {} GRT | {} | {} USD | {} ms | {}% | {:?} |",
             test.label,
@@ -181,7 +93,6 @@ async fn weights() {
         );
     }
 
-    use futures::{stream::FuturesOrdered, StreamExt as _};
     let results = vec![
         (0.0, 0.0, 0.0, 0.0),
         (1.0, 0.0, 0.0, 0.0),
@@ -191,7 +102,7 @@ async fn weights() {
     ]
     .into_iter()
     .map(|cfg| {
-        let tests = tests.clone();
+        let profiles = profiles.clone();
         async move {
             let config = UtilityConfig::from_preferences(&IndexerPreferences {
                 economic_security: cfg.0,
@@ -199,7 +110,7 @@ async fn weights() {
                 data_freshness: cfg.2,
                 price_efficiency: cfg.3,
             });
-            run_simulation(&tests, &config).await
+            run_simulation(&profiles, &config).await
         }
     })
     .collect::<FuturesOrdered<_>>()
@@ -215,22 +126,19 @@ async fn weights() {
         ("price_efficiency 0.0", results[0].clone()),
         ("price_efficiency 1.0", results[4].clone()),
     ];
-    let labels = tests
+    let labels = profiles
         .iter()
-        .map(|data| data.label)
-        .collect::<Vec<&'static str>>();
-    visualize_outcomes(data, 2, &labels);
+        .map(|data| data.label.as_str())
+        .collect::<Vec<&str>>();
+    visualize_outcomes(data, 2, &labels, profile_suffix);
 }
 
-async fn run_simulation(
-    tests: &[IndexerCharacteristics],
-    utility_config: &UtilityConfig,
-) -> Vec<f64> {
+async fn run_simulation(tests: &[IndexerProfile], utility_config: &UtilityConfig) -> Vec<f64> {
     let (mut input_writers, inputs) = Indexers::inputs();
     let indexers = Indexers::new(inputs);
     input_writers
         .slashing_percentage
-        .write("0.1".parse().unwrap());
+        .write("0.025".parse().unwrap());
     input_writers
         .usd_to_grt_conversion
         .write(1u64.try_into().unwrap());
@@ -359,11 +267,11 @@ async fn run_simulation(
         .collect::<Vec<f64>>()
 }
 
-fn visualize_outcomes(data: Vec<(&str, Vec<f64>)>, columns: usize, labels: &[&'static str]) {
+fn visualize_outcomes(data: Vec<(&str, Vec<f64>)>, columns: usize, labels: &[&str], suffix: &str) {
     create_dir("test-outputs");
-    let output_file = "test-outputs/isa-weights.png";
+    let output_file = format!("test-outputs/isa-weights-{}.png", suffix);
 
-    let mut root = BitMapBackend::new(output_file, (2100, 480));
+    let mut root = BitMapBackend::new(&output_file, (2100, 480));
     let text_style = TextStyle::from(("sans-serif", 28.0).into_font());
     // Fill background
     let (width, height) = root.get_size();
