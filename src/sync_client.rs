@@ -712,33 +712,50 @@ fn handle_cost_models(
 
 fn handle_indexers(
     indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
-    mut deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
-    indexer_statuses: Eventual<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)>>>,
+    deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
+    indexer_info: Eventual<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)>>>,
 ) {
     let indexers = Arc::new(Mutex::new(indexers));
-    indexer_statuses
-        .pipe_async(move |indexer_statuses| {
-            let _span = tracing::info_span!("handle_indexers").entered();
-            tracing::info!(indexed_deployments = %indexer_statuses.len());
-            deployment_indexers.write(Ptr::new(
-                indexer_statuses
-                    .iter()
-                    .map(|(deployment, indexer_statuses)| {
-                        tracing::trace!(?deployment, indexer_statuses = indexer_statuses.len(),);
-                        (
-                            deployment.clone(),
-                            indexer_statuses.iter().map(|status| status.id).collect(),
-                        )
-                    })
-                    .collect(),
-            ));
-            let statuses =
-                HashMap::<Address, ParsedIndexerInfo>::from_iter(indexer_statuses.iter().flat_map(
-                    |(_, statuses)| statuses.iter().cloned().map(|status| (status.id, status)),
-                ));
-            tracing::info!(indexers = %statuses.len());
+    let deployment_indexers = Arc::new(Mutex::new(deployment_indexers));
+    let indexings = Arc::new(Mutex::new(HashMap::<Indexing, Instant>::new()));
+    indexer_info
+        .pipe_async(move |indexer_info| {
             let indexers = indexers.clone();
+            let deployment_indexers = deployment_indexers.clone();
+            let indexings = indexings.clone();
             async move {
+                tracing::info!(indexed_deployments = %indexer_info.len());
+                {
+                    let mut indexings = indexings.lock().await;
+                    let now = Instant::now();
+                    for indexing in indexer_info.iter().flat_map(|(deployment, indexers)| {
+                        indexers.iter().map(|info| Indexing {
+                            deployment: deployment.clone(),
+                            indexer: info.id,
+                        })
+                    }) {
+                        indexings.insert(indexing, now);
+                    }
+                    let removal_delay = Duration::from_secs(90);
+                    indexings
+                        .retain(|_, last_update| now.duration_since(*last_update) < removal_delay);
+
+                    let mut update = HashMap::<SubgraphDeploymentID, Vec<Address>>::new();
+                    for indexing in indexings.iter().map(|(indexing, _)| indexing) {
+                        match update.entry(indexing.deployment.clone()) {
+                            Entry::Occupied(mut entry) => entry.get_mut().push(indexing.indexer),
+                            Entry::Vacant(entry) => {
+                                entry.insert(vec![indexing.indexer]);
+                            }
+                        };
+                    }
+                    deployment_indexers.lock().await.write(Ptr::new(update));
+                }
+                let statuses =
+                    HashMap::<Address, ParsedIndexerInfo>::from_iter(indexer_info.iter().flat_map(
+                        |(_, statuses)| statuses.iter().cloned().map(|status| (status.id, status)),
+                    ));
+                tracing::info!(indexers = %statuses.len());
                 let mut indexers = indexers.lock().await;
                 for (indexer, status) in statuses {
                     let indexer = indexers.write(&indexer).await;
@@ -746,6 +763,7 @@ fn handle_indexers(
                     indexer.stake.write(status.staked);
                 }
             }
+            .instrument(tracing::info_span!("handle_indexers"))
         })
         .forever();
 }
