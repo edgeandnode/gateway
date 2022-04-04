@@ -322,10 +322,12 @@ where
             .lock()
             .await
             .budget_for_queries(query_count, &self.config.budget_factors);
-        let mut budget = USD::try_from(budget).unwrap();
-        if let Some(max_budget) = api_key.max_budget {
-            budget = max_budget;
-        }
+        let budget = USD::try_from(budget).unwrap();
+
+        // Security: Consumers set this to unreasonably high values
+        //if let Some(max_budget) = api_key.max_budget {
+        //    budget = max_budget;
+        //}
         let budget: GRT = self
             .indexers
             .network_params
