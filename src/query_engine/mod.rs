@@ -312,6 +312,11 @@ where
             indexer_preferences = ?api_key.indexer_preferences,
             max_budget = ?api_key.max_budget,
         );
+        // This has to run regardless even if we don't use the budget because
+        // it updates the query volume estimate. This is important in the case
+        // that the user switches back to automated volume discounting. Otherwise
+        // it will look like there is a long period of inactivity which would increase
+        // the price.
         let budget = api_key
             .usage
             .lock()
@@ -319,9 +324,7 @@ where
             .budget_for_queries(query_count, &self.config.budget_factors);
         let mut budget = USD::try_from(budget).unwrap();
         if let Some(max_budget) = api_key.max_budget {
-            if max_budget < budget {
-                budget = max_budget;
-            }
+            budget = max_budget;
         }
         let budget: GRT = self
             .indexers
