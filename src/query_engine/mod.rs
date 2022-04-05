@@ -1,6 +1,8 @@
 mod clock;
 mod price_automation;
 #[cfg(test)]
+mod response_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::{
