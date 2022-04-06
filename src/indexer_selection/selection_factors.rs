@@ -99,7 +99,7 @@ impl SelectionFactors {
             // back with an attestation.
             IndexerError::Timeout => QueryStatus::Unknown,
             IndexerError::NoAttestation
-            | IndexerError::Panic
+            | IndexerError::UnattestableError
             | IndexerError::UnexpectedPayload
             | IndexerError::UnresolvedBlock
             | IndexerError::Other(_) => QueryStatus::Failure,

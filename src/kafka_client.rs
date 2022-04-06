@@ -77,6 +77,7 @@ pub struct IndexerAttempt {
     pub fee: f64,
     pub utility: f64,
     pub blocks_behind: u64,
+    pub indexer_errors: String,
     pub response_time_ms: u32,
     pub status: String,
     pub status_code: u32,

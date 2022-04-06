@@ -98,7 +98,7 @@ impl From<BadIndexerReason> for SelectionError {
 #[derive(Clone, Debug)]
 pub enum IndexerError {
     NoAttestation,
-    Panic,
+    UnattestableError,
     Timeout,
     UnexpectedPayload,
     UnresolvedBlock,
