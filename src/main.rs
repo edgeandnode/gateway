@@ -562,6 +562,7 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
             fee: attempt.score.fee.as_f64(),
             utility: *attempt.score.utility,
             blocks_behind: attempt.score.blocks_behind,
+            indexer_errors: attempt.indexer_errors.clone(),
             response_time_ms: attempt.duration.as_millis() as u32,
             status: match &attempt.result {
                 Ok(response) => response.status.to_string(),
@@ -614,6 +615,7 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
             fee = %attempt.score.fee,
             utility = *attempt.score.utility,
             blocks_behind = attempt.score.blocks_behind,
+            indexer_errors = %attempt.indexer_errors,
             response_time_ms = attempt.duration.as_millis() as u32,
             %status,
             status_code = attempt.status_code() as u32,

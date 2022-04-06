@@ -2,6 +2,7 @@ mod clock;
 mod price_automation;
 #[cfg(test)]
 mod tests;
+mod unattestable_errors;
 
 use crate::{
     block_resolver::BlockResolver,
@@ -32,6 +33,7 @@ use std::{
     },
 };
 use tokio::sync::Mutex;
+use unattestable_errors::UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -71,6 +73,7 @@ pub struct IndexerAttempt {
     pub query: Arc<String>,
     pub receipt: Receipt,
     pub result: Result<IndexerResponse, IndexerError>,
+    pub indexer_errors: String,
     pub duration: Duration,
 }
 
@@ -81,7 +84,7 @@ impl IndexerAttempt {
             // prefix 0x0, followed by the HTTP status code
             Ok(response) => (0x0, (response.status as u32).to_be()),
             Err(IndexerError::NoAttestation) => (0x1, 0x0),
-            Err(IndexerError::Panic) => (0x2, 0x0),
+            Err(IndexerError::UnattestableError) => (0x2, 0x0),
             Err(IndexerError::Timeout) => (0x3, 0x0),
             Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
             Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
@@ -451,9 +454,10 @@ where
             query: Arc::new(indexer_query.query),
             receipt: indexer_query.receipt,
             result: result,
+            indexer_errors: String::default(),
             duration: query_duration,
         });
-        let result = &query.indexer_attempts.last().unwrap();
+        let result = query.indexer_attempts.last_mut().unwrap();
         let response = match &result.result {
             Ok(response) => response,
             Err(err) => {
@@ -471,18 +475,38 @@ where
             |counter| counter.inc(),
         );
 
+        let indexer_errors = serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
+            .map_err(|_| IndexerError::UnexpectedPayload)?
+            .errors
+            .unwrap_or_default()
+            .into_iter()
+            .map(|err| err.message)
+            .collect::<Vec<String>>();
+        result.indexer_errors = indexer_errors.join(",");
+
+        if indexer_errors.iter().any(|err| {
+            err == "Failed to decode `block.hash` value: `no block with that hash found`"
+        }) {
+            return Err(IndexerError::UnresolvedBlock);
+        }
+
+        for error in &indexer_errors {
+            if UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS
+                .iter()
+                .any(|err| error.contains(err))
+            {
+                with_metric(
+                    &METRICS.indexer_response_unattestable,
+                    &[&deployment_id, &indexer_id],
+                    |counter| counter.inc(),
+                );
+                return Err(IndexerError::UnattestableError);
+            }
+        }
+
         let subgraph = query.subgraph.as_ref().unwrap();
         if !subgraph.features.is_empty() && response.attestation.is_none() {
             return Err(IndexerError::NoAttestation);
-        }
-
-        if let Err(err) = self.check_unattestable_responses(&response).await {
-            with_metric(
-                &METRICS.indexer_response_unattestable,
-                &[&deployment_id, &indexer_id],
-                |counter| counter.inc(),
-            );
-            return Err(err);
         }
 
         if let Some(attestation) = &response.attestation {
@@ -565,31 +589,6 @@ where
         if let Ok(hist) = metrics.utility.get_metric_with_label_values(&[deployment]) {
             hist.observe(*selection.score.utility);
         }
-    }
-
-    async fn check_unattestable_responses(
-        &self,
-        response: &IndexerResponse,
-    ) -> Result<(), IndexerError> {
-        let parsed_response = serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
-            .map_err(|_| IndexerError::UnexpectedPayload)?;
-
-        if indexer_response_has_error(
-            &parsed_response,
-            "Failed to decode `block.hash` value: `no block with that hash found`",
-        ) {
-            return Err(IndexerError::UnresolvedBlock);
-        }
-
-        if indexer_response_has_error(&parsed_response, "Store error: database unavailable") {
-            return Err(IndexerError::NoAttestation);
-        }
-
-        if indexer_response_has_error(&parsed_response, "panic processing query") {
-            return Err(IndexerError::Panic);
-        }
-
-        Ok(())
     }
 
     fn challenge_indexer_response(
@@ -709,14 +708,4 @@ impl Metrics {
             .unwrap(),
         }
     }
-}
-
-/// Returns true if the GraphQL response includes at least one error whose
-/// message begins with the given message.
-fn indexer_response_has_error(response: &Response<Box<RawValue>>, msg: &'static str) -> bool {
-    response
-        .errors
-        .as_ref()
-        .map(|errs| errs.iter().any(|err| err.message.starts_with(msg)))
-        .unwrap_or(false)
 }
