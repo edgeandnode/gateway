@@ -581,6 +581,10 @@ where
             return Err(IndexerError::UnresolvedBlock);
         }
 
+        if indexer_response_has_error(&parsed_response, "Store error: database unavailable") {
+            return Err(IndexerError::NoAttestation);
+        }
+
         if indexer_response_has_error(&parsed_response, "panic processing query") {
             return Err(IndexerError::Panic);
         }
