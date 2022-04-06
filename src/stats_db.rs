@@ -1,6 +1,8 @@
 use crate::{prelude::*, query_engine::APIKey};
+use lazy_static::lazy_static;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
+use prometheus;
 use std::{
     collections::{hash_map::Entry, HashMap},
     error::Error,
@@ -311,8 +313,29 @@ impl Client {
             .await
         {
             tracing::error!(%execute_update_err);
+            METRICS.updates_failed.inc();
             return Err(());
         }
         Ok(())
+    }
+}
+
+struct Metrics {
+    updates_failed: prometheus::IntCounter,
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = Metrics::new();
+}
+
+impl Metrics {
+    fn new() -> Self {
+        Self {
+            updates_failed: prometheus::register_int_counter!(
+                "gateway_stats_db_updates_failed",
+                "Failed updates to the API key stats DB"
+            )
+            .unwrap(),
+        }
     }
 }
