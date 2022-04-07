@@ -8,7 +8,7 @@ use crate::{
 };
 use eventuals::EventualExt;
 use std::sync::Arc;
-use tokio::{sync::RwLock, time};
+use tokio::sync::RwLock;
 
 pub struct SelectionFactors {
     price_efficiency: PriceEfficiency,
@@ -82,17 +82,21 @@ impl IndexingData {
 }
 
 impl SelectionFactors {
-    pub async fn observe_successful_query(&self, duration: time::Duration, receipt: &[u8]) {
+    pub async fn observe_successful_query(&self, duration: Duration, receipt: &[u8]) {
         let mut lock = self.locked.write().await;
-        lock.performance
-            .current_mut()
-            .add_successful_query(duration);
+        lock.performance.current_mut().add_query(duration);
         lock.reputation.current_mut().add_successful_query();
         lock.allocations.release(receipt, QueryStatus::Success);
     }
 
-    pub async fn observe_failed_query(&self, receipt: &[u8], error: &IndexerError) {
+    pub async fn observe_failed_query(
+        &self,
+        duration: Duration,
+        receipt: &[u8],
+        error: &IndexerError,
+    ) {
         let mut lock = self.locked.write().await;
+        lock.performance.current_mut().add_query(duration);
         lock.reputation.current_mut().add_failed_query();
         let status = match error {
             // The indexer is potentially unaware that it failed, since it may have sent a response

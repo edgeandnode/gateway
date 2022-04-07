@@ -103,7 +103,7 @@ impl Performance {
         performance
     }
 
-    pub fn add_successful_query(&mut self, duration: Duration) {
+    pub fn add_query(&mut self, duration: Duration) {
         *self.bucket_mut(Self::quantized_performance(duration)) += 1.0;
     }
 
@@ -168,7 +168,7 @@ mod tests {
         for _ in 0..10000 {
             let duration = thread_rng().sample(dist);
             let duration = Duration::from_millis(duration.max(0.0) as u64);
-            tracker.add_successful_query(duration)
+            tracker.add_query(duration)
         }
 
         let utility = tracker.expected_utility(a_u);
@@ -222,7 +222,7 @@ mod tests {
     fn debug_ratios() {
         fn web_utility(ms: u64) -> f64 {
             let mut tracker = Performance::default();
-            tracker.add_successful_query(Duration::from_millis(ms));
+            tracker.add_query(Duration::from_millis(ms));
             tracker.expected_utility(WEB_UTIL)
         }
 

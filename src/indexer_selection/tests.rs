@@ -318,8 +318,8 @@ async fn run_simulation(
             deployment,
             indexer: query.indexing.indexer,
         };
+        let duration = Duration::from_millis(data.latency_ms);
         if data.reliability > thread_rng().gen() {
-            let duration = Duration::from_millis(data.latency_ms);
             total_latency_ms += data.latency_ms;
             total_blocks_behind += data.blocks_behind;
             let receipt = &query.receipt;
@@ -335,6 +335,7 @@ async fn run_simulation(
             indexers
                 .observe_failed_query(
                     &indexing,
+                    duration,
                     &query.receipt,
                     &IndexerError::Other("error".to_string()),
                 )
