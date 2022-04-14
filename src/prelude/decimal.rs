@@ -20,8 +20,8 @@ pub struct UDecimal<const P: u8> {
 }
 
 macro_rules! impl_from_uints {
-    ($($t:ty),+) => {
-        $(impl<const P: u8> std::convert::TryFrom<$t> for UDecimal<P> {
+    ($($t:ty),+) => {$(
+        impl<const P: u8> std::convert::TryFrom<$t> for UDecimal<P> {
             type Error = &'static str;
             fn try_from(from: $t) -> Result<UDecimal<P>, Self::Error> {
                 let internal = U256::from(from)
@@ -29,8 +29,8 @@ macro_rules! impl_from_uints {
                     .ok_or("overflow")?;
                 Ok(UDecimal { internal })
             }
-        })*
-    };
+        }
+    )*};
 }
 
 impl_from_uints!(u8, u16, u32, u64, u128, usize, U256);
@@ -108,6 +108,15 @@ impl<const P: u8> ops::Mul for UDecimal<P> {
     fn mul(self, rhs: Self) -> Self::Output {
         Self {
             internal: (self.internal * rhs.internal) / U256::exp10(P as usize),
+        }
+    }
+}
+
+impl<const P: u8> ops::Mul<U256> for UDecimal<P> {
+    type Output = Self;
+    fn mul(self, rhs: U256) -> Self::Output {
+        Self {
+            internal: self.internal * rhs,
         }
     }
 }
