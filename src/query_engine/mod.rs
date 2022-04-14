@@ -500,6 +500,8 @@ where
                     &[&deployment_id, &indexer_id],
                     |counter| counter.inc(),
                 );
+                tracing::info!("penalizing for unattestable error");
+                self.indexers.penalize(&indexer_query.indexing, 35).await;
                 return Err(IndexerError::UnattestableError);
             }
         }
