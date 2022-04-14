@@ -416,7 +416,7 @@ where
                 }
                 Err(err) => {
                     self.indexers
-                        .observe_failed_query(&indexing, &attempt.receipt, &err)
+                        .observe_failed_query(&indexing, attempt.duration, &attempt.receipt, &err)
                         .await;
                     if let IndexerError::UnresolvedBlock = err {
                         self.indexers

@@ -241,6 +241,7 @@ impl Indexers {
     pub async fn observe_failed_query(
         &self,
         indexing: &Indexing,
+        duration: Duration,
         receipt: &[u8],
         error: &IndexerError,
     ) {
@@ -248,7 +249,9 @@ impl Indexers {
             Some(selection_factors) => selection_factors,
             None => return,
         };
-        selection_factors.observe_failed_query(receipt, error).await;
+        selection_factors
+            .observe_failed_query(duration, receipt, error)
+            .await;
     }
 
     pub async fn observe_indexing_behind(
