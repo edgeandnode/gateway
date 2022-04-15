@@ -647,14 +647,14 @@ const UTILITY_CONFIGS_ECONOMIC_SECURITY: (UtilityParameters, UtilityParameters) 
         weight: 1.5,
     },
 );
-// https://www.desmos.com/calculator/reykkamaje
+// https://www.desmos.com/calculator/w6pxajuuve
 const UTILITY_CONFIGS_PERFORMANCE: (UtilityParameters, UtilityParameters) = (
     UtilityParameters {
-        a: 0.0032,
+        a: 1.1,
         weight: 1.0,
     },
     UtilityParameters {
-        a: 0.0016,
+        a: 1.2,
         weight: 1.5,
     },
 );
@@ -673,22 +673,17 @@ const UTILITY_CONFIGS_DATA_FRESHNESS: (UtilityParameters, UtilityParameters) = (
 // Note: This is only a weight.
 const UTILITY_CONFIGS_PRICE_EFFICIENCY: (f64, f64) = (0.5, 1.0);
 
-// TODO: For the user experience we should turn these into 0-1 values,
-// and from those calculate both a utility parameter and a weight
-// which should be used when combining utilities.
 impl UtilityConfig {
     pub fn from_preferences(preferences: &IndexerPreferences) -> Self {
-        fn interp(min: f64, max: f64, mut x: f64) -> f64 {
-            debug_assert!(max > min);
-            x = x.max(0.0).min(1.0);
-            min + ((max - min) * x)
+        fn interp(a: f64, b: f64, x: f64) -> f64 {
+            a + ((b - a) * x)
         }
         fn interp_utility(
             bounds: (UtilityParameters, UtilityParameters),
             x: f64,
         ) -> UtilityParameters {
             UtilityParameters {
-                a: interp(bounds.1.a, bounds.0.a, 1.0 - x),
+                a: interp(bounds.0.a, bounds.1.a, x),
                 weight: interp(bounds.0.weight, bounds.1.weight, x),
             }
         }
