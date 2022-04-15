@@ -627,14 +627,14 @@ impl Indexers {
     }
 }
 
-// https://www.desmos.com/calculator/lzlii17feb
+// https://www.desmos.com/calculator/cwgj4ne5ow
 const UTILITY_CONFIGS_ECONOMIC_SECURITY: (UtilityParameters, UtilityParameters) = (
     UtilityParameters {
-        a: 0.000008,
+        a: 0.0008,
         weight: 1.0,
     },
     UtilityParameters {
-        a: 0.000004,
+        a: 0.0004,
         weight: 1.5,
     },
 );
