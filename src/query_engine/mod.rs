@@ -22,6 +22,7 @@ pub use crate::{
 pub use graphql_client::Response;
 use lazy_static::lazy_static;
 pub use price_automation::{QueryBudgetFactors, VolumeEstimator};
+use primitive_types::U256;
 use prometheus;
 use serde_json::value::RawValue;
 use std::{
@@ -328,10 +329,10 @@ where
         let mut budget = USD::try_from(budget).unwrap();
         if let Some(max_budget) = api_key.max_budget {
             // Security: Consumers can and will set their budget to unreasonably high values. This
-            // prevents the budget from being set beyond what it would be automatically.
-            if max_budget < budget {
-                budget = max_budget;
-            }
+            // .min prevents the budget from being set beyond what it would be automatically. The reason
+            // this is important is because sometimes queries are subsidized and we would be at-risk
+            // to allow arbitrarily high values.
+            budget = max_budget.min(budget * U256::from(10u8));
         }
         let budget: GRT = self
             .indexers
