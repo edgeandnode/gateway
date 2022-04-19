@@ -103,7 +103,16 @@ impl Performance {
         performance
     }
 
-    pub fn add_query(&mut self, duration: Duration) {
+    pub fn add_query(&mut self, mut duration: Duration, result: Result<(), ()>) {
+        // If the query is failed, the user will experience it as increased latency.
+        // Furthermore, most errors are expected to resolve quicker than successful queries.
+        // Penalizing failed queries in performance will make it so that we account
+        // for the additional latency incurred by retry. Ideally we could do this by
+        // accounting for the likelyhood that the utility curve would be moved down and how
+        // much later when selecting, but this is a much simpler LOC.
+        if result.is_err() {
+            duration *= 2;
+        }
         *self.bucket_mut(Self::quantized_performance(duration)) += 1.0;
     }
 
@@ -168,7 +177,7 @@ mod tests {
         for _ in 0..10000 {
             let duration = thread_rng().sample(dist);
             let duration = Duration::from_millis(duration.max(0.0) as u64);
-            tracker.add_query(duration)
+            tracker.add_query(duration, Ok(()))
         }
 
         let utility = tracker.expected_utility(a_u);
@@ -222,7 +231,7 @@ mod tests {
     fn debug_ratios() {
         fn web_utility(ms: u64) -> f64 {
             let mut tracker = Performance::default();
-            tracker.add_query(Duration::from_millis(ms));
+            tracker.add_query(Duration::from_millis(ms), Ok(()));
             tracker.expected_utility(WEB_UTIL)
         }
 

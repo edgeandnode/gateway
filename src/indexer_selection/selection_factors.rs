@@ -84,7 +84,7 @@ impl IndexingData {
 impl SelectionFactors {
     pub async fn observe_successful_query(&self, duration: Duration, receipt: &[u8]) {
         let mut lock = self.locked.write().await;
-        lock.performance.current_mut().add_query(duration);
+        lock.performance.current_mut().add_query(duration, Ok(()));
         lock.reputation.current_mut().add_successful_query();
         lock.allocations.release(receipt, QueryStatus::Success);
     }
@@ -96,7 +96,7 @@ impl SelectionFactors {
         error: &IndexerError,
     ) {
         let mut lock = self.locked.write().await;
-        lock.performance.current_mut().add_query(duration);
+        lock.performance.current_mut().add_query(duration, Err(()));
         lock.reputation.current_mut().add_failed_query();
         let status = match error {
             // The indexer is potentially unaware that it failed, since it may have sent a response
