@@ -606,6 +606,15 @@ impl Indexers {
     /// Sybil protection
     fn sybil(indexer_allocation: GRT) -> Result<NotNan<f64>, BadIndexerReason> {
         let identity = indexer_allocation.as_f64();
+
+        // There is a GIP out there which would allow for allocations with 0 GRT stake.
+        // For example, MIPS. We don't want for those to never be selected. Furthermore,
+        // we can account for the cost of an allocation which would contribute to sybil.
+        const BONUS: f64 = 1000.0;
+
+        // Don't flatten so quickly, since numbers are large
+        const SLOPE: f64 = 100.0;
+
         // To optimize for sybil protection, we want to just mult the utility by the identity
         // weight. But this may run into some economic problems. Consider the following scenario:
         //
@@ -622,7 +631,7 @@ impl Indexers {
         // widen until all delegation is moved to the marginally better Indexer. This is the kind of
         // winner-take-all scenario we are trying to avoid. In the absence of cold hard math and
         // reasoning, going to try using log magics.
-        let sybil = (identity.max(0.0) + 1.0).log(std::f64::consts::E);
+        let sybil = (((identity + BONUS) / SLOPE) + 1.0).log(std::f64::consts::E);
         NotNan::new(sybil).map_err(|_| BadIndexerReason::NaN)
     }
 }
