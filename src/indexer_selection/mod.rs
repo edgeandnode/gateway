@@ -658,15 +658,15 @@ const UTILITY_CONFIGS_PERFORMANCE: (UtilityParameters, UtilityParameters) = (
         weight: 1.5,
     },
 );
-// https://www.desmos.com/calculator/hircodefui
+// https://www.desmos.com/calculator/uvt9txau4n
 const UTILITY_CONFIGS_DATA_FRESHNESS: (UtilityParameters, UtilityParameters) = (
     UtilityParameters {
-        a: 4.0,
-        weight: 1.0,
+        a: 5.0,
+        weight: 3.0,
     },
     UtilityParameters {
-        a: 1.8,
-        weight: 1.5,
+        a: 3.0,
+        weight: 4.0,
     },
 );
 // Don't over or under value "getting a good deal"
