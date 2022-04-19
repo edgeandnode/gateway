@@ -193,12 +193,7 @@ mod test {
         eventuals::idle().await;
         let mut context = Context::new(BASIC_QUERY, "").unwrap();
         // Expected values based on https://www.desmos.com/calculator/kxd4kpjxi5
-        let tests = [
-            (0.01, 0.0),
-            (0.02, 0.487960),
-            (0.1, 0.64419),
-            (1.0, 0.68216),
-        ];
+        let tests = [(0.01, 0.0), (0.02, 0.27304), (0.1, 0.50615), (1.0, 0.55769)];
         for (budget, expected_utility) in tests {
             let (fee, utility) = efficiency
                 .get_price(

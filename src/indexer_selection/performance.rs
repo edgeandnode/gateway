@@ -1,37 +1,24 @@
-// The design comes from https://www.notion.so/thegraph/Indexer-Selection-Algorithm-fc95c7a0b11c436288c82094002d4c3d
-// The design boils down to these steps:
-//    Model a curve that represent the expected time for a query
-//    Transform the "expected time" into a notion of "performance" (the inverse of expected time)
-//    Multiply this performance curve with the utility curve
-//    Integrate over a range to get the expected utility.
-//
-// The observation in the design below is that you get the same result
-// by just averaging the utility of all queries in the relevant window.
+// Converts latency to utility.
 //
 // The simplest possible thing would be to convert all queries to utility,
 // aggregate utilities and count, then use that to calculate the average utility.
 // The problem with that approach is that it doesn't allow us to parameterize
 // the utility function.
+// Note: avg(utility(latencies)) != utlity(avg(latencies))
 //
 // So instead we take only a slightly more complicated approach.
-// First, we convert all durations into a quantized performance.
-// The quantized performance serves as a key to a bucket of queries
-// with nearly the same performance. This limits the number of
-// performance->utility conversions that we need to calculate the
-// expected performance which enables making the utility function
-// a parameter without obscene loss to performance.
+// First, we bucket queries keyed by a quantized latency. Each
+// bucket is gets a utility based on the consumer preferences,
+// and then we get the count-weighted average of utilities.
+// This trades off precision for query-time work.
 
-use crate::{
-    indexer_selection::{decay::Decay, utility::concave_utility},
-    prelude::*,
-};
-use ordered_float::NotNan;
+use crate::{indexer_selection::decay::Decay, prelude::*};
 
 use super::decay::DecayUtility;
 
 #[derive(Clone, Debug, Default)]
 pub struct Performance {
-    performance: Vec<f64>,
+    latency: Vec<u32>,
     count: Vec<f64>,
 }
 
@@ -39,25 +26,31 @@ impl Decay for Performance {
     fn shift(&mut self, mut next: Option<&mut Self>, fraction: f64, keep: f64) {
         // For each quantized bucket, find the corresponding quantized bucket in
         // the next frame, and shift information into it.
-        for (count, performance) in self.count.iter_mut().zip(self.performance.iter().cloned()) {
-            let next_performance = next.as_deref_mut().map(|n| n.bucket_mut(performance));
-            count.shift(next_performance, fraction, keep);
+        for (count, latency) in self.count.iter_mut().zip(self.latency.iter().copied()) {
+            let next_latency = next.as_deref_mut().map(|n| n.bucket_mut(latency));
+            count.shift(next_latency, fraction, keep);
         }
     }
 
     fn clear(&mut self) {
-        self.performance.clear();
+        self.latency.clear();
         self.count.clear();
     }
 }
 
+// https://www.desmos.com/calculator/w6pxajuuve
+fn latency_to_utility(latency: f64, pow: f64) -> f64 {
+    let sigmoid = |x: f64| 1.0 + std::f64::consts::E.powf((x.powf(pow) - 400.0) / 300.0);
+    sigmoid(0.0) / sigmoid(latency as f64)
+}
+
 impl DecayUtility for Performance {
-    fn expected_utility(&self, u_a: f64) -> f64 {
+    fn expected_utility(&self, pow: f64) -> f64 {
         let mut agg_count = 0.0;
         let mut agg_utility = 0.0;
-        for (count, performance) in self.iter() {
+        for (count, latency) in self.iter() {
             agg_count += count;
-            agg_utility += count * concave_utility(performance, u_a);
+            agg_utility += count * latency_to_utility(latency as f64, pow);
         }
         if agg_count == 0.0 {
             return 0.0;
@@ -70,63 +63,25 @@ impl DecayUtility for Performance {
 }
 
 impl Performance {
-    fn quantized_performance(duration: Duration) -> f64 {
-        // Get nearest triangle number of quantized duration, then convert to performance.
-        // The idea here is to quantize with variable precision to limit bucket count,
-        // but also have a reasonable number of buckets no matter what scale you care about.
-        //
-        // 6 buckets between 200ms - 300ms (a 100ms delta)
-        // 6 buckets between 17s - 18s (a 1000ms delta for the same number of buckets as above)
-        // 244 buckets between 0s-30s... or about the most we'll ever have to keep.
-        //
-        // There's probably a smarter way, but this seems reasonable if you squint.
-        // The tests seemed in practice to create around 100 buckets after 100,000 queries,
-        // which seems about what you would hope for to approximate a curve. There was variation
-        // because of different values for std_dev
-        let duration_ms = duration.as_secs_f64() * 1000.0;
-        // Subtracting a small amount of here moves the inflection of the curve so
-        // that changes after this point are more noticeable. This makes a big
-        // difference to how often a 2000ms indexer is selected compared to a 200ms
-        // indexer (for the better).
-        let duration_ms = duration_ms - 35.0;
-        let duration_ms = nearest_triangle_number(duration_ms.max(1.0));
-        let performance = 1000.0 / duration_ms;
-
-        // SAFETY: We force performance to be NotNan here. duration_ms is >=
-        // 1.0 and NotNan because of the clamp (above) and implementation of Duration.
-        // Therefore performance is <= 1000.0 and NonNan.
-        // See also 47632ed6-4dcc-4b39-b064-c0ca01560626
-        // I think I would be comfortable changing this assert
-        // to a debug_assert.
-        assert!(!performance.is_nan());
-
-        performance
-    }
-
-    pub fn add_query(&mut self, mut duration: Duration, result: Result<(), ()>) {
+    pub fn add_query(&mut self, mut duration: Duration, status: Result<(), ()>) {
         // If the query is failed, the user will experience it as increased latency.
         // Furthermore, most errors are expected to resolve quicker than successful queries.
         // Penalizing failed queries in performance will make it so that we account
         // for the additional latency incurred by retry. Ideally we could do this by
         // accounting for the likelyhood that the utility curve would be moved down and how
         // much later when selecting, but this is a much simpler LOC.
-        if result.is_err() {
+        if status.is_err() {
             duration *= 2;
         }
-        *self.bucket_mut(Self::quantized_performance(duration)) += 1.0;
+        let quantized = nearest_triangle_number(duration.as_secs_f64() * 1000.0) as u32;
+        *self.bucket_mut(quantized) += 1.0;
     }
 
-    fn bucket_mut(&mut self, quantized_performance: f64) -> &mut f64 {
-        // Safety: Performance is NotNan. See also 47632ed6-4dcc-4b39-b064-c0ca01560626
-        let index = match unsafe {
-            self.performance
-                .binary_search_by_key(&NotNan::new_unchecked(quantized_performance), |a| {
-                    NotNan::new_unchecked(*a)
-                })
-        } {
+    fn bucket_mut(&mut self, key: u32) -> &mut f64 {
+        let index = match self.latency.binary_search(&key) {
             Ok(index) => index,
             Err(index) => {
-                self.performance.insert(index, quantized_performance);
+                self.latency.insert(index, key);
                 self.count.insert(index, 0.0);
                 index
             }
@@ -134,11 +89,8 @@ impl Performance {
         &mut self.count[index]
     }
 
-    fn iter<'a>(&'a self) -> impl 'a + Iterator<Item = (f64, f64)> {
-        self.count
-            .iter()
-            .cloned()
-            .zip(self.performance.iter().cloned())
+    fn iter<'a>(&'a self) -> impl 'a + Iterator<Item = (f64, u32)> {
+        self.count.iter().cloned().zip(self.latency.iter().cloned())
     }
 }
 
@@ -156,33 +108,8 @@ fn nearest_triangle_number(n: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::indexer_selection::test_utils::*;
+    use ordered_float::NotNan;
     use rand::{thread_rng, Rng as _};
-    use rand_distr::Normal;
-
-    // "Web utility" - based on percentage of users that will leave a site after an amount of time.
-    const WEB_UTIL: f64 = 0.01;
-
-    // For the use case of analytics where requests may be larger, parallel, data processing
-    // needs to occur, and we are prioritizing other features like price efficiency instead.
-    // I pretty much just made this number up though after checking a couple of values to see what fit.
-    const ANALYTICS_UTIL: f64 = 4.0;
-
-    /// Add a bunch of queries with randomized duration according to a performance profile.
-    /// Check the utility, given some A.
-    /// Verify that the expected utility is within a range.
-    fn uniform_test(mean: f64, std_dev: f64, a_u: f64, expected: f64, tolerance: f64) {
-        let mut tracker = Performance::default();
-        let dist = Normal::new(mean, std_dev).unwrap();
-        for _ in 0..10000 {
-            let duration = thread_rng().sample(dist);
-            let duration = Duration::from_millis(duration.max(0.0) as u64);
-            tracker.add_query(duration, Ok(()))
-        }
-
-        let utility = tracker.expected_utility(a_u);
-        assert_within(utility, expected, tolerance);
-    }
 
     #[test]
     fn nearest_triangle_numbers() {
@@ -193,61 +120,55 @@ mod tests {
     }
 
     #[test]
-    fn poor_performance_web() {
-        uniform_test(10000.0, 2000.0, WEB_UTIL, 0.001, 0.01);
-    }
-
-    #[test]
-    fn mediocre_performance_web() {
-        uniform_test(2000.0, 250.0, WEB_UTIL, 0.005, 0.01);
-    }
-
-    #[test]
-    fn good_performance_web() {
-        uniform_test(200.0, 50.0, WEB_UTIL, 0.067, 0.01);
-    }
-
-    #[test]
-    fn great_performance_web() {
-        uniform_test(50.0, 10.0, WEB_UTIL, 0.57, 0.01);
-    }
-
-    #[test]
-    fn bad_performance_analytics() {
-        uniform_test(100000.0, 10000.0, ANALYTICS_UTIL, 0.04, 0.01);
-    }
-
-    #[test]
-    fn good_performance_analytics() {
-        uniform_test(5000.0, 1000.0, ANALYTICS_UTIL, 0.56, 0.02);
-    }
-
-    #[test]
-    fn great_performance_analytics() {
-        uniform_test(1000.0, 1000.0, ANALYTICS_UTIL, 0.94, 0.02);
-    }
-
-    #[test]
     fn debug_ratios() {
+        const WEB_POW: f64 = 1.1;
         fn web_utility(ms: u64) -> f64 {
             let mut tracker = Performance::default();
-            tracker.add_query(Duration::from_millis(ms), Ok(()));
-            tracker.expected_utility(WEB_UTIL)
+            for _ in 0..1000 {
+                tracker.add_query(Duration::from_millis(ms), Ok(()));
+            }
+            tracker.expected_utility(WEB_POW)
         }
 
-        // What we want to see is a high preference for values
-        // that are low, but a strong preference between low values.
-        // This doesn't really achieve that as well as I might prefer.
-        // I don't think it's going to get where I might like just by
-        // tweaking a few numbers.
+        const UTILITY_PREFERENCE: f64 = 1.1;
 
-        let a = web_utility(50);
-        let b = web_utility(250);
-        let c = web_utility(2000);
+        let a = web_utility(50); // 70%
+        let b = web_utility(250); // 29%
+        let c = web_utility(750); // 01%
+
         let s = a + b + c;
 
         println!("A: {}\nB: {}\nC: {}", a / s, b / s, c / s);
         println!("A / B: {}", a / b);
         println!("A / C: {}", a / c);
+
+        let scores = vec![a, b, c];
+
+        let max_utility = scores
+            .iter()
+            .map(|v| NotNan::new(*v).unwrap())
+            .max()
+            .unwrap()
+            .into_inner();
+
+        use std::collections::HashMap;
+        let mut selections = HashMap::<usize, usize>::new();
+        for _ in 0..100000 {
+            let mut utility_cutoff: f64 = thread_rng().gen();
+            utility_cutoff = max_utility * (1.0 - utility_cutoff.powf(UTILITY_PREFERENCE));
+            use crate::indexer_selection::WeightedSample;
+            let mut selected = WeightedSample::new();
+            let scores = scores.iter().filter(|score| **score >= utility_cutoff);
+            for (i, _) in scores.enumerate() {
+                selected.add(i, 1.0);
+            }
+            let selected = selected.take().unwrap();
+            *selections.entry(selected).or_default() += 1;
+        }
+
+        let mut selections: Vec<_> = selections.into_iter().collect();
+        selections.sort();
+        let selections: Vec<_> = selections.iter().map(|s| s.1 as f64 / 100000.0).collect();
+        dbg!(selections);
     }
 }
