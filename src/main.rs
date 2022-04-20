@@ -403,12 +403,12 @@ async fn handle_subgraph_query(
             return graphql_error_response("Invalid subgraph identifier");
         }
     };
+    tracing::info!(%deployment);
     query.subgraph = data
         .subgraph_info
         .value_immediate()
         .and_then(|map| map.get(&deployment)?.value_immediate());
     if query.subgraph == None {
-        tracing::info!(%deployment);
         return graphql_error_response("Subgraph not found");
     }
     let span = tracing::info_span!(

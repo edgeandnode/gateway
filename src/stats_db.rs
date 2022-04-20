@@ -10,8 +10,8 @@ use std::{
     time::SystemTime,
 };
 use tokio::{
-    self,
-    time::{interval, Interval},
+    self, select, spawn,
+    time::{interval, sleep, Interval},
 };
 use tokio_postgres::{self, types::Type};
 
@@ -85,34 +85,70 @@ pub async fn create(
         "postgres://{}:{}@{}:{}/{}?sslmode=prefer",
         user, password, host, port, dbname,
     );
+    let (send, mut recv) = mpsc::unbounded_channel();
+    spawn(async move {
+        loop {
+            tracing::info!("connecting...");
+            let client = match connect(&config).await {
+                Ok(client) => client,
+                Err(connect_err) => {
+                    tracing::error!(%connect_err);
+                    sleep(Duration::from_secs(30)).await;
+                    continue;
+                }
+            };
+            loop {
+                select! {
+                    Some(msg) = recv.recv() => {
+                        if let Err(_) = client.send(msg) {
+                            break;
+                        }
+                    }
+                    () = client.closed() => {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    Ok(send)
+}
+
+async fn connect(config: &str) -> Result<mpsc::UnboundedSender<Msg>, tokio_postgres::Error> {
     let mut ssl_builder = SslConnector::builder(SslMethod::tls()).unwrap();
     ssl_builder.set_verify(SslVerifyMode::NONE);
     let ssl_connector = ssl_builder.build();
     let (client, connection) =
         tokio_postgres::connect(&config, MakeTlsConnector::new(ssl_connector)).await?;
-    // The connection object performs the actual communication with the database and is intended to
-    // be executed on its own spawned task.
-    tokio::spawn(async move {
-        if let Err(connection_err) = connection.await {
-            tracing::error!(%connection_err);
-        }
+    let (closed_tx, mut closed_rx) = mpsc::channel(1);
+    spawn(async move {
+        let connection_closed = connection.await;
+        tracing::error!(?connection_closed);
+        let _ = closed_tx.send(()).await;
     });
     let update_statements = init_tables(&client).await?;
-    let (send, recv) = mpsc::unbounded_channel();
+    let (msgs_tx, msgs_rx) = mpsc::unbounded_channel();
     let mut client = Client {
         client,
-        msgs: recv,
+        msgs: msgs_rx,
         flush_interval: interval(Duration::from_secs(30)),
         api_key_stats: HashMap::new(),
         update_statements,
     };
-    tokio::spawn(async move { while let Ok(()) = client.run().await {} });
-    Ok(send)
+    spawn(async move {
+        loop {
+            select! {
+                result = client.run() => {  if result.is_err() { break; } }
+                _ = closed_rx.recv() => { break; }
+            }
+        }
+    });
+    Ok(msgs_tx)
 }
 
 async fn init_tables(
     client: &tokio_postgres::Client,
-) -> Result<[tokio_postgres::Statement; 3], Box<dyn Error>> {
+) -> Result<[tokio_postgres::Statement; 3], tokio_postgres::Error> {
     let table_specs = [
         ("api_key_stats", "userId", "ethAddress", 42),
         ("authorized_domain_stats", "apiKeyId", "domain", 255),
@@ -152,7 +188,7 @@ async fn init_tables(
 async fn prepare_statement(
     client: &tokio_postgres::Client,
     spec: (&str, &str, &str, usize),
-) -> Result<tokio_postgres::Statement, Box<dyn Error>> {
+) -> Result<tokio_postgres::Statement, tokio_postgres::Error> {
     let sql = format!(
         r#"
             INSERT INTO {0}
@@ -179,7 +215,6 @@ async fn prepare_statement(
             ],
         )
         .await
-        .map_err(|err| err.into())
 }
 
 impl Client {
