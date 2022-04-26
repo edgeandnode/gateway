@@ -7,6 +7,7 @@ pub struct BlockResolver {
     network: String,
     cache: Eventual<Ptr<BlockCache>>,
     chain_client: mpsc::Sender<ethereum_client::Msg>,
+    skip_latest: usize,
 }
 
 impl BlockResolver {
@@ -19,6 +20,7 @@ impl BlockResolver {
             network,
             cache,
             chain_client,
+            skip_latest: 0,
         }
     }
 
@@ -34,7 +36,13 @@ impl BlockResolver {
     }
 
     pub fn latest_block(&self) -> Option<BlockPointer> {
-        self.cache.value_immediate()?.latest()
+        let cache = self.cache.value_immediate()?;
+        let index = cache.head.len().saturating_sub(self.skip_latest + 1);
+        cache.head.get(index).cloned()
+    }
+
+    pub fn skip_latest(&mut self, skip: usize) {
+        self.skip_latest = skip;
     }
 
     pub async fn resolve_block(
@@ -106,10 +114,6 @@ impl BlockCache {
         (writer, reader)
     }
 
-    pub fn latest(&self) -> Option<BlockPointer> {
-        self.head.last().cloned()
-    }
-
     pub fn fetch(&self, unresolved: UnresolvedBlock) -> Option<BlockPointer> {
         if let Some(block) = self.head.iter().find(|b| unresolved.matches(b)) {
             return Some(block.clone());
@@ -149,7 +153,7 @@ impl BlockCacheWriter {
         }
 
         // Insert block
-        let height = self.cache.latest().map(|b| b.number).unwrap_or(0);
+        let height = self.cache.head.last().map(|b| b.number).unwrap_or(0);
         if (block.number > height) || ((height - block.number) < self.chain_head_length as u64) {
             if self.cache.head.len() >= self.chain_head_length {
                 self.cache.head.pop_front();

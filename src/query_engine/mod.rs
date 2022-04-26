@@ -297,12 +297,13 @@ where
         let mut context = Context::new(&query_body, query_variables.as_deref().unwrap_or_default())
             .map_err(|_| MalformedQuery)?;
 
-        let block_resolver = self
+        let mut block_resolver = self
             .block_resolvers
             .get(&subgraph.network)
+            .cloned()
             .ok_or(MissingBlock(UnresolvedBlock::WithNumber(0)))?;
         let freshness_requirements =
-            Indexers::freshness_requirements(&mut context, block_resolver).await?;
+            Indexers::freshness_requirements(&mut context, &block_resolver).await?;
 
         // Reject queries for blocks before minimum start block of subgraph manifest.
         match freshness_requirements.minimum_block {
@@ -343,12 +344,18 @@ where
 
         let utility_config = UtilityConfig::from_preferences(&api_key.indexer_preferences);
 
+        // Used to track instances of the latest block getting unresolved by idexers. If this
+        // happens enough, we will ignore the latest block since it may be uncled.
+        let mut latest_unresolved: usize = 0;
+
         for retry_count in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
                 &METRICS.indexer_selection_duration,
                 &[&deployment_id],
                 |hist| hist.start_timer(),
             );
+
+            tracing::info!(latest_block = ?block_resolver.latest_block());
 
             // Since we modify the context in-place, we need to reset the context to the state of
             // the original client query. This to avoid the following scenario:
@@ -421,8 +428,14 @@ where
                         .await;
                     if let IndexerError::UnresolvedBlock = err {
                         self.indexers
-                            .observe_indexing_behind(&mut context, &indexing, block_resolver)
+                            .observe_indexing_behind(&mut context, &indexing, &block_resolver)
                             .await;
+                        // Skip 1 block for every 2 attempts where the indexer failed to resolve
+                        // the block we consider to be latest.
+                        latest_unresolved += 1;
+                        if freshness_requirements.has_latest && (latest_unresolved % 2) == 0 {
+                            block_resolver.skip_latest(latest_unresolved / 2);
+                        }
                     }
                     attempt.result = Err(err);
                 }
