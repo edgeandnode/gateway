@@ -431,11 +431,9 @@ where
                             .observe_indexing_behind(&mut context, &indexing, &block_resolver)
                             .await;
                         // Skip 1 block for every 2 attempts where the indexer failed to resolve
-                        // the block we consider to be latest.
+                        // the block we consider to be latest. Our latest block may be uncled.
                         latest_unresolved += 1;
-                        if freshness_requirements.has_latest && (latest_unresolved % 2) == 0 {
-                            block_resolver.skip_latest(latest_unresolved / 2);
-                        }
+                        block_resolver.skip_latest(latest_unresolved / 2);
                     }
                     attempt.result = Err(err);
                 }
