@@ -81,6 +81,7 @@ type Transfer {
 type ApiKeyInfo {
   id: Int!
   key: String!
+  isSubsidized: Boolean!
   queryBudgetUSD: String!
   queryBudgetSelectionType: String!
 }

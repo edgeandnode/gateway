@@ -406,6 +406,7 @@ fn parse_api_keys(
                         usage: usage.get(&value.api_key.key),
                         id: value.api_key.id,
                         key: value.api_key.key,
+                        is_subsidized: value.api_key.is_subsidized,
                         user_id: value.user.id,
                         user_address: value.user.eth_address.parse().ok()?,
                         queries_activated: value.user.queries_activated,
