@@ -127,6 +127,7 @@ impl fmt::Debug for QueryID {
 pub struct APIKey {
     pub id: i64,
     pub key: String,
+    pub is_subsidized: bool,
     pub user_id: i64,
     pub user_address: Address,
     pub queries_activated: bool,

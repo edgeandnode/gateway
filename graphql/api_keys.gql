@@ -5,6 +5,7 @@ query APIKeys($lastUpdateId: String!) {
       apiKey {
         id
         key
+        isSubsidized
         queryBudgetUSD
         queryBudgetSelectionType
       }
