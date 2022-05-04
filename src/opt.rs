@@ -38,7 +38,7 @@ pub struct Opt {
     #[structopt(help = "Fisherman endpoint", long = "--fisherman", env = "FISHERMAN")]
     pub fisherman: Option<Url>,
     #[structopt(
-        help = "Ethereum provider URLs, format: '<network>=<url>,...'\ne.g. rinkeby=eth-rinkeby.alchemyapi.io/v2/<api-key>",
+        help = "Ethereum provider URLs, format: '<network>=<block-time>,<rest-url>(,<ws-url>)?;...'\ne.g. rinkeby=15,https://eth-rinkeby.alchemyapi.io/v2/<api-key>",
         long = "--ethereum-providers",
         env = "ETHEREUM_PROVIDERS"
     )]
@@ -284,7 +284,7 @@ pub struct EthereumProviders(pub Vec<ethereum_client::Provider>);
 impl FromStr for EthereumProviders {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let err_usage = "networks syntax: <network>=<rest-url>(,<ws-url>)?;...";
+        let err_usage = "networks syntax: <network>=<block-time>,<rest-url>(,<ws-url>)?;...";
         let providers = s.split(";").collect::<Vec<&str>>();
         if providers.is_empty() {
             return Err(err_usage.into());
@@ -293,11 +293,19 @@ impl FromStr for EthereumProviders {
             .into_iter()
             .map(
                 |provider| -> Result<ethereum_client::Provider, Box<dyn Error>> {
-                    let kv: Vec<&str> = provider.splitn(3, "=").collect();
-                    let urls: Vec<Url> = kv
+                    let kv = provider.splitn(3, "=").collect::<Vec<&str>>();
+                    let params = kv
                         .get(1)
-                        .ok_or_else::<Box<dyn Error>, _>(|| "Expected URLs, found none".into())?
+                        .ok_or("Expected params, found none")?
                         .split(",")
+                        .collect::<Vec<&str>>();
+                    let block_time: u64 = params.get(0).unwrap_or(&"").parse()?;
+                    let urls = params
+                        .split_first()
+                        .unwrap()
+                        .1
+                        .into_iter()
+                        .cloned()
                         .map(Url::parse)
                         .collect::<Result<Vec<Url>, url::ParseError>>()?;
                     if (urls.len() < 1) || (urls.len() > 2) {
@@ -326,6 +334,7 @@ impl FromStr for EthereumProviders {
                     }
                     Ok(ethereum_client::Provider {
                         network: kv[0].to_string(),
+                        block_time: Duration::from_secs(block_time),
                         rest_url: rest_url
                             .ok_or_else::<Box<dyn Error>, _>(|| "REST API URL not found".into())?,
                         websocket_url,

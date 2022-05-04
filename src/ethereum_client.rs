@@ -16,11 +16,11 @@ use url::Url;
 
 const MPSC_BUFFER: usize = 32;
 const WS_RETRY_LIMIT: usize = 3;
-const REST_POLL_INTERVAL: Duration = Duration::from_secs(8);
 
 #[derive(Debug)]
 pub struct Provider {
     pub network: String,
+    pub block_time: Duration,
     pub rest_url: Url,
     pub websocket_url: Option<Url>,
 }
@@ -158,7 +158,7 @@ impl Client {
 
     fn fallback_to_rest(&mut self) {
         tracing::warn!("fallback to REST");
-        self.source = Source::REST(interval(REST_POLL_INTERVAL));
+        self.source = Source::REST(interval(self.provider.block_time));
         let recv = self.msgs.0.clone();
         tokio::spawn(async move {
             // Retry WS connection after 20 minutes
@@ -178,7 +178,7 @@ impl Client {
                     WS_RETRY_LIMIT,
                 ))
             })
-            .unwrap_or(Source::REST(interval(REST_POLL_INTERVAL)))
+            .unwrap_or(Source::REST(interval(provider.block_time)))
     }
 
     #[tracing::instrument(skip(self))]
