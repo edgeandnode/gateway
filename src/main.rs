@@ -364,10 +364,7 @@ impl SubgraphQueryData {
         params: &actix_web::dev::Path<actix_web::dev::Url>,
     ) -> Result<SubgraphDeploymentID, String> {
         if let Some(id) = params.get("subgraph_id") {
-            let subgraph = id
-                .parse::<SubgraphID>()
-                .ok()
-                .ok_or_else(|| id.to_string())?;
+            let subgraph = id.parse::<SubgraphID>().map_err(|_| id.to_string())?;
             self.inputs
                 .current_deployments
                 .value_immediate()
@@ -400,7 +397,7 @@ async fn handle_subgraph_query(
         Ok(subgraph) => subgraph,
         Err(invalid_subgraph) => {
             tracing::info!(%invalid_subgraph);
-            return graphql_error_response("Invalid subgraph identifier");
+            return graphql_error_response("Subgraph not found");
         }
     };
     tracing::info!(%deployment);
