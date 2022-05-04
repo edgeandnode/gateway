@@ -519,6 +519,16 @@ where
             }
         }
 
+        // TODO: This is a temporary hack to handle NonNullError being incorrectly categorized as
+        // unattestable in graph-node.
+        if response.attestation.is_none()
+            && indexer_errors
+                .iter()
+                .any(|err| err.contains("Null value resolved for non-null field"))
+        {
+            return Ok(());
+        }
+
         let subgraph = query.subgraph.as_ref().unwrap();
         if !subgraph.features.is_empty() && response.attestation.is_none() {
             return Err(IndexerError::NoAttestation);
