@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "graph-gateway"
-version = "5.5.0"
+version = "6.0.0"
 
 [profile.release]
 lto = "thin"
@@ -25,19 +25,19 @@ im = "15.0" # Good vector implementation, CHAMP encoding should be added if we u
 lazy_static = "1.4"
 num-traits = "0.2"
 openssl = "0.10"
-ordered-float = "2.5"
+ordered-float = "3.0"
 parking_lot = "0.12.0"
 postgres-openssl = "0.5"
 primitive-types = "0.8"
-prometheus = "0.13"
-rand = { version = "0.8", features = ["small_rng"] }
+prometheus = { version = "0.13", default-features = false }
+rand = { version = "0.8", default-features = false }
 receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "02d09da" }
-reqwest = { version = "0.11", features = ["json"] }
-secp256k1 = "0.20"
+reqwest = { version = "0.11", default-features = false, features = ["json"] }
+secp256k1 = { version  = "0.20", default-features = false }
 serde = "1.0"
 serde_json = { version = "1.0", features = ["raw_value"] }
 serde_yaml = "0.8"
-sha3 = "0.9"
+sha3 = "0.10"
 single = "1"
 siphasher = "0.3"
 structopt = "0.3"
@@ -51,15 +51,15 @@ tokio = { version = "1.14.0", features = [
   "parking_lot",
 ] }
 tokio-postgres = { version = "0.7", features = ["runtime"] }
-tokio-tungstenite = { version = "0.16", features = ["native-tls"] }
-tracing = "0.1"
+tokio-tungstenite = { version = "0.17", features = ["native-tls"] }
+tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
   "env-filter",
   "parking_lot",
   "json",
 ] }
 url = "2.2"
-uuid = { version = "0.8", features = ["v4"] }
+uuid = { version = "1.0", features = ["v4"] }
 rdkafka = { version = "0.28.0", features = [
   "ssl-vendored",
   "gssapi-vendored",
@@ -76,5 +76,6 @@ plotters = { version = "0.3", features = [
   "line_series",
   "svg_backend",
 ] }
+rand = { version = "0.8", features = ["small_rng"] }
 rand_distr = "0.4"
 regex = "1.5"

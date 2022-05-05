@@ -1,6 +1,6 @@
 use bs58;
 use serde;
-use sha3::{Digest as _, Keccak256};
+use sha3::{digest::Update as _, Digest as _, Keccak256};
 pub use std::{fmt, str::FromStr};
 
 macro_rules! bytes_wrapper {
