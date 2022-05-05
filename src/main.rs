@@ -358,26 +358,40 @@ struct SubgraphQueryData {
     kafka_client: Arc<KafkaClient>,
 }
 
+#[derive(Debug)]
+enum SubgraphResolutionError {
+    InvalidSubgraphID(String),
+    InvalidDeploymentID(String),
+    SubgraphNotFound(String),
+    DeploymentNotFound(String),
+}
+
 impl SubgraphQueryData {
     fn resolve_subgraph_deployment(
         &self,
         params: &actix_web::dev::Path<actix_web::dev::Url>,
-    ) -> Result<SubgraphDeploymentID, String> {
-        if let Some(id) = params.get("subgraph_id") {
+    ) -> Result<Ptr<SubgraphInfo>, SubgraphResolutionError> {
+        let deployment = if let Some(id) = params.get("subgraph_id") {
+            tracing::info!(subgraph = %id);
             let subgraph = id
                 .parse::<SubgraphID>()
-                .ok()
-                .ok_or_else(|| id.to_string())?;
+                .map_err(|_| SubgraphResolutionError::InvalidSubgraphID(id.to_string()))?;
             self.inputs
                 .current_deployments
                 .value_immediate()
                 .and_then(|map| map.get(&subgraph).cloned())
-                .ok_or_else(|| id.to_string())
+                .ok_or_else(|| SubgraphResolutionError::SubgraphNotFound(id.to_string()))?
         } else if let Some(id) = params.get("deployment_id") {
-            SubgraphDeploymentID::from_ipfs_hash(id).ok_or_else(|| id.to_string())
+            tracing::info!(deployment = %id);
+            SubgraphDeploymentID::from_ipfs_hash(id)
+                .ok_or_else(|| SubgraphResolutionError::InvalidDeploymentID(id.to_string()))?
         } else {
-            Err("".to_string())
-        }
+            return Err(SubgraphResolutionError::SubgraphNotFound("".to_string()));
+        };
+        self.subgraph_info
+            .value_immediate()
+            .and_then(|map| map.get(&deployment)?.value_immediate())
+            .ok_or_else(|| SubgraphResolutionError::DeploymentNotFound(deployment.to_string()))
     }
 }
 
@@ -396,26 +410,18 @@ async fn handle_subgraph_query(
     let mut query = Query::new(ray_id, payload.into_inner().query, variables);
     // We check that the requested subgraph is valid now, since we don't want to log query info for
     // unknown subgraphs requests.
-    let deployment = match data.resolve_subgraph_deployment(request.match_info()) {
-        Ok(subgraph) => subgraph,
-        Err(invalid_subgraph) => {
-            tracing::info!(%invalid_subgraph);
-            return graphql_error_response("Invalid subgraph identifier");
+    query.subgraph = match data.resolve_subgraph_deployment(request.match_info()) {
+        Ok(subgraph) => Some(subgraph),
+        Err(subgraph_resolution_err) => {
+            tracing::info!(?subgraph_resolution_err);
+            return graphql_error_response(format!("{:?}", subgraph_resolution_err));
         }
     };
-    tracing::info!(%deployment);
-    query.subgraph = data
-        .subgraph_info
-        .value_immediate()
-        .and_then(|map| map.get(&deployment)?.value_immediate());
-    if query.subgraph == None {
-        return graphql_error_response("Subgraph not found");
-    }
     let span = tracing::info_span!(
         "handle_subgraph_query",
         ray_id = %query.ray_id,
         query_id = %query.id,
-        %deployment,
+        deployment = %query.subgraph.as_ref().unwrap().deployment,
         network = %query.subgraph.as_ref().unwrap().network,
     );
     let api_key = request.match_info().get("api_key").unwrap_or("");
