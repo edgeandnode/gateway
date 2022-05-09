@@ -593,6 +593,7 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
     let api_key = &query.api_key.as_ref().map(|k| k.key.as_ref()).unwrap_or("");
     let subgraph = query.subgraph.as_ref().unwrap();
     let deployment = subgraph.deployment.to_string();
+    // The following logs are required for data science.
     tracing::info!(
         ray_id = %query.ray_id,
         query_id = %query.id,

@@ -197,7 +197,7 @@ impl Client {
                     }
                     None => ("eth_getBlockByNumber", "latest".into()),
                 };
-                tracing::debug!(%method, %param);
+                tracing::trace!(%method, %param);
                 let response = match rest_client
                     .post(url)
                     .json(&Self::post_body(method, &[param, false.into()]))
