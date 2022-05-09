@@ -68,7 +68,7 @@ where
         async move {
             let key = f(&request);
             let rate_limited = rate_limiter.check_limited(key.clone()).await;
-            tracing::debug!(%key, %rate_limited);
+            tracing::trace!(%key, %rate_limited);
             if rate_limited {
                 with_metric(&METRICS.rate_limited, &[&key], |c| c.inc());
                 return Ok(ServiceResponse::new(

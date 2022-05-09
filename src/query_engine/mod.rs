@@ -281,7 +281,7 @@ where
             .value_immediate()
             .and_then(|map| map.get(&subgraph.deployment).cloned())
             .unwrap_or_default();
-        tracing::debug!(
+        tracing::info!(
             deployment = ?subgraph.deployment, deployment_indexers = indexers.len(),
         );
         if indexers.is_empty() {
@@ -314,7 +314,7 @@ where
 
         let query_count = context.operations.len().max(1) as u64;
         let api_key = query.api_key.as_ref().unwrap();
-        tracing::debug!(
+        tracing::trace!(
             indexer_preferences = ?api_key.indexer_preferences,
             max_budget = ?api_key.max_budget,
         );
@@ -440,7 +440,7 @@ where
                 }
             };
         }
-        tracing::info!("retry limit reached");
+        tracing::trace!("retry limit reached");
         Err(NoIndexerSelected)
     }
 

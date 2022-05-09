@@ -69,7 +69,7 @@ impl IndexerInterface for IndexerClient {
             Err(err) => return Err(IndexerError::Other(err.to_string())),
         };
         let response_status = response.status();
-        tracing::info!(%response_status);
+        tracing::trace!(%response_status);
         let payload = response
             .json::<IndexerResponsePayload>()
             .await

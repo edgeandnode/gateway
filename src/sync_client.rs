@@ -430,7 +430,7 @@ fn parse_api_keys(
                     })
                 })
                 .collect::<Vec<APIKey>>();
-            tracing::info!(api_keys = %parsed.len());
+            tracing::trace!(api_keys = %parsed.len());
             Some(Ptr::new(HashMap::from_iter(
                 parsed.into_iter().map(|v| (v.key.clone(), Arc::new(v))),
             )))
@@ -461,7 +461,7 @@ fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Option<USD> {
                     ..
                 }),
         } => {
-            tracing::info!(?usd_per_grt);
+            tracing::debug!(?usd_per_grt);
             usd_per_grt.parse::<USD>().ok()
         }
         _ => None,
@@ -699,7 +699,7 @@ fn handle_cost_models(
         .pipe_async(move |cost_models| {
             let indexings = indexings.clone();
             async move {
-                tracing::info!(cost_models = %cost_models.len());
+                tracing::trace!(cost_models = %cost_models.len());
                 let mut locked = indexings.lock().await;
                 for (indexing, model) in cost_models.iter() {
                     let writer = locked.write(&indexing).await;
@@ -720,7 +720,7 @@ fn handle_indexers(
     indexer_statuses
         .pipe_async(move |indexer_statuses| {
             let _span = tracing::info_span!("handle_indexers").entered();
-            tracing::info!(indexed_deployments = %indexer_statuses.len());
+            tracing::trace!(indexed_deployments = %indexer_statuses.len());
             deployment_indexers.write(Ptr::new(
                 indexer_statuses
                     .iter()
@@ -737,7 +737,7 @@ fn handle_indexers(
                 HashMap::<Address, ParsedIndexerInfo>::from_iter(indexer_statuses.iter().flat_map(
                     |(_, statuses)| statuses.iter().cloned().map(|status| (status.id, status)),
                 ));
-            tracing::info!(indexers = %statuses.len());
+            tracing::trace!(indexers = %statuses.len());
             let indexers = indexers.clone();
             async move {
                 let mut indexers = indexers.lock().await;
@@ -761,7 +761,7 @@ fn handle_indexing_statuses(
             let block_resolvers = block_resolvers.clone();
             let indexings = indexings.clone();
             async move {
-                tracing::info!(indexing_statuses = %indexing_statuses.len());
+                tracing::trace!(indexing_statuses = %indexing_statuses.len());
                 let mut latest_blocks = HashMap::<String, u64>::new();
                 let mut indexings = indexings.lock().await;
                 for status in indexing_statuses.iter() {
@@ -800,7 +800,7 @@ fn handle_allocations(
             let used_allocations = std::mem::replace(&mut used_allocations, allocations.clone());
             let indexings = indexings.clone();
             async move {
-                tracing::info!(allocations = %allocations.len());
+                tracing::trace!(allocations = %allocations.len());
                 METRICS.allocations.set(allocations.len() as i64);
                 // Add new allocations.
                 let mut lock = indexings.lock().await;

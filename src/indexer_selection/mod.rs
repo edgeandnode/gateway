@@ -399,7 +399,7 @@ impl Indexers {
                 )
                 .await;
             match &result {
-                Ok(score) => tracing::trace!(
+                Ok(score) => tracing::debug!(
                     ?indexing.deployment,
                     ?indexing.indexer,
                     ?score.fee,
@@ -408,7 +408,7 @@ impl Indexers {
                     %score.sybil,
                     ?score.blocks_behind,
                 ),
-                Err(err) => tracing::trace!(
+                Err(err) => tracing::debug!(
                     ?indexing.deployment,
                     ?indexing.indexer,
                     score_err = ?err,
