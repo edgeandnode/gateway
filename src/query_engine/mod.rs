@@ -555,6 +555,7 @@ where
     ) {
         self.kafka_client
             .send(&ISAScoringSample::new(&query, &indexer, &score, message));
+        // The following logs are required for data science.
         tracing::info!(
             ray_id = %query.ray_id,
             query_id = %query.id,
@@ -578,6 +579,7 @@ where
     fn notify_isa_err(&self, query: &Query, indexer: &Address, err: SelectionError, message: &str) {
         self.kafka_client
             .send(&ISAScoringError::new(&query, &indexer, &err, message));
+        // The following logs are required for data science.
         tracing::info!(
             ray_id = %query.ray_id.clone(),
             query_id = %query.id,

@@ -398,8 +398,9 @@ impl Indexers {
                     freshness_requirements,
                 )
                 .await;
+            // TODO: these logs are currently required for data science. However, we would like to omit these in production and only use the sampled scoring logs.
             match &result {
-                Ok(score) => tracing::debug!(
+                Ok(score) => tracing::info!(
                     ?indexing.deployment,
                     ?indexing.indexer,
                     ?score.fee,
@@ -408,7 +409,7 @@ impl Indexers {
                     %score.sybil,
                     ?score.blocks_behind,
                 ),
-                Err(err) => tracing::debug!(
+                Err(err) => tracing::info!(
                     ?indexing.deployment,
                     ?indexing.indexer,
                     score_err = ?err,
