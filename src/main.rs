@@ -9,6 +9,7 @@ mod manifest_client;
 mod opt;
 mod prelude;
 mod query_engine;
+mod query_stats;
 mod rate_limiter;
 mod stats_db;
 mod sync_client;
@@ -19,7 +20,7 @@ use crate::{
     fisherman_client::*,
     indexer_client::IndexerClient,
     ipfs_client::*,
-    kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
+    kafka_client::KafkaClient,
     manifest_client::*,
     opt::*,
     prelude::*,
@@ -38,7 +39,7 @@ use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
-use std::{collections::HashMap, sync::Arc, time::SystemTime};
+use std::{collections::HashMap, sync::Arc};
 use structopt::StructOpt as _;
 use url::Url;
 
@@ -146,6 +147,7 @@ async fn main() {
         subgraph_info,
         inputs: inputs.clone(),
         api_keys,
+        query_stats: query_stats::Actor::create(kafka_client.clone()),
         stats_db,
         fisherman_client,
         kafka_client,
@@ -354,6 +356,7 @@ struct SubgraphQueryData {
     subgraph_info: SubgraphInfoMap,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
+    query_stats: mpsc::UnboundedSender<query_stats::Msg>,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
     kafka_client: Arc<KafkaClient>,
 }
@@ -400,41 +403,66 @@ async fn handle_subgraph_query(
     payload: web::Json<QueryBody>,
     data: web::Data<SubgraphQueryData>,
 ) -> HttpResponse {
+    let query_id = QueryID::new();
     let ray_id = request
         .headers()
         .get("cf-ray")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let variables = payload.variables.as_ref().map(ToString::to_string);
-    let mut query = Query::new(ray_id, payload.into_inner().query, variables);
-    // We check that the requested subgraph is valid now, since we don't want to log query info for
-    // unknown subgraphs requests.
-    query.subgraph = match data.resolve_subgraph_deployment(request.match_info()) {
-        Ok(subgraph) => Some(subgraph),
+    let query_variables = payload
+        .variables
+        .as_ref()
+        .map(|vars| Arc::new(vars.to_string()));
+    let query = Arc::new(payload.into_inner().query);
+    let subgraph = match data.resolve_subgraph_deployment(request.match_info()) {
+        Ok(subgraph) => subgraph,
         Err(subgraph_resolution_err) => {
             tracing::info!(?subgraph_resolution_err);
             return graphql_error_response(format!("{:?}", subgraph_resolution_err));
         }
     };
+    let api_keys = data.api_keys.value_immediate().unwrap_or_default();
+    let api_key = match request
+        .match_info()
+        .get("api_key")
+        .and_then(|key| api_keys.get(key).cloned())
+    {
+        Some(api_key) => api_key,
+        None => {
+            tracing::info!("Invalid API key");
+            METRICS.unknown_api_key.inc();
+            return graphql_error_response("Invalid API key");
+        }
+    };
+    let client_query = ClientQuery {
+        id: query_id.clone(),
+        ray_id,
+        api_key,
+        subgraph,
+        query,
+        variables: query_variables,
+    };
+
     let span = tracing::info_span!(
         "handle_subgraph_query",
-        ray_id = %query.ray_id,
-        query_id = %query.id,
-        deployment = %query.subgraph.as_ref().unwrap().deployment,
-        network = %query.subgraph.as_ref().unwrap().network,
+        query_id = %client_query.id,
+        api_key = %client_query.api_key.key,
+        network = %client_query.subgraph.network,
+        deployment = %client_query.subgraph.deployment,
     );
-    let api_key = request.match_info().get("api_key").unwrap_or("");
-
-    let response = handle_subgraph_query_inner(&request, &data, &mut query, api_key)
+    let response = handle_subgraph_query_inner(&request, &data, client_query)
         .instrument(span)
         .await;
-
     let (payload, status_result) = match response {
         Ok(payload) => (payload, Ok(StatusCode::OK.to_string())),
         Err(msg) => (graphql_error_response(&msg), Err(msg)),
     };
-    notify_query_result(&data.kafka_client, &query, status_result);
+
+    let _ = data.query_stats.send(query_stats::Msg::EndQuery {
+        query_id,
+        result: status_result,
+    });
 
     payload
 }
@@ -442,30 +470,21 @@ async fn handle_subgraph_query(
 async fn handle_subgraph_query_inner(
     request: &HttpRequest,
     data: &web::Data<SubgraphQueryData>,
-    query: &mut Query,
-    api_key: &str,
+    query: ClientQuery,
 ) -> Result<HttpResponse, String> {
     let query_engine = QueryEngine::new(
         data.config.clone(),
         data.indexer_client.clone(),
         data.kafka_client.clone(),
         data.fisherman_client.clone(),
+        data.query_stats.clone(),
         data.block_resolvers.clone(),
         data.inputs.clone(),
     );
-    let api_keys = data.api_keys.value_immediate().unwrap_or_default();
-    query.api_key = api_keys.get(api_key).cloned();
-    let api_key = match &query.api_key {
-        Some(api_key) => api_key.clone(),
-        None => {
-            METRICS.unknown_api_key.inc();
-            return Err("Invalid API key".into());
-        }
-    };
     // to handle the subsidized queries feature.
     // if a user does not have queries_activated true, check if the api_key is subsidized.
     // if the api key is subsidized, allow the query through
-    if !api_key.queries_activated && !api_key.is_subsidized {
+    if !query.api_key.queries_activated && !query.api_key.is_subsidized {
         return Err(
             "Querying not activated yet; make sure to add some GRT to your balance in the studio"
                 .into(),
@@ -477,46 +496,52 @@ async fn handle_subgraph_query_inner(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
-    tracing::debug!(%domain, authorized = ?api_key.domains);
-    if !api_key.domains.is_empty()
-        && !api_key
+    tracing::debug!(%domain, authorized = ?query.api_key.domains);
+    if !query.api_key.domains.is_empty()
+        && !query
+            .api_key
             .domains
             .iter()
             .any(|(authorized, _)| domain.starts_with(authorized))
     {
-        with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
+        with_metric(&METRICS.unauthorized_domain, &[&query.api_key.key], |c| {
+            c.inc()
+        });
         return Err("Domain not authorized by API key".into());
     }
-    let deployment = &query.subgraph.as_ref().unwrap().deployment.clone();
-    if !api_key.deployments.is_empty() && !api_key.deployments.contains(&deployment) {
+    let deployment = query.subgraph.deployment.clone();
+    if !query.api_key.deployments.is_empty() && !query.api_key.deployments.contains(&deployment) {
         with_metric(
             &METRICS.queries_unauthorized_deployment,
-            &[&api_key.key],
+            &[&query.api_key.key],
             |counter| counter.inc(),
         );
         return Err("Subgraph not authorized by API key".into());
     }
-    if let Err(err) = query_engine.execute_query(query).await {
-        return Err(match err {
-            QueryEngineError::MalformedQuery => "Invalid query".into(),
-            QueryEngineError::NoIndexers => "No indexers found for subgraph deployment".into(),
-            QueryEngineError::NoIndexerSelected => {
-                "No suitable indexer found for subgraph deployment".into()
-            }
-            QueryEngineError::FeesTooHigh(count) => {
-                format!(
+    let (response, fee) = match query_engine.execute_query(&query).await {
+        Ok((response, fee)) => (response, fee),
+        Err(err) => {
+            return Err(match err {
+                QueryEngineError::MalformedQuery => "Invalid query".into(),
+                QueryEngineError::NoIndexers => "No indexers found for subgraph deployment".into(),
+                QueryEngineError::NoIndexerSelected => {
+                    "No suitable indexer found for subgraph deployment".into()
+                }
+                QueryEngineError::FeesTooHigh(count) => {
+                    format!(
                     "No suitable indexer found, {} indexers requesting higher fees for this query",
                     count
                 )
-            }
-            QueryEngineError::BlockBeforeMin => {
-                "Requested block before minimum `startBlock` of subgraph manifest".into()
-            }
-            QueryEngineError::MissingBlock(_) => "Gateway failed to resolve required blocks".into(),
-        });
-    }
-    let last_attempt = query.indexer_attempts.last().unwrap();
-    let response = last_attempt.result.as_ref().unwrap();
+                }
+                QueryEngineError::BlockBeforeMin => {
+                    "Requested block before minimum `startBlock` of subgraph manifest".into()
+                }
+                QueryEngineError::MissingBlock(_) => {
+                    "Gateway failed to resolve required blocks".into()
+                }
+            })
+        }
+    };
     if let Ok(hist) = METRICS
         .query_result_size
         .get_metric_with_label_values(&[&deployment.ipfs_hash()])
@@ -524,10 +549,10 @@ async fn handle_subgraph_query_inner(
         hist.observe(response.payload.len() as f64);
     }
     let _ = data.stats_db.send(stats_db::Msg::AddQuery {
-        api_key,
-        fee: last_attempt.score.fee,
-        domain: domain.to_string(),
-        subgraph: query.subgraph.as_ref().unwrap().deployment.ipfs_hash(),
+        api_key: query.api_key.clone(),
+        fee,
+        domain,
+        subgraph: query.subgraph.deployment.ipfs_hash(),
     });
     let attestation = response
         .attestation
@@ -544,94 +569,6 @@ pub fn graphql_error_response<S: ToString>(message: S) -> HttpResponse {
     HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
         .body(json!({"errors": {"message": message.to_string()}}).to_string())
-}
-
-fn timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
-}
-
-fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result<String, String>) {
-    let ts = timestamp();
-    let query_result = ClientQueryResult::new(&query, result.clone(), ts);
-    kafka_client.send(&query_result);
-
-    let indexer_attempts = query
-        .indexer_attempts
-        .iter()
-        .map(|attempt| IndexerAttempt {
-            api_key: query_result.api_key.clone(),
-            deployment: query_result.deployment.clone(),
-            ray_id: query_result.ray_id.clone(),
-            indexer: attempt.indexer.to_string(),
-            url: attempt.score.url.to_string(),
-            allocation: attempt.allocation.to_string(),
-            fee: attempt.score.fee.as_f64(),
-            utility: *attempt.score.utility,
-            blocks_behind: attempt.score.blocks_behind,
-            indexer_errors: attempt.indexer_errors.clone(),
-            response_time_ms: attempt.duration.as_millis() as u32,
-            status: match &attempt.result {
-                Ok(response) => response.status.to_string(),
-                Err(err) => format!("{:?}", err),
-            },
-            status_code: attempt.status_code(),
-            timestamp: ts,
-        })
-        .collect::<Vec<IndexerAttempt>>();
-
-    for attempt in indexer_attempts {
-        kafka_client.send(&attempt);
-    }
-
-    let (status, status_code) = match &result {
-        Ok(status) => (status, 0),
-        Err(status) => (status, sip24_hash(status) | 0x1),
-    };
-    let api_key = &query.api_key.as_ref().map(|k| k.key.as_ref()).unwrap_or("");
-    let subgraph = query.subgraph.as_ref().unwrap();
-    let deployment = subgraph.deployment.to_string();
-    // The following logs are required for data science.
-    tracing::info!(
-        ray_id = %query.ray_id,
-        query_id = %query.id,
-        %deployment,
-        network = %query.subgraph.as_ref().unwrap().network,
-        %api_key,
-        query = %query.query,
-        variables = %query.variables.as_deref().unwrap_or(""),
-        budget = %query.budget.as_ref().map(ToString::to_string).unwrap_or_default(),
-        response_time_ms = (Instant::now() - query.start_time).as_millis() as u32,
-        %status,
-        status_code,
-        "Client query result",
-    );
-    for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
-        let status = match &attempt.result {
-            Ok(response) => response.status.to_string(),
-            Err(err) => format!("{:?}", err),
-        };
-        tracing::info!(
-            ray_id = %query.ray_id,
-            query_id = %query.id,
-            api_key = %api_key,
-            %deployment,
-            attempt_index,
-            indexer = %attempt.indexer,
-            url = %attempt.score.url,
-            allocation = %attempt.allocation,
-            fee = %attempt.score.fee,
-            utility = *attempt.score.utility,
-            blocks_behind = attempt.score.blocks_behind,
-            indexer_errors = %attempt.indexer_errors,
-            response_time_ms = attempt.duration.as_millis() as u32,
-            %status,
-            status_code = attempt.status_code() as u32,
-            "Indexer attempt",
-        );
-    }
 }
 
 #[derive(Clone)]

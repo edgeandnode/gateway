@@ -14,6 +14,7 @@ use crate::{
     },
     kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
+    query_stats,
 };
 pub use crate::{
     indexer_selection::{Indexing, UtilityConfig},
@@ -27,7 +28,6 @@ use prometheus;
 use serde_json::value::RawValue;
 use std::{
     collections::HashMap,
-    rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
         Arc,
@@ -37,33 +37,14 @@ use tokio::sync::Mutex;
 use unattestable_errors::UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS;
 use uuid::Uuid;
 
-#[derive(Debug)]
-pub struct Query {
+#[derive(Clone, Debug)]
+pub struct ClientQuery {
     pub id: QueryID,
     pub ray_id: String,
-    pub start_time: Instant,
-    pub query: Rc<String>,
-    pub variables: Rc<Option<String>>,
-    pub api_key: Option<Arc<APIKey>>,
-    pub subgraph: Option<Ptr<SubgraphInfo>>,
-    pub budget: Option<GRT>,
-    pub indexer_attempts: Vec<IndexerAttempt>,
-}
-
-impl Query {
-    pub fn new(ray_id: String, query: String, variables: Option<String>) -> Self {
-        Self {
-            id: QueryID::new(),
-            start_time: Instant::now(),
-            ray_id,
-            query: Rc::new(query),
-            variables: Rc::new(variables),
-            api_key: None,
-            subgraph: None,
-            budget: None,
-            indexer_attempts: Vec::new(),
-        }
-    }
+    pub api_key: Arc<APIKey>,
+    pub subgraph: Ptr<SubgraphInfo>,
+    pub query: Arc<String>,
+    pub variables: Option<Arc<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -78,24 +59,7 @@ pub struct IndexerAttempt {
     pub duration: Duration,
 }
 
-impl IndexerAttempt {
-    // 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
-    pub fn status_code(&self) -> u32 {
-        let (prefix, data) = match &self.result {
-            // prefix 0x0, followed by the HTTP status code
-            Ok(response) => (0x0, (response.status as u32).to_be()),
-            Err(IndexerError::NoAttestation) => (0x1, 0x0),
-            Err(IndexerError::UnattestableError) => (0x2, 0x0),
-            Err(IndexerError::Timeout) => (0x3, 0x0),
-            Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
-            Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
-            // prefix 0x6, followed by a 28-bit hash of the error message
-            Err(IndexerError::Other(msg)) => (0x6, sip24_hash(&msg) as u32),
-        };
-        (prefix << 28) | (data & (u32::MAX >> 4))
-    }
-}
-
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct QueryID {
     pub local_id: u64,
 }
@@ -222,6 +186,7 @@ where
     indexer_client: I,
     kafka_client: Arc<K>,
     fisherman_client: Option<Arc<F>>,
+    query_stats: mpsc::UnboundedSender<query_stats::Msg>,
     config: Config,
 }
 
@@ -236,6 +201,7 @@ where
         indexer_client: I,
         kafka_client: Arc<K>,
         fisherman_client: Option<Arc<F>>,
+        query_stats: mpsc::UnboundedSender<query_stats::Msg>,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
         inputs: Inputs,
     ) -> Self {
@@ -246,16 +212,19 @@ where
             kafka_client,
             fisherman_client,
             block_resolvers,
+            query_stats,
             config,
         }
     }
 
-    pub async fn execute_query(&self, query: &mut Query) -> Result<(), QueryEngineError> {
-        let api_key = query.api_key.as_ref().unwrap().key.clone();
-        let deployment_id = query.subgraph.as_ref().unwrap().deployment.ipfs_hash();
+    pub async fn execute_query(
+        &self,
+        query: &ClientQuery,
+    ) -> Result<(IndexerResponse, GRT), QueryEngineError> {
+        let deployment_id = query.subgraph.deployment.ipfs_hash();
         let _timer = with_metric(
             &METRICS.queries.duration,
-            &[&deployment_id, &api_key],
+            &[&deployment_id, &query.api_key.key],
             |h| h.start_timer(),
         );
         let result = self.execute_deployment_query(query, &deployment_id).await;
@@ -264,26 +233,25 @@ where
         } else {
             &METRICS.queries.failed
         };
-        with_metric(result_counter, &[&deployment_id, &api_key], |c| c.inc());
+        with_metric(result_counter, &[&deployment_id, &query.api_key.key], |c| {
+            c.inc()
+        });
         result
     }
 
     #[tracing::instrument(skip(self, query, deployment_id))]
     async fn execute_deployment_query(
         &self,
-        query: &mut Query,
+        query: &ClientQuery,
         deployment_id: &str,
-    ) -> Result<(), QueryEngineError> {
+    ) -> Result<(IndexerResponse, GRT), QueryEngineError> {
         use QueryEngineError::*;
-        let subgraph = query.subgraph.as_ref().unwrap().clone();
         let indexers = self
             .deployment_indexers
             .value_immediate()
-            .and_then(|map| map.get(&subgraph.deployment).cloned())
+            .and_then(|map| map.get(&query.subgraph.deployment).cloned())
             .unwrap_or_default();
-        tracing::info!(
-            deployment = ?subgraph.deployment, deployment_indexers = indexers.len(),
-        );
+        tracing::info!(deployment_indexers = indexers.len());
         if indexers.is_empty() {
             return Err(NoIndexers);
         }
@@ -295,12 +263,19 @@ where
 
         let query_body = query.query.clone();
         let query_variables = query.variables.clone();
-        let mut context = Context::new(&query_body, query_variables.as_deref().unwrap_or_default())
-            .map_err(|_| MalformedQuery)?;
+        let mut context = Context::new(
+            &query_body,
+            query_variables
+                .as_ref()
+                .map(|vars| vars.as_str())
+                .unwrap_or("")
+                .clone(),
+        )
+        .map_err(|_| MalformedQuery)?;
 
         let mut block_resolver = self
             .block_resolvers
-            .get(&subgraph.network)
+            .get(&query.subgraph.network)
             .cloned()
             .ok_or(MissingBlock(UnresolvedBlock::WithNumber(0)))?;
         let freshness_requirements =
@@ -308,28 +283,28 @@ where
 
         // Reject queries for blocks before minimum start block of subgraph manifest.
         match freshness_requirements.minimum_block {
-            Some(min_block) if min_block < subgraph.min_block => return Err(BlockBeforeMin),
+            Some(min_block) if min_block < query.subgraph.min_block => return Err(BlockBeforeMin),
             _ => (),
         };
 
         let query_count = context.operations.len().max(1) as u64;
-        let api_key = query.api_key.as_ref().unwrap();
         tracing::trace!(
-            indexer_preferences = ?api_key.indexer_preferences,
-            max_budget = ?api_key.max_budget,
+            indexer_preferences = ?query.api_key.indexer_preferences,
+            max_budget = ?query.api_key.max_budget,
         );
         // This has to run regardless even if we don't use the budget because
         // it updates the query volume estimate. This is important in the case
         // that the user switches back to automated volume discounting. Otherwise
         // it will look like there is a long period of inactivity which would increase
         // the price.
-        let budget = api_key
+        let budget = query
+            .api_key
             .usage
             .lock()
             .await
             .budget_for_queries(query_count, &self.config.budget_factors);
         let mut budget = USD::try_from(budget).unwrap();
-        if let Some(max_budget) = api_key.max_budget {
+        if let Some(max_budget) = query.api_key.max_budget {
             // Security: Consumers can and will set their budget to unreasonably high values. This
             // .min prevents the budget from being set beyond what it would be automatically. The reason
             // this is important is because sometimes queries are subsidized and we would be at-risk
@@ -341,15 +316,19 @@ where
             .network_params
             .usd_to_grt(USD::try_from(budget).unwrap())
             .ok_or(SelectionError::MissingNetworkParams)?;
-        query.budget = Some(budget);
 
-        let utility_config = UtilityConfig::from_preferences(&api_key.indexer_preferences);
+        let _ = self.query_stats.send(query_stats::Msg::BeginQuery {
+            query: query.clone(),
+            budget,
+        });
+
+        let utility_config = UtilityConfig::from_preferences(&query.api_key.indexer_preferences);
 
         // Used to track instances of the latest block getting unresolved by idexers. If this
         // happens enough, we will ignore the latest block since it may be uncled.
         let mut latest_unresolved: usize = 0;
 
-        for retry_count in 0..self.config.indexer_selection_retry_limit {
+        for _ in 0..self.config.indexer_selection_retry_limit {
             let selection_timer = with_metric(
                 &METRICS.indexer_selection_duration,
                 &[&deployment_id],
@@ -379,8 +358,8 @@ where
                 .indexers
                 .select_indexer(
                     &utility_config,
-                    &subgraph.network,
-                    &subgraph.deployment,
+                    &query.subgraph.network,
+                    &query.subgraph.deployment,
                     &indexers,
                     &mut context,
                     &block_resolver,
@@ -410,107 +389,134 @@ where
                 }
                 _ => (),
             };
-            let indexing = indexer_query.indexing.clone();
-            let result = self
-                .execute_indexer_query(query, indexer_query, deployment_id)
-                .await;
-            assert_eq!(retry_count + 1, query.indexer_attempts.len());
-            let attempt = query.indexer_attempts.last_mut().unwrap();
-            match result {
-                Ok(()) => {
-                    self.indexers
-                        .observe_successful_query(&indexing, attempt.duration, &attempt.receipt)
-                        .await;
-                    return Ok(());
-                }
+
+            let indexer_id = indexer_query.indexing.indexer.to_string();
+            self.observe_indexer_selection_metrics(deployment_id, &indexer_query);
+            let indexer_query_start = Instant::now();
+            let result = self.indexer_client.query_indexer(&indexer_query).await;
+            let indexer_query_duration = Instant::now() - indexer_query_start;
+            let indexer_errors = result
+                .as_ref()
+                .ok()
+                .and_then(|response| {
+                    serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
+                        .ok()?
+                        .errors
+                })
+                .unwrap_or_default()
+                .into_iter()
+                .map(|err| err.message)
+                .collect::<Vec<String>>();
+            let _ = self.query_stats.send(query_stats::Msg::AddIndexerAttempt {
+                query_id: query.id,
+                score: indexer_query.score.clone(),
+                indexer: indexer_query.indexing.indexer.clone(),
+                allocation: indexer_query.allocation.clone(),
+                result: result.clone(),
+                indexer_errors: indexer_errors.join(","),
+                duration: indexer_query_duration,
+            });
+            with_metric(
+                &METRICS.indexer_request.duration,
+                &[deployment_id, &indexer_id],
+                |hist| hist.observe(indexer_query_duration.as_secs_f64()),
+            );
+            let result = match result {
+                Err(err) => Err(err),
+                Ok(response) => self
+                    .check_indexer_response(
+                        &query,
+                        &indexer_query,
+                        &indexer_errors,
+                        &response,
+                        deployment_id,
+                        &indexer_id,
+                    )
+                    .await
+                    .map(|_| response),
+            };
+            let response = match result {
+                Ok(response) => response,
                 Err(err) => {
+                    with_metric(
+                        &METRICS.indexer_request.failed,
+                        &[deployment_id, &indexer_id],
+                        |counter| counter.inc(),
+                    );
                     self.indexers
-                        .observe_failed_query(&indexing, attempt.duration, &attempt.receipt, &err)
+                        .observe_failed_query(
+                            &indexer_query.indexing,
+                            indexer_query_duration,
+                            &indexer_query.receipt,
+                            &err,
+                        )
                         .await;
                     if let IndexerError::UnresolvedBlock = err {
                         self.indexers
-                            .observe_indexing_behind(&mut context, &indexing, &block_resolver)
+                            .observe_indexing_behind(
+                                &mut context,
+                                &indexer_query.indexing,
+                                &block_resolver,
+                            )
                             .await;
                         // Skip 1 block for every 2 attempts where the indexer failed to resolve
                         // the block we consider to be latest. Our latest block may be uncled.
                         latest_unresolved += 1;
                         block_resolver.skip_latest(latest_unresolved / 2);
                     }
-                    attempt.result = Err(err);
+                    continue;
                 }
             };
+            if let Some(attestation) = &response.attestation {
+                self.challenge_indexer_response(
+                    indexer_query.indexing.clone(),
+                    indexer_query.allocation,
+                    indexer_query.query,
+                    attestation.clone(),
+                );
+            }
+            with_metric(
+                &METRICS.indexer_request.ok,
+                &[deployment_id, &indexer_id],
+                |counter| counter.inc(),
+            );
+            self.indexers
+                .observe_successful_query(
+                    &indexer_query.indexing,
+                    indexer_query_duration,
+                    &indexer_query.receipt,
+                )
+                .await;
+
+            return Ok((response, indexer_query.score.fee));
         }
         tracing::trace!("retry limit reached");
         Err(NoIndexerSelected)
     }
 
-    async fn execute_indexer_query(
+    async fn check_indexer_response(
         &self,
-        query: &mut Query,
-        indexer_query: IndexerQuery,
+        query: &ClientQuery,
+        indexer_query: &IndexerQuery,
+        errors: &[String],
+        response: &IndexerResponse,
         deployment_id: &str,
+        indexer_id: &str,
     ) -> Result<(), IndexerError> {
-        let indexer_id = indexer_query.indexing.indexer.to_string();
-        self.observe_indexer_selection_metrics(deployment_id, &indexer_query);
-        let t0 = Instant::now();
-        let result = self.indexer_client.query_indexer(&indexer_query).await;
-        let query_duration = Instant::now() - t0;
-        with_metric(
-            &METRICS.indexer_request.duration,
-            &[&deployment_id, &indexer_id],
-            |hist| hist.observe(query_duration.as_secs_f64()),
-        );
-        query.indexer_attempts.push(IndexerAttempt {
-            score: indexer_query.score,
-            indexer: indexer_query.indexing.indexer,
-            allocation: indexer_query.allocation,
-            query: Arc::new(indexer_query.query),
-            receipt: indexer_query.receipt,
-            result: result,
-            indexer_errors: String::default(),
-            duration: query_duration,
-        });
-        let result = query.indexer_attempts.last_mut().unwrap();
-        let response = match &result.result {
-            Ok(response) => response,
-            Err(err) => {
-                with_metric(
-                    &METRICS.indexer_request.failed,
-                    &[&deployment_id, &indexer_id],
-                    |counter| counter.inc(),
-                );
-                return Err(err.clone());
-            }
-        };
-        with_metric(
-            &METRICS.indexer_request.ok,
-            &[&deployment_id, &indexer_id],
-            |counter| counter.inc(),
-        );
-
-        let indexer_errors = serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
-            .map_err(|_| IndexerError::UnexpectedPayload)?
-            .errors
-            .unwrap_or_default()
-            .into_iter()
-            .map(|err| err.message)
-            .collect::<Vec<String>>();
-        result.indexer_errors = indexer_errors.join(",");
-
-        if indexer_errors.iter().any(|err| {
-            err == "Failed to decode `block.hash` value: `no block with that hash found`"
+        if errors.iter().any(|error| {
+            error == "Failed to decode `block.hash` value: `no block with that hash found`"
         }) {
             return Err(IndexerError::UnresolvedBlock);
         }
 
-        for error in &indexer_errors {
+        for error in errors {
             if UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS
                 .iter()
                 .any(|err| error.contains(err))
             {
                 with_metric(
                     &METRICS.indexer_response_unattestable,
-                    &[&deployment_id, &indexer_id],
+                    &[deployment_id, indexer_id],
                     |counter| counter.inc(),
                 );
                 tracing::info!("penalizing for unattestable error");
@@ -522,25 +528,15 @@ where
         // TODO: This is a temporary hack to handle NonNullError being incorrectly categorized as
         // unattestable in graph-node.
         if response.attestation.is_none()
-            && indexer_errors
+            && errors
                 .iter()
                 .any(|err| err.contains("Null value resolved for non-null field"))
         {
             return Ok(());
         }
 
-        let subgraph = query.subgraph.as_ref().unwrap();
-        if !subgraph.features.is_empty() && response.attestation.is_none() {
+        if !query.subgraph.features.is_empty() && response.attestation.is_none() {
             return Err(IndexerError::NoAttestation);
-        }
-
-        if let Some(attestation) = &response.attestation {
-            self.challenge_indexer_response(
-                indexer_query.indexing.clone(),
-                result.allocation.clone(),
-                result.query.clone(),
-                attestation.clone(),
-            );
         }
 
         Ok(())
@@ -548,7 +544,7 @@ where
 
     fn notify_isa_sample(
         &self,
-        query: &Query,
+        query: &ClientQuery,
         indexer: &Address,
         score: &IndexerScore,
         message: &str,
@@ -559,7 +555,7 @@ where
         tracing::info!(
             ray_id = %query.ray_id,
             query_id = %query.id,
-            deployment = %query.subgraph.as_ref().unwrap().deployment,
+            deployment = %query.subgraph.deployment,
             %indexer,
             url = %score.url,
             fee = %score.fee,
@@ -576,14 +572,20 @@ where
         );
     }
 
-    fn notify_isa_err(&self, query: &Query, indexer: &Address, err: SelectionError, message: &str) {
+    fn notify_isa_err(
+        &self,
+        query: &ClientQuery,
+        indexer: &Address,
+        err: SelectionError,
+        message: &str,
+    ) {
         self.kafka_client
-            .send(&ISAScoringError::new(&query, &indexer, &err, message));
+            .send(&ISAScoringError::new(query, indexer, &err, message));
         // The following logs are required for data science.
         tracing::info!(
-            ray_id = %query.ray_id.clone(),
+            ray_id = %query.ray_id,
             query_id = %query.id,
-            deployment = %query.subgraph.as_ref().unwrap().deployment,
+            deployment = %query.subgraph.deployment,
             %indexer,
             scoring_err = ?err,
             message,
@@ -622,7 +624,7 @@ where
         &self,
         indexing: Indexing,
         allocation: Address,
-        indexer_query: Arc<String>,
+        indexer_query: String,
         attestation: Attestation,
     ) {
         let fisherman = match &self.fisherman_client {

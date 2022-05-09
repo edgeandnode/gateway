@@ -100,7 +100,6 @@ pub enum IndexerError {
     NoAttestation,
     UnattestableError,
     Timeout,
-    UnexpectedPayload,
     UnresolvedBlock,
     Other(String),
 }

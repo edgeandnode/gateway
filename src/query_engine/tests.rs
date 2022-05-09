@@ -103,7 +103,6 @@ struct IndexerTopology {
     blocks_behind: usize,
     fee: TokenAmount,
     indexer_err: bool,
-    challenge_outcome: ChallengeOutcome,
 }
 
 impl IndexerTopology {
@@ -156,7 +155,7 @@ impl Topology {
         Arc::new(resolvers)
     }
 
-    fn gen_query(&mut self) -> Query {
+    fn gen_query(&mut self) -> ClientQuery {
         let deployment = self
             .deployments()
             .into_iter()
@@ -165,15 +164,20 @@ impl Topology {
             .unwrap()
             .clone();
         let query_body = if self.flip_coin(32) { "?" } else { BASIC_QUERY };
-        let mut query = Query::new("".into(), query_body.into(), None);
-        query.api_key = Some(Arc::new(APIKey::default()));
-        query.subgraph = Some(Ptr::new(SubgraphInfo {
+        let subgraph_info = Ptr::new(SubgraphInfo {
             deployment: deployment.id,
             network: deployment.network,
             min_block: 0,
             features: vec![],
-        }));
-        query
+        });
+        ClientQuery {
+            id: QueryID::new(),
+            ray_id: "".into(),
+            api_key: Arc::new(APIKey::default()),
+            subgraph: subgraph_info,
+            query: Arc::new(query_body.into()),
+            variables: None,
+        }
     }
 
     fn gen_network(&mut self) -> NetworkTopology {
@@ -231,7 +235,6 @@ impl Topology {
             blocks_behind: self.rng.gen_range(0..=*self.config.blocks.end()),
             fee: self.gen_amount(),
             indexer_err: self.flip_coin(16),
-            challenge_outcome: self.gen_challenge_outcome(),
         }
     }
 
@@ -247,25 +250,6 @@ impl Topology {
             2 => TokenAmount::Enough,
             3 => TokenAmount::MoreThanEnough,
             _ => unreachable!(),
-        }
-    }
-
-    fn gen_challenge_outcome(&mut self) -> ChallengeOutcome {
-        if self.flip_coin(16) {
-            *[
-                ChallengeOutcome::FailedToProvideAttestation,
-                ChallengeOutcome::DisagreeWithTrustedIndexer,
-                ChallengeOutcome::DisagreeWithUntrustedIndexer,
-            ]
-            .choose(&mut self.rng)
-            .unwrap()
-        } else {
-            *[
-                ChallengeOutcome::AgreeWithTrustedIndexer,
-                ChallengeOutcome::Unknown,
-            ]
-            .choose(&mut self.rng)
-            .unwrap()
         }
     }
 
@@ -391,18 +375,31 @@ impl Topology {
 
     fn check_result(
         &self,
-        query: &Query,
-        result: Result<(), QueryEngineError>,
+        stats: &Vec<query_stats::Msg>,
+        query: &ClientQuery,
+        result: Result<(IndexerResponse, GRT), QueryEngineError>,
     ) -> Result<(), Vec<String>> {
         let mut trace = Vec::new();
         trace.push(format!("result: {:?}", result));
         trace.push(format!("{:#?}", query));
+        trace.push(format!(
+            "{:#?}",
+            stats
+                .iter()
+                .map(|msg| match msg {
+                    query_stats::Msg::BeginQuery { query, .. } =>
+                        format!("BeginQuery {}", query.id),
+                    query_stats::Msg::AddIndexerAttempt { query_id, .. } =>
+                        format!("AddIndexerAttempt {}", query_id),
+                    query_stats::Msg::EndQuery { .. } => format!("EndQuery"),
+                })
+                .collect::<Vec<_>>()
+        ));
 
-        let subgraph = query.subgraph.as_ref().unwrap();
         let deployment = self
             .deployments()
             .into_iter()
-            .find(|deployment| &deployment.id == &subgraph.deployment)
+            .find(|deployment| &deployment.id == &query.subgraph.deployment)
             .unwrap();
         let indexers = deployment
             .indexings
@@ -412,14 +409,10 @@ impl Topology {
 
         // Valid indexers have the following properties:
         fn valid_indexer(indexer: &IndexerTopology) -> bool {
-            // no failure to indexing the subgraph
             !indexer.indexer_err
-            // more than zero stake
-            && (indexer.staked_grt > TokenAmount::Zero)
-            // more than zero allocation
-            && (indexer.allocated_grt > TokenAmount::Zero)
-            // fee <= budget
-            && (indexer.fee <= TokenAmount::Enough)
+                && (indexer.staked_grt > TokenAmount::Zero)
+                && (indexer.allocated_grt > TokenAmount::Zero)
+                && (indexer.fee <= TokenAmount::Enough)
         }
         let valid = indexers
             .iter()
@@ -428,25 +421,52 @@ impl Topology {
             .collect::<Vec<&IndexerTopology>>();
         trace.push(format!("valid indexers: {:#?}", valid));
 
-        if query.indexer_attempts.is_empty() {
-            return self
-                .check_no_attempts(&mut trace, query, &result, &subgraph, &indexers, &valid);
+        if stats.len() > 1 {
+            match stats.first() {
+                Some(query_stats::Msg::BeginQuery { query: q, .. }) if &q.id == &query.id => (),
+                _ => {
+                    return Self::err_with(&mut trace, format!("expected BeginQuery {}", query.id));
+                }
+            };
         }
 
-        let mut failed_attempts = query.indexer_attempts.clone();
+        if stats.len() == 2 {
+            return self.check_no_attempts(&mut trace, query, &result, &indexers, &valid);
+        }
+
+        let mut failed_attempts = stats
+            .iter()
+            .filter_map(|msg| match msg {
+                query_stats::Msg::AddIndexerAttempt {
+                    query_id,
+                    indexer,
+                    score,
+                    result,
+                    ..
+                } if query_id == &query.id => Some((indexer, score, result)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
         let last_attempt = failed_attempts.pop();
-        let success_check = last_attempt
-            .as_ref()
-            .and_then(|attempt| match &attempt.result {
-                Ok(_) => Some(self.check_successful_attempt(&mut trace, &result, &valid, &attempt)),
-                Err(_) => None,
-            });
+        let success_check =
+            last_attempt
+                .as_ref()
+                .and_then(|&(indexer, _, response)| match &response {
+                    Ok(response) => {
+                        Some(self.check_successful_attempt(
+                            &mut trace, &result, &valid, indexer, response,
+                        ))
+                    }
+                    Err(_) => None,
+                });
         match last_attempt {
             Some(attempt) if success_check.is_none() => failed_attempts.push(attempt),
             _ => (),
         };
-        for attempt in &failed_attempts {
-            if let Err(trace) = self.check_failed_attempt(&mut trace, &indexers, &valid, &attempt) {
+        for &(indexer, _, result) in &failed_attempts {
+            if let Err(trace) =
+                self.check_failed_attempt(&mut trace, &indexers, &valid, indexer, result)
+            {
                 return Err(trace);
             }
         }
@@ -459,9 +479,8 @@ impl Topology {
     fn check_no_attempts(
         &self,
         trace: &mut Vec<String>,
-        query: &Query,
-        result: &Result<(), QueryEngineError>,
-        subgraph: &SubgraphInfo,
+        query: &ClientQuery,
+        result: &Result<(IndexerResponse, GRT), QueryEngineError>,
         indexers: &[&IndexerTopology],
         valid: &[&IndexerTopology],
     ) -> Result<(), Vec<String>> {
@@ -474,7 +493,7 @@ impl Topology {
         }
         if self
             .networks
-            .get(&subgraph.network)
+            .get(&query.subgraph.network)
             .unwrap()
             .blocks
             .is_empty()
@@ -504,24 +523,25 @@ impl Topology {
         trace: &mut Vec<String>,
         indexers: &[&IndexerTopology],
         valid: &[&IndexerTopology],
-        attempt: &IndexerAttempt,
+        indexer: &Address,
+        result: &Result<IndexerResponse, IndexerError>,
     ) -> Result<(), Vec<String>> {
-        if attempt.result.is_ok() {
+        if result.is_ok() {
             return Self::err_with(
                 trace,
-                format!("expected indexer query error, got: {:#?}", attempt),
+                format!("expected indexer query error, got: {:#?}", result),
             );
         }
-        if !indexers.iter().any(|indexer| indexer.id == attempt.indexer) {
+        if !indexers.iter().any(|i| &i.id == indexer) {
             return Self::err_with(
                 trace,
-                format!("attempted indexer not available: {:?}", attempt.indexer),
+                format!("attempted indexer not available: {:?}", indexer),
             );
         }
-        if valid.iter().any(|indexer| indexer.id == attempt.indexer) {
+        if valid.iter().any(|i| &i.id == indexer) {
             return Self::err_with(
                 trace,
-                format!("expected invalid indexer attempt, got {:#?}", attempt),
+                format!("expected invalid indexer attempt, got {:#?}", result),
             );
         }
         Ok(())
@@ -530,21 +550,18 @@ impl Topology {
     fn check_successful_attempt(
         &self,
         trace: &mut Vec<String>,
-        result: &Result<(), QueryEngineError>,
+        result: &Result<(IndexerResponse, GRT), QueryEngineError>,
         valid: &[&IndexerTopology],
-        attempt: &IndexerAttempt,
+        indexer: &Address,
+        response: &IndexerResponse,
     ) -> Result<(), Vec<String>> {
         if let Err(err) = result {
             return Self::err_with(trace, format!("expected success, got {:?}", err));
         }
-        let response = match &attempt.result {
-            Ok(response) => response,
-            Err(err) => return Self::err_with(trace, format!("expected response, got {:?}", err)),
-        };
         if !response.payload.contains("success") {
             return Self::err_with(trace, format!("expected success, got {}", response.payload));
         }
-        if !valid.iter().any(|indexer| attempt.indexer == indexer.id) {
+        if !valid.iter().any(|i| &i.id == indexer) {
             return Self::err_with(trace, "response did not match any valid indexer");
         }
         Ok(())
@@ -552,7 +569,7 @@ impl Topology {
 
     fn expect_err(
         trace: &mut Vec<String>,
-        result: &Result<(), QueryEngineError>,
+        result: &Result<(IndexerResponse, GRT), QueryEngineError>,
         err: QueryEngineError,
     ) -> Result<(), Vec<String>> {
         match result {
@@ -616,26 +633,18 @@ impl KafkaInterface for DummyKafka {
 }
 
 #[derive(Clone)]
-struct TopologyFisherman {
-    topology: Arc<Mutex<Topology>>,
-}
+struct TopologyFisherman {}
 
 #[async_trait]
 impl FishermanInterface for TopologyFisherman {
     async fn challenge(
         &self,
-        indexer: &Address,
+        _: &Address,
         _: &Address,
         _: &str,
         _: &Attestation,
     ) -> ChallengeOutcome {
-        self.topology
-            .lock()
-            .await
-            .indexers
-            .get(indexer)
-            .unwrap()
-            .challenge_outcome
+        ChallengeOutcome::Unknown
     }
 }
 
@@ -673,6 +682,7 @@ async fn test() {
             &rng,
         )));
         let resolvers = topology.lock().await.resolvers();
+        let (stats, stats_tx) = query_stats::test_create();
         let query_engine = QueryEngine::new(
             Config {
                 indexer_selection_retry_limit: 3,
@@ -686,17 +696,32 @@ async fn test() {
                 topology: topology.clone(),
             },
             Arc::new(DummyKafka),
-            Some(Arc::new(TopologyFisherman {
-                topology: topology.clone(),
-            })),
+            Some(Arc::new(TopologyFisherman {})),
+            stats_tx.clone(),
             resolvers,
             inputs,
         );
         topology.lock().await.write_inputs().await;
-        for _ in 0..100 {
-            let mut query = topology.lock().await.gen_query();
-            let result = query_engine.execute_query(&mut query).await;
-            let trace = match topology.lock().await.check_result(&query, result) {
+        for _ in 0..2 {
+            stats.lock().await.clear();
+            let query = topology.lock().await.gen_query();
+            let result = query_engine.execute_query(&query).await;
+            let _ = stats_tx.send(query_stats::Msg::EndQuery {
+                query_id: query.id,
+                result: Ok("".into()),
+            });
+            loop {
+                match stats.lock().await.last() {
+                    Some(query_stats::Msg::EndQuery { .. }) => break,
+                    _ => (),
+                };
+                std::thread::yield_now();
+            }
+            let trace = match topology.lock().await.check_result(
+                stats.lock().await.as_ref(),
+                &query,
+                result,
+            ) {
                 Err(trace) => trace,
                 Ok(()) => continue,
             };

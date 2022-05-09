@@ -104,7 +104,6 @@ impl SelectionFactors {
             IndexerError::Timeout => QueryStatus::Unknown,
             IndexerError::NoAttestation
             | IndexerError::UnattestableError
-            | IndexerError::UnexpectedPayload
             | IndexerError::UnresolvedBlock
             | IndexerError::Other(_) => QueryStatus::Failure,
         };
