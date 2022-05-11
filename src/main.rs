@@ -11,7 +11,7 @@ mod prelude;
 mod query_engine;
 mod rate_limiter;
 mod stats_db;
-mod sync_client;
+mod subgraph_client;
 mod vouchers;
 mod ws_client;
 use crate::{
@@ -107,7 +107,7 @@ async fn main() {
     let signer_key = opt.signer_key.0;
     let (api_keys_writer, api_keys) = Eventual::new();
     // TODO: argument for timeout
-    let sync_metrics = sync_client::create(
+    let sync_metrics = agent_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
         signer_key.clone(),
@@ -282,7 +282,7 @@ async fn handle_metrics() -> HttpResponse {
 
 #[tracing::instrument(skip(data))]
 async fn handle_ready(
-    data: web::Data<(Arc<HashMap<String, BlockResolver>>, sync_client::Metrics)>,
+    data: web::Data<(Arc<HashMap<String, BlockResolver>>, agent_client::Metrics)>,
 ) -> HttpResponse {
     let ready = data
         .0
