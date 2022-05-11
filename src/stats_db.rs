@@ -131,7 +131,10 @@ async fn connect(config: &str) -> Result<mpsc::UnboundedSender<Msg>, tokio_postg
     let mut client = Client {
         client,
         msgs: msgs_rx,
-        flush_interval: interval(Duration::from_secs(30)),
+        // Timescale DB is having difficulty keeping up with the load.
+        // So, we decreased the frequency of updates to buy time
+        // for a more scalable solution.
+        flush_interval: interval(Duration::from_secs(1200)),
         api_key_stats: HashMap::new(),
         update_statements,
     };
