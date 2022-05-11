@@ -1,3 +1,4 @@
+mod agent_client;
 mod block_resolver;
 mod ethereum_client;
 mod fisherman_client;
@@ -6,12 +7,12 @@ mod indexer_selection;
 mod ipfs_client;
 mod kafka_client;
 mod manifest_client;
+mod network_subgraph;
 mod opt;
 mod prelude;
 mod query_engine;
 mod rate_limiter;
 mod stats_db;
-mod subgraph_client;
 mod vouchers;
 mod ws_client;
 use crate::{
@@ -130,6 +131,8 @@ async fn main() {
     let fisherman_client = opt
         .fisherman
         .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
+    let network_subgraph_data =
+        network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
     let subgraph_query_data = SubgraphQueryData {
         config: query_engine::Config {
             indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
@@ -144,6 +147,7 @@ async fn main() {
         },
         block_resolvers: block_resolvers.clone(),
         subgraph_info,
+        current_deployments: network_subgraph_data.current_deployments,
         inputs: inputs.clone(),
         api_keys,
         stats_db,
@@ -300,7 +304,7 @@ async fn handle_ready(
 #[derive(Clone)]
 struct NetworkSubgraphQueryData {
     http_client: reqwest::Client,
-    network_subgraph: String,
+    network_subgraph: Url,
     network_subgraph_auth_token: String,
 }
 
@@ -314,7 +318,7 @@ async fn handle_network_query(
     let post_request = |body: String| async {
         let response = data
             .http_client
-            .post(&data.network_subgraph)
+            .post(data.network_subgraph.clone())
             .body(body)
             .header(header::CONTENT_TYPE.as_str(), "application/json")
             .header(
@@ -352,6 +356,7 @@ struct SubgraphQueryData {
     fisherman_client: Option<Arc<FishermanClient>>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     subgraph_info: SubgraphInfoMap,
+    current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
@@ -376,8 +381,7 @@ impl SubgraphQueryData {
             let subgraph = id
                 .parse::<SubgraphID>()
                 .map_err(|_| SubgraphResolutionError::InvalidSubgraphID(id.to_string()))?;
-            self.inputs
-                .current_deployments
+            self.current_deployments
                 .value_immediate()
                 .and_then(|map| map.get(&subgraph).cloned())
                 .ok_or_else(|| SubgraphResolutionError::SubgraphNotFound(id.to_string()))?

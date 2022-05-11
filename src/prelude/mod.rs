@@ -12,6 +12,7 @@ pub use prometheus::{
     self,
     core::{MetricVec, MetricVecBuilder},
 };
+use serde::Deserialize;
 use siphasher::sip::SipHasher24;
 use std::hash::{Hash, Hasher as _};
 pub use std::{cmp::Ordering, fmt, str::FromStr};
@@ -131,7 +132,7 @@ pub type GRT = UDecimal<18>;
 /// Decimal GRT Wei (10^-18 GRT)
 pub type GRTWei = UDecimal<0>;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct BlockPointer {
     pub number: u64,
     pub hash: Bytes32,

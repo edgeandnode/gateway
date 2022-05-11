@@ -48,7 +48,7 @@ pub struct Opt {
         long = "--network-subgraph",
         env = "NETWORK_SUBGRAPH"
     )]
-    pub network_subgraph: String,
+    pub network_subgraph: Url,
     #[structopt(
         help = "Network subgraph auth token",
         long = "--network-subgraph-auth-token",
