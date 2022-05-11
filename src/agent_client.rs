@@ -39,7 +39,6 @@ pub fn create(
                 indexings,
                 ..
             },
-        current_deployments,
         deployment_indexers,
         ..
     } = inputs;
@@ -83,15 +82,6 @@ pub fn create(
             parse_cost_models,
             accept_empty,
         ),
-    );
-    create_sync_client::<CurrentDeployments, _, _>(
-        agent_url.clone(),
-        poll_interval,
-        current_deployments::OPERATION_NAME,
-        current_deployments::QUERY,
-        parse_current_deployments,
-        current_deployments,
-        accept_empty,
     );
     handle_indexers(
         indexers,
@@ -505,33 +495,6 @@ fn parse_cost_models(
         })
         .collect();
     Some(Ptr::new(parsed))
-}
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "graphql/sync_agent_schema.gql",
-    query_path = "graphql/current_deployments.gql",
-    response_derives = "Debug"
-)]
-struct CurrentDeployments;
-
-fn parse_current_deployments(
-    data: current_deployments::ResponseData,
-) -> Option<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>> {
-    use current_deployments::{CurrentDeploymentsData, ResponseData};
-    let values = match data {
-        ResponseData {
-            data: Some(CurrentDeploymentsData { value, .. }),
-        } => value,
-        _ => return None,
-    };
-    let parsed = values.into_iter().filter_map(|value| {
-        Some((
-            value.subgraph.parse::<SubgraphID>().ok()?,
-            SubgraphDeploymentID::from_ipfs_hash(&value.deployment)?,
-        ))
-    });
-    Some(Ptr::new(HashMap::from_iter(parsed)))
 }
 
 #[derive(GraphQLQuery)]

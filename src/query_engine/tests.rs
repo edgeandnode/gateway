@@ -371,12 +371,6 @@ impl Topology {
                 });
             }
         }
-        self.inputs.current_deployments.write(Ptr::new(
-            self.subgraphs
-                .iter()
-                .filter_map(|(_, subgraph)| Some((subgraph.id, subgraph.deployments.last()?.id)))
-                .collect(),
-        ));
         self.inputs.deployment_indexers.write(Ptr::new(
             self.deployments()
                 .iter()

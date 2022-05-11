@@ -177,14 +177,12 @@ pub struct Config {
 #[derive(Clone)]
 pub struct Inputs {
     pub indexers: Arc<Indexers>,
-    pub current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
     pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
 }
 
 pub struct InputWriters {
     pub indexer_inputs: indexer_selection::InputWriters,
     pub indexers: Arc<Indexers>,
-    pub current_deployments: EventualWriter<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
     pub deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
 }
 
@@ -192,18 +190,15 @@ impl Inputs {
     pub fn new() -> (InputWriters, Self) {
         let (indexer_input_writers, indexer_inputs) = Indexers::inputs();
         let indexers = Arc::new(Indexers::new(indexer_inputs));
-        let (current_deployments_writer, current_deployments) = Eventual::new();
         let (deployment_indexers_writer, deployment_indexers) = Eventual::new();
         (
             InputWriters {
                 indexer_inputs: indexer_input_writers,
                 indexers: indexers.clone(),
-                current_deployments: current_deployments_writer,
                 deployment_indexers: deployment_indexers_writer,
             },
             Inputs {
                 indexers,
-                current_deployments,
                 deployment_indexers,
             },
         )
