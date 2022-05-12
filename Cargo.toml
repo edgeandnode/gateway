@@ -23,6 +23,7 @@ hdwallet = "0.3"
 hex = "0.4"
 im = "15.0" # Good vector implementation, CHAMP encoding should be added if we use a hash map/set
 lazy_static = "1.4"
+maxminddb = "0.23"
 num-traits = "0.2"
 openssl = "0.10"
 ordered-float = "3.0"

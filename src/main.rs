@@ -2,6 +2,7 @@ mod agent_client;
 mod block_resolver;
 mod ethereum_client;
 mod fisherman_client;
+mod geoip;
 mod indexer_client;
 mod indexer_selection;
 mod ipfs_client;
@@ -18,6 +19,7 @@ mod ws_client;
 use crate::{
     block_resolver::{BlockCache, BlockResolver},
     fisherman_client::*,
+    geoip::GeoIP,
     indexer_client::IndexerClient,
     ipfs_client::*,
     kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
@@ -39,7 +41,7 @@ use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
-use std::{collections::HashMap, sync::Arc, time::SystemTime};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::SystemTime};
 use structopt::StructOpt as _;
 use url::Url;
 
@@ -75,6 +77,11 @@ async fn main() {
             }
         })
         .forever();
+
+    let geoip = opt
+        .geoip_database
+        .filter(|_| !opt.geoip_blocked_countries.is_empty())
+        .map(|db| GeoIP::new(db, opt.geoip_blocked_countries).unwrap());
 
     let stats_db = match stats_db::create(
         &opt.stats_db_host,

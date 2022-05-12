@@ -3,7 +3,7 @@ use bip39;
 use hdwallet::{self, KeyChain as _};
 use ordered_float::NotNan;
 use rdkafka::config::ClientConfig as KafkaConfig;
-use std::{collections::HashMap, error::Error};
+use std::{collections::HashMap, error::Error, path::PathBuf};
 use structopt_derive::StructOpt;
 use url::{self, Url};
 
@@ -138,6 +138,20 @@ pub struct Opt {
         default_value = "1000"
     )]
     pub api_rate_limit: u16,
+    #[structopt(
+        help = "GeoIP database path",
+        long = "--geoip-database",
+        env = "GEOIP_DATABASE"
+    )]
+    pub geoip_database: Option<PathBuf>,
+    #[structopt(
+        help = "GeoIP blocked countries (ISO 3166-1 alpha-2 codes)",
+        long = "--geoip-blocked-countries",
+        env = "GEOIP_BLOCKED_COUNTRIES",
+        default_value = "",
+        use_delimiter = true
+    )]
+    pub geoip_blocked_countries: Vec<String>,
     #[structopt(
         help = "Stats database hostname",
         long = "--stats-db-host",
