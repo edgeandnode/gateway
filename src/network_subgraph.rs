@@ -31,6 +31,9 @@ impl Client {
                 let client = client.clone();
                 async move {
                     let mut client = client.lock().await;
+                    if let Err(poll_allocations_err) = client.poll_allocations().await {
+                        tracing::error!(%poll_allocations_err);
+                    }
                     if let Err(poll_subgraphs_err) = client.poll_subgraphs().await {
                         tracing::error!(%poll_subgraphs_err);
                     }
@@ -40,6 +43,31 @@ impl Client {
         Data {
             current_deployments: current_deployments_rx,
         }
+    }
+
+    async fn poll_allocations(&mut self) -> Result<(), String> {
+        let response = self
+            .paginated_query::<Allocation>(
+                r#"
+                allocations(
+                    block: $block, skip: $skip, first: $first
+                    where: { status: Active }
+                ) {
+                    id
+                    allocatedTokens
+                    subgraphDeployment { ipfsHash }
+                    indexer {
+                        id
+                        url
+                        stakedTokens
+                        delegatedTokens
+                    }
+                }
+                "#,
+            )
+            .await?;
+        todo!();
+        Ok(())
     }
 
     async fn poll_subgraphs(&mut self) -> Result<(), String> {
@@ -154,6 +182,24 @@ struct Meta {
 struct PaginatedQueryResponse<T> {
     meta: Meta,
     results: Vec<T>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Allocation {
+    id: Address,
+    allocated_tokens: String,
+    subgraph_deployment: SubgraphDeployment,
+    indexer: Indexer,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Indexer {
+    id: Address,
+    url: String,
+    staked_tokens: GRTWei,
+    delegated_tokens: GRTWei,
 }
 
 #[derive(Deserialize)]

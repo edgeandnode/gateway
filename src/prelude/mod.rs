@@ -132,6 +132,19 @@ pub type GRT = UDecimal<18>;
 /// Decimal GRT Wei (10^-18 GRT)
 pub type GRTWei = UDecimal<0>;
 
+impl<'de, const P: u8> serde::Deserialize<'de> for UDecimal<P> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let input: &str = serde::Deserialize::deserialize(deserializer)?;
+        input.parse::<Self>().map_err(serde::de::Error::custom)
+    }
+}
+
+impl<const P: u8> serde::Serialize for UDecimal<P> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct BlockPointer {
     pub number: u64,
