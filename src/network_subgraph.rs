@@ -2,12 +2,17 @@ use crate::prelude::*;
 use eventuals::{self, EventualExt as _};
 use serde::Deserialize;
 use serde_json::json;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 use tokio::sync::Mutex;
 use url::Url;
 
+#[derive(Clone)]
 pub struct Data {
     pub current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
+    pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
 }
 
 pub struct Client {
@@ -15,16 +20,19 @@ pub struct Client {
     http_client: reqwest::Client,
     latest_block: u64,
     current_deployments: EventualWriter<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
+    deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
 }
 
 impl Client {
     pub fn create(http_client: reqwest::Client, network_subgraph: Url) -> Data {
         let (current_deployments_tx, current_deployments_rx) = Eventual::new();
+        let (deployment_indexers_tx, deployment_indexers_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             network_subgraph,
             http_client,
             latest_block: 0,
             current_deployments: current_deployments_tx,
+            deployment_indexers: deployment_indexers_tx,
         }));
         eventuals::timer(Duration::from_secs(5))
             .pipe_async(move |_| {
@@ -42,6 +50,7 @@ impl Client {
             .forever();
         Data {
             current_deployments: current_deployments_rx,
+            deployment_indexers: deployment_indexers_rx,
         }
     }
 
@@ -66,7 +75,17 @@ impl Client {
                 "#,
             )
             .await?;
-        todo!();
+        let mut deployment_indexers = HashMap::<SubgraphDeploymentID, Vec<Address>>::new();
+        for allocation in &response {
+            match deployment_indexers.entry(allocation.subgraph_deployment.id.clone()) {
+                Entry::Occupied(mut entry) => entry.get_mut().push(allocation.indexer.id),
+                Entry::Vacant(entry) => {
+                    entry.insert(vec![allocation.indexer.id]);
+                }
+            }
+        }
+        self.deployment_indexers
+            .write(Ptr::new(deployment_indexers));
         Ok(())
     }
 

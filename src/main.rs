@@ -129,7 +129,9 @@ async fn main() {
         .build()
         .unwrap();
     let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
-    let deployment_ids = inputs
+    let network_subgraph_data =
+        network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
+    let deployment_ids = network_subgraph_data
         .deployment_indexers
         .clone()
         .map(|deployments| async move { deployments.keys().cloned().collect() });
@@ -138,8 +140,6 @@ async fn main() {
     let fisherman_client = opt
         .fisherman
         .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
-    let network_subgraph_data =
-        network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
     let subgraph_query_data = SubgraphQueryData {
         config: query_engine::Config {
             indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
@@ -154,7 +154,7 @@ async fn main() {
         },
         block_resolvers: block_resolvers.clone(),
         subgraph_info,
-        current_deployments: network_subgraph_data.current_deployments,
+        network_subgraph_data,
         inputs: inputs.clone(),
         api_keys,
         stats_db,
@@ -363,7 +363,7 @@ struct SubgraphQueryData {
     fisherman_client: Option<Arc<FishermanClient>>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     subgraph_info: SubgraphInfoMap,
-    current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
+    network_subgraph_data: network_subgraph::Data,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
@@ -388,7 +388,8 @@ impl SubgraphQueryData {
             let subgraph = id
                 .parse::<SubgraphID>()
                 .map_err(|_| SubgraphResolutionError::InvalidSubgraphID(id.to_string()))?;
-            self.current_deployments
+            self.network_subgraph_data
+                .current_deployments
                 .value_immediate()
                 .and_then(|map| map.get(&subgraph).cloned())
                 .ok_or_else(|| SubgraphResolutionError::SubgraphNotFound(id.to_string()))?
@@ -462,6 +463,7 @@ async fn handle_subgraph_query_inner(
         data.kafka_client.clone(),
         data.fisherman_client.clone(),
         data.block_resolvers.clone(),
+        data.network_subgraph_data.deployment_indexers.clone(),
         data.inputs.clone(),
     );
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();

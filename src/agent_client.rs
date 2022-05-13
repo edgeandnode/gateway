@@ -39,7 +39,6 @@ pub fn create(
                 indexings,
                 ..
             },
-        deployment_indexers,
         ..
     } = inputs;
     let indexings = Arc::new(Mutex::new(indexings));
@@ -85,7 +84,6 @@ pub fn create(
     );
     handle_indexers(
         indexers,
-        deployment_indexers,
         create_sync_client_input::<Indexers, _>(
             agent_url.clone(),
             poll_interval,
@@ -676,7 +674,6 @@ fn handle_cost_models(
 
 fn handle_indexers(
     indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
-    mut deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     indexer_statuses: Eventual<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)>>>,
 ) {
     let indexers = Arc::new(Mutex::new(indexers));
@@ -684,18 +681,6 @@ fn handle_indexers(
         .pipe_async(move |indexer_statuses| {
             let _span = tracing::info_span!("handle_indexers").entered();
             tracing::trace!(indexed_deployments = %indexer_statuses.len());
-            deployment_indexers.write(Ptr::new(
-                indexer_statuses
-                    .iter()
-                    .map(|(deployment, indexer_statuses)| {
-                        tracing::trace!(?deployment, indexer_statuses = indexer_statuses.len(),);
-                        (
-                            deployment.clone(),
-                            indexer_statuses.iter().map(|status| status.id).collect(),
-                        )
-                    })
-                    .collect(),
-            ));
             let statuses =
                 HashMap::<Address, ParsedIndexerInfo>::from_iter(indexer_statuses.iter().flat_map(
                     |(_, statuses)| statuses.iter().cloned().map(|status| (status.id, status)),
