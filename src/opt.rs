@@ -3,6 +3,7 @@ use bip39;
 use hdwallet::{self, KeyChain as _};
 use ordered_float::NotNan;
 use rdkafka::config::ClientConfig as KafkaConfig;
+use semver::Version;
 use std::{collections::HashMap, error::Error, path::PathBuf};
 use structopt_derive::StructOpt;
 use url::{self, Url};
@@ -138,6 +139,13 @@ pub struct Opt {
         default_value = "1000"
     )]
     pub api_rate_limit: u16,
+    #[structopt(
+        help = "Minimum indexer version",
+        long = "--min-indexer-version",
+        env = "MINIMUM_INDEXER_VERSION",
+        default_value = "0.0.0"
+    )]
+    pub min_indexer_version: Version,
     #[structopt(
         help = "GeoIP database path",
         long = "--geoip-database",

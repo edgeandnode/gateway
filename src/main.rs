@@ -43,7 +43,7 @@ use prometheus::{self, Encoder as _};
 use reqwest;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::SystemTime};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use structopt::StructOpt as _;
 use url::Url;
 
@@ -133,8 +133,12 @@ async fn main() {
     let network_subgraph_data =
         network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
 
-    let indexer_status_data =
-        indexer_status::Actor::create(http_client.clone(), network_subgraph_data.indexers);
+    let indexer_status_data = indexer_status::Actor::create(
+        http_client.clone(),
+        opt.min_indexer_version,
+        geoip,
+        network_subgraph_data.indexers,
+    );
 
     let deployment_ids = network_subgraph_data
         .deployment_indexers

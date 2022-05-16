@@ -7,7 +7,6 @@ use crate::{
     },
     kafka_client::{self, KafkaInterface},
     manifest_client::SubgraphInfo,
-    network_subgraph,
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
 };

@@ -18,7 +18,7 @@ pub struct Data {
 }
 
 pub struct IndexerInfo {
-    pub url: String,
+    pub url: Url,
     pub staked_tokens: GRT,
     pub delegated_tokens: GRT,
 }
@@ -109,7 +109,11 @@ impl Client {
             indexers.insert(
                 allocation.indexer.id.clone(),
                 IndexerInfo {
-                    url: allocation.indexer.url.clone(),
+                    url: allocation
+                        .indexer
+                        .url
+                        .parse::<Url>()
+                        .map_err(|err| err.to_string())?,
                     staked_tokens: allocation.indexer.staked_tokens.shift(),
                     delegated_tokens: allocation.indexer.delegated_tokens.shift(),
                 },
