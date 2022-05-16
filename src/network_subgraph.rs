@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, query_engine::Indexing};
 use eventuals::{self, EventualExt as _};
 use serde::Deserialize;
 use serde_json::json;
@@ -13,6 +13,19 @@ use url::Url;
 pub struct Data {
     pub current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
     pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
+    pub indexers: Eventual<Ptr<HashMap<Address, IndexerInfo>>>,
+    pub allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
+}
+
+pub struct IndexerInfo {
+    pub url: String,
+    pub staked_tokens: GRT,
+    pub delegated_tokens: GRT,
+}
+
+pub struct AllocationInfo {
+    pub indexing: Indexing,
+    pub allocated_tokens: GRT,
 }
 
 pub struct Client {
@@ -21,18 +34,24 @@ pub struct Client {
     latest_block: u64,
     current_deployments: EventualWriter<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
     deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
+    indexers: EventualWriter<Ptr<HashMap<Address, IndexerInfo>>>,
+    allocations: EventualWriter<Ptr<HashMap<Address, AllocationInfo>>>,
 }
 
 impl Client {
     pub fn create(http_client: reqwest::Client, network_subgraph: Url) -> Data {
         let (current_deployments_tx, current_deployments_rx) = Eventual::new();
         let (deployment_indexers_tx, deployment_indexers_rx) = Eventual::new();
+        let (indexers_tx, indexers_rx) = Eventual::new();
+        let (allocations_tx, allocations_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             network_subgraph,
             http_client,
             latest_block: 0,
             current_deployments: current_deployments_tx,
             deployment_indexers: deployment_indexers_tx,
+            indexers: indexers_tx,
+            allocations: allocations_tx,
         }));
         eventuals::timer(Duration::from_secs(5))
             .pipe_async(move |_| {
@@ -51,6 +70,8 @@ impl Client {
         Data {
             current_deployments: current_deployments_rx,
             deployment_indexers: deployment_indexers_rx,
+            indexers: indexers_rx,
+            allocations: allocations_rx,
         }
     }
 
@@ -76,16 +97,38 @@ impl Client {
             )
             .await?;
         let mut deployment_indexers = HashMap::<SubgraphDeploymentID, Vec<Address>>::new();
+        let mut indexers = HashMap::<Address, IndexerInfo>::new();
+        let mut allocations = HashMap::<Address, AllocationInfo>::new();
         for allocation in &response {
             match deployment_indexers.entry(allocation.subgraph_deployment.id.clone()) {
                 Entry::Occupied(mut entry) => entry.get_mut().push(allocation.indexer.id),
                 Entry::Vacant(entry) => {
                     entry.insert(vec![allocation.indexer.id]);
                 }
-            }
+            };
+            indexers.insert(
+                allocation.indexer.id.clone(),
+                IndexerInfo {
+                    url: allocation.indexer.url.clone(),
+                    staked_tokens: allocation.indexer.staked_tokens.shift(),
+                    delegated_tokens: allocation.indexer.delegated_tokens.shift(),
+                },
+            );
+            allocations.insert(
+                allocation.id,
+                AllocationInfo {
+                    indexing: Indexing {
+                        deployment: allocation.subgraph_deployment.id,
+                        indexer: allocation.indexer.id,
+                    },
+                    allocated_tokens: allocation.allocated_tokens.shift(),
+                },
+            );
         }
         self.deployment_indexers
             .write(Ptr::new(deployment_indexers));
+        self.indexers.write(Ptr::new(indexers));
+        self.allocations.write(Ptr::new(allocations));
         Ok(())
     }
 
@@ -207,7 +250,7 @@ struct PaginatedQueryResponse<T> {
 #[serde(rename_all = "camelCase")]
 struct Allocation {
     id: Address,
-    allocated_tokens: String,
+    allocated_tokens: GRTWei,
     subgraph_deployment: SubgraphDeployment,
     indexer: Indexer,
 }
