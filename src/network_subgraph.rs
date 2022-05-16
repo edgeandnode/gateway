@@ -1,4 +1,4 @@
-use crate::{prelude::*, query_engine::Indexing};
+use crate::{graphql, prelude::*, query_engine::Indexing};
 use eventuals::{self, EventualExt as _};
 use serde::Deserialize;
 use serde_json::json;
@@ -53,7 +53,7 @@ impl Client {
             indexers: indexers_tx,
             allocations: allocations_tx,
         }));
-        eventuals::timer(Duration::from_secs(5))
+        eventuals::timer(Duration::from_secs(30))
             .pipe_async(move |_| {
                 let client = client.clone();
                 async move {
@@ -168,10 +168,10 @@ impl Client {
                 .as_ref()
                 .map(|block| json!({ "hash": block.hash }))
                 .unwrap_or(json!({ "number_gte": self.latest_block }));
-            let response = self
-                .http_client
-                .post(self.network_subgraph.clone())
-                .json(&json!({
+            let response = graphql::query::<PaginatedQueryResponse<T>, _>(
+                &self.http_client,
+                self.network_subgraph.clone(),
+                &json!({
                     "query": format!(r#"
                         query q($block: Block_height!, $skip: Int!, $first: Int!) {{
                             meta: _meta(block: $block) {{ block {{ number hash }} }}
@@ -184,13 +184,9 @@ impl Client {
                         "skip": index * batch_size,
                         "first": batch_size,
                     },
-                }))
-                .send()
-                .await
-                .map_err(|err| err.to_string())?
-                .json::<GraphQLResponse<PaginatedQueryResponse<T>>>()
-                .await
-                .map_err(|err| err.to_string())?;
+                }),
+            )
+            .await?;
             let errors = response
                 .errors
                 .unwrap_or_default()
@@ -222,17 +218,6 @@ impl Client {
         }
         Ok(results)
     }
-}
-
-#[derive(Deserialize)]
-struct GraphQLResponse<T> {
-    data: Option<T>,
-    errors: Option<Vec<Error>>,
-}
-
-#[derive(Deserialize)]
-struct Error {
-    message: String,
 }
 
 #[derive(Deserialize)]
