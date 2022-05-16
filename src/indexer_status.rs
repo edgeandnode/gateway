@@ -51,8 +51,8 @@ impl Actor {
                 .pipe_async(move |indexers| {
                     let actor = actor.clone();
                     async move {
-                        let actor = actor.lock().await;
-                        let mut indexing_statuses = HashMap::<Indexing, IndexingStatus>::new();
+                        let mut actor = actor.lock().await;
+                        let mut indexings = HashMap::<Indexing, IndexingStatus>::new();
                         for (indexer, info) in indexers.iter() {
                             if let Err(reason) = actor.check_compatibility(info).await {
                                 tracing::info!(
@@ -69,7 +69,7 @@ impl Actor {
                                 Err(_) => continue,
                             };
                             for (deployment, status) in response {
-                                indexing_statuses.insert(
+                                indexings.insert(
                                     Indexing {
                                         deployment,
                                         indexer: indexer.clone(),
@@ -78,6 +78,7 @@ impl Actor {
                                 );
                             }
                         }
+                        actor.indexings.write(Ptr::new(indexings));
                     }
                 })
                 .forever();

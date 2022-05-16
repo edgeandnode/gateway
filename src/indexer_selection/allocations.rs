@@ -33,6 +33,19 @@ impl fmt::Debug for Receipt {
 }
 
 impl Allocations {
+    pub fn new(signer: SecretKey, allocations: Vec<(Address, GRT)>) -> Self {
+        let mut receipts = ReceiptPool::default();
+        let mut total_allocation = GRT::zero();
+        for (id, size) in allocations {
+            receipts.add_allocation(signer.clone(), *id);
+            total_allocation = total_allocation.saturating_add(size);
+        }
+        Self {
+            receipts,
+            total_allocation,
+        }
+    }
+
     pub fn release(&mut self, receipt: &[u8], status: QueryStatus) {
         if receipt.len() != 164 {
             panic!("Unrecognized receipt format");
@@ -43,15 +56,5 @@ impl Allocations {
     pub fn commit(&mut self, locked_fee: &GRT) -> Result<Receipt, BorrowFail> {
         let commitment = self.receipts.commit(locked_fee.shift::<0>().as_u256())?;
         Ok(Receipt { commitment })
-    }
-
-    pub fn add_allocation(&mut self, allocation_id: Address, secret: SecretKey, size: GRT) {
-        self.receipts.add_allocation(secret, *allocation_id);
-        self.total_allocation = self.total_allocation.saturating_add(size);
-    }
-
-    pub fn remove_allocation(&mut self, allocation_id: &Address, size: GRT) {
-        self.receipts.remove_allocation(allocation_id);
-        self.total_allocation = self.total_allocation.saturating_sub(size);
     }
 }

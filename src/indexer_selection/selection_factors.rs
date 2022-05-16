@@ -2,7 +2,7 @@ use crate::{
     indexer_selection::{
         allocations::*, block_requirements::*, data_freshness::*, decay::DecayBuffer,
         performance::*, price_efficiency::*, reputation::*, utility::*, BadIndexerReason, Context,
-        IndexerError, SecretKey, SelectionError,
+        IndexerError, SelectionError,
     },
     prelude::*,
 };
@@ -65,18 +65,9 @@ impl Reader for SelectionFactors {
 }
 
 impl IndexingData {
-    pub async fn add_allocation(&self, allocation_id: Address, secret: SecretKey, size: GRT) {
+    pub async fn update_allocations(&self, allocations: Allocations) -> GRT {
         let mut lock = self.locked.write().await;
-        lock.allocations.add_allocation(allocation_id, secret, size);
-    }
-
-    pub async fn remove_allocation(&self, allocation_id: &Address, size: GRT) {
-        let mut lock = self.locked.write().await;
-        lock.allocations.remove_allocation(allocation_id, size);
-    }
-
-    pub async fn total_allocation(&self) -> GRT {
-        let lock = self.locked.read().await;
+        lock.allocations = allocations;
         lock.allocations.total_allocation
     }
 }
