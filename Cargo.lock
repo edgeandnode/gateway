@@ -787,8 +787,9 @@ dependencies = [
 
 [[package]]
 name = "eventuals"
-version = "0.6.6"
-source = "git+ssh://git@github.com/edgeandnode/eventuals.git?rev=993fed3#993fed3893b6b78807a187b91a96834cb069d8e0"
+version = "0.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0450e5c57135f799007162ff8beba7b2809d4a018cf9cdcbca2c319a73d9d8ee"
 dependencies = [
  "by_address",
  "futures",

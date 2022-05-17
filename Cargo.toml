@@ -14,7 +14,7 @@ actix-router = "=0.5.0-beta.4"
 async-trait = "0.1"
 bs58 = "0.4"
 cost-model = { git = "ssh://git@github.com/graphprotocol/agora.git", rev = "ae20442" }
-eventuals = { git = "ssh://git@github.com/edgeandnode/eventuals.git", rev = "993fed3" }
+eventuals = "0.6.7"
 futures = "0.3"
 futures-util = "0.3"
 graphql-parser = { git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df" }
@@ -72,9 +72,7 @@ rdkafka = { version = "0.28.0", features = [
 # core-foundation is added because it is a transitive dependency of plotters (through font-kit)
 # and the selected version (0.9.1) fails to build on MacOS
 core-foundation = "0.9.3"
-eventuals = { git = "ssh://git@github.com/edgeandnode/eventuals.git", rev = "993fed3", features = [
-  "trace",
-] }
+eventuals = { version = "0.6.7", features = ["trace"] }
 plotters = { version = "0.3", features = [
   "bitmap_encoder",
   "bitmap_gif",
