@@ -23,10 +23,14 @@ use crate::{
     fisherman_client::*,
     geoip::GeoIP,
     indexer_client::IndexerClient,
-    indexer_selection::{Allocations, IndexingData, SelectionFactors},
+    indexer_selection::{
+        Allocations, IndexerDataReader, IndexerDataWriter, IndexingData, SelectionFactors,
+    },
+    indexer_status::IndexingStatus,
     ipfs_client::*,
     kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
     manifest_client::*,
+    network_subgraph::IndexerInfo,
     opt::*,
     prelude::{shared_lookup::SharedLookupWriter, *},
     query_engine::*,
@@ -39,7 +43,6 @@ use actix_web::{
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use eventuals::EventualExt;
-use indexer_status::IndexingStatus;
 use lazy_static::lazy_static;
 use network_subgraph::AllocationInfo;
 use prometheus::{self, Encoder as _};
@@ -47,7 +50,11 @@ use reqwest;
 use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
-use std::{collections::HashMap, sync::Arc, time::SystemTime};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+    time::SystemTime,
+};
 use structopt::StructOpt as _;
 use tokio::sync::Mutex;
 use url::Url;
@@ -132,15 +139,14 @@ async fn main() {
             },
         ..
     } = input_writers;
+    let indexers = Arc::new(Mutex::new(indexers));
     let indexings = Arc::new(Mutex::new(indexings));
     let sync_metrics = agent_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
         slashing_percentage,
         usd_to_grt_conversion,
-        indexers,
         indexings.clone(),
-        block_resolvers.clone(),
         api_keys_writer,
         opt.sync_agent_accept_empty,
     );
@@ -156,26 +162,37 @@ async fn main() {
         http_client.clone(),
         opt.min_indexer_version,
         geoip,
-        network_subgraph_data.indexers,
+        network_subgraph_data.indexers.clone(),
     );
-    eventuals::join((
-        network_subgraph_data.allocations,
-        indexer_status_data.indexings,
-    ))
-    .pipe_async(move |(allocations, indexing_statuses)| {
-        tracing::warn!(
-            allocations = allocations.len(),
-            indexing_statuses = indexing_statuses.len()
-        );
-        let signer_key = signer_key.clone();
-        let indexings = indexings.clone();
-        async move {
-            let mut indexings = indexings.lock().await;
-            write_indexer_inputs(signer_key, &mut indexings, &allocations, &indexing_statuses)
+    {
+        let block_resolvers = block_resolvers.clone();
+        eventuals::join((
+            network_subgraph_data.allocations,
+            network_subgraph_data.indexers,
+            indexer_status_data.indexings,
+        ))
+        .pipe_async(move |(allocations, indexer_info, indexing_statuses)| {
+            let signer_key = signer_key.clone();
+            let block_resolvers = block_resolvers.clone();
+            let indexers = indexers.clone();
+            let indexings = indexings.clone();
+            async move {
+                let mut indexers = indexers.lock().await;
+                let mut indexings = indexings.lock().await;
+                write_indexer_inputs(
+                    signer_key,
+                    &block_resolvers,
+                    &mut indexers,
+                    &mut indexings,
+                    &allocations,
+                    &indexer_info,
+                    &indexing_statuses,
+                )
                 .await;
-        }
-    })
-    .forever();
+            }
+        })
+        .forever();
+    }
 
     let deployment_ids = network_subgraph_data
         .deployment_indexers
@@ -327,24 +344,52 @@ fn request_host(request: &ServiceRequest) -> String {
 
 async fn write_indexer_inputs(
     signer_key: SecretKey,
+    block_resolvers: &HashMap<String, BlockResolver>,
+    indexers: &mut SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
     indexings: &mut SharedLookupWriter<Indexing, SelectionFactors, IndexingData>,
     allocations: &HashMap<Address, AllocationInfo>,
+    indexer_info: &HashMap<Address, IndexerInfo>,
     indexing_statuses: &HashMap<Indexing, IndexingStatus>,
 ) {
-    let mut total_allocations = 0;
+    tracing::info!(
+        allocations = allocations.len(),
+        indexers = indexer_info.len(),
+        indexing_statuses = indexing_statuses.len(),
+    );
+
+    for (indexer, info) in indexer_info {
+        let writer = indexers.write(indexer).await;
+        writer.url.write(Arc::new(info.url.clone()));
+        writer.stake.write(info.staked_tokens);
+    }
+
+    let mut latest_blocks = HashMap::<String, u64>::new();
     for (indexing, status) in indexing_statuses {
+        let latest = match latest_blocks.entry(status.network.clone()) {
+            Entry::Occupied(entry) => *entry.get(),
+            Entry::Vacant(entry) => *entry.insert(
+                block_resolvers
+                    .get(&status.network)
+                    .and_then(|resolver| resolver.latest_block().map(|b| b.number))
+                    .unwrap_or(0),
+            ),
+        };
+
         let allocations = allocations
             .iter()
             .map(|(id, info)| (id.clone(), info.allocated_tokens.clone()))
             .collect::<Vec<(Address, GRT)>>();
-        total_allocations += allocations.len();
         let allocations = Allocations::new(signer_key.clone(), allocations);
 
         let writer = indexings.write(indexing).await;
         writer.update_allocations(allocations).await;
+        writer.status.write(indexer_selection::IndexingStatus {
+            block: status.block.number,
+            latest,
+        });
     }
-    tracing::warn!(total_allocations);
-    METRICS.allocations.set(total_allocations as i64);
+
+    METRICS.allocations.set(allocations.len() as i64);
 }
 
 #[tracing::instrument]

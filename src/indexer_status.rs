@@ -16,9 +16,8 @@ pub struct Data {
 }
 
 pub struct IndexingStatus {
-    block: BlockPointer,
-    synced: bool,
-    fatal_error: Option<String>,
+    pub network: String,
+    pub block: BlockPointer,
 }
 
 pub struct Actor {
@@ -66,7 +65,10 @@ impl Actor {
                             let result = actor.query_status(info.url.clone()).await;
                             let response = match result {
                                 Ok(response) => response,
-                                Err(_) => continue,
+                                Err(indexer_status_err) => {
+                                    tracing::debug!(%indexer_status_err);
+                                    continue;
+                                }
                             };
                             for (deployment, status) in response {
                                 indexings.insert(
@@ -131,9 +133,10 @@ impl Actor {
         let query = r#"{
             indexingStatuses(subgraphs: []) {
                 subgraph
-                synced
-                fatalError { message }
-                chains { ... on EthereumIndexingStatus { latestBlock { number hash } } }
+                chains {
+                    network
+                    ... on EthereumIndexingStatus { latestBlock { number hash } }
+                }
             }
         }"#;
         let response = graphql::query::<IndexerStatusResponse, _>(
@@ -156,14 +159,13 @@ impl Actor {
             .into_iter()
             .filter_map(|status| {
                 let deployment = status.subgraph;
-                let block = &status.chains.get(0)?.latest_block;
+                let chain = &status.chains.get(0)?;
                 let status = IndexingStatus {
+                    network: chain.network.clone(),
                     block: BlockPointer {
-                        number: block.number.parse().ok()?,
-                        hash: block.hash.clone(),
+                        number: chain.latest_block.number.parse().ok()?,
+                        hash: chain.latest_block.hash.clone(),
                     },
-                    synced: status.synced,
-                    fatal_error: status.fatal_error,
                 };
                 Some((deployment, status))
             })
@@ -181,14 +183,13 @@ struct IndexerStatusResponse {
 #[serde(rename_all = "camelCase")]
 struct IndexingStatusResponse {
     subgraph: SubgraphDeploymentID,
-    synced: bool,
-    fatal_error: Option<String>,
     chains: Vec<ChainStatus>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ChainStatus {
+    network: String,
     latest_block: BlockStatus,
 }
 

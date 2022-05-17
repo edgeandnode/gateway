@@ -267,7 +267,9 @@ async fn run_simulation(
             latest: latest.number,
         });
         let indexer_writer = input_writers.indexers.write(&indexing.indexer).await;
-        indexer_writer.url.write(Arc::default());
+        indexer_writer
+            .url
+            .write(Arc::new("http://localhost".parse().unwrap()));
         indexer_writer.stake.write(data.stake);
         if let Some(special_weight) = data.special_weight {
             special_indexers.insert(indexing.indexer, special_weight.try_into().unwrap());
