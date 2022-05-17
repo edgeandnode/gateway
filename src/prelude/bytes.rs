@@ -84,9 +84,10 @@ impl FromStr for SubgraphID {
             // Attempt to decode v2 format: base58 of sha256 hash
             let mut hash = [0u8; 32];
             let len = bs58::decode(s).into(&mut hash).ok()?;
-            if len != hash.len() {
+            if len > hash.len() {
                 return None;
             }
+            hash.rotate_right(32 - len);
             Some(hash)
         }
         if let Some(v2) = parse_v2(s) {
