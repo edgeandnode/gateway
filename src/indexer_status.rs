@@ -6,7 +6,10 @@ use reqwest;
 use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tokio::{spawn, sync::Mutex};
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 use url::Url;
@@ -25,6 +28,7 @@ pub struct Actor {
     min_version: Version,
     geoip: Option<GeoIP>,
     dns_resolver: DNSResolver,
+    geoblocking_cache: HashMap<String, Result<(), String>>,
     indexings: EventualWriter<Ptr<HashMap<Indexing, IndexingStatus>>>,
 }
 
@@ -41,11 +45,12 @@ impl Actor {
             min_version,
             geoip,
             dns_resolver: DNSResolver::tokio_from_system_conf().unwrap(),
+            geoblocking_cache: HashMap::new(),
             indexings: indexings_tx,
         }));
         spawn(async move {
             // Joining this eventual with a timer is unnecessary, so long as the Ptr value is
-            // updated at regular intervals.
+            // updated at regular intervals. See 4e072dfe-5cb3-4f86-80f6-b64afeb9dcb2
             indexers
                 .pipe_async(move |indexers| {
                     let actor = actor.clone();
@@ -81,6 +86,18 @@ impl Actor {
                             }
                         }
                         actor.indexings.write(Ptr::new(indexings));
+
+                        // Remove unused entries from geoblocking cache.
+                        let urls = indexers
+                            .values()
+                            .map(|info| info.url.as_str())
+                            .collect::<HashSet<&str>>();
+                        let cache = actor
+                            .geoblocking_cache
+                            .drain()
+                            .filter(|(key, _)| urls.contains(key.as_str()))
+                            .collect();
+                        actor.geoblocking_cache = cache;
                     }
                 })
                 .forever();
@@ -90,20 +107,9 @@ impl Actor {
         }
     }
 
-    async fn check_compatibility(&self, indexer: &IndexerInfo) -> Result<(), String> {
-        // Apply geoblocking policy
-        if let Some(geoip) = &self.geoip {
-            let ips = self
-                .dns_resolver
-                .lookup_ip(indexer.url.as_str())
-                .await
-                .map_err(|err| err.to_string())?;
-            for ip in ips {
-                if geoip.is_ip_blocked(ip) {
-                    return Err(format!("Geoblocked({})", ip));
-                }
-            }
-        }
+    async fn check_compatibility(&mut self, indexer: &IndexerInfo) -> Result<(), String> {
+        self.apply_geoblocking(indexer).await?;
+
         // Check for indexer version
         let version_url = indexer.url.join("version").map_err(|err| err.to_string())?;
         let version = self
@@ -123,6 +129,37 @@ impl Actor {
         }
 
         Ok(())
+    }
+
+    async fn apply_geoblocking(&mut self, indexer: &IndexerInfo) -> Result<(), String> {
+        let geoip = match &self.geoip {
+            Some(geoip) => geoip,
+            None => return Ok(()),
+        };
+        let key = indexer.url.as_str();
+        if let Some(result) = self.geoblocking_cache.get(key) {
+            return result.clone();
+        }
+        async fn apply_geoblocking_inner(
+            dns_resolver: &DNSResolver,
+            geoip: &GeoIP,
+            indexer: &IndexerInfo,
+        ) -> Result<(), String> {
+            let ips = dns_resolver
+                .lookup_ip(indexer.url.as_str())
+                .await
+                .map_err(|err| err.to_string())?;
+            for ip in ips {
+                if geoip.is_ip_blocked(ip) {
+                    return Err(format!("Geoblocked({})", ip));
+                }
+            }
+            Ok(())
+        }
+        let result = apply_geoblocking_inner(&self.dns_resolver, geoip, indexer).await;
+        self.geoblocking_cache
+            .insert(key.to_string(), result.clone());
+        result
     }
 
     async fn query_status(

@@ -53,6 +53,7 @@ impl Client {
             indexers: indexers_tx,
             allocations: allocations_tx,
         }));
+        // 4e072dfe-5cb3-4f86-80f6-b64afeb9dcb2
         eventuals::timer(Duration::from_secs(30))
             .pipe_async(move |_| {
                 let client = client.clone();
