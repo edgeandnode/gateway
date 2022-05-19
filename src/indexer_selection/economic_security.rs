@@ -8,7 +8,7 @@ pub struct EconomicSecurity {
 
 pub struct NetworkParameters {
     pub slashing_percentage: Eventual<PPM>,
-    pub usd_to_grt_conversion: Eventual<USD>,
+    pub usd_to_grt_conversion: Eventual<GRT>,
 }
 
 impl NetworkParameters {

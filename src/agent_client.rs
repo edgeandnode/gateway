@@ -437,7 +437,7 @@ fn parse_api_keys(
 )]
 struct ConversionRates;
 
-fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Option<USD> {
+fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Option<GRT> {
     use conversion_rates::{ConversionRatesData, ConversionRatesDataValue};
     match data {
         conversion_rates::ResponseData {
@@ -445,14 +445,14 @@ fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Option<USD> {
                 Some(ConversionRatesData {
                     value:
                         ConversionRatesDataValue {
-                            grt_to_dai: Some(usd_per_grt),
+                            dai_to_grt: Some(grt_per_usd),
                             ..
                         },
                     ..
                 }),
         } => {
-            tracing::debug!(?usd_per_grt);
-            usd_per_grt.parse::<USD>().ok()
+            tracing::debug!(?grt_per_usd);
+            grt_per_usd.parse::<GRT>().ok()
         }
         _ => None,
     }
