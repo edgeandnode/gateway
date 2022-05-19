@@ -165,7 +165,7 @@ pub struct UtilityScores {
 
 pub struct Inputs {
     pub slashing_percentage: Eventual<PPM>,
-    pub usd_to_grt_conversion: Eventual<USD>,
+    pub usd_to_grt_conversion: Eventual<GRT>,
     pub indexers: SharedLookup<Address, IndexerDataReader>,
     pub indexings: SharedLookup<Indexing, SelectionFactors>,
     pub special_indexers: Eventual<HashMap<Address, NotNan<f64>>>,
@@ -173,7 +173,7 @@ pub struct Inputs {
 
 pub struct InputWriters {
     pub slashing_percentage: EventualWriter<PPM>,
-    pub usd_to_grt_conversion: EventualWriter<USD>,
+    pub usd_to_grt_conversion: EventualWriter<GRT>,
     pub indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
     pub indexings: SharedLookupWriter<Indexing, SelectionFactors, IndexingData>,
     pub special_indexers: EventualWriter<HashMap<Address, NotNan<f64>>>,
