@@ -31,9 +31,9 @@ fn budget(volume: f64, factors: &QueryBudgetFactors) -> f64 {
     const OFFSET: f64 = 500.0;
 
     // TODO: This is a temporary hack to avoid prices shooting up overnight.
-    // This should be removed after June 2.
+    // This should be removed after May 30.
     let start = Utc.ymd(2022, 5, 23);
-    let end = Utc.ymd(2022, 6, 2);
+    let end = Utc.ymd(2022, 5, 30);
     let min_scale = 0.2;
     let today = Utc::today();
     let scale = if (start <= today) && (today < end) && (factors.scale > min_scale) {
