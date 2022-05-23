@@ -1,6 +1,6 @@
-use std::time::Instant;
+use crate::prelude::*;
 #[cfg(test)]
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{cell::RefCell, rc::Rc};
 
 pub trait Clock {
     fn now(&self) -> Instant;
