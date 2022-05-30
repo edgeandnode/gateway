@@ -15,10 +15,8 @@
 // The magic values chosen were based off of 30 days hosted service volume taken on Feb 17, 2022
 // then tweaking until it looked like a fair distribution.
 
-use crate::{indexer_selection::decay::*, prelude::*};
-use chrono::{TimeZone as _, Utc};
-
 use super::clock::*;
+use crate::{indexer_selection::decay::*, prelude::*};
 
 #[derive(Clone)]
 pub struct QueryBudgetFactors {
@@ -29,21 +27,7 @@ pub struct QueryBudgetFactors {
 
 fn budget(volume: f64, factors: &QueryBudgetFactors) -> f64 {
     const OFFSET: f64 = 500.0;
-
-    // TODO: This is a temporary hack to avoid prices shooting up overnight.
-    // This should be removed after May 30.
-    let start = Utc.ymd(2022, 5, 23);
-    let end = Utc.ymd(2022, 5, 30);
-    let min_scale = 0.2;
-    let today = Utc::today();
-    let scale = if (start <= today) && (today < end) && (factors.scale > min_scale) {
-        let step = (factors.scale - min_scale) / (end - start).num_days() as f64;
-        min_scale + (step * (today - start).num_days() as f64)
-    } else {
-        factors.scale
-    };
-
-    scale / (volume * factors.processes + OFFSET).powf(factors.discount)
+    factors.scale / (volume * factors.processes + OFFSET).powf(factors.discount)
 }
 
 // For each bucket:
