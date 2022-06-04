@@ -3,7 +3,7 @@ use crate::{
     indexer_client::*,
     indexer_selection::{
         test_utils::{default_cost_model, TEST_KEY},
-        Allocations, IndexerError, IndexingStatus, SecretKey,
+        IndexerError, IndexingStatus, SecretKey,
     },
     kafka_client::{self, KafkaInterface},
     manifest_client::SubgraphInfo,
@@ -358,13 +358,13 @@ impl Topology {
             let fee = indexer.fee.as_udecimal(&[0.0, 0.1, 1.0, 2.0]);
             let indexing_writer = indexer_inputs.indexings.write(&indexing).await;
             indexing_writer
-                .update_allocations(Allocations::new(
+                .update_allocations(
                     SecretKey::from_str(TEST_KEY).unwrap(),
                     vec![(
                         Address::default(),
                         indexer.allocated_grt.as_udecimal(&stake_table),
                     )],
-                ))
+                )
                 .await;
             indexing_writer.cost_model.write(default_cost_model(fee));
             if let Some(latest) = network.blocks.last() {

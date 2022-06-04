@@ -23,9 +23,7 @@ use crate::{
     fisherman_client::*,
     geoip::GeoIP,
     indexer_client::IndexerClient,
-    indexer_selection::{
-        Allocations, IndexerDataReader, IndexerDataWriter, IndexingData, SelectionFactors,
-    },
+    indexer_selection::{IndexerDataReader, IndexerDataWriter, IndexingData, SelectionFactors},
     indexer_status::IndexingStatus,
     ipfs_client::*,
     kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
@@ -379,10 +377,11 @@ async fn write_indexer_inputs(
             .iter()
             .map(|(id, info)| (id.clone(), info.allocated_tokens.clone()))
             .collect::<Vec<(Address, GRT)>>();
-        let allocations = Allocations::new(signer_key.clone(), allocations);
 
         let writer = indexings.write(indexing).await;
-        writer.update_allocations(allocations).await;
+        writer
+            .update_allocations(signer_key.clone(), allocations)
+            .await;
         writer.status.write(indexer_selection::IndexingStatus {
             block: status.block.number,
             latest,

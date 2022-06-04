@@ -257,10 +257,10 @@ async fn run_simulation(
             .cost_model
             .write(default_cost_model(data.price));
         indexing_writer
-            .update_allocations(Allocations::new(
+            .update_allocations(
                 test_key.clone(),
                 vec![(Address::default(), data.allocation)],
-            ))
+            )
             .await;
         indexing_writer.status.write(IndexingStatus {
             block: latest.number - data.blocks_behind,

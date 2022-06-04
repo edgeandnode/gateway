@@ -1145,7 +1145,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_distr",
  "rdkafka",
- "receipts 0.1.0 (git+ssh://git@github.com/edgeandnode/receipts.git?rev=02d09da)",
+ "receipts 0.1.0 (git+ssh://git@github.com/edgeandnode/receipts.git?rev=94a3430)",
  "regex",
  "reqwest",
  "secp256k1 0.20.3",
@@ -2526,7 +2526,7 @@ dependencies = [
 [[package]]
 name = "receipts"
 version = "0.1.0"
-source = "git+ssh://git@github.com/edgeandnode/receipts.git?rev=02d09da#02d09da940368a12d230e7bda83a1d40c2633794"
+source = "git+ssh://git@github.com/edgeandnode/receipts.git?rev=94a3430#94a3430fdc9a3bd922932b5dd1b426a45af702eb"
 dependencies = [
  "byteorder",
  "itertools",

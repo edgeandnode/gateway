@@ -7,6 +7,7 @@ use crate::{
     prelude::*,
 };
 use eventuals::EventualExt;
+use secp256k1::SecretKey;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -65,10 +66,25 @@ impl Reader for SelectionFactors {
 }
 
 impl IndexingData {
-    pub async fn update_allocations(&self, allocations: Allocations) -> GRT {
+    pub async fn update_allocations(
+        &self,
+        signer: SecretKey,
+        new_allocations: Vec<(Address, GRT)>,
+    ) {
         let mut lock = self.locked.write().await;
-        lock.allocations = allocations;
-        lock.allocations.total_allocation
+        let allocations = &mut lock.allocations;
+        // Remove allocations not present in new_allocations
+        for old_allocation in allocations.allocation_ids() {
+            if new_allocations.iter().all(|(id, _)| &old_allocation != id) {
+                allocations.remove_allocation(&old_allocation);
+            }
+        }
+        // Add new_allocations not present in allocations
+        for (id, size) in new_allocations {
+            if !allocations.contains_allocation(&id) {
+                allocations.add_allocation(id, signer.clone(), size);
+            }
+        }
     }
 }
 
@@ -172,7 +188,7 @@ impl SelectionFactors {
 
     pub async fn total_allocation(&self) -> GRT {
         let lock = self.locked.read().await;
-        lock.allocations.total_allocation
+        lock.allocations.total_allocation()
     }
 
     pub async fn get_price(

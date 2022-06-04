@@ -1,11 +1,11 @@
 use crate::{indexer_selection::SecretKey, prelude::*};
 pub use receipts::{BorrowFail, PartialVoucher, QueryStatus, ReceiptPool, Voucher, VoucherError};
-use std::{fmt, ops::Deref};
+use std::{collections::HashMap, fmt, ops::Deref};
 
 #[derive(Default)]
 pub struct Allocations {
     receipts: ReceiptPool,
-    pub total_allocation: GRT,
+    pub allocations: HashMap<Address, GRT>,
 }
 
 #[derive(Clone)]
@@ -33,17 +33,33 @@ impl fmt::Debug for Receipt {
 }
 
 impl Allocations {
-    pub fn new(signer: SecretKey, allocations: Vec<(Address, GRT)>) -> Self {
-        let mut receipts = ReceiptPool::default();
-        let mut total_allocation = GRT::zero();
-        for (id, size) in allocations {
-            receipts.add_allocation(signer.clone(), *id);
-            total_allocation = total_allocation.saturating_add(size);
-        }
-        Self {
-            receipts,
-            total_allocation,
-        }
+    pub fn contains_allocation(&self, allocation_id: &Address) -> bool {
+        self.receipts.contains_allocation(allocation_id)
+    }
+
+    pub fn allocation_ids(&self) -> Vec<Address> {
+        self.receipts
+            .addresses()
+            .into_iter()
+            .map::<Address, _>(Into::into)
+            .collect()
+    }
+
+    pub fn add_allocation(&mut self, allocation_id: Address, secret: SecretKey, size: GRT) {
+        self.receipts.add_allocation(secret, *allocation_id);
+        self.allocations.insert(allocation_id, size);
+    }
+
+    pub fn remove_allocation(&mut self, allocation_id: &Address) {
+        self.receipts.remove_allocation(allocation_id);
+        self.allocations.remove(allocation_id);
+    }
+
+    pub fn total_allocation(&self) -> GRT {
+        self.allocations
+            .iter()
+            .map(|(_, size)| size)
+            .fold(GRT::zero(), |sum, size| sum + *size)
     }
 
     pub fn release(&mut self, receipt: &[u8], status: QueryStatus) {
