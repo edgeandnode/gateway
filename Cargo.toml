@@ -32,7 +32,7 @@ postgres-openssl = "0.5"
 primitive-types = "0.8"
 prometheus = { version = "0.13", default-features = false }
 rand = { version = "0.8", default-features = false }
-receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "94a3430" }
+receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "8d46a95" }
 reqwest = { version = "0.11", features = ["json", "trust-dns"] }
 secp256k1 = { version = "0.20", default-features = false }
 semver = "1.0"
