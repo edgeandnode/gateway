@@ -177,30 +177,23 @@ pub struct Config {
 #[derive(Clone)]
 pub struct Inputs {
     pub indexers: Arc<Indexers>,
-    pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
 }
 
 pub struct InputWriters {
     pub indexer_inputs: indexer_selection::InputWriters,
     pub indexers: Arc<Indexers>,
-    pub deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
 }
 
 impl Inputs {
     pub fn new() -> (InputWriters, Self) {
         let (indexer_input_writers, indexer_inputs) = Indexers::inputs();
         let indexers = Arc::new(Indexers::new(indexer_inputs));
-        let (deployment_indexers_writer, deployment_indexers) = Eventual::new();
         (
             InputWriters {
                 indexer_inputs: indexer_input_writers,
                 indexers: indexers.clone(),
-                deployment_indexers: deployment_indexers_writer,
             },
-            Inputs {
-                indexers,
-                deployment_indexers,
-            },
+            Inputs { indexers },
         )
     }
 }
@@ -232,11 +225,12 @@ where
         kafka_client: Arc<K>,
         fisherman_client: Option<Arc<F>>,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
+        deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
         inputs: Inputs,
     ) -> Self {
         Self {
             indexers: inputs.indexers,
-            deployment_indexers: inputs.deployment_indexers,
+            deployment_indexers,
             indexer_client,
             kafka_client,
             fisherman_client,

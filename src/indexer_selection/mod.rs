@@ -39,6 +39,7 @@ use prometheus;
 use rand::{thread_rng, Rng as _};
 pub use secp256k1::SecretKey;
 use std::{collections::HashMap, sync::Arc};
+use url::Url;
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
@@ -145,7 +146,7 @@ pub struct UtilityConfig {
 
 #[derive(Clone, Debug)]
 pub struct IndexerScore {
-    pub url: Arc<String>,
+    pub url: Arc<Url>,
     pub fee: GRT,
     pub slashable: USD,
     pub utility: NotNan<f64>,

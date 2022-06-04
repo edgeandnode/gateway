@@ -1,48 +1,29 @@
 use crate::{
-    block_resolver::BlockResolver,
     indexer_selection::{
-        self, CostModelSource, IndexerDataReader, IndexerDataWriter, IndexerPreferences, Indexing,
-        IndexingData, IndexingStatus, SecretKey, SelectionFactors,
+        CostModelSource, IndexerPreferences, Indexing, IndexingData, SelectionFactors,
     },
     prelude::{shared_lookup::SharedLookupWriter, *},
-    query_engine::{APIKey, InputWriters, VolumeEstimator},
+    query_engine::{APIKey, VolumeEstimator},
 };
 use eventuals::EventualExt as _;
 use graphql_client::{GraphQLQuery, Response};
 use lazy_static::lazy_static;
-use prometheus;
 use reqwest;
 use serde_json::{json, Value as JSON};
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use tokio::{sync::Mutex, time::sleep};
 use tracing::{self, Instrument};
 
 pub fn create(
     agent_url: String,
     poll_interval: Duration,
-    signer_key: SecretKey,
-    inputs: InputWriters,
-    block_resolvers: Arc<HashMap<String, BlockResolver>>,
+    slashing_percentage: EventualWriter<PPM>,
+    usd_to_grt_conversion: EventualWriter<USD>,
+    indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
     api_keys: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
     accept_empty: bool,
 ) -> &'static Metrics {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
-    let InputWriters {
-        indexer_inputs:
-            indexer_selection::InputWriters {
-                slashing_percentage,
-                usd_to_grt_conversion,
-                indexers,
-                indexings,
-                ..
-            },
-        deployment_indexers,
-        ..
-    } = inputs;
-    let indexings = Arc::new(Mutex::new(indexings));
 
     let mut api_key_usage = VolumeEstimations::new();
     create_sync_client::<APIKeys, _, _>(
@@ -80,42 +61,6 @@ pub fn create(
             cost_models::OPERATION_NAME,
             cost_models::QUERY,
             parse_cost_models,
-            accept_empty,
-        ),
-    );
-    handle_indexers(
-        indexers,
-        deployment_indexers,
-        create_sync_client_input::<Indexers, _>(
-            agent_url.clone(),
-            poll_interval,
-            indexers::OPERATION_NAME,
-            indexers::QUERY,
-            parse_indexers,
-            accept_empty,
-        ),
-    );
-    handle_indexing_statuses(
-        block_resolvers,
-        indexings.clone(),
-        create_sync_client_input::<IndexingStatuses, _>(
-            agent_url.clone(),
-            poll_interval,
-            indexing_statuses::OPERATION_NAME,
-            indexing_statuses::QUERY,
-            parse_indexing_statuses,
-            accept_empty,
-        ),
-    );
-    handle_allocations(
-        indexings.clone(),
-        signer_key,
-        create_sync_client_input::<UsableAllocations, _>(
-            agent_url.clone(),
-            poll_interval,
-            usable_allocations::OPERATION_NAME,
-            usable_allocations::QUERY,
-            parse_usable_allocations,
             accept_empty,
         ),
     );
@@ -500,98 +445,6 @@ fn parse_cost_models(
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "graphql/sync_agent_schema.gql",
-    query_path = "graphql/indexers.gql",
-    response_derives = "Debug"
-)]
-struct Indexers;
-
-#[derive(Clone, Eq, PartialEq)]
-struct ParsedIndexerInfo {
-    id: Address,
-    url: String,
-    staked: GRT,
-}
-
-fn parse_indexers(
-    data: indexers::ResponseData,
-) -> Option<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)>>> {
-    use indexers::{IndexersData, IndexersDataValue, ResponseData};
-    let value = match data {
-        ResponseData {
-            data: Some(IndexersData { value, .. }),
-        } => value,
-        _ => return None,
-    };
-    fn parse_value(
-        value: IndexersDataValue,
-    ) -> Option<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)> {
-        let deployment = SubgraphDeploymentID::from_ipfs_hash(&value.deployment)?;
-        let indexers = value
-            .indexers
-            .into_iter()
-            .filter_map(|indexer| {
-                Some(ParsedIndexerInfo {
-                    id: indexer.id.parse::<Address>().ok()?,
-                    // TODO: parse URL
-                    url: indexer.url.trim_end_matches('/').into(),
-                    staked: indexer.staked_tokens.parse().ok()?,
-                })
-            })
-            .collect();
-        Some((deployment, indexers))
-    }
-    Some(Ptr::new(
-        value.into_iter().filter_map(parse_value).collect(),
-    ))
-}
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "graphql/sync_agent_schema.gql",
-    query_path = "graphql/indexing_statuses.gql",
-    response_derives = "Debug"
-)]
-struct IndexingStatuses;
-
-#[derive(Clone, Eq, PartialEq)]
-struct ParsedIndexingStatus {
-    indexing: Indexing,
-    network: String,
-    block_number: Option<u64>,
-}
-
-fn parse_indexing_statuses(
-    data: indexing_statuses::ResponseData,
-) -> Option<Ptr<Vec<ParsedIndexingStatus>>> {
-    use indexing_statuses::{IndexingStatusesData, ResponseData};
-    let values = match data {
-        ResponseData {
-            data: Some(IndexingStatusesData { value, .. }),
-        } => value,
-        _ => return None,
-    };
-    let parsed = values
-        .into_iter()
-        .flat_map(|value| {
-            let deployment = SubgraphDeploymentID::from_ipfs_hash(&value.deployment);
-            value.statuses.into_iter().filter_map(move |status| {
-                Some(ParsedIndexingStatus {
-                    indexing: Indexing {
-                        deployment: deployment?,
-                        indexer: status.indexer.id.parse().ok()?,
-                    },
-                    network: status.network,
-                    block_number: status.block.map(|b| b.number as u64),
-                })
-            })
-        })
-        .collect();
-    Some(Ptr::new(parsed))
-}
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "graphql/sync_agent_schema.gql",
     query_path = "graphql/network_parameters.gql",
     response_derives = "Debug"
 )]
@@ -609,49 +462,6 @@ fn parse_network_parameters(data: network_parameters::ResponseData) -> Option<PP
         }
         _ => None,
     }
-}
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "graphql/sync_agent_schema.gql",
-    query_path = "graphql/usable_allocations.gql",
-    response_derives = "Debug"
-)]
-struct UsableAllocations;
-
-#[derive(Clone, Eq, PartialEq)]
-struct ParsedAllocation {
-    id: Address,
-    indexing: Indexing,
-    size: GRT,
-}
-
-fn parse_usable_allocations(
-    data: usable_allocations::ResponseData,
-) -> Option<Ptr<Vec<ParsedAllocation>>> {
-    use usable_allocations::{ResponseData, UsableAllocationsData};
-    let usable_allocations = match data {
-        ResponseData {
-            data: Some(UsableAllocationsData { value, .. }),
-        } => value,
-        _ => return None,
-    };
-    let parsed = usable_allocations
-        .into_iter()
-        .filter_map(|value| {
-            Some(ParsedAllocation {
-                id: value.id.parse().ok()?,
-                indexing: Indexing {
-                    deployment: SubgraphDeploymentID::from_ipfs_hash(
-                        &value.subgraph_deployment_id,
-                    )?,
-                    indexer: value.indexer.id.parse().ok()?,
-                },
-                size: value.allocated_tokens.parse().ok()?,
-            })
-        })
-        .collect();
-    Some(Ptr::new(parsed))
 }
 
 fn handle_cost_models(
@@ -674,167 +484,17 @@ fn handle_cost_models(
         .forever();
 }
 
-fn handle_indexers(
-    indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
-    mut deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
-    indexer_statuses: Eventual<Ptr<Vec<(SubgraphDeploymentID, Vec<ParsedIndexerInfo>)>>>,
-) {
-    let indexers = Arc::new(Mutex::new(indexers));
-    indexer_statuses
-        .pipe_async(move |indexer_statuses| {
-            let _span = tracing::info_span!("handle_indexers").entered();
-            tracing::trace!(indexed_deployments = %indexer_statuses.len());
-            deployment_indexers.write(Ptr::new(
-                indexer_statuses
-                    .iter()
-                    .map(|(deployment, indexer_statuses)| {
-                        tracing::trace!(?deployment, indexer_statuses = indexer_statuses.len(),);
-                        (
-                            deployment.clone(),
-                            indexer_statuses.iter().map(|status| status.id).collect(),
-                        )
-                    })
-                    .collect(),
-            ));
-            let statuses =
-                HashMap::<Address, ParsedIndexerInfo>::from_iter(indexer_statuses.iter().flat_map(
-                    |(_, statuses)| statuses.iter().cloned().map(|status| (status.id, status)),
-                ));
-            tracing::trace!(indexers = %statuses.len());
-            let indexers = indexers.clone();
-            async move {
-                let mut indexers = indexers.lock().await;
-                for (indexer, status) in statuses {
-                    let indexer = indexers.write(&indexer).await;
-                    indexer.url.write(Arc::new(status.url));
-                    indexer.stake.write(status.staked);
-                }
-            }
-        })
-        .forever();
-}
-
-fn handle_indexing_statuses(
-    block_resolvers: Arc<HashMap<String, BlockResolver>>,
-    indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
-    indexing_statuses: Eventual<Ptr<Vec<ParsedIndexingStatus>>>,
-) {
-    indexing_statuses
-        .pipe_async(move |indexing_statuses| {
-            let block_resolvers = block_resolvers.clone();
-            let indexings = indexings.clone();
-            async move {
-                tracing::trace!(indexing_statuses = %indexing_statuses.len());
-                let mut latest_blocks = HashMap::<String, u64>::new();
-                let mut indexings = indexings.lock().await;
-                for status in indexing_statuses.iter() {
-                    let latest = match latest_blocks.entry(status.network.clone()) {
-                        Entry::Occupied(entry) => *entry.get(),
-                        Entry::Vacant(entry) => *entry.insert(
-                            block_resolvers
-                                .get(&status.network)
-                                .and_then(|resolver| resolver.latest_block().map(|b| b.number))
-                                .unwrap_or(0),
-                        ),
-                    };
-                    indexings
-                        .write(&status.indexing)
-                        .await
-                        .status
-                        .write(IndexingStatus {
-                            block: status.block_number.unwrap_or(0),
-                            latest,
-                        });
-                }
-            }
-            .instrument(tracing::info_span!("handle_indexing_statuses"))
-        })
-        .forever();
-}
-
-fn handle_allocations(
-    indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
-    signer_key: SecretKey,
-    allocations: Eventual<Ptr<Vec<ParsedAllocation>>>,
-) {
-    let mut used_allocations = Ptr::<Vec<ParsedAllocation>>::default();
-    allocations
-        .pipe_async(move |allocations| {
-            let used_allocations = std::mem::replace(&mut used_allocations, allocations.clone());
-            let indexings = indexings.clone();
-            async move {
-                tracing::trace!(allocations = %allocations.len());
-                METRICS.allocations.set(allocations.len() as i64);
-                // Add new allocations.
-                let mut lock = indexings.lock().await;
-                for allocation in allocations.iter() {
-                    if used_allocations.iter().any(|t| t.id == allocation.id) {
-                        continue;
-                    }
-                    let writer = lock.write(&allocation.indexing).await;
-                    writer
-                        .add_allocation(allocation.id, signer_key, allocation.size)
-                        .await;
-                    let total_allocation = writer.total_allocation().await;
-                    drop(writer);
-                    with_metric(
-                        &METRICS.total_allocation,
-                        &[
-                            &allocation.indexing.deployment.to_string(),
-                            &allocation.indexing.indexer.to_string(),
-                        ],
-                        |g| g.set(total_allocation.as_f64()),
-                    );
-                }
-                // Remove old allocations.
-                for allocation in used_allocations.iter() {
-                    if allocations.iter().any(|t| t.id == allocation.id) {
-                        continue;
-                    }
-                    let writer = lock.write(&allocation.indexing).await;
-                    writer
-                        .remove_allocation(&allocation.id, allocation.size)
-                        .await;
-                    let total_allocation = writer.total_allocation().await;
-                    drop(writer);
-                    if total_allocation == GRT::zero() {
-                        lock.remove(&allocation.indexing).await;
-                    }
-                    with_metric(
-                        &METRICS.total_allocation,
-                        &[
-                            &allocation.indexing.deployment.to_string(),
-                            &allocation.indexing.indexer.to_string(),
-                        ],
-                        |g| g.set(total_allocation.as_f64()),
-                    );
-                }
-            }
-            .instrument(tracing::info_span!("handle_allocations"))
-        })
-        .forever();
-}
-
 #[derive(Clone)]
 pub struct Metrics {
-    pub allocations: prometheus::IntGauge,
     pub queries: ResponseMetricVecs,
-    pub total_allocation: prometheus::GaugeVec,
 }
 
 lazy_static! {
     static ref METRICS: Metrics = Metrics {
-        allocations: prometheus::register_int_gauge!("allocations", "Total allocations").unwrap(),
         queries: ResponseMetricVecs::new(
             "gateway_network_subgraph_client_queries",
             "network subgraph queries",
             &["tag"],
         ),
-        total_allocation: prometheus::register_gauge_vec!(
-            "total_allocation",
-            "Total total_allocation",
-            &["deployment", "indexer"],
-        )
-        .unwrap(),
     };
 }

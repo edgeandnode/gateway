@@ -14,7 +14,7 @@ actix-router = "=0.5.0-beta.4"
 async-trait = "0.1"
 bs58 = "0.4"
 cost-model = { git = "ssh://git@github.com/graphprotocol/agora.git", rev = "ae20442" }
-eventuals = "0.6"
+eventuals = "0.6.7"
 futures = "0.3"
 futures-util = "0.3"
 graphql-parser = { git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df" }
@@ -23,6 +23,7 @@ hdwallet = "0.3"
 hex = "0.4"
 im = "15.0" # Good vector implementation, CHAMP encoding should be added if we use a hash map/set
 lazy_static = "1.4"
+maxminddb = "0.23"
 num-traits = "0.2"
 openssl = "0.10"
 ordered-float = "3.0"
@@ -31,9 +32,10 @@ postgres-openssl = "0.5"
 primitive-types = "0.8"
 prometheus = { version = "0.13", default-features = false }
 rand = { version = "0.8", default-features = false }
-receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "02d09da" }
-reqwest = { version = "0.11", features = ["json"] }
+receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "8d46a95" }
+reqwest = { version = "0.11", features = ["json", "trust-dns"] }
 secp256k1 = { version = "0.20", default-features = false }
+semver = "1.0"
 serde = "1.0"
 serde_json = { version = "1.0", features = ["raw_value"] }
 serde_yaml = "0.8"
@@ -58,6 +60,7 @@ tracing-subscriber = { version = "0.3", features = [
   "parking_lot",
   "json",
 ] }
+trust-dns-resolver = { version = "0.21", features = ["dns-over-native-tls"] }
 url = "2.2"
 uuid = { version = "1.0", features = ["v4"] }
 rdkafka = { version = "0.28.0", features = [
@@ -69,7 +72,7 @@ rdkafka = { version = "0.28.0", features = [
 # core-foundation is added because it is a transitive dependency of plotters (through font-kit)
 # and the selected version (0.9.1) fails to build on MacOS
 core-foundation = "0.9.3"
-eventuals = { version = "0.6", features = ["trace"] }
+eventuals = { version = "0.6.7", features = ["trace"] }
 plotters = { version = "0.3", features = [
   "bitmap_encoder",
   "bitmap_gif",

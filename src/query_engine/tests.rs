@@ -331,7 +331,7 @@ impl Topology {
             .collect()
     }
 
-    async fn write_inputs(&mut self) {
+    async fn write_inputs(&mut self) -> Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>> {
         let indexings = self.indexings();
         let indexer_inputs = &mut self.inputs.indexer_inputs;
         indexer_inputs
@@ -343,12 +343,13 @@ impl Topology {
         let stake_table = [0.0, 50e3, 100e3, 150e3];
         for indexer in self.indexers.values() {
             let indexer_writer = indexer_inputs.indexers.write(&indexer.id).await;
-            indexer_writer.url.write(Arc::default());
+            indexer_writer
+                .url
+                .write(Arc::new("http://localhost".parse().unwrap()));
             indexer_writer
                 .stake
                 .write(indexer.staked_grt.as_udecimal(&stake_table));
         }
-        let test_key = SecretKey::from_str(TEST_KEY).unwrap();
         for (deployment, indexer, network) in indexings.iter() {
             let indexing = Indexing {
                 deployment: deployment.id,
@@ -357,10 +358,12 @@ impl Topology {
             let fee = indexer.fee.as_udecimal(&[0.0, 0.1, 1.0, 2.0]);
             let indexing_writer = indexer_inputs.indexings.write(&indexing).await;
             indexing_writer
-                .add_allocation(
-                    Address::default(),
-                    test_key.clone(),
-                    indexer.allocated_grt.as_udecimal(&stake_table),
+                .update_allocations(
+                    SecretKey::from_str(TEST_KEY).unwrap(),
+                    vec![(
+                        Address::default(),
+                        indexer.allocated_grt.as_udecimal(&stake_table),
+                    )],
                 )
                 .await;
             indexing_writer.cost_model.write(default_cost_model(fee));
@@ -371,7 +374,7 @@ impl Topology {
                 });
             }
         }
-        self.inputs.deployment_indexers.write(Ptr::new(
+        let deployment_indexers = Eventual::from_value(Ptr::new(
             self.deployments()
                 .iter()
                 .map(|deployment| {
@@ -381,6 +384,7 @@ impl Topology {
                 .collect(),
         ));
         eventuals::idle().await;
+        deployment_indexers
     }
 
     fn check_result(
@@ -667,6 +671,7 @@ async fn test() {
             &rng,
         )));
         let resolvers = topology.lock().await.resolvers();
+        let deployment_indexers = topology.lock().await.write_inputs().await;
         let query_engine = QueryEngine::new(
             Config {
                 indexer_selection_retry_limit: 3,
@@ -684,9 +689,9 @@ async fn test() {
                 topology: topology.clone(),
             })),
             resolvers,
+            deployment_indexers,
             inputs,
         );
-        topology.lock().await.write_inputs().await;
         for _ in 0..100 {
             let mut query = topology.lock().await.gen_query();
             let result = query_engine.execute_query(&mut query).await;

@@ -257,14 +257,19 @@ async fn run_simulation(
             .cost_model
             .write(default_cost_model(data.price));
         indexing_writer
-            .add_allocation(Address::default(), test_key.clone(), data.allocation)
+            .update_allocations(
+                test_key.clone(),
+                vec![(Address::default(), data.allocation)],
+            )
             .await;
         indexing_writer.status.write(IndexingStatus {
             block: latest.number - data.blocks_behind,
             latest: latest.number,
         });
         let indexer_writer = input_writers.indexers.write(&indexing.indexer).await;
-        indexer_writer.url.write(Arc::default());
+        indexer_writer
+            .url
+            .write(Arc::new("http://localhost".parse().unwrap()));
         indexer_writer.stake.write(data.stake);
         if let Some(special_weight) = data.special_weight {
             special_indexers.insert(indexing.indexer, special_weight.try_into().unwrap());

@@ -51,12 +51,14 @@ impl IndexerInterface for IndexerClient {
     async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, IndexerError> {
         let receipt = hex::encode(&query.receipt.commitment);
         let receipt = &receipt[0..(receipt.len() - 64)];
+        let url = query
+            .score
+            .url
+            .join(&format!("/subgraphs/id/{:?}", query.indexing.deployment))
+            .map_err(|err| IndexerError::Other(err.to_string()))?;
         let result = self
             .client
-            .post(format!(
-                "{}/subgraphs/id/{:?}",
-                query.score.url, query.indexing.deployment
-            ))
+            .post(url)
             .header("Content-Type", "application/json")
             .header("Scalar-Receipt", receipt)
             .body(query.query.clone())

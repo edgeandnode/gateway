@@ -2,8 +2,11 @@ mod agent_client;
 mod block_resolver;
 mod ethereum_client;
 mod fisherman_client;
+mod geoip;
+mod graphql;
 mod indexer_client;
 mod indexer_selection;
+mod indexer_status;
 mod ipfs_client;
 mod kafka_client;
 mod manifest_client;
@@ -18,12 +21,16 @@ mod ws_client;
 use crate::{
     block_resolver::{BlockCache, BlockResolver},
     fisherman_client::*,
+    geoip::GeoIP,
     indexer_client::IndexerClient,
+    indexer_selection::{IndexerDataReader, IndexerDataWriter, IndexingData, SelectionFactors},
+    indexer_status::IndexingStatus,
     ipfs_client::*,
     kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
     manifest_client::*,
+    network_subgraph::IndexerInfo,
     opt::*,
-    prelude::*,
+    prelude::{shared_lookup::SharedLookupWriter, *},
     query_engine::*,
     rate_limiter::*,
 };
@@ -35,12 +42,19 @@ use actix_web::{
 };
 use eventuals::EventualExt;
 use lazy_static::lazy_static;
+use network_subgraph::AllocationInfo;
 use prometheus::{self, Encoder as _};
 use reqwest;
+use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
-use std::{collections::HashMap, sync::Arc, time::SystemTime};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+    time::SystemTime,
+};
 use structopt::StructOpt as _;
+use tokio::sync::Mutex;
 use url::Url;
 
 #[actix_web::main]
@@ -76,6 +90,11 @@ async fn main() {
         })
         .forever();
 
+    let geoip = opt
+        .geoip_database
+        .filter(|_| !opt.geoip_blocked_countries.is_empty())
+        .map(|db| GeoIP::new(db, opt.geoip_blocked_countries).unwrap());
+
     let stats_db = match stats_db::create(
         &opt.stats_db_host,
         opt.stats_db_port,
@@ -107,13 +126,25 @@ async fn main() {
     let block_resolvers = Arc::new(block_resolvers);
     let signer_key = opt.signer_key.0;
     let (api_keys_writer, api_keys) = Eventual::new();
-    // TODO: argument for timeout
+    let InputWriters {
+        indexer_inputs:
+            indexer_selection::InputWriters {
+                slashing_percentage,
+                usd_to_grt_conversion,
+                indexers,
+                indexings,
+                ..
+            },
+        ..
+    } = input_writers;
+    let indexers = Arc::new(Mutex::new(indexers));
+    let indexings = Arc::new(Mutex::new(indexings));
     let sync_metrics = agent_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
-        signer_key.clone(),
-        input_writers,
-        block_resolvers.clone(),
+        slashing_percentage,
+        usd_to_grt_conversion,
+        indexings.clone(),
         api_keys_writer,
         opt.sync_agent_accept_empty,
     );
@@ -122,7 +153,46 @@ async fn main() {
         .build()
         .unwrap();
     let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
-    let deployment_ids = inputs
+    let network_subgraph_data =
+        network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
+
+    let indexer_status_data = indexer_status::Actor::create(
+        http_client.clone(),
+        opt.min_indexer_version,
+        geoip,
+        network_subgraph_data.indexers.clone(),
+    );
+    {
+        let block_resolvers = block_resolvers.clone();
+        eventuals::join((
+            network_subgraph_data.allocations,
+            network_subgraph_data.indexers,
+            indexer_status_data.indexings,
+        ))
+        .pipe_async(move |(allocations, indexer_info, indexing_statuses)| {
+            let signer_key = signer_key.clone();
+            let block_resolvers = block_resolvers.clone();
+            let indexers = indexers.clone();
+            let indexings = indexings.clone();
+            async move {
+                let mut indexers = indexers.lock().await;
+                let mut indexings = indexings.lock().await;
+                write_indexer_inputs(
+                    signer_key,
+                    &block_resolvers,
+                    &mut indexers,
+                    &mut indexings,
+                    &allocations,
+                    &indexer_info,
+                    &indexing_statuses,
+                )
+                .await;
+            }
+        })
+        .forever();
+    }
+
+    let deployment_ids = network_subgraph_data
         .deployment_indexers
         .clone()
         .map(|deployments| async move { deployments.keys().cloned().collect() });
@@ -131,8 +201,6 @@ async fn main() {
     let fisherman_client = opt
         .fisherman
         .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
-    let network_subgraph_data =
-        network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
     let subgraph_query_data = SubgraphQueryData {
         config: query_engine::Config {
             indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
@@ -148,6 +216,7 @@ async fn main() {
         block_resolvers: block_resolvers.clone(),
         subgraph_info,
         current_deployments: network_subgraph_data.current_deployments,
+        deployment_indexers: network_subgraph_data.deployment_indexers,
         inputs: inputs.clone(),
         api_keys,
         stats_db,
@@ -271,6 +340,57 @@ fn request_host(request: &ServiceRequest) -> String {
         .to_string()
 }
 
+async fn write_indexer_inputs(
+    signer_key: SecretKey,
+    block_resolvers: &HashMap<String, BlockResolver>,
+    indexers: &mut SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
+    indexings: &mut SharedLookupWriter<Indexing, SelectionFactors, IndexingData>,
+    allocations: &HashMap<Address, AllocationInfo>,
+    indexer_info: &HashMap<Address, IndexerInfo>,
+    indexing_statuses: &HashMap<Indexing, IndexingStatus>,
+) {
+    tracing::info!(
+        allocations = allocations.len(),
+        indexers = indexer_info.len(),
+        indexing_statuses = indexing_statuses.len(),
+    );
+
+    for (indexer, info) in indexer_info {
+        let writer = indexers.write(indexer).await;
+        writer.url.write(Arc::new(info.url.clone()));
+        writer.stake.write(info.staked_tokens);
+    }
+
+    let mut latest_blocks = HashMap::<String, u64>::new();
+    for (indexing, status) in indexing_statuses {
+        let latest = match latest_blocks.entry(status.network.clone()) {
+            Entry::Occupied(entry) => *entry.get(),
+            Entry::Vacant(entry) => *entry.insert(
+                block_resolvers
+                    .get(&status.network)
+                    .and_then(|resolver| resolver.latest_block().map(|b| b.number))
+                    .unwrap_or(0),
+            ),
+        };
+
+        let allocations = allocations
+            .iter()
+            .map(|(id, info)| (id.clone(), info.allocated_tokens.clone()))
+            .collect::<Vec<(Address, GRT)>>();
+
+        let writer = indexings.write(indexing).await;
+        writer
+            .update_allocations(signer_key.clone(), allocations)
+            .await;
+        writer.status.write(indexer_selection::IndexingStatus {
+            block: status.block.number,
+            latest,
+        });
+    }
+
+    METRICS.allocations.set(allocations.len() as i64);
+}
+
 #[tracing::instrument]
 async fn handle_metrics() -> HttpResponse {
     let encoder = prometheus::TextEncoder::new();
@@ -285,14 +405,11 @@ async fn handle_metrics() -> HttpResponse {
 }
 
 #[tracing::instrument(skip(data))]
-async fn handle_ready(
-    data: web::Data<(Arc<HashMap<String, BlockResolver>>, agent_client::Metrics)>,
-) -> HttpResponse {
+async fn handle_ready(data: web::Data<Arc<HashMap<String, BlockResolver>>>) -> HttpResponse {
     let ready = data
-        .0
         .iter()
         .all(|(_, resolver)| resolver.latest_block().is_some())
-        && (data.1.allocations.get() > 0);
+        && (METRICS.allocations.get() > 0);
     if ready {
         HttpResponseBuilder::new(StatusCode::OK).body("Ready")
     } else {
@@ -357,6 +474,7 @@ struct SubgraphQueryData {
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     subgraph_info: SubgraphInfoMap,
     current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
+    deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
@@ -455,6 +573,7 @@ async fn handle_subgraph_query_inner(
         data.kafka_client.clone(),
         data.fisherman_client.clone(),
         data.block_resolvers.clone(),
+        data.deployment_indexers.clone(),
         data.inputs.clone(),
     );
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();
@@ -640,6 +759,7 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
 
 #[derive(Clone)]
 struct Metrics {
+    allocations: prometheus::IntGauge,
     network_subgraph_queries: ResponseMetrics,
     query_result_size: prometheus::HistogramVec,
     queries_unauthorized_deployment: prometheus::IntCounterVec,
@@ -654,6 +774,11 @@ lazy_static! {
 impl Metrics {
     fn new() -> Self {
         Self {
+            allocations: prometheus::register_int_gauge!(
+                "total_allocations",
+                "Total allocation count"
+            )
+            .unwrap(),
             network_subgraph_queries: ResponseMetrics::new(
                 "gateway_network_subgraph_query",
                 "network subgraph queries",

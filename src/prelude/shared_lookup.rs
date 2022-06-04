@@ -57,9 +57,4 @@ where
             }
         }
     }
-
-    pub async fn remove(&mut self, key: &K) {
-        self.writers.remove(key);
-        self.readers.write().await.remove(key);
-    }
 }
