@@ -54,7 +54,7 @@ tokio = { version = "1.14.0", features = [
 ] }
 tokio-postgres = { version = "0.7", features = ["runtime"] }
 tokio-tungstenite = { version = "0.17", features = ["native-tls"] }
-tracing = { version = "0.1", default-features = false }
+tracing = { version = "0.1", default-features = false, features = ["attributes"] }
 tracing-subscriber = { version = "0.3", features = [
   "env-filter",
   "parking_lot",
