@@ -101,6 +101,16 @@ impl Client {
         let mut indexers = HashMap::<Address, IndexerInfo>::new();
         let mut allocations = HashMap::<Address, AllocationInfo>::new();
         for allocation in &response {
+            let url = match allocation
+                .indexer
+                .url
+                .as_ref()
+                .and_then(|url| url.parse::<Url>().ok())
+            {
+                Some(url) => url,
+                None => continue,
+            };
+
             match deployment_indexers.entry(allocation.subgraph_deployment.id.clone()) {
                 Entry::Occupied(mut entry) => entry.get_mut().push(allocation.indexer.id),
                 Entry::Vacant(entry) => {
@@ -110,11 +120,7 @@ impl Client {
             indexers.insert(
                 allocation.indexer.id.clone(),
                 IndexerInfo {
-                    url: allocation
-                        .indexer
-                        .url
-                        .parse::<Url>()
-                        .map_err(|err| err.to_string())?,
+                    url,
                     staked_tokens: allocation.indexer.staked_tokens.shift(),
                     delegated_tokens: allocation.indexer.delegated_tokens.shift(),
                 },
@@ -249,7 +255,7 @@ struct Allocation {
 #[serde(rename_all = "camelCase")]
 struct Indexer {
     id: Address,
-    url: String,
+    url: Option<String>,
     staked_tokens: GRTWei,
     delegated_tokens: GRTWei,
 }
