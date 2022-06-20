@@ -9,10 +9,11 @@ use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
+    net::IpAddr
 };
 use tokio::{spawn, sync::Mutex};
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
-use url::Url;
+use url::{Url, Host};
 
 pub struct Data {
     pub indexings: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
@@ -145,10 +146,15 @@ impl Actor {
             geoip: &GeoIP,
             indexer: &IndexerInfo,
         ) -> Result<(), String> {
-            let ips = dns_resolver
-                .lookup_ip(indexer.url.as_str())
+            let host = indexer.url.host().ok_or_else(|| "host missing in URL".to_string())?;
+            let ips = match host {
+                Host::Ipv4(ip) => vec![IpAddr::V4(ip)],
+                Host::Ipv6(ip) => vec![IpAddr::V6(ip)],
+                Host::Domain(domain) => dns_resolver
+                .lookup_ip(domain)
                 .await
-                .map_err(|err| err.to_string())?;
+                .map_err(|err| err.to_string())?.into_iter().collect()
+            };
             for ip in ips {
                 if geoip.is_ip_blocked(ip) {
                     return Err(format!("Geoblocked({})", ip));
