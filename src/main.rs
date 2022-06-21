@@ -157,7 +157,6 @@ async fn main() {
         network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
 
     let indexer_status_data = indexer_status::Actor::create(
-        http_client.clone(),
         opt.min_indexer_version,
         geoip,
         network_subgraph_data.indexers.clone(),

@@ -17,6 +17,7 @@ pub struct Data {
     pub allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
 }
 
+#[derive(Clone)]
 pub struct IndexerInfo {
     pub url: Url,
     pub staked_tokens: GRT,
