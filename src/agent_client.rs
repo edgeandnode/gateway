@@ -22,7 +22,7 @@ pub fn create(
     indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
     api_keys: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
     accept_empty: bool,
-) -> &'static Metrics {
+) {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
 
     let mut api_key_usage = VolumeEstimations::new();
@@ -64,7 +64,6 @@ pub fn create(
             accept_empty,
         ),
     );
-    &METRICS
 }
 
 fn create_sync_client_input<Q, T>(

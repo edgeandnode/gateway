@@ -139,7 +139,7 @@ async fn main() {
     } = input_writers;
     let indexers = Arc::new(Mutex::new(indexers));
     let indexings = Arc::new(Mutex::new(indexings));
-    let sync_metrics = agent_client::create(
+    agent_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
         slashing_percentage,
@@ -283,10 +283,7 @@ async fn main() {
             .route("/", web::get().to(|| async { "Ready to roll!" }))
             .service(
                 web::resource("/ready")
-                    .app_data(web::Data::new((
-                        block_resolvers.clone(),
-                        sync_metrics.clone(),
-                    )))
+                    .app_data(web::Data::new(block_resolvers.clone()))
                     .route(web::get().to(handle_ready)),
             )
             .service(
@@ -404,7 +401,6 @@ async fn handle_metrics() -> HttpResponse {
     HttpResponseBuilder::new(StatusCode::OK).body(buffer)
 }
 
-#[tracing::instrument(skip(data))]
 async fn handle_ready(data: web::Data<Arc<HashMap<String, BlockResolver>>>) -> HttpResponse {
     let ready = data
         .iter()
