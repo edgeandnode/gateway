@@ -372,6 +372,7 @@ async fn write_indexer_inputs(
 
         let allocations = allocations
             .iter()
+            .filter(|(_, info)| &info.indexing == indexing)
             .map(|(id, info)| (id.clone(), info.allocated_tokens.clone()))
             .collect::<Vec<(Address, GRT)>>();
 

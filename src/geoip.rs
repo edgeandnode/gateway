@@ -23,7 +23,7 @@ impl GeoIP {
         let country = match self.reader.lookup::<geoip2::Country>(address) {
             Ok(country) => country,
             Err(geoip_lookup_err) => {
-                tracing::error!(%geoip_lookup_err);
+                tracing::error!(geoip_lookup_err = %format!("{geoip_lookup_err} ({address})"));
                 return false;
             }
         };
