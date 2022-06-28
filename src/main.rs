@@ -590,6 +590,7 @@ async fn handle_subgraph_query_inner(
                 .into(),
         );
     }
+
     let domain = request
         .headers()
         .get(header::ORIGIN)
@@ -597,15 +598,12 @@ async fn handle_subgraph_query_inner(
         .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
     tracing::debug!(%domain, authorized = ?api_key.domains);
-    if !api_key.domains.is_empty()
-        && !api_key
-            .domains
-            .iter()
-            .any(|(authorized, _)| domain.starts_with(authorized))
-    {
+    let authorized_domains = api_key.domains.iter().map(|(d, _)| d.as_str());
+    if !api_key.domains.is_empty() && !is_domain_authorized(authorized_domains, &domain) {
         with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
         return Err("Domain not authorized by API key".into());
     }
+
     let deployment = &query.subgraph.as_ref().unwrap().deployment.clone();
     if !api_key.deployments.is_empty() && !api_key.deployments.contains(&deployment) {
         with_metric(
@@ -670,6 +668,14 @@ fn timestamp() -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64
+}
+
+fn is_domain_authorized<'a>(authorized: impl IntoIterator<Item = &'a str>, origin: &str) -> bool {
+    authorized.into_iter().any(|authorized| {
+        let pattern = authorized.split('.').rev();
+        let origin = origin.split('.').rev();
+        pattern.zip(origin).all(|(p, o)| p == o)
+    })
 }
 
 fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result<String, String>) {
@@ -802,6 +808,32 @@ impl Metrics {
                 "Queries made against an unknown API key",
             )
             .unwrap(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::is_domain_authorized;
+
+    #[test]
+    fn authorized_domains() {
+        let authorized_domains = ["example.com", "localhost", "a.b.c"];
+        let tests = [
+            ("", false),
+            ("example.com", true),
+            ("subdomain.example.com", true),
+            ("localhost", true),
+            ("badhost", false),
+            ("a.b.c", true),
+            ("b.c", true),
+            ("d.b.c", false),
+            ("c", true),
+            ("a", false),
+            ("a.b", false),
+        ];
+        for (input, expected) in tests {
+            assert_eq!(expected, is_domain_authorized(authorized_domains, input));
         }
     }
 }
