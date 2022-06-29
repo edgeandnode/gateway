@@ -675,7 +675,7 @@ fn is_domain_authorized<'a>(authorized: impl IntoIterator<Item = &'a str>, origi
         let pattern = authorized.split('.');
         let origin = origin.split('.');
         let count = pattern.clone().count();
-        if (count < 1) || (count > 3) || (origin.clone().count() != count) {
+        if (count < 1) || (origin.clone().count() != count) {
             return false;
         }
         pattern.zip(origin).all(|(p, o)| (p == o) || (p == "*"))
