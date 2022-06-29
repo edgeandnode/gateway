@@ -672,9 +672,13 @@ fn timestamp() -> u64 {
 
 fn is_domain_authorized<'a>(authorized: impl IntoIterator<Item = &'a str>, origin: &str) -> bool {
     authorized.into_iter().any(|authorized| {
-        let pattern = authorized.split('.').rev();
-        let origin = origin.split('.').rev();
-        pattern.zip(origin).all(|(p, o)| p == o)
+        let pattern = authorized.split('.');
+        let origin = origin.split('.');
+        let count = pattern.clone().count();
+        if (count < 1) || (origin.clone().count() != count) {
+            return false;
+        }
+        pattern.zip(origin).all(|(p, o)| (p == o) || (p == "*"))
     })
 }
 
@@ -818,19 +822,22 @@ mod test {
 
     #[test]
     fn authorized_domains() {
-        let authorized_domains = ["example.com", "localhost", "a.b.c"];
+        let authorized_domains = ["example.com", "localhost", "a.b.c", "*.d.e"];
         let tests = [
             ("", false),
             ("example.com", true),
-            ("subdomain.example.com", true),
+            ("subdomain.example.com", false),
             ("localhost", true),
             ("badhost", false),
             ("a.b.c", true),
-            ("b.c", true),
+            ("c", false),
+            ("b.c", false),
             ("d.b.c", false),
-            ("c", true),
             ("a", false),
             ("a.b", false),
+            ("e", false),
+            ("d.e", false),
+            ("z.d.e", true),
         ];
         for (input, expected) in tests {
             assert_eq!(expected, is_domain_authorized(authorized_domains, input));
