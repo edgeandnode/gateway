@@ -181,8 +181,8 @@ impl Actor {
         url: Url,
         indexer: &Address,
     ) -> Result<Vec<(Indexing, IndexingStatus)>, String> {
-        let url = url.join("status").map_err(|err| err.to_string())?;
-        let query = r#"{
+        let status_url = url.join("status").map_err(|err| err.to_string())?;
+        let status_query = json!({ "query": r#"{
             indexingStatuses(subgraphs: []) {
                 subgraph
                 chains {
@@ -190,21 +190,38 @@ impl Actor {
                     ... on EthereumIndexingStatus { latestBlock { number hash } }
                 }
             }
-        }"#;
-        let response =
-            graphql::query::<IndexerStatusResponse, _>(client, url, &json!({ "query": query }))
-                .await?;
-        let response = response.data.ok_or_else(|| {
-            response
-                .errors
-                .unwrap_or_default()
-                .into_iter()
-                .map(|err| err.message)
-                .collect::<Vec<String>>()
-                .join(", ")
-        })?;
-        Ok(response
-            .indexing_statuses
+        }"# });
+        let statuses =
+            graphql::query::<IndexerStatusResponse, _>(client, status_url, &status_query)
+                .await?
+                .unpack()?
+                .indexing_statuses;
+
+        let cost_url = url.join("cost").map_err(|err| err.to_string())?;
+        let deployments = statuses
+            .iter()
+            .map(|stat| stat.subgraph.to_string())
+            .collect::<Vec<String>>();
+        let cost_query = json!({
+            "query": r#"query costModels($deployments: [String!]!) {
+                costModels(deployments: $deployments) {
+                    deployment
+                    model
+                    variables
+                }
+            }"#,
+            "variables": { "deployments": deployments },
+        });
+        let cost_models = graphql::query::<CostModelResponse, _>(client, cost_url, &cost_query)
+            .await
+            .and_then(graphql::Response::unpack)
+            .map(|cost_models| cost_models.cost_models)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|model| (model.deployment, model))
+            .collect::<HashMap<SubgraphDeploymentID, CostModel>>();
+
+        Ok(statuses
             .into_iter()
             .filter_map(|status| {
                 let indexing = Indexing {
@@ -243,6 +260,20 @@ struct IndexingStatusResponse {
 struct ChainStatus {
     network: String,
     latest_block: BlockStatus,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CostModelResponse {
+    cost_models: Vec<CostModel>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CostModel {
+    deployment: SubgraphDeploymentID,
+    model: String,
+    variables: Option<String>,
 }
 
 #[derive(Deserialize)]

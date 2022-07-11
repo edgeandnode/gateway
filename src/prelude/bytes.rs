@@ -119,6 +119,10 @@ impl fmt::Display for InvalidSubgraphID {
 }
 
 impl SubgraphDeploymentID {
+    pub fn from_hex(hex: &str) -> Option<Self> {
+        Bytes32::from_str(hex).ok().map(|bytes| Self(bytes.0))
+    }
+
     pub fn from_ipfs_hash(hash: &str) -> Option<Self> {
         let mut decoded = [0u8; 34];
         bs58::decode(hash).into(&mut decoded).ok()?;
@@ -133,9 +137,13 @@ impl SubgraphDeploymentID {
 }
 
 impl FromStr for SubgraphDeploymentID {
-    type Err = InvalidIPFSHash;
+    type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_ipfs_hash(s).ok_or(InvalidIPFSHash)
+        if s.starts_with("0x") {
+            Self::from_hex(s).ok_or("InvalidSubgraphDeploymentHex")
+        } else {
+            Self::from_ipfs_hash(s).ok_or("InvalidIPFSHash")
+        }
     }
 }
 

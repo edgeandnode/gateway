@@ -46,7 +46,7 @@ where
     K: Clone + Eq + Hash,
     R: Reader<Writer = W>,
 {
-    pub async fn write(&mut self, key: &K) -> &mut W {
+    pub async fn write<'a>(&'a mut self, key: &'a K) -> &'a mut W {
         match self.writers.entry(key.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(v) => {
