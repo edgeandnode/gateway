@@ -24,7 +24,7 @@ pub struct Data {
 pub struct IndexingStatus {
     pub network: String,
     pub block: BlockPointer,
-    pub cost_model: Option<Arc<CostModel>>,
+    pub cost_model: Option<Ptr<CostModel>>,
 }
 
 pub struct Actor {
@@ -32,7 +32,7 @@ pub struct Actor {
     geoip: Option<GeoIP>,
     dns_resolver: DNSResolver,
     geoblocking_cache: HashMap<String, Result<(), String>>,
-    cost_model_cache: HashMap<CostModelSource, Result<Arc<CostModel>, String>>,
+    cost_model_cache: HashMap<CostModelSource, Result<Ptr<CostModel>, String>>,
     indexings: EventualWriter<Ptr<HashMap<Indexing, IndexingStatus>>>,
 }
 
@@ -242,7 +242,7 @@ impl Actor {
                 };
                 Some((src.deployment, cost_model))
             })
-            .collect::<HashMap<SubgraphDeploymentID, Arc<CostModel>>>();
+            .collect::<HashMap<SubgraphDeploymentID, Ptr<CostModel>>>();
         drop(actor);
 
         Ok(statuses
@@ -271,7 +271,7 @@ impl Actor {
         &mut self,
         model: String,
         variables: Option<String>,
-    ) -> Result<Arc<CostModel>, String> {
+    ) -> Result<Ptr<CostModel>, String> {
         // TODO: This cache should have an eviction strategy.
         let src = CostModelSource {
             model,
@@ -282,7 +282,7 @@ impl Actor {
             Entry::Vacant(entry) => {
                 let src = entry.key();
                 let result = CostModel::compile(&src.model, &src.variables)
-                    .map(Arc::new)
+                    .map(Ptr::new)
                     .map_err(|err| err.to_string());
                 entry.insert(result.clone());
                 result

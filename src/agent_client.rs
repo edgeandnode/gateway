@@ -1,11 +1,8 @@
 use crate::{
-    indexer_selection::{
-        CostModelSource, IndexerPreferences, Indexing, IndexingData, SelectionFactors,
-    },
-    prelude::{shared_lookup::SharedLookupWriter, *},
+    indexer_selection::IndexerPreferences,
+    prelude::*,
     query_engine::{APIKey, VolumeEstimator},
 };
-use eventuals::EventualExt as _;
 use graphql_client::{GraphQLQuery, Response};
 use lazy_static::lazy_static;
 use reqwest;
@@ -19,7 +16,6 @@ pub fn create(
     poll_interval: Duration,
     slashing_percentage: EventualWriter<PPM>,
     usd_to_grt_conversion: EventualWriter<USD>,
-    indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
     api_keys: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
     accept_empty: bool,
 ) {
@@ -53,43 +49,6 @@ pub fn create(
         slashing_percentage,
         accept_empty,
     );
-    handle_cost_models(
-        indexings.clone(),
-        create_sync_client_input::<CostModels, _>(
-            agent_url.clone(),
-            poll_interval,
-            cost_models::OPERATION_NAME,
-            cost_models::QUERY,
-            parse_cost_models,
-            accept_empty,
-        ),
-    );
-}
-
-fn create_sync_client_input<Q, T>(
-    agent_url: String,
-    poll_interval: Duration,
-    operation: &'static str,
-    query: &'static str,
-    parse_data: fn(Q::ResponseData) -> Option<T>,
-    accept_empty: bool,
-) -> Eventual<T>
-where
-    T: 'static + Clone + Eq + Send,
-    Q: GraphQLQuery,
-    Q::ResponseData: 'static,
-{
-    let (writer, reader) = Eventual::new();
-    create_sync_client::<Q, T, _>(
-        agent_url,
-        poll_interval,
-        operation,
-        query,
-        parse_data,
-        writer,
-        accept_empty,
-    );
-    reader
 }
 
 fn create_sync_client<Q, T, F>(
@@ -405,45 +364,6 @@ fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Option<GRT> {
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "graphql/sync_agent_schema.gql",
-    query_path = "graphql/cost_models.gql",
-    response_derives = "Debug"
-)]
-struct CostModels;
-
-fn parse_cost_models(
-    data: cost_models::ResponseData,
-) -> Option<Ptr<Vec<(Indexing, CostModelSource)>>> {
-    use cost_models::{CostModelsData, ResponseData};
-    let values = match data {
-        ResponseData {
-            data: Some(CostModelsData { value, .. }),
-        } => value,
-        _ => return None,
-    };
-    let parsed = values
-        .into_iter()
-        .flat_map(|value| {
-            let deployment = SubgraphDeploymentID::from_ipfs_hash(&value.deployment);
-            value.cost_models.into_iter().filter_map(move |model| {
-                Some((
-                    Indexing {
-                        deployment: deployment?,
-                        indexer: model.indexer.id.parse().ok()?,
-                    },
-                    CostModelSource {
-                        model: model.model?,
-                        globals: model.variables.unwrap_or_default(),
-                    },
-                ))
-            })
-        })
-        .collect();
-    Some(Ptr::new(parsed))
-}
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "graphql/sync_agent_schema.gql",
     query_path = "graphql/network_parameters.gql",
     response_derives = "Debug"
 )]
@@ -461,26 +381,6 @@ fn parse_network_parameters(data: network_parameters::ResponseData) -> Option<PP
         }
         _ => None,
     }
-}
-
-fn handle_cost_models(
-    indexings: Arc<Mutex<SharedLookupWriter<Indexing, SelectionFactors, IndexingData>>>,
-    cost_models: Eventual<Ptr<Vec<(Indexing, CostModelSource)>>>,
-) {
-    cost_models
-        .pipe_async(move |cost_models| {
-            let indexings = indexings.clone();
-            async move {
-                tracing::trace!(cost_models = %cost_models.len());
-                let mut locked = indexings.lock().await;
-                for (indexing, model) in cost_models.iter() {
-                    let writer = locked.write(&indexing).await;
-                    writer.cost_model.write(model.clone());
-                }
-            }
-            .instrument(tracing::info_span!("handle_cost_models"))
-        })
-        .forever();
 }
 
 #[derive(Clone)]

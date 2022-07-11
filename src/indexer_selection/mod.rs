@@ -19,7 +19,6 @@ pub use crate::indexer_selection::{
     allocations::{Allocations, QueryStatus, Receipt},
     block_requirements::BlockRequirements,
     indexers::{IndexerDataReader, IndexerDataWriter},
-    price_efficiency::CostModelSource,
     selection_factors::{IndexingData, IndexingStatus, SelectionFactors},
 };
 use crate::{
@@ -32,6 +31,7 @@ use crate::{
     },
 };
 use cost_model;
+pub use cost_model::CostModel;
 use lazy_static::lazy_static;
 use num_traits::identities::Zero as _;
 pub use ordered_float::NotNan;
@@ -84,7 +84,6 @@ pub enum BadIndexerReason {
     MissingIndexerStake,
     BehindMinimumBlock,
     MissingIndexingStatus,
-    MissingCostModel,
     QueryNotCosted,
     FeeTooHigh,
     NaN,

@@ -6,13 +6,14 @@ use crate::{
     },
     prelude::*,
 };
+use cost_model::CostModel;
 use eventuals::EventualExt;
 use secp256k1::SecretKey;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub struct SelectionFactors {
-    price_efficiency: PriceEfficiency,
+    pub status: Eventual<IndexingStatus>,
     locked: Arc<RwLock<LockedState>>,
 }
 
@@ -25,13 +26,13 @@ struct LockedState {
 }
 
 pub struct IndexingData {
-    pub cost_model: EventualWriter<CostModelSource>,
     pub status: EventualWriter<IndexingStatus>,
     locked: Arc<RwLock<LockedState>>,
 }
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct IndexingStatus {
+    pub cost_model: Option<Ptr<CostModel>>,
     pub block: u64,
     pub latest: u64,
 }
@@ -39,15 +40,13 @@ pub struct IndexingStatus {
 impl Reader for SelectionFactors {
     type Writer = IndexingData;
     fn new() -> (Self::Writer, Self) {
-        let (cost_model_writer, cost_model) = Eventual::new();
         let locked = Arc::new(RwLock::default());
+        let (status_writer, status) = Eventual::new();
         let reader = Self {
-            price_efficiency: PriceEfficiency::new(cost_model),
+            status: status.clone(),
             locked: locked.clone(),
         };
-        let (status_writer, status) = Eventual::new();
         let writer = Self::Writer {
-            cost_model: cost_model_writer,
             status: status_writer,
             locked: locked.clone(),
         };
@@ -197,8 +196,10 @@ impl SelectionFactors {
         weight: f64,
         max_budget: &GRT,
     ) -> Result<(USD, SelectionFactor), SelectionError> {
-        self.price_efficiency
-            .get_price(context, weight, max_budget)
-            .await
+        let cost_model = self
+            .status
+            .value_immediate()
+            .and_then(|stat| stat.cost_model);
+        get_price(&cost_model, context, weight, max_budget).await
     }
 }

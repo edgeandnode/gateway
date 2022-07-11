@@ -254,15 +254,13 @@ async fn run_simulation(
         indexer_ids.push(indexing.indexer);
         let indexing_writer = input_writers.indexings.write(&indexing).await;
         indexing_writer
-            .cost_model
-            .write(default_cost_model(data.price));
-        indexing_writer
             .update_allocations(
                 test_key.clone(),
                 vec![(Address::default(), data.allocation)],
             )
             .await;
         indexing_writer.status.write(IndexingStatus {
+            cost_model: Some(Ptr::new(default_cost_model(data.price))),
             block: latest.number - data.blocks_behind,
             latest: latest.number,
         });

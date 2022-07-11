@@ -144,7 +144,6 @@ async fn main() {
         Duration::from_secs(30),
         slashing_percentage,
         usd_to_grt_conversion,
-        indexings.clone(),
         api_keys_writer,
         opt.sync_agent_accept_empty,
     );
@@ -380,6 +379,7 @@ async fn write_indexer_inputs(
             .update_allocations(signer_key.clone(), allocations)
             .await;
         writer.status.write(indexer_selection::IndexingStatus {
+            cost_model: status.cost_model.clone(),
             block: status.block.number,
             latest,
         });

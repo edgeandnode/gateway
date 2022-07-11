@@ -366,9 +366,9 @@ impl Topology {
                     )],
                 )
                 .await;
-            indexing_writer.cost_model.write(default_cost_model(fee));
             if let Some(latest) = network.blocks.last() {
                 indexing_writer.status.write(IndexingStatus {
+                    cost_model: Some(Ptr::new(default_cost_model(fee))),
                     block: indexer.block(network.blocks.len()) as u64,
                     latest: latest.number,
                 });
