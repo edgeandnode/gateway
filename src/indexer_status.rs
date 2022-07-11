@@ -1,6 +1,7 @@
 use crate::{
     geoip::GeoIP, graphql, indexer_selection::Indexing, network_subgraph::IndexerInfo, prelude::*,
 };
+use cost_model::{self, CostModel};
 use eventuals::EventualExt as _;
 use futures::future::join_all;
 use reqwest;
@@ -8,7 +9,7 @@ use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     net::IpAddr,
     sync::Arc,
 };
@@ -23,6 +24,7 @@ pub struct Data {
 pub struct IndexingStatus {
     pub network: String,
     pub block: BlockPointer,
+    pub cost_model: Option<Arc<CostModel>>,
 }
 
 pub struct Actor {
@@ -30,7 +32,14 @@ pub struct Actor {
     geoip: Option<GeoIP>,
     dns_resolver: DNSResolver,
     geoblocking_cache: HashMap<String, Result<(), String>>,
+    cost_model_cache: HashMap<CostModelSource, Result<Arc<CostModel>, String>>,
     indexings: EventualWriter<Ptr<HashMap<Indexing, IndexingStatus>>>,
+}
+
+#[derive(Eq, Hash, PartialEq)]
+struct CostModelSource {
+    model: String,
+    variables: String,
 }
 
 impl Actor {
@@ -49,6 +58,7 @@ impl Actor {
             geoip,
             dns_resolver: DNSResolver::tokio_from_system_conf().unwrap(),
             geoblocking_cache: HashMap::new(),
+            cost_model_cache: HashMap::new(),
             indexings: indexings_tx,
         }));
         // Joining this eventual with a timer is unnecessary, so long as the Ptr value is
@@ -83,14 +93,14 @@ impl Actor {
                     actor.indexings.write(Ptr::new(indexings));
 
                     // Remove unused entries from geoblocking cache.
-                    let urls = indexers
+                    let used_urls = indexers
                         .values()
                         .map(|info| info.url.as_str())
                         .collect::<HashSet<&str>>();
                     let cache = actor
                         .geoblocking_cache
                         .drain()
-                        .filter(|(key, _)| urls.contains(key.as_str()))
+                        .filter(|(key, _)| used_urls.contains(key.as_str()))
                         .collect();
                     actor.geoblocking_cache = cache;
                 }
@@ -123,14 +133,14 @@ impl Actor {
             .parse::<Version>()
             .map_err(|err| format!("IndexerVersionError({err})"))?;
 
-        let mut actor = actor.lock().await;
-        if version < actor.min_version {
+        let mut locked_actor = actor.lock().await;
+        if version < locked_actor.min_version {
             return Err(format!("IndexerVersionBelowMinimum({version})"));
         }
-        actor.apply_geoblocking(&info).await?;
-        drop(actor);
+        locked_actor.apply_geoblocking(&info).await?;
+        drop(locked_actor);
 
-        Self::query_status(&client, info.url, &indexer)
+        Self::query_status(&client, actor, info.url, &indexer)
             .await
             .map_err(|err| format!("IndexerStatusError({err})"))
     }
@@ -178,6 +188,7 @@ impl Actor {
 
     async fn query_status(
         client: &reqwest::Client,
+        actor: Arc<Mutex<Actor>>,
         url: Url,
         indexer: &Address,
     ) -> Result<Vec<(Indexing, IndexingStatus)>, String> {
@@ -216,10 +227,23 @@ impl Actor {
             .await
             .and_then(graphql::Response::unpack)
             .map(|cost_models| cost_models.cost_models)
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        let mut actor = actor.lock().await;
+        let mut cost_models = cost_models
             .into_iter()
-            .map(|model| (model.deployment, model))
-            .collect::<HashMap<SubgraphDeploymentID, CostModel>>();
+            .filter_map(|src| {
+                let cost_model = match actor.compile_cost_model(src.model, src.variables) {
+                    Ok(cost_model) => cost_model,
+                    Err(cost_model_compile_err) => {
+                        tracing::debug!(%cost_model_compile_err, %indexer, deployment = %src.deployment);
+                        return None;
+                    }
+                };
+                Some((src.deployment, cost_model))
+            })
+            .collect::<HashMap<SubgraphDeploymentID, Arc<CostModel>>>();
+        drop(actor);
 
         Ok(statuses
             .into_iter()
@@ -229,16 +253,41 @@ impl Actor {
                     deployment: status.subgraph,
                 };
                 let chain = &status.chains.get(0)?;
+                let cost_model = cost_models.remove(&indexing.deployment);
                 let status = IndexingStatus {
                     network: chain.network.clone(),
                     block: BlockPointer {
                         number: chain.latest_block.number.parse().ok()?,
                         hash: chain.latest_block.hash.clone(),
                     },
+                    cost_model,
                 };
                 Some((indexing, status))
             })
             .collect())
+    }
+
+    fn compile_cost_model(
+        &mut self,
+        model: String,
+        variables: Option<String>,
+    ) -> Result<Arc<CostModel>, String> {
+        // TODO: This cache should have an eviction strategy.
+        let src = CostModelSource {
+            model,
+            variables: variables.unwrap_or_default(),
+        };
+        match self.cost_model_cache.entry(src) {
+            Entry::Occupied(result) => result.get().clone(),
+            Entry::Vacant(entry) => {
+                let src = entry.key();
+                let result = CostModel::compile(&src.model, &src.variables)
+                    .map(Arc::new)
+                    .map_err(|err| err.to_string());
+                entry.insert(result.clone());
+                result
+            }
+        }
     }
 }
 
@@ -265,12 +314,11 @@ struct ChainStatus {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CostModelResponse {
-    cost_models: Vec<CostModel>,
+    cost_models: Vec<CostModelSourceResponse>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CostModel {
+struct CostModelSourceResponse {
     deployment: SubgraphDeploymentID,
     model: String,
     variables: Option<String>,
