@@ -273,6 +273,9 @@ impl Actor {
         variables: Option<String>,
     ) -> Result<Ptr<CostModel>, String> {
         // TODO: This cache should have an eviction strategy.
+        if model.len() > (1 << 16) {
+            return Err("CostModelTooLarge".into());
+        }
         let src = CostModelSource {
             model,
             variables: variables.unwrap_or_default(),
