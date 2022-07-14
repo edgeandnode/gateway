@@ -62,6 +62,7 @@ pub struct ClientQueryResult {
     pub network: String,
     pub response_time_ms: u32,
     pub budget: String,
+    pub fee: f64,
     pub status: String,
     pub status_code: u32,
 }
@@ -100,6 +101,11 @@ impl ClientQueryResult {
             Ok(status) => (status, 0),
             Err(status) => (status, sip24_hash(status) as u32 | 0x1),
         };
+        let fee = query
+            .indexer_attempts
+            .last()
+            .map(|attempt| attempt.score.fee.as_f64())
+            .unwrap_or(0.0);
 
         Self {
             ray_id: query.ray_id.clone(),
@@ -110,6 +116,7 @@ impl ClientQueryResult {
             network: network.clone(),
             response_time_ms,
             budget,
+            fee,
             status: status.clone(),
             status_code,
         }

@@ -733,6 +733,7 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
         query = %query.query,
         variables = %query.variables.as_deref().unwrap_or(""),
         budget = %query.budget.as_ref().map(ToString::to_string).unwrap_or_default(),
+        fee = query_result.fee,
         response_time_ms = (Instant::now() - query.start_time).as_millis() as u32,
         %status,
         status_code,
