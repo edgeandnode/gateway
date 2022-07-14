@@ -48,6 +48,7 @@ use reqwest;
 use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
+use simple_rate_limiter::RateLimiter;
 use std::{
     collections::{hash_map::Entry, HashMap},
     sync::Arc,
@@ -239,13 +240,13 @@ async fn main() {
             .await
             .expect("Failed to start metrics server")
     });
-    let ip_rate_limiter = RateLimiter::new(
-        Duration::from_secs(opt.ip_rate_limit_window_secs.into()),
+    let ip_rate_limiter = RateLimiter::<String>::new(
         opt.ip_rate_limit as usize,
+        opt.ip_rate_limit_window_secs as usize,
     );
-    let api_rate_limiter = RateLimiter::new(
-        Duration::from_secs(opt.api_rate_limit_window_secs.into()),
+    let api_rate_limiter = RateLimiter::<String>::new(
         opt.api_rate_limit as usize,
+        opt.api_rate_limit_window_secs as usize,
     );
     HttpServer::new(move || {
         let cors = Cors::default()
