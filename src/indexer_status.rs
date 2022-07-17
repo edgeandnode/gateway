@@ -1,5 +1,9 @@
 use crate::{
-    geoip::GeoIP, graphql, indexer_selection::Indexing, network_subgraph::IndexerInfo, prelude::*,
+    geoip::GeoIP,
+    graphql,
+    indexer_selection::Indexing,
+    network_subgraph::IndexerInfo,
+    prelude::{epoch_cache::EpochCache, *},
 };
 use cost_model::{self, CostModel};
 use eventuals::EventualExt as _;
@@ -8,11 +12,7 @@ use reqwest;
 use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
-use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
-    net::IpAddr,
-    sync::Arc,
-};
+use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::sync::Mutex;
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 use url::{Host, Url};
@@ -31,8 +31,8 @@ pub struct Actor {
     min_version: Version,
     geoip: Option<GeoIP>,
     dns_resolver: DNSResolver,
-    geoblocking_cache: HashMap<String, Result<(), String>>,
-    cost_model_cache: HashMap<CostModelSource, Result<Ptr<CostModel>, String>>,
+    geoblocking_cache: EpochCache<String, Result<(), String>, 2>,
+    cost_model_cache: EpochCache<CostModelSource, Result<Ptr<CostModel>, String>, 2>,
     indexings: EventualWriter<Ptr<HashMap<Indexing, IndexingStatus>>>,
 }
 
@@ -57,8 +57,8 @@ impl Actor {
             min_version,
             geoip,
             dns_resolver: DNSResolver::tokio_from_system_conf().unwrap(),
-            geoblocking_cache: HashMap::new(),
-            cost_model_cache: HashMap::new(),
+            geoblocking_cache: EpochCache::new(),
+            cost_model_cache: EpochCache::new(),
             indexings: indexings_tx,
         }));
         // Joining this eventual with a timer is unnecessary, so long as the Ptr value is
@@ -91,18 +91,8 @@ impl Actor {
 
                     let mut actor = actor.lock().await;
                     actor.indexings.write(Ptr::new(indexings));
-
-                    // Remove unused entries from geoblocking cache.
-                    let used_urls = indexers
-                        .values()
-                        .map(|info| info.url.as_str())
-                        .collect::<HashSet<&str>>();
-                    let cache = actor
-                        .geoblocking_cache
-                        .drain()
-                        .filter(|(key, _)| used_urls.contains(key.as_str()))
-                        .collect();
-                    actor.geoblocking_cache = cache;
+                    actor.geoblocking_cache.increment_epoch();
+                    actor.cost_model_cache.increment_epoch();
                 }
             })
             .forever();
@@ -272,7 +262,6 @@ impl Actor {
         model: String,
         variables: Option<String>,
     ) -> Result<Ptr<CostModel>, String> {
-        // TODO: This cache should have an eviction strategy.
         if model.len() > (1 << 16) {
             return Err("CostModelTooLarge".into());
         }
@@ -280,17 +269,13 @@ impl Actor {
             model,
             variables: variables.unwrap_or_default(),
         };
-        match self.cost_model_cache.entry(src) {
-            Entry::Occupied(result) => result.get().clone(),
-            Entry::Vacant(entry) => {
-                let src = entry.key();
-                let result = CostModel::compile(&src.model, &src.variables)
+        self.cost_model_cache
+            .get_or_insert(src, |src| {
+                CostModel::compile(&src.model, &src.variables)
                     .map(Ptr::new)
-                    .map_err(|err| err.to_string());
-                entry.insert(result.clone());
-                result
-            }
-        }
+                    .map_err(|err| err.to_string())
+            })
+            .clone()
     }
 }
 
