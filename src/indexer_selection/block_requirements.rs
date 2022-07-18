@@ -5,8 +5,8 @@ use crate::{
 };
 use cost_model::QueryVariables;
 use graphql_parser::query::{self as q, Number};
+use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
-use single::Single as _;
 use std::{collections::BTreeMap, convert::TryFrom};
 
 #[derive(Default, Debug, Eq, PartialEq)]
@@ -66,9 +66,9 @@ pub async fn make_query_deterministic(
             match arg {
                 ("block", block) => {
                     match block {
-                        q::Value::Object(fields) => match fields.iter_mut().single() {
-                            Ok((&"hash", _)) => require_latest = false,
-                            Ok((&"number", number)) => {
+                        q::Value::Object(fields) => match fields.iter_mut().at_most_one() {
+                            Ok(Some((&"hash", _))) => require_latest = false,
+                            Ok(Some((&"number", number))) => {
                                 let number = parse_number(number, &context.variables)?;
                                 // Some, but not all, duplicated code
                                 // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
@@ -78,7 +78,7 @@ pub async fn make_query_deterministic(
                                 require_latest = false;
                                 *fields = block_hash_field(&block.hash);
                             }
-                            Ok((&"number_gte", number)) => {
+                            Ok(Some((&"number_gte", number))) => {
                                 let number = parse_number(number, &context.variables)?;
                                 if latest_block.number < number {
                                     return Err(BadIndexerReason::BehindMinimumBlock.into());
@@ -95,11 +95,11 @@ pub async fn make_query_deterministic(
                                 .get(name)
                                 .ok_or(SelectionError::BadInput)?;
                             match var {
-                                q::Value::Object(fields) => match fields.iter().single() {
-                                    Ok((name, _)) if name.as_str() == "hash" => {
+                                q::Value::Object(fields) => match fields.iter().at_most_one() {
+                                    Ok(Some((name, _))) if name.as_str() == "hash" => {
                                         require_latest = false
                                     }
-                                    Ok((name, number)) if name.as_str() == "number" => {
+                                    Ok(Some((name, number))) if name.as_str() == "number" => {
                                         let number = parse_number(number, &context.variables)?;
                                         // Some, but not all, duplicated code
                                         // See also: ba6c90f1-3baf-45be-ac1c-f60733404436
@@ -113,7 +113,7 @@ pub async fn make_query_deterministic(
                                         // the variable in case it's used elsewhere.
                                         *arg = (arg.0, q::Value::Object(fields));
                                     }
-                                    Ok((name, number)) if name.as_str() == "number_gte" => {
+                                    Ok(Some((name, number))) if name.as_str() == "number_gte" => {
                                         let number = parse_number(number, &context.variables)?;
                                         if latest_block.number < number {
                                             return Err(BadIndexerReason::BehindMinimumBlock.into());
@@ -193,15 +193,15 @@ pub async fn freshness_requirements<'c>(
         let mut has_latest = true;
         for arg in top_level_field.arguments.iter() {
             match arg {
-                ("block", q::Value::Object(fields)) => match fields.iter().single() {
-                    Ok((&"number", q::Value::Int(number))) => {
+                ("block", q::Value::Object(fields)) => match fields.iter().at_most_one() {
+                    Ok(Some((&"number", q::Value::Int(number)))) => {
                         requirements.parse_minimum_block(number)?;
                         has_latest = false;
                     }
-                    Ok((&"number_gte", q::Value::Int(number))) => {
+                    Ok(Some((&"number_gte", q::Value::Int(number)))) => {
                         requirements.parse_minimum_block(number)?;
                     }
-                    Ok((&"hash", q::Value::String(hash))) => {
+                    Ok(Some((&"hash", q::Value::String(hash)))) => {
                         let hash = hash
                             .as_str()
                             .parse::<Bytes32>()
