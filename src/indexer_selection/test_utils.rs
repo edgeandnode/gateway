@@ -1,5 +1,5 @@
 use crate::{
-    indexer_selection::{BlockPointer, CostModelSource},
+    indexer_selection::{BlockPointer, CostModel},
     prelude::test_utils::bytes_from_id,
     prelude::*,
 };
@@ -7,11 +7,8 @@ use crate::{
 pub const TEST_KEY: &'static str =
     "244226452948404D635166546A576E5A7234753778217A25432A462D4A614E64";
 
-pub fn default_cost_model(price: GRT) -> CostModelSource {
-    CostModelSource {
-        model: format!("default => {};", price),
-        globals: "".into(),
-    }
+pub fn default_cost_model(price: GRT) -> CostModel {
+    CostModel::compile(format!("default => {};", price), "".into()).unwrap()
 }
 
 #[track_caller]

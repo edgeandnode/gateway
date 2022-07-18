@@ -1,5 +1,6 @@
 pub mod bytes;
 pub mod decimal;
+pub mod epoch_cache;
 pub mod shared_lookup;
 pub mod weighted_sample;
 
