@@ -1,18 +1,14 @@
-FROM rust:1.58-buster AS build
+FROM rust:1.62-buster AS build
 
 ARG GH_USER
 ARG GH_TOKEN
 
-# TODO: g++, make, and python are only required for neon-sys dependencies
 RUN apt-get update && apt-get install -y \
   build-essential \
   git \
-  libssl-dev \
+  librdkafka-dev \
   libsasl2-dev\
-  librdkafka-dev \ 
-  cmake \ 
   npm \
-  python3 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/gateway
@@ -37,6 +33,7 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /opt/gateway/target/release/graph-gateway /opt/gateway/target/release/graph-gateway
+COPY GeoLite2-Country.mmdb /opt/geoip/GeoLite2-Country.mmdb
 
 WORKDIR /opt/gateway
 ENTRYPOINT [ "target/release/graph-gateway" ]
