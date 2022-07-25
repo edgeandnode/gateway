@@ -77,7 +77,7 @@ impl Actor {
                                 {
                                     Ok(indexings) => indexings,
                                     Err(indexer_status_err) => {
-                                        tracing::info!(%indexer_status_err);
+                                        tracing::info!(%indexer, %indexer_status_err);
                                         vec![]
                                     }
                                 }
