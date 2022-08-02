@@ -17,6 +17,7 @@ mod query_engine;
 mod rate_limiter;
 mod stats_db;
 mod subgraph_deployments;
+mod studio_client;
 mod vouchers;
 mod ws_client;
 use crate::{
@@ -128,7 +129,14 @@ async fn main() {
         .collect::<HashMap<String, BlockResolver>>();
     let block_resolvers = Arc::new(block_resolvers);
     let signer_key = opt.signer_key.0;
-    let (api_keys_writer, api_keys) = Eventual::new();
+
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap();
+
+    let api_keys =
+        studio_client::Actor::create(http_client.clone(), opt.studio_url, opt.studio_auth);
     let InputWriters {
         indexer_inputs:
             indexer_selection::InputWriters {
@@ -146,13 +154,8 @@ async fn main() {
         opt.sync_agent,
         Duration::from_secs(30),
         usd_to_grt_conversion,
-        api_keys_writer,
         opt.sync_agent_accept_empty,
     );
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .unwrap();
     let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
     let network_subgraph_data =
         network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());

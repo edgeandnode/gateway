@@ -1,35 +1,19 @@
-use crate::{
-    indexer_selection::IndexerPreferences,
-    prelude::*,
-    query_engine::{APIKey, VolumeEstimator},
-};
+use crate::prelude::*;
 use graphql_client::{GraphQLQuery, Response};
 use lazy_static::lazy_static;
 use reqwest;
 use serde_json::{json, Value as JSON};
-use std::{collections::HashMap, sync::Arc};
-use tokio::{sync::Mutex, time::sleep};
+use tokio::time::sleep;
 use tracing::{self, Instrument};
 
 pub fn create(
     agent_url: String,
     poll_interval: Duration,
     usd_to_grt_conversion: EventualWriter<USD>,
-    api_keys: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
     accept_empty: bool,
 ) {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
 
-    let mut api_key_usage = VolumeEstimations::new();
-    create_sync_client::<APIKeys, _, _>(
-        agent_url.clone(),
-        poll_interval,
-        api_keys::OPERATION_NAME,
-        api_keys::QUERY,
-        move |v| parse_api_keys(v, &mut api_key_usage),
-        api_keys,
-        accept_empty,
-    );
     create_sync_client::<ConversionRates, _, _>(
         agent_url.clone(),
         poll_interval,
@@ -176,153 +160,6 @@ where
     }
     tracing::error!("malformed response data");
     None
-}
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "graphql/sync_agent_schema.gql",
-    query_path = "graphql/api_keys.gql",
-    response_derives = "Debug"
-)]
-struct APIKeys;
-
-struct VolumeEstimations {
-    by_api_key: HashMap<String, Arc<Mutex<VolumeEstimator>>>,
-    decay_list: Arc<parking_lot::Mutex<Option<Vec<Arc<Mutex<VolumeEstimator>>>>>>,
-}
-
-impl Drop for VolumeEstimations {
-    fn drop(&mut self) {
-        *self.decay_list.lock() = None;
-    }
-}
-
-impl VolumeEstimations {
-    pub fn new() -> Self {
-        let decay_list = Arc::new(parking_lot::Mutex::new(Some(Vec::new())));
-        let result = Self {
-            by_api_key: HashMap::new(),
-            decay_list: decay_list.clone(),
-        };
-
-        // Every 2 minutes, call decay on every VolumeEstimator in our collection.
-        // This task will finish when the VolumeEstimations is dropped, because
-        // drop sets the decay_list to None which breaks the loop.
-        tokio::spawn(async move {
-            loop {
-                let start = Instant::now();
-                let len = if let Some(decay_list) = decay_list.lock().as_deref() {
-                    decay_list.len()
-                } else {
-                    return;
-                };
-                for i in 0..len {
-                    let item = if let Some(decay_list) = decay_list.lock().as_deref() {
-                        decay_list[i].clone()
-                    } else {
-                        return;
-                    };
-                    item.lock().await.decay();
-                }
-                let next = start + Duration::from_secs(120);
-                tokio::time::sleep_until(next).await;
-            }
-        });
-        result
-    }
-    pub fn get(&mut self, key: &str) -> Arc<Mutex<VolumeEstimator>> {
-        match self.by_api_key.get(key) {
-            Some(exist) => exist.clone(),
-            None => {
-                let result = Arc::new(Mutex::new(VolumeEstimator::default()));
-                self.by_api_key.insert(key.to_owned(), result.clone());
-                self.decay_list
-                    .lock()
-                    .as_mut()
-                    .unwrap()
-                    .push(result.clone());
-                result
-            }
-        }
-    }
-}
-
-fn parse_api_keys(
-    data: api_keys::ResponseData,
-    usage: &mut VolumeEstimations,
-) -> Option<Ptr<HashMap<String, Arc<APIKey>>>> {
-    match data {
-        api_keys::ResponseData {
-            data: Some(api_keys::ApiKeysData { value, .. }),
-        } => {
-            let parsed = value
-                .into_iter()
-                .filter_map(|value| {
-                    let mut indexer_preferences = IndexerPreferences::default();
-                    for preference in value.indexer_preferences {
-                        match preference.name.as_ref() {
-                            "Fastest speed" => indexer_preferences.performance = preference.weight,
-                            "Lowest price" => {
-                                indexer_preferences.price_efficiency = preference.weight
-                            }
-                            "Data freshness" => {
-                                indexer_preferences.data_freshness = preference.weight
-                            }
-                            "Economic security" => {
-                                indexer_preferences.economic_security = preference.weight
-                            }
-                            unexpected_indexer_preference_name => {
-                                tracing::warn!(%unexpected_indexer_preference_name)
-                            }
-                        }
-                    }
-                    let max_budget = match value.api_key.query_budget_selection_type.as_str() {
-                        "USER_SET" => value
-                            .api_key
-                            .query_budget_usd
-                            .parse::<f64>()
-                            .ok()
-                            .and_then(|b| USD::try_from(b).ok()),
-                        "DYNAMIC" | _ => None,
-                    };
-                    Some(APIKey {
-                        usage: usage.get(&value.api_key.key),
-                        id: value.api_key.id,
-                        key: value.api_key.key,
-                        is_subsidized: value.api_key.is_subsidized,
-                        user_id: value.user.id,
-                        user_address: value.user.eth_address.parse().ok()?,
-                        queries_activated: value.user.queries_activated,
-                        max_budget,
-                        subgraphs: value
-                            .subgraphs
-                            .into_iter()
-                            .filter_map(|subgraph| {
-                                let network_id = subgraph.network_id.parse::<SubgraphID>().ok()?;
-                                Some((network_id, subgraph.id as i32))
-                            })
-                            .collect(),
-                        deployments: value
-                            .deployments
-                            .into_iter()
-                            .filter_map(|id| SubgraphDeploymentID::from_ipfs_hash(&id))
-                            .collect(),
-                        domains: value
-                            .domains
-                            .into_iter()
-                            .map(|domain| (domain.name, domain.id as i32))
-                            .collect(),
-                        indexer_preferences,
-                    })
-                })
-                .collect::<Vec<APIKey>>();
-            tracing::trace!(api_keys = %parsed.len());
-            Some(Ptr::new(HashMap::from_iter(
-                parsed.into_iter().map(|v| (v.key.clone(), Arc::new(v))),
-            )))
-        }
-        _ => None,
-    }
 }
 
 #[derive(GraphQLQuery)]
