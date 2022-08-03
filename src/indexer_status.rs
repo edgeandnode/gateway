@@ -188,7 +188,7 @@ impl Actor {
                 subgraph
                 chains {
                     network
-                    ... on EthereumIndexingStatus { latestBlock { number hash } }
+                    latestBlock { number hash }
                 }
             }
         }"# });
