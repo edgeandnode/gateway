@@ -20,7 +20,7 @@ pub enum Msg {
         api_key: Arc<APIKey>,
         fee: GRT,
         domain: String,
-        subgraph: String,
+        subgraph: SubgraphID,
     },
 }
 
@@ -257,7 +257,7 @@ impl Client {
                             subgraphs: HashMap::from_iter(
                                 subgraph_id
                                     .into_iter()
-                                    .map(|(v, id)| (*id, Stats::new(fee, v.clone()))),
+                                    .map(|(v, id)| (*id, Stats::new(fee, v.to_string()))),
                             ),
                             api_key,
                         });

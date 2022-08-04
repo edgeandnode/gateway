@@ -1,4 +1,4 @@
-use crate::{ipfs_client::*, prelude::*};
+use crate::{ipfs_client::*, prelude::*, subgraph_deployments::SubgraphDeployments};
 use eventuals::EventualExt;
 use im;
 use serde::Deserialize;
@@ -8,6 +8,7 @@ use tokio::{sync::Mutex, time::sleep};
 
 #[derive(Debug)]
 pub struct SubgraphInfo {
+    pub id: SubgraphID,
     pub deployment: SubgraphDeploymentID,
     pub network: String,
     pub features: Vec<String>,
@@ -19,6 +20,7 @@ pub type SubgraphInfoMap =
 
 pub fn create(
     ipfs_client: Arc<IPFSClient>,
+    subgraph_deployments: SubgraphDeployments,
     subgraphs: Eventual<Vec<SubgraphDeploymentID>>,
 ) -> SubgraphInfoMap {
     let manifests: Arc<Mutex<im::HashMap<SubgraphDeploymentID, Eventual<Ptr<SubgraphInfo>>>>> =
@@ -26,6 +28,7 @@ pub fn create(
     subgraphs.map(move |subgraphs| {
         let ipfs_client = ipfs_client.clone();
         let manifests = manifests.clone();
+        let subgraph_deployments = subgraph_deployments.clone();
         async move {
             let mut manifests = manifests.lock().await;
             // Remove deployments not present in updated set
@@ -44,9 +47,17 @@ pub fn create(
                 .collect::<Vec<SubgraphDeploymentID>>();
             for deployment in unresolved {
                 let client = ipfs_client.clone();
+                let subgraph_deployments = subgraph_deployments.clone();
                 let info = Eventual::spawn(move |mut writer| async move {
+                    let subgraph = match subgraph_deployments.deployment_subgraph(&deployment) {
+                        Some(supgraph) => supgraph,
+                        None => {
+                            tracing::error!(%deployment, "deployment missing supgraph");
+                            return Err(eventuals::Closed);
+                        }
+                    };
                     loop {
-                        match fetch_manifest(&client, deployment).await {
+                        match fetch_manifest(&client, subgraph, deployment).await {
                             Ok(response) => {
                                 writer.write(Ptr::new(response));
                                 return Err(eventuals::Closed);
@@ -67,6 +78,7 @@ pub fn create(
 
 pub async fn fetch_manifest(
     client: &IPFSClient,
+    subgraph: SubgraphID,
     deployment: SubgraphDeploymentID,
 ) -> Result<SubgraphInfo, (SubgraphDeploymentID, String)> {
     let payload = client
@@ -90,6 +102,7 @@ pub async fn fetch_manifest(
         .next()
         .ok_or_else(|| (deployment, "Network not found".to_string()))?;
     Ok(SubgraphInfo {
+        id: subgraph,
         deployment,
         network,
         min_block,

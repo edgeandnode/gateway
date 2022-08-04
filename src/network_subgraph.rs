@@ -1,4 +1,6 @@
-use crate::{graphql, prelude::*, query_engine::Indexing};
+use crate::{
+    graphql, prelude::*, query_engine::Indexing, subgraph_deployments::SubgraphDeployments,
+};
 use eventuals::{self, EventualExt as _};
 use serde::Deserialize;
 use serde_json::json;
@@ -11,7 +13,7 @@ use url::Url;
 
 #[derive(Clone)]
 pub struct Data {
-    pub current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
+    pub subgraph_deployments: SubgraphDeployments,
     pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     pub indexers: Eventual<Ptr<HashMap<Address, IndexerInfo>>>,
     pub allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
@@ -33,7 +35,7 @@ pub struct Client {
     network_subgraph: Url,
     http_client: reqwest::Client,
     latest_block: u64,
-    current_deployments: EventualWriter<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
+    subgraph_deployments: EventualWriter<Ptr<Vec<(SubgraphID, Vec<SubgraphDeploymentID>)>>>,
     deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     indexers: EventualWriter<Ptr<HashMap<Address, IndexerInfo>>>,
     allocations: EventualWriter<Ptr<HashMap<Address, AllocationInfo>>>,
@@ -41,7 +43,7 @@ pub struct Client {
 
 impl Client {
     pub fn create(http_client: reqwest::Client, network_subgraph: Url) -> Data {
-        let (current_deployments_tx, current_deployments_rx) = Eventual::new();
+        let (subgraph_deployments_tx, subgraph_deployments_rx) = Eventual::new();
         let (deployment_indexers_tx, deployment_indexers_rx) = Eventual::new();
         let (indexers_tx, indexers_rx) = Eventual::new();
         let (allocations_tx, allocations_rx) = Eventual::new();
@@ -49,7 +51,7 @@ impl Client {
             network_subgraph,
             http_client,
             latest_block: 0,
-            current_deployments: current_deployments_tx,
+            subgraph_deployments: subgraph_deployments_tx,
             deployment_indexers: deployment_indexers_tx,
             indexers: indexers_tx,
             allocations: allocations_tx,
@@ -70,7 +72,7 @@ impl Client {
             })
             .forever();
         Data {
-            current_deployments: current_deployments_rx,
+            subgraph_deployments: SubgraphDeployments::new(subgraph_deployments_rx),
             deployment_indexers: deployment_indexers_rx,
             indexers: indexers_rx,
             allocations: allocations_rx,
@@ -153,17 +155,26 @@ impl Client {
                     where: { active: true }
                 ) {
                     id
-                    currentVersion { subgraphDeployment { ipfsHash } }
+                    versions(orderBy: version, orderDirection: asc) {
+                        subgraphDeployment { ipfsHash }
+                    }
                 }
                 "#,
             )
             .await?;
-        let current_deployments = response
+        let subgraph_deployments = response
             .into_iter()
-            .map(|subgraph| (subgraph.id, subgraph.current_version.subgraph_deployment.id))
+            .map(|subgraph| {
+                let versions = subgraph
+                    .versions
+                    .into_iter()
+                    .map(|v| v.subgraph_deployment.id)
+                    .collect();
+                (subgraph.id, versions)
+            })
             .collect();
-        self.current_deployments
-            .write(Ptr::new(current_deployments));
+        self.subgraph_deployments
+            .write(Ptr::new(subgraph_deployments));
         Ok(())
     }
 
@@ -265,12 +276,12 @@ struct Indexer {
 #[serde(rename_all = "camelCase")]
 struct Subgraph {
     id: SubgraphID,
-    current_version: CurrentVersion,
+    versions: Vec<SubgraphVersion>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CurrentVersion {
+struct SubgraphVersion {
     subgraph_deployment: SubgraphDeployment,
 }
 
