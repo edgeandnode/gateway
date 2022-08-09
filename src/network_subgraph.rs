@@ -97,7 +97,8 @@ impl Client {
         .data
         .and_then(|data| data.graph_networks.into_iter().next())
         .ok_or("empty response")?;
-        self.slashing_percentage.write(response.slashing_percentage);
+        let slashing_percentage = response.slashing_percentage.try_into()?;
+        self.slashing_percentage.write(slashing_percentage);
         Ok(())
     }
 
@@ -274,7 +275,7 @@ struct GraphNetworksResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GraphNetwork {
-    slashing_percentage: PPM,
+    slashing_percentage: u32,
 }
 
 #[derive(Deserialize)]
