@@ -153,17 +153,20 @@ pub enum QueryEngineError {
     MalformedQuery,
     BlockBeforeMin,
     MissingBlock(UnresolvedBlock),
+    MissingNetworkParams,
+    MissingExchangeRate,
 }
 
 impl From<SelectionError> for QueryEngineError {
     fn from(from: SelectionError) -> Self {
         match from {
-            SelectionError::MissingNetworkParams
-            | SelectionError::BadIndexer(_)
-            | SelectionError::NoAllocation(_) => Self::NoIndexerSelected,
+            SelectionError::BadIndexer(_) | SelectionError::NoAllocation(_) => {
+                Self::NoIndexerSelected
+            }
             SelectionError::BadInput => Self::MalformedQuery,
             SelectionError::MissingBlock(unresolved) => Self::MissingBlock(unresolved),
             SelectionError::FeesTooHigh(count) => Self::FeesTooHigh(count),
+            SelectionError::MissingNetworkParams => Self::MissingNetworkParams,
         }
     }
 }
@@ -329,7 +332,7 @@ where
             .indexers
             .network_params
             .usd_to_grt(USD::try_from(budget).unwrap())
-            .ok_or(SelectionError::MissingNetworkParams)?;
+            .ok_or(QueryEngineError::MissingExchangeRate)?;
         query.budget = Some(budget);
 
         let utility_config = UtilityConfig::from_preferences(&api_key.indexer_preferences);

@@ -646,6 +646,8 @@ async fn handle_subgraph_query_inner(
                 "Requested block before minimum `startBlock` of subgraph manifest".into()
             }
             QueryEngineError::MissingBlock(_) => "Gateway failed to resolve required blocks".into(),
+            QueryEngineError::MissingNetworkParams => "Internal error: MissingNetworkParams".into(),
+            QueryEngineError::MissingExchangeRate => "Internal error: MissingExchangeRate".into(),
         });
     }
     let last_attempt = query.indexer_attempts.last().unwrap();
