@@ -497,7 +497,7 @@ enum SubgraphResolutionError {
 }
 
 impl SubgraphQueryData {
-    fn resolve_subgraph_deployment(
+    async fn resolve_subgraph_deployment(
         &self,
         params: &actix_web::dev::Path<actix_web::dev::Url>,
     ) -> Result<Ptr<SubgraphInfo>, SubgraphResolutionError> {
@@ -507,6 +507,7 @@ impl SubgraphQueryData {
                 .map_err(|_| SubgraphResolutionError::InvalidSubgraphID(id.to_string()))?;
             self.subgraph_deployments
                 .current_deployment(&subgraph)
+                .await
                 .ok_or_else(|| SubgraphResolutionError::SubgraphNotFound(id.to_string()))?
         } else if let Some(id) = params.get("deployment_id") {
             SubgraphDeploymentID::from_ipfs_hash(id)
@@ -537,7 +538,7 @@ async fn handle_subgraph_query(
     let mut query = Query::new(ray_id, payload.into_inner().query, variables);
     // We check that the requested subgraph is valid now, since we don't want to log query info for
     // unknown subgraphs requests.
-    query.subgraph = match data.resolve_subgraph_deployment(request.match_info()) {
+    query.subgraph = match data.resolve_subgraph_deployment(request.match_info()).await {
         Ok(result) => Some(result),
         Err(subgraph_resolution_err) => {
             tracing::info!(?subgraph_resolution_err);
