@@ -307,7 +307,10 @@ fn parse_api_keys(
                         subgraphs: value
                             .subgraphs
                             .into_iter()
-                            .map(|subgraph| (subgraph.network_id, subgraph.id as i32))
+                            .filter_map(|subgraph| {
+                                let network_id = subgraph.network_id.parse::<SubgraphID>().ok()?;
+                                Some((network_id, subgraph.id as i32))
+                            })
                             .collect(),
                         deployments: value
                             .deployments

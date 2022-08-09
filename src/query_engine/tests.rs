@@ -157,10 +157,11 @@ impl Topology {
     }
 
     fn gen_query(&mut self) -> Query {
-        let deployment = self
-            .deployments()
-            .into_iter()
-            .collect::<Vec<DeploymentTopology>>()
+        let (subgraph, deployment) = self
+            .subgraphs
+            .iter()
+            .flat_map(|(s, t)| t.deployments.iter().map(|d| (s.clone(), d.clone())))
+            .collect::<Vec<(SubgraphID, DeploymentTopology)>>()
             .choose(&mut self.rng)
             .unwrap()
             .clone();
@@ -168,6 +169,7 @@ impl Topology {
         let mut query = Query::new("".into(), query_body.into(), None);
         query.api_key = Some(Arc::new(APIKey::default()));
         query.subgraph = Some(Ptr::new(SubgraphInfo {
+            id: subgraph,
             deployment: deployment.id,
             network: deployment.network,
             min_block: 0,

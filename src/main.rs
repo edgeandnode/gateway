@@ -16,6 +16,7 @@ mod prelude;
 mod query_engine;
 mod rate_limiter;
 mod stats_db;
+mod subgraph_deployments;
 mod vouchers;
 mod ws_client;
 use crate::{
@@ -33,6 +34,7 @@ use crate::{
     prelude::{shared_lookup::SharedLookupWriter, *},
     query_engine::*,
     rate_limiter::*,
+    subgraph_deployments::SubgraphDeployments,
 };
 use actix_cors::Cors;
 use actix_web::{
@@ -195,7 +197,11 @@ async fn main() {
         .deployment_indexers
         .clone()
         .map(|deployments| async move { deployments.keys().cloned().collect() });
-    let subgraph_info = manifest_client::create(ipfs_client, deployment_ids);
+    let subgraph_info = manifest_client::create(
+        ipfs_client,
+        network_subgraph_data.subgraph_deployments.clone(),
+        deployment_ids,
+    );
 
     let fisherman_client = opt
         .fisherman
@@ -214,7 +220,7 @@ async fn main() {
         },
         block_resolvers: block_resolvers.clone(),
         subgraph_info,
-        current_deployments: network_subgraph_data.current_deployments,
+        subgraph_deployments: network_subgraph_data.subgraph_deployments,
         deployment_indexers: network_subgraph_data.deployment_indexers,
         inputs: inputs.clone(),
         api_keys,
@@ -470,7 +476,7 @@ struct SubgraphQueryData {
     fisherman_client: Option<Arc<FishermanClient>>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     subgraph_info: SubgraphInfoMap,
-    current_deployments: Eventual<Ptr<HashMap<SubgraphID, SubgraphDeploymentID>>>,
+    subgraph_deployments: SubgraphDeployments,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
@@ -492,16 +498,13 @@ impl SubgraphQueryData {
         params: &actix_web::dev::Path<actix_web::dev::Url>,
     ) -> Result<Ptr<SubgraphInfo>, SubgraphResolutionError> {
         let deployment = if let Some(id) = params.get("subgraph_id") {
-            tracing::info!(subgraph = %id);
             let subgraph = id
                 .parse::<SubgraphID>()
                 .map_err(|_| SubgraphResolutionError::InvalidSubgraphID(id.to_string()))?;
-            self.current_deployments
-                .value_immediate()
-                .and_then(|map| map.get(&subgraph).cloned())
+            self.subgraph_deployments
+                .current_deployment(&subgraph)
                 .ok_or_else(|| SubgraphResolutionError::SubgraphNotFound(id.to_string()))?
         } else if let Some(id) = params.get("deployment_id") {
-            tracing::info!(deployment = %id);
             SubgraphDeploymentID::from_ipfs_hash(id)
                 .ok_or_else(|| SubgraphResolutionError::InvalidDeploymentID(id.to_string()))?
         } else {
@@ -510,6 +513,7 @@ impl SubgraphQueryData {
         self.subgraph_info
             .value_immediate()
             .and_then(|map| map.get(&deployment)?.value_immediate())
+            .map(move |info| info)
             .ok_or_else(|| SubgraphResolutionError::DeploymentNotFound(deployment.to_string()))
     }
 }
@@ -530,7 +534,7 @@ async fn handle_subgraph_query(
     // We check that the requested subgraph is valid now, since we don't want to log query info for
     // unknown subgraphs requests.
     query.subgraph = match data.resolve_subgraph_deployment(request.match_info()) {
-        Ok(subgraph) => Some(subgraph),
+        Ok(result) => Some(result),
         Err(subgraph_resolution_err) => {
             tracing::info!(?subgraph_resolution_err);
             return graphql_error_response(format!("{:?}", subgraph_resolution_err));
@@ -540,6 +544,7 @@ async fn handle_subgraph_query(
         "handle_subgraph_query",
         ray_id = %query.ray_id,
         query_id = %query.id,
+        subgraph = %query.subgraph.as_ref().unwrap().id,
         deployment = %query.subgraph.as_ref().unwrap().deployment,
         network = %query.subgraph.as_ref().unwrap().network,
     );
@@ -606,7 +611,12 @@ async fn handle_subgraph_query_inner(
     }
 
     let deployment = &query.subgraph.as_ref().unwrap().deployment.clone();
-    if !api_key.deployments.is_empty() && !api_key.deployments.contains(&deployment) {
+    let deployment_authorized =
+        api_key.deployments.is_empty() || api_key.deployments.contains(&deployment);
+    let subgraph = &query.subgraph.as_ref().unwrap().id;
+    let subgraph_authorized =
+        api_key.subgraphs.is_empty() || api_key.subgraphs.iter().any(|(s, _)| s == subgraph);
+    if !deployment_authorized || !subgraph_authorized {
         with_metric(
             &METRICS.queries_unauthorized_deployment,
             &[&api_key.key],
@@ -645,7 +655,7 @@ async fn handle_subgraph_query_inner(
         api_key,
         fee: last_attempt.score.fee,
         domain: domain.to_string(),
-        subgraph: query.subgraph.as_ref().unwrap().deployment.ipfs_hash(),
+        subgraph: query.subgraph.as_ref().unwrap().id.clone(),
     });
     let attestation = response
         .attestation

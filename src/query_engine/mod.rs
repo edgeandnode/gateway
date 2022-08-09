@@ -133,7 +133,7 @@ pub struct APIKey {
     pub queries_activated: bool,
     pub max_budget: Option<USD>,
     pub deployments: Vec<SubgraphDeploymentID>,
-    pub subgraphs: Vec<(String, i32)>,
+    pub subgraphs: Vec<(SubgraphID, i32)>,
     pub domains: Vec<(String, i32)>,
     pub indexer_preferences: IndexerPreferences,
     pub usage: Arc<Mutex<VolumeEstimator>>,
