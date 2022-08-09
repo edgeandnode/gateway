@@ -10,6 +10,7 @@ pub struct SubgraphDeployments {
 
 #[derive(Clone)]
 struct Inputs {
+    // TODO: latest deployments may not be fully indexed, but the prior deployment might be.
     current_deployments: HashMap<SubgraphID, SubgraphDeploymentID>,
     deployment_to_subgraph: HashMap<SubgraphDeploymentID, SubgraphID>,
 }

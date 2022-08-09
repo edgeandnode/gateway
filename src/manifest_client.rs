@@ -50,7 +50,7 @@ pub fn create(
                 let subgraph_deployments = subgraph_deployments.clone();
                 let info = Eventual::spawn(move |mut writer| async move {
                     let subgraph = match subgraph_deployments.deployment_subgraph(&deployment) {
-                        Some(supgraph) => supgraph,
+                        Some(subgraph) => subgraph,
                         None => {
                             tracing::error!(%deployment, "deployment missing supgraph");
                             return Err(eventuals::Closed);
