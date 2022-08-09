@@ -132,7 +132,7 @@ async fn main() {
     let InputWriters {
         indexer_inputs:
             indexer_selection::InputWriters {
-                slashing_percentage,
+                mut slashing_percentage,
                 usd_to_grt_conversion,
                 indexers,
                 indexings,
@@ -145,7 +145,6 @@ async fn main() {
     agent_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
-        slashing_percentage,
         usd_to_grt_conversion,
         api_keys_writer,
         opt.sync_agent_accept_empty,
@@ -157,6 +156,11 @@ async fn main() {
     let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
     let network_subgraph_data =
         network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
+
+    network_subgraph_data
+        .slashing_percentage
+        .pipe(move |p| slashing_percentage.write(p))
+        .forever();
 
     let indexer_status_data = indexer_status::Actor::create(
         opt.min_indexer_version,
