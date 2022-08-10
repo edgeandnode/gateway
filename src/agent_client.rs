@@ -14,7 +14,6 @@ use tracing::{self, Instrument};
 pub fn create(
     agent_url: String,
     poll_interval: Duration,
-    slashing_percentage: EventualWriter<PPM>,
     usd_to_grt_conversion: EventualWriter<USD>,
     api_keys: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
     accept_empty: bool,
@@ -38,15 +37,6 @@ pub fn create(
         conversion_rates::QUERY,
         parse_conversion_rates,
         usd_to_grt_conversion,
-        accept_empty,
-    );
-    create_sync_client::<NetworkParameters, _, _>(
-        agent_url.clone(),
-        poll_interval,
-        network_parameters::OPERATION_NAME,
-        network_parameters::QUERY,
-        parse_network_parameters,
-        slashing_percentage,
         accept_empty,
     );
 }
@@ -359,28 +349,6 @@ fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Option<GRT> {
         } => {
             tracing::debug!(?grt_per_usd);
             grt_per_usd.parse::<GRT>().ok()
-        }
-        _ => None,
-    }
-}
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "graphql/sync_agent_schema.gql",
-    query_path = "graphql/network_parameters.gql",
-    response_derives = "Debug"
-)]
-struct NetworkParameters;
-
-fn parse_network_parameters(data: network_parameters::ResponseData) -> Option<PPM> {
-    use network_parameters::{NetworkParametersData, ResponseData};
-    match data {
-        ResponseData {
-            data: Some(NetworkParametersData { value, .. }),
-        } => {
-            let slashing_percentage = value.slashing_percentage.to_string().parse::<PPM>().ok()?;
-            tracing::info!(?slashing_percentage);
-            Some(slashing_percentage)
         }
         _ => None,
     }

@@ -36,17 +36,24 @@ impl SubgraphDeployments {
         Self { inputs }
     }
 
-    pub fn current_deployment(&self, subgraph: &SubgraphID) -> Option<SubgraphDeploymentID> {
+    pub async fn current_deployment(&self, subgraph: &SubgraphID) -> Option<SubgraphDeploymentID> {
         self.inputs
-            .value_immediate()?
+            .value()
+            .await
+            .ok()?
             .current_deployments
             .get(subgraph)
             .cloned()
     }
 
-    pub fn deployment_subgraph(&self, deployment: &SubgraphDeploymentID) -> Option<SubgraphID> {
+    pub async fn deployment_subgraph(
+        &self,
+        deployment: &SubgraphDeploymentID,
+    ) -> Option<SubgraphID> {
         self.inputs
-            .value_immediate()?
+            .value()
+            .await
+            .ok()?
             .deployment_to_subgraph
             .get(deployment)
             .cloned()

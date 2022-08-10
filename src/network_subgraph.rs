@@ -13,6 +13,7 @@ use url::Url;
 
 #[derive(Clone)]
 pub struct Data {
+    pub slashing_percentage: Eventual<PPM>,
     pub subgraph_deployments: SubgraphDeployments,
     pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     pub indexers: Eventual<Ptr<HashMap<Address, IndexerInfo>>>,
@@ -35,6 +36,7 @@ pub struct Client {
     network_subgraph: Url,
     http_client: reqwest::Client,
     latest_block: u64,
+    slashing_percentage: EventualWriter<PPM>,
     subgraph_deployments: EventualWriter<Ptr<Vec<(SubgraphID, Vec<SubgraphDeploymentID>)>>>,
     deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     indexers: EventualWriter<Ptr<HashMap<Address, IndexerInfo>>>,
@@ -43,6 +45,7 @@ pub struct Client {
 
 impl Client {
     pub fn create(http_client: reqwest::Client, network_subgraph: Url) -> Data {
+        let (slashing_percentage_tx, slashing_percentage_rx) = Eventual::new();
         let (subgraph_deployments_tx, subgraph_deployments_rx) = Eventual::new();
         let (deployment_indexers_tx, deployment_indexers_rx) = Eventual::new();
         let (indexers_tx, indexers_rx) = Eventual::new();
@@ -51,6 +54,7 @@ impl Client {
             network_subgraph,
             http_client,
             latest_block: 0,
+            slashing_percentage: slashing_percentage_tx,
             subgraph_deployments: subgraph_deployments_tx,
             deployment_indexers: deployment_indexers_tx,
             indexers: indexers_tx,
@@ -62,6 +66,9 @@ impl Client {
                 let client = client.clone();
                 async move {
                     let mut client = client.lock().await;
+                    if let Err(poll_network_params_err) = client.poll_network_params().await {
+                        tracing::error!(%poll_network_params_err);
+                    }
                     if let Err(poll_allocations_err) = client.poll_allocations().await {
                         tracing::error!(%poll_allocations_err);
                     }
@@ -72,11 +79,27 @@ impl Client {
             })
             .forever();
         Data {
+            slashing_percentage: slashing_percentage_rx,
             subgraph_deployments: SubgraphDeployments::new(subgraph_deployments_rx),
             deployment_indexers: deployment_indexers_rx,
             indexers: indexers_rx,
             allocations: allocations_rx,
         }
+    }
+
+    async fn poll_network_params(&mut self) -> Result<(), String> {
+        let response = graphql::query::<GraphNetworksResponse, _>(
+            &self.http_client,
+            self.network_subgraph.clone(),
+            &json!({ "query": "{ graphNetworks { slashingPercentage } }" }),
+        )
+        .await?
+        .data
+        .and_then(|data| data.graph_networks.into_iter().next())
+        .ok_or("empty response")?;
+        let slashing_percentage = response.slashing_percentage.try_into()?;
+        self.slashing_percentage.write(slashing_percentage);
+        Ok(())
     }
 
     async fn poll_allocations(&mut self) -> Result<(), String> {
@@ -241,6 +264,18 @@ impl Client {
         }
         Ok(results)
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphNetworksResponse {
+    graph_networks: Vec<GraphNetwork>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphNetwork {
+    slashing_percentage: u32,
 }
 
 #[derive(Deserialize)]

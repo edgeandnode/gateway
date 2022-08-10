@@ -132,7 +132,7 @@ async fn main() {
     let InputWriters {
         indexer_inputs:
             indexer_selection::InputWriters {
-                slashing_percentage,
+                mut slashing_percentage,
                 usd_to_grt_conversion,
                 indexers,
                 indexings,
@@ -145,7 +145,6 @@ async fn main() {
     agent_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
-        slashing_percentage,
         usd_to_grt_conversion,
         api_keys_writer,
         opt.sync_agent_accept_empty,
@@ -157,6 +156,11 @@ async fn main() {
     let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
     let network_subgraph_data =
         network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
+
+    network_subgraph_data
+        .slashing_percentage
+        .pipe(move |p| slashing_percentage.write(p))
+        .forever();
 
     let indexer_status_data = indexer_status::Actor::create(
         opt.min_indexer_version,
@@ -493,7 +497,7 @@ enum SubgraphResolutionError {
 }
 
 impl SubgraphQueryData {
-    fn resolve_subgraph_deployment(
+    async fn resolve_subgraph_deployment(
         &self,
         params: &actix_web::dev::Path<actix_web::dev::Url>,
     ) -> Result<Ptr<SubgraphInfo>, SubgraphResolutionError> {
@@ -503,6 +507,7 @@ impl SubgraphQueryData {
                 .map_err(|_| SubgraphResolutionError::InvalidSubgraphID(id.to_string()))?;
             self.subgraph_deployments
                 .current_deployment(&subgraph)
+                .await
                 .ok_or_else(|| SubgraphResolutionError::SubgraphNotFound(id.to_string()))?
         } else if let Some(id) = params.get("deployment_id") {
             SubgraphDeploymentID::from_ipfs_hash(id)
@@ -533,7 +538,7 @@ async fn handle_subgraph_query(
     let mut query = Query::new(ray_id, payload.into_inner().query, variables);
     // We check that the requested subgraph is valid now, since we don't want to log query info for
     // unknown subgraphs requests.
-    query.subgraph = match data.resolve_subgraph_deployment(request.match_info()) {
+    query.subgraph = match data.resolve_subgraph_deployment(request.match_info()).await {
         Ok(result) => Some(result),
         Err(subgraph_resolution_err) => {
             tracing::info!(?subgraph_resolution_err);
@@ -641,6 +646,8 @@ async fn handle_subgraph_query_inner(
                 "Requested block before minimum `startBlock` of subgraph manifest".into()
             }
             QueryEngineError::MissingBlock(_) => "Gateway failed to resolve required blocks".into(),
+            QueryEngineError::MissingNetworkParams => "Internal error: MissingNetworkParams".into(),
+            QueryEngineError::MissingExchangeRate => "Internal error: MissingExchangeRate".into(),
         });
     }
     let last_attempt = query.indexer_attempts.last().unwrap();
