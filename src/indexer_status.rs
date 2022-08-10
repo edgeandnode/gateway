@@ -244,11 +244,12 @@ impl Actor {
                 };
                 let chain = &status.chains.get(0)?;
                 let cost_model = cost_models.remove(&indexing.deployment);
+                let block_status = chain.latest_block.as_ref()?;
                 let status = IndexingStatus {
                     network: chain.network.clone(),
                     block: BlockPointer {
-                        number: chain.latest_block.number.parse().ok()?,
-                        hash: chain.latest_block.hash.clone(),
+                        number: block_status.number.parse().ok()?,
+                        hash: block_status.hash.clone(),
                     },
                     cost_model,
                 };
@@ -296,7 +297,7 @@ struct IndexingStatusResponse {
 #[serde(rename_all = "camelCase")]
 struct ChainStatus {
     network: String,
-    latest_block: BlockStatus,
+    latest_block: Option<BlockStatus>,
 }
 
 #[derive(Deserialize)]
