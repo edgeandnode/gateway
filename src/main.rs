@@ -18,6 +18,7 @@ mod rate_limiter;
 mod stats_db;
 mod studio_client;
 mod subgraph_deployments;
+mod utils;
 mod vouchers;
 mod ws_client;
 use crate::{
@@ -25,17 +26,18 @@ use crate::{
     fisherman_client::*,
     geoip::GeoIP,
     indexer_client::IndexerClient,
-    indexer_selection::{IndexerDataReader, IndexerDataWriter, IndexingData, SelectionFactors},
+    indexer_selection::{IndexerData, Indexers, SelectionFactors},
     indexer_status::IndexingStatus,
     ipfs_client::*,
     kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
     manifest_client::*,
     network_subgraph::IndexerInfo,
     opt::*,
-    prelude::{shared_lookup::SharedLookupWriter, *},
+    prelude::*,
     query_engine::*,
     rate_limiter::*,
     subgraph_deployments::SubgraphDeployments,
+    utils::double_buffer::*,
 };
 use actix_cors::Cors;
 use actix_web::{
@@ -58,7 +60,7 @@ use std::{
     time::SystemTime,
 };
 use structopt::StructOpt as _;
-use tokio::sync::Mutex;
+use tokio::{spawn, sync::Mutex};
 use url::Url;
 
 #[actix_web::main]
@@ -76,23 +78,17 @@ async fn main() {
         }
     };
 
-    let (mut input_writers, inputs) = Inputs::new();
+    let (inputs, input_writers) = double_buffer!(Indexers::default());
+    let special_indexers = if opt.mips.0.len() > 0 {
+        Some(Arc::new(opt.mips.0))
+    } else {
+        None
+    };
+    input_writers.update(|indexers| indexers.special_indexers = special_indexers.clone());
 
-    input_writers
-        .indexer_inputs
-        .special_indexers
-        .write(opt.mips.0);
-
-    // Trigger decay every minute.
-    let indexer_selection = inputs.indexers.clone();
-    eventuals::timer(Duration::from_secs(60))
-        .pipe_async(move |_| {
-            let indexer_selection = indexer_selection.clone();
-            async move {
-                indexer_selection.decay().await;
-            }
-        })
-        .forever();
+    // Start the actor to manage updates
+    let (update_writer, update_reader) = crate::utils::buffer_queue::pair();
+    spawn(async move { indexer_selection::actor::process_updates(input_writers, update_reader) });
 
     let geoip = opt
         .geoip_database
@@ -150,10 +146,13 @@ async fn main() {
     } = input_writers;
     let indexers = Arc::new(Mutex::new(indexers));
     let indexings = Arc::new(Mutex::new(indexings));
+    let (api_keys_writer, api_keys) = Eventual::new();
     agent_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
         usd_to_grt_conversion,
+        update_writer.clone(),
+        api_keys_writer,
         false,
     );
     let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
@@ -353,8 +352,8 @@ fn request_host(request: &ServiceRequest) -> String {
 async fn write_indexer_inputs(
     signer_key: SecretKey,
     block_resolvers: &HashMap<String, BlockResolver>,
-    indexers: &mut SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
-    indexings: &mut SharedLookupWriter<Indexing, SelectionFactors, IndexingData>,
+    indexers: &mut HashMap<Address, IndexerData>,
+    indexings: &mut HashMap<Indexing, SelectionFactors>,
     allocations: &HashMap<Address, AllocationInfo>,
     indexer_info: &HashMap<Address, IndexerInfo>,
     indexing_statuses: &HashMap<Indexing, IndexingStatus>,
@@ -366,9 +365,9 @@ async fn write_indexer_inputs(
     );
 
     for (indexer, info) in indexer_info {
-        let writer = indexers.write(indexer).await;
-        writer.url.write(Arc::new(info.url.clone()));
-        writer.stake.write(info.staked_tokens);
+        let writer = indexers.entry(*indexer).or_default();
+        writer.url = Some(Arc::new(info.url.clone()));
+        writer.stake = Some(info.staked_tokens);
     }
 
     let mut latest_blocks = HashMap::<String, u64>::new();
@@ -389,11 +388,9 @@ async fn write_indexer_inputs(
             .map(|(id, info)| (id.clone(), info.allocated_tokens.clone()))
             .collect::<Vec<(Address, GRT)>>();
 
-        let writer = indexings.write(indexing).await;
-        writer
-            .update_allocations(signer_key.clone(), allocations)
-            .await;
-        writer.status.write(indexer_selection::IndexingStatus {
+        let writer = indexings.entry(*indexing).or_default();
+        writer.update_allocations(signer_key.clone(), allocations);
+        writer.set_status(indexer_selection::IndexingStatus {
             cost_model: status.cost_model.clone(),
             block: status.block.number,
             latest,
@@ -486,7 +483,7 @@ struct SubgraphQueryData {
     subgraph_info: SubgraphInfoMap,
     subgraph_deployments: SubgraphDeployments,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
-    inputs: Inputs,
+    inputs: DoubleBufferReader<Indexers>,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     api_key_payment_required: bool,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,

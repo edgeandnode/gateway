@@ -6,6 +6,7 @@ use crate::indexer_selection::{
 
 #[derive(Clone, Debug, Default)]
 pub struct DataFreshness {
+    // TODO: (Zac) These can become Result<_, MissingIndexerStatus>
     blocks_behind: Option<u64>,
     highest_reported_block: Option<u64>,
 }

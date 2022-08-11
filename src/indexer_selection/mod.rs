@@ -1,3 +1,4 @@
+pub mod actor;
 mod allocations;
 mod block_requirements;
 mod data_freshness;
@@ -18,17 +19,13 @@ mod tests;
 pub use crate::indexer_selection::{
     allocations::{Allocations, QueryStatus, Receipt},
     block_requirements::BlockRequirements,
-    indexers::{IndexerDataReader, IndexerDataWriter},
-    selection_factors::{IndexingData, IndexingStatus, SelectionFactors},
+    indexers::IndexerData,
+    selection_factors::{IndexingStatus, SelectionFactors},
 };
 use crate::{
     block_resolver::BlockResolver,
     indexer_selection::{block_requirements::*, economic_security::*},
-    prelude::{
-        shared_lookup::{SharedLookup, SharedLookupWriter},
-        weighted_sample::WeightedSample,
-        *,
-    },
+    prelude::{weighted_sample::WeightedSample, *},
 };
 use cost_model;
 pub use cost_model::CostModel;
@@ -129,7 +126,7 @@ impl UnresolvedBlock {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Indexing {
     pub indexer: Address,
     pub deployment: SubgraphDeploymentID,
@@ -163,99 +160,45 @@ pub struct UtilityScores {
     pub reputation: f64,
 }
 
-pub struct Inputs {
-    pub slashing_percentage: Eventual<PPM>,
-    pub usd_to_grt_conversion: Eventual<GRT>,
-    pub indexers: SharedLookup<Address, IndexerDataReader>,
-    pub indexings: SharedLookup<Indexing, SelectionFactors>,
-    pub special_indexers: Eventual<HashMap<Address, NotNan<f64>>>,
-}
-
-pub struct InputWriters {
-    pub slashing_percentage: EventualWriter<PPM>,
-    pub usd_to_grt_conversion: EventualWriter<GRT>,
-    pub indexers: SharedLookupWriter<Address, IndexerDataReader, IndexerDataWriter>,
-    pub indexings: SharedLookupWriter<Indexing, SelectionFactors, IndexingData>,
-    pub special_indexers: EventualWriter<HashMap<Address, NotNan<f64>>>,
-}
-
+#[derive(Default)]
 pub struct Indexers {
     pub network_params: NetworkParameters,
-    indexers: SharedLookup<Address, IndexerDataReader>,
-    indexings: SharedLookup<Indexing, SelectionFactors>,
-    special_indexers: Eventual<HashMap<Address, NotNan<f64>>>,
+    indexers: HashMap<Address, IndexerData>,
+    indexings: HashMap<Indexing, SelectionFactors>,
+    pub special_indexers: Option<Arc<HashMap<Address, NotNan<f64>>>>,
 }
 
 impl Indexers {
-    pub fn inputs() -> (InputWriters, Inputs) {
-        let (slashing_percentage_writer, slashing_percentage) = Eventual::new();
-        let (usd_to_grt_conversion_writer, usd_to_grt_conversion) = Eventual::new();
-        let (indexers_writer, indexers) = SharedLookup::new();
-        let (indexings_writer, indexings) = SharedLookup::new();
-        let (special_indexers_writer, special_indexers) = Eventual::new();
-        (
-            InputWriters {
-                slashing_percentage: slashing_percentage_writer,
-                usd_to_grt_conversion: usd_to_grt_conversion_writer,
-                indexers: indexers_writer,
-                indexings: indexings_writer,
-                special_indexers: special_indexers_writer,
-            },
-            Inputs {
-                slashing_percentage,
-                usd_to_grt_conversion,
-                indexers,
-                indexings,
-                special_indexers,
-            },
-        )
+    pub fn new() -> Indexers {
+        Default::default()
     }
 
-    pub fn new(inputs: Inputs) -> Indexers {
-        Indexers {
-            network_params: NetworkParameters {
-                slashing_percentage: inputs.slashing_percentage,
-                usd_to_grt_conversion: inputs.usd_to_grt_conversion,
-            },
-            indexers: inputs.indexers,
-            indexings: inputs.indexings,
-            special_indexers: inputs.special_indexers,
-        }
-    }
-
-    pub async fn observe_successful_query(
-        &self,
+    pub fn observe_successful_query(
+        &mut self,
         indexing: &Indexing,
         duration: Duration,
         receipt: &[u8],
     ) {
-        let selection_factors = match self.indexings.get(indexing).await {
-            Some(selection_factors) => selection_factors,
-            None => return,
-        };
-        selection_factors
-            .observe_successful_query(duration, receipt)
-            .await;
+        if let Some(selection_factors) = self.indexings.get(indexing) {
+            // TODO: (Zac) receipts need special handling
+            selection_factors.observe_successful_query(duration, receipt);
+        }
     }
 
-    pub async fn observe_failed_query(
-        &self,
+    pub fn observe_failed_query(
+        &mut self,
         indexing: &Indexing,
         duration: Duration,
         receipt: &[u8],
         error: &IndexerError,
     ) {
-        let selection_factors = match self.indexings.get(indexing).await {
-            Some(selection_factors) => selection_factors,
-            None => return,
+        if let Some(selection_factors) = self.indexings.get(indexing) {
+            selection_factors.observe_failed_query(duration, receipt, error);
         };
-        selection_factors
-            .observe_failed_query(duration, receipt, error)
-            .await;
     }
 
     pub async fn observe_indexing_behind(
-        &self,
+        &mut self,
         context: &mut Context<'_>,
         indexing: &Indexing,
         block_resolver: &BlockResolver,
@@ -264,36 +207,30 @@ impl Indexers {
         // that race conditions occur less frequently. They will still occur,
         // but less is better.
         let latest = block_resolver.latest_block().map(|b| b.number).unwrap_or(0);
+        // TODO: (Zac) Determinism - this can't happen here (needs pure function)
         let freshness_requirements =
             freshness_requirements(&mut context.operations, block_resolver).await;
-        let selection_factors = match self.indexings.get(indexing).await {
-            Some(selection_factors) => selection_factors,
-            None => return,
-        };
+
         let minimum_block = match freshness_requirements {
             Ok(requirements) => requirements.minimum_block,
             // If we observed a block hash in the query that we could no longer associate with a
             // number, then we have detected a reorg and the indexer receives no penalty.
             Err(_) => return,
         };
-        selection_factors
-            .observe_indexing_behind(minimum_block, latest)
-            .await;
+        if let Some(selection_factors) = self.indexings.get(indexing) {
+            selection_factors.observe_indexing_behind(minimum_block, latest);
+        }
     }
 
-    pub async fn penalize(&self, indexing: &Indexing, weight: u8) {
-        let selection_factors = match self.indexings.get(indexing).await {
-            Some(selection_factors) => selection_factors,
-            None => return,
-        };
-        selection_factors.penalize(weight).await;
+    pub fn penalize(&self, indexing: &Indexing, weight: u8) {
+        if let Some(selection_factors) = self.indexings.get(indexing) {
+            selection_factors.penalize(weight);
+        }
     }
 
-    pub async fn decay(&self) {
-        for indexing in self.indexings.keys().await {
-            if let Some(selection_factors) = self.indexings.get(&indexing).await {
-                selection_factors.decay().await;
-            }
+    pub fn decay(&mut self) {
+        for selection_factors in self.indexings.values() {
+            selection_factors.decay();
         }
     }
 
@@ -304,6 +241,7 @@ impl Indexers {
         freshness_requirements(&mut context.operations, block_resolver).await
     }
 
+    // TODO: (Zac) Not async?
     pub async fn select_indexer(
         &self,
         config: &UtilityConfig,
@@ -315,18 +253,15 @@ impl Indexers {
         freshness_requirements: &BlockRequirements,
         budget: GRT,
     ) -> Result<Option<(IndexerQuery, ScoringSample)>, SelectionError> {
-        let selection = match self
-            .make_selection(
-                config,
-                subgraph,
-                context,
-                block_resolver,
-                &indexers,
-                budget,
-                &freshness_requirements,
-            )
-            .await
-        {
+        let selection = match self.make_selection(
+            config,
+            subgraph,
+            context,
+            block_resolver,
+            &indexers,
+            budget,
+            &freshness_requirements,
+        ) {
             Ok(Some(result)) => result,
             Ok(None) => return Ok(None),
             Err(err) => return Err(err),
@@ -369,7 +304,7 @@ impl Indexers {
 
     /// Select random indexer, weighted by utility. Indexers with incomplete data or that do not
     /// meet the minimum requirements will be excluded.
-    async fn make_selection(
+    fn make_selection(
         &self,
         config: &UtilityConfig,
         deployment: &SubgraphDeploymentID,
@@ -388,16 +323,14 @@ impl Indexers {
                 indexer: *indexer,
                 deployment: *deployment,
             };
-            let result = self
-                .score_indexer(
-                    &indexing,
-                    context,
-                    block_resolver,
-                    budget,
-                    config,
-                    freshness_requirements,
-                )
-                .await;
+            let result = self.score_indexer(
+                &indexing,
+                context,
+                block_resolver,
+                budget,
+                config,
+                freshness_requirements,
+            );
             // TODO: these logs are currently required for data science. However, we would like to omit these in production and only use the sampled scoring logs.
             match &result {
                 Ok(score) => tracing::info!(
@@ -478,10 +411,8 @@ impl Indexers {
             .filter(|(address, _)| address != &indexing.indexer);
         self.indexings
             .get(&indexing)
-            .await
             .ok_or(BadIndexerReason::MissingIndexingStatus)?
             .commit(&fee)
-            .await
             .map(|receipt| {
                 Some(Selection {
                     indexing: indexing.clone(),
@@ -493,7 +424,7 @@ impl Indexers {
             .map_err(|_| SelectionError::NoAllocation(indexing.clone()))
     }
 
-    async fn score_indexer(
+    fn score_indexer(
         &self,
         indexing: &Indexing,
         context: &mut Context<'_>,
@@ -507,8 +438,7 @@ impl Indexers {
         let indexer_data = self
             .indexers
             .get(&indexing.indexer)
-            .await
-            .map(|data| (data.url.value_immediate(), data.stake.value_immediate()))
+            .map(|data| (data.url.clone(), data.stake.clone()))
             .unwrap_or_default();
         let indexer_url = indexer_data
             .0
@@ -525,45 +455,37 @@ impl Indexers {
         let selection_factors = self
             .indexings
             .get(&indexing)
-            .await
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
 
         let latest_block = block_resolver
             .latest_block()
             .ok_or(SelectionError::MissingBlock(UnresolvedBlock::WithNumber(0)))?;
-        let blocks_behind = selection_factors.blocks_behind().await?;
+        let blocks_behind = selection_factors.blocks_behind()?;
 
-        let (fee, price_efficiency) = selection_factors
-            .get_price(context, config.price_efficiency, &budget)
-            .await?;
+        let (fee, price_efficiency) =
+            selection_factors.get_price(context, config.price_efficiency, &budget)?;
         aggregator.add(price_efficiency);
 
-        let indexer_allocation = selection_factors.total_allocation().await;
+        let indexer_allocation = selection_factors.total_allocation();
         if indexer_allocation == GRT::zero() {
             return Err(SelectionError::NoAllocation(indexing.clone()));
         }
 
-        let performance = selection_factors
-            .expected_performance_utility(config.performance)
-            .await;
+        let performance = selection_factors.expected_performance_utility(config.performance);
         aggregator.add(performance);
 
-        let reputation = selection_factors
-            .expected_reputation_utility(UtilityParameters {
-                a: 3.0,
-                weight: 1.0,
-            })
-            .await;
+        let reputation = selection_factors.expected_reputation_utility(UtilityParameters {
+            a: 3.0,
+            weight: 1.0,
+        });
         aggregator.add(reputation);
 
-        let data_freshness = selection_factors
-            .expected_freshness_utility(
-                freshness_requirements,
-                config.data_freshness,
-                latest_block.number,
-                blocks_behind,
-            )
-            .await?;
+        let data_freshness = selection_factors.expected_freshness_utility(
+            freshness_requirements,
+            config.data_freshness,
+            latest_block.number,
+            blocks_behind,
+        )?;
         aggregator.add(data_freshness);
 
         drop(selection_factors);
@@ -583,7 +505,6 @@ impl Indexers {
         // backstop indexers may have a reduced utility.
         utility *= self
             .special_indexers
-            .value_immediate()
             .and_then(|map| map.get(&indexing.indexer).map(|w| **w))
             .unwrap_or(1.0);
 

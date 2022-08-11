@@ -226,14 +226,9 @@ async fn run_simulation(
     tests: &[IndexerCharacteristics],
     utility_config: &UtilityConfig,
 ) -> Vec<f64> {
-    let (mut input_writers, inputs) = Indexers::inputs();
-    let indexers = Indexers::new(inputs);
-    input_writers
-        .slashing_percentage
-        .write("0.1".parse().unwrap());
-    input_writers
-        .usd_to_grt_conversion
-        .write(1u64.try_into().unwrap());
+    let mut indexers = Indexers::default();
+    indexers.network_params.slashing_percentage = "0.1".parse().ok();
+    indexers.network_params.usd_to_grt_conversion = 1u64.try_into().ok();
 
     let network = "test";
     let blocks = gen_blocks(&(0u64..100).into_iter().collect::<Vec<u64>>());
@@ -252,31 +247,29 @@ async fn run_simulation(
             deployment,
         };
         indexer_ids.push(indexing.indexer);
-        let indexing_writer = input_writers.indexings.write(&indexing).await;
-        indexing_writer
-            .update_allocations(
-                test_key.clone(),
-                vec![(Address::default(), data.allocation)],
-            )
-            .await;
-        indexing_writer.status.write(IndexingStatus {
+        let indexing_writer = indexers.indexings.entry(indexing).or_default();
+        indexing_writer.update_allocations(
+            test_key.clone(),
+            vec![(Address::default(), data.allocation)],
+        );
+        indexing_writer.set_status(IndexingStatus {
             cost_model: Some(Ptr::new(default_cost_model(data.price))),
             block: latest.number - data.blocks_behind,
             latest: latest.number,
         });
-        let indexer_writer = input_writers.indexers.write(&indexing.indexer).await;
-        indexer_writer
-            .url
-            .write(Arc::new("http://localhost".parse().unwrap()));
-        indexer_writer.stake.write(data.stake);
+        indexers.indexers.insert(
+            indexing.indexer,
+            IndexerData {
+                url: Some(Arc::new("http://localhost".parse().unwrap())),
+                stake: Some(data.stake),
+            },
+        );
         if let Some(special_weight) = data.special_weight {
             special_indexers.insert(indexing.indexer, special_weight.try_into().unwrap());
         }
     }
 
-    input_writers.special_indexers.write(special_indexers);
-
-    eventuals::idle().await;
+    indexers.special_indexers = Some(Arc::new(special_indexers));
 
     const COUNT: usize = 86400;
     const QPS: u64 = 2000;
@@ -303,7 +296,7 @@ async fn run_simulation(
             .unwrap();
 
         if i % (COUNT / QPS as usize) == 0 {
-            indexers.decay().await;
+            indexers.decay();
         }
 
         let query = match result {
@@ -331,18 +324,14 @@ async fn run_simulation(
                     .try_into()
                     .unwrap();
             entry.query_fees = fees.shift();
-            indexers
-                .observe_successful_query(&indexing, duration, &query.receipt)
-                .await;
+            indexers.observe_successful_query(&indexing, duration, &query.receipt);
         } else {
-            indexers
-                .observe_failed_query(
-                    &indexing,
-                    duration,
-                    &query.receipt,
-                    &IndexerError::Other("error".to_string()),
-                )
-                .await;
+            indexers.observe_failed_query(
+                &indexing,
+                duration,
+                &query.receipt,
+                &IndexerError::Other("error".to_string()),
+            );
         }
     }
 

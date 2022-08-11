@@ -1,7 +1,6 @@
 pub mod bytes;
 pub mod decimal;
 pub mod epoch_cache;
-pub mod shared_lookup;
 pub mod weighted_sample;
 
 #[cfg(test)]
@@ -170,6 +169,7 @@ pub struct BlockHead {
     pub uncles: Vec<Bytes32>,
 }
 
+// TODO: (Zac) Remove this trait?
 pub trait Reader {
     type Writer;
     fn new() -> (Self::Writer, Self);

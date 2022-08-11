@@ -9,14 +9,18 @@ use crate::{
     fisherman_client::*,
     indexer_client::*,
     indexer_selection::{
-        self, Context, IndexerError, IndexerPreferences, IndexerQuery, IndexerScore, Indexers,
-        Receipt, SelectionError, UnresolvedBlock,
+        Context, IndexerError, IndexerPreferences, IndexerQuery, IndexerScore, Indexers, Receipt,
+        SelectionError, UnresolvedBlock,
     },
     kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
+    utils::{
+        buffer_queue::QueueWriter,
+        double_buffer::{DoubleBufferReader, DoubleBufferWriter},
+    },
 };
 pub use crate::{
-    indexer_selection::{Indexing, UtilityConfig},
+    indexer_selection::{actor::Update, Indexing, UtilityConfig},
     prelude::*,
 };
 pub use graphql_client::Response;
@@ -187,37 +191,14 @@ pub struct Config {
     pub budget_factors: QueryBudgetFactors,
 }
 
-#[derive(Clone)]
-pub struct Inputs {
-    pub indexers: Arc<Indexers>,
-}
-
-pub struct InputWriters {
-    pub indexer_inputs: indexer_selection::InputWriters,
-    pub indexers: Arc<Indexers>,
-}
-
-impl Inputs {
-    pub fn new() -> (InputWriters, Self) {
-        let (indexer_input_writers, indexer_inputs) = Indexers::inputs();
-        let indexers = Arc::new(Indexers::new(indexer_inputs));
-        (
-            InputWriters {
-                indexer_inputs: indexer_input_writers,
-                indexers: indexers.clone(),
-            },
-            Inputs { indexers },
-        )
-    }
-}
-
 pub struct QueryEngine<I, K, F>
 where
     I: IndexerInterface + Clone + Send,
     K: KafkaInterface + Send,
     F: FishermanInterface + Clone + Send,
 {
-    indexers: Arc<Indexers>,
+    indexers: DoubleBufferReader<Indexers>,
+    observations: QueueWriter<Update>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     block_resolvers: Arc<HashMap<String, BlockResolver>>,
     indexer_client: I,
@@ -239,10 +220,10 @@ where
         fisherman_client: Option<Arc<F>>,
         block_resolvers: Arc<HashMap<String, BlockResolver>>,
         deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
-        inputs: Inputs,
+        indexers: DoubleBufferReader<Indexers>,
     ) -> Self {
         Self {
-            indexers: inputs.indexers,
+            indexers,
             deployment_indexers,
             indexer_client,
             kafka_client,
@@ -278,15 +259,16 @@ where
     ) -> Result<(), QueryEngineError> {
         use QueryEngineError::*;
         let subgraph = query.subgraph.as_ref().unwrap().clone();
-        let indexers = self
+        // TODO: Why is this here?
+        let deployment_indexers = self
             .deployment_indexers
             .value_immediate()
             .and_then(|map| map.get(&subgraph.deployment).cloned())
             .unwrap_or_default();
         tracing::info!(
-            deployment = ?subgraph.deployment, deployment_indexers = indexers.len(),
+            deployment = ?subgraph.deployment, deployment_indexers = deployment_indexers.len(),
         );
-        if indexers.is_empty() {
+        if deployment_indexers.is_empty() {
             return Err(NoIndexers);
         }
         let _execution_timer = with_metric(
@@ -338,8 +320,8 @@ where
             // to allow arbitrarily high values.
             budget = max_budget.min(budget * U256::from(10u8));
         }
-        let budget: GRT = self
-            .indexers
+        let indexers = self.indexers.latest();
+        let budget: GRT = indexers
             .network_params
             .usd_to_grt(USD::try_from(budget).unwrap())
             .ok_or(QueryEngineError::MissingExchangeRate)?;
@@ -377,13 +359,12 @@ where
             // to the state of the client query.
             let mut context = context.clone();
 
-            let selection_result = self
-                .indexers
+            let selection_result = indexers
                 .select_indexer(
                     &utility_config,
                     &subgraph.network,
                     &subgraph.deployment,
-                    &indexers,
+                    &deployment_indexers,
                     &mut context,
                     &block_resolver,
                     &freshness_requirements,
@@ -412,27 +393,24 @@ where
                 }
                 _ => (),
             };
-            let indexing = indexer_query.indexing.clone();
+            let indexing = indexer_query.indexing;
             let result = self
                 .execute_indexer_query(query, indexer_query, deployment_id)
                 .await;
             assert_eq!(retry_count + 1, query.indexer_attempts.len());
             let attempt = query.indexer_attempts.last_mut().unwrap();
+            self.observations.write(Update::QueryObservation {
+                indexing,
+                duration: attempt.duration,
+                result,
+            });
             match result {
                 Ok(()) => {
-                    self.indexers
-                        .observe_successful_query(&indexing, attempt.duration, &attempt.receipt)
-                        .await;
                     return Ok(());
                 }
                 Err(err) => {
-                    self.indexers
-                        .observe_failed_query(&indexing, attempt.duration, &attempt.receipt, &err)
-                        .await;
                     if let IndexerError::UnresolvedBlock = err {
-                        self.indexers
-                            .observe_indexing_behind(&mut context, &indexing, &block_resolver)
-                            .await;
+                        indexers.observe_indexing_behind(&mut context, &indexing, &block_resolver);
                         // Skip 1 block for every 2 attempts where the indexer failed to resolve
                         // the block we consider to be latest. Our latest block may be uncled.
                         latest_unresolved += 1;
@@ -515,8 +493,11 @@ where
                     &[&deployment_id, &indexer_id],
                     |counter| counter.inc(),
                 );
+                self.observations.write(Update::Penalty {
+                    indexing: indexer_query.indexing,
+                    weight: 35,
+                });
                 tracing::info!("penalizing for unattestable error");
-                self.indexers.penalize(&indexer_query.indexing, 35).await;
                 return Err(IndexerError::UnattestableError);
             }
         }
@@ -631,7 +612,7 @@ where
             Some(fisherman) => fisherman.clone(),
             None => return,
         };
-        let indexers = self.indexers.clone();
+        let observations = self.observations.clone();
         tokio::spawn(async move {
             let outcome = fisherman
                 .challenge(&indexing.indexer, &allocation, &indexer_query, &attestation)
@@ -645,7 +626,10 @@ where
             };
             if penalty > 0 {
                 tracing::info!(?outcome, "penalizing for challenge outcome");
-                indexers.penalize(&indexing, penalty).await;
+                observations.write(Update::Penalty {
+                    indexing,
+                    weight: penalty,
+                });
             }
         });
     }
