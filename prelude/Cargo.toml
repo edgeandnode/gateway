@@ -1,0 +1,33 @@
+[package]
+edition = "2021"
+name = "prelude"
+version = "0.0.1"
+
+[dependencies]
+bs58 = "0.4"
+eventuals = "0.6.7"
+hex = "0.4"
+primitive-types = "0.8"
+prometheus = { version = "0.13", default-features = false }
+rand = { version = "0.8", default-features = false }
+serde = { version = "1.0", features = ["derive"]}
+sha3 = "0.10"
+siphasher = "0.3"
+tokio = { version = "1.14.0", features = [
+  "sync",
+  "time",
+  "macros",
+  "rt-multi-thread",
+  "parking_lot",
+] }
+tracing = { version = "0.1", default-features = false, features = [
+  "attributes",
+] }
+tracing-subscriber = { version = "0.3", features = [
+  "env-filter",
+  "parking_lot",
+  "json",
+] }
+
+[dev-dependencies]
+rand = { version = "0.8", features = ["small_rng"] }
