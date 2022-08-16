@@ -1,6 +1,6 @@
-use crate::indexer_selection::SecretKey;
 use actix_web::{http::StatusCode, web, HttpResponse, HttpResponseBuilder};
 use hex;
+use indexer_selection::SecretKey;
 use lazy_static::lazy_static;
 use prelude::*;
 use primitive_types::U256;

@@ -1,8 +1,6 @@
-use crate::{
-    indexer_selection::IndexerPreferences,
-    query_engine::{APIKey, VolumeEstimator},
-};
+use crate::query_engine::{APIKey, VolumeEstimator};
 use graphql_client::{GraphQLQuery, Response};
+use indexer_selection::IndexerPreferences;
 use lazy_static::lazy_static;
 use prelude::*;
 use reqwest;

@@ -1,4 +1,4 @@
-use crate::indexer_selection::{
+use crate::{
     block_requirements::BlockRequirements,
     utility::{concave_utility, SelectionFactor, UtilityParameters},
     BadIndexerReason, SelectionError,

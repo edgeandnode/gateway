@@ -1,4 +1,5 @@
-use crate::{block_resolver::BlockCacheWriter, indexer_selection::UnresolvedBlock, ws_client};
+use crate::{block_resolver::BlockCacheWriter, ws_client};
+use indexer_selection::UnresolvedBlock;
 use lazy_static::lazy_static;
 use prelude::*;
 use prometheus;

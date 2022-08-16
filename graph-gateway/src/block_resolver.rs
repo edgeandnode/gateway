@@ -1,5 +1,7 @@
-use crate::{ethereum_client, indexer_selection::UnresolvedBlock};
+use crate::ethereum_client;
+use async_trait::async_trait;
 use im;
+use indexer_selection::{self, UnresolvedBlock};
 use lazy_static::lazy_static;
 use prelude::*;
 
@@ -36,17 +38,33 @@ impl BlockResolver {
         resolver
     }
 
-    pub fn latest_block(&self) -> Option<BlockPointer> {
+    async fn fetch_cache_miss(&self, unresolved: UnresolvedBlock) -> Option<BlockPointer> {
+        let _block_resolution_timer =
+            with_metric(&METRICS.block_resolution.duration, &[&self.network], |h| {
+                h.start_timer()
+            });
+        let (sender, receiver) = oneshot::channel();
+        self.chain_client
+            .send(ethereum_client::Msg::Request(unresolved, sender))
+            .await
+            .ok()?;
+        receiver.await.ok()
+    }
+}
+
+#[async_trait]
+impl indexer_selection::BlockResolver for BlockResolver {
+    fn latest_block(&self) -> Option<BlockPointer> {
         let cache = self.cache.value_immediate()?;
         let index = cache.head.len().saturating_sub(self.skip_latest + 1);
         cache.head.get(index).cloned()
     }
 
-    pub fn skip_latest(&mut self, skip: usize) {
+    fn skip_latest(&mut self, skip: usize) {
         self.skip_latest = skip;
     }
 
-    pub async fn resolve_block(
+    async fn resolve_block(
         &self,
         unresolved: UnresolvedBlock,
     ) -> Result<BlockPointer, UnresolvedBlock> {
@@ -72,19 +90,6 @@ impl BlockResolver {
                 Err(unresolved)
             }
         }
-    }
-
-    async fn fetch_cache_miss(&self, unresolved: UnresolvedBlock) -> Option<BlockPointer> {
-        let _block_resolution_timer =
-            with_metric(&METRICS.block_resolution.duration, &[&self.network], |h| {
-                h.start_timer()
-            });
-        let (sender, receiver) = oneshot::channel();
-        self.chain_client
-            .send(ethereum_client::Msg::Request(unresolved, sender))
-            .await
-            .ok()?;
-        receiver.await.ok()
     }
 }
 
@@ -215,7 +220,7 @@ impl Metrics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::indexer_selection::test_utils::gen_blocks;
+    use indexer_selection::{test_utils::gen_blocks, BlockResolver as _};
 
     /// Skipping some number of blocks from latest does not require all
     /// blocks between the latest and the skipped to.

@@ -1099,24 +1099,20 @@ dependencies = [
  "actix-router",
  "actix-web",
  "async-trait",
- "core-foundation",
  "cost-model",
  "eventuals",
  "futures",
  "futures-util",
- "graphql-parser 0.3.0",
  "graphql_client",
  "hdwallet",
  "hex",
  "im",
- "itertools",
+ "indexer-selection",
  "lazy_static",
  "maxminddb",
- "num-traits",
  "openssl",
  "ordered-float",
  "parking_lot",
- "plotters",
  "postgres-openssl",
  "prelude",
  "primitive-types",
@@ -1427,6 +1423,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1be51a921b067b0eaca2fad532d9400041561aa922221cc65f95a85641c6bf53"
 dependencies = [
  "parity-scale-codec",
+]
+
+[[package]]
+name = "indexer-selection"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "core-foundation",
+ "cost-model",
+ "eventuals",
+ "futures",
+ "graphql-parser 0.3.0",
+ "hex",
+ "itertools",
+ "lazy_static",
+ "num-traits",
+ "ordered-float",
+ "plotters",
+ "prelude",
+ "primitive-types",
+ "rand",
+ "receipts 0.1.0 (git+ssh://git@github.com/edgeandnode/receipts.git?rev=8d46a95)",
+ "secp256k1 0.20.3",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]

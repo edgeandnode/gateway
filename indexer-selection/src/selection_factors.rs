@@ -1,13 +1,11 @@
 use crate::{
-    indexer_selection::{
-        allocations::*, block_requirements::*, data_freshness::*, decay::DecayBuffer,
-        performance::*, price_efficiency::*, reputation::*, utility::*, BadIndexerReason, Context,
-        IndexerError, SelectionError,
-    },
+    allocations::*, block_requirements::*, data_freshness::*, decay::DecayBuffer, performance::*,
+    price_efficiency::*, reputation::*, utility::*, BadIndexerReason, Context, IndexerError,
+    SelectionError,
 };
-use prelude::*;
 use cost_model::CostModel;
 use eventuals::EventualExt;
+use prelude::*;
 use secp256k1::SecretKey;
 use std::sync::Arc;
 use tokio::sync::RwLock;

@@ -1,15 +1,15 @@
 use crate::{
     fisherman_client::*,
     indexer_client::*,
-    indexer_selection::{
-        test_utils::{default_cost_model, TEST_KEY},
-        IndexerError, IndexingStatus, SecretKey,
-    },
     kafka_client::{self, KafkaInterface},
     manifest_client::SubgraphInfo,
     query_engine::*,
 };
 use async_trait::async_trait;
+use indexer_selection::{
+    test_utils::{default_cost_model, TestBlockResolver, TEST_KEY},
+    IndexerError, IndexingStatus, SecretKey,
+};
 use prelude::{decimal, test_utils::*, *};
 use rand::{
     distributions,
@@ -147,11 +147,11 @@ impl Topology {
         topology
     }
 
-    fn resolvers(&self) -> Arc<HashMap<String, BlockResolver>> {
+    fn resolvers(&self) -> Arc<HashMap<String, TestBlockResolver>> {
         let resolvers = self
             .networks
             .iter()
-            .map(|(name, network)| (name.clone(), BlockResolver::test(&network.blocks)))
+            .map(|(name, network)| (name.clone(), TestBlockResolver::new(network.blocks.clone())))
             .collect();
         Arc::new(resolvers)
     }

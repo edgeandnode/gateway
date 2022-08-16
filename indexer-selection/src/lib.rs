@@ -8,23 +8,20 @@ mod performance;
 mod price_efficiency;
 mod reputation;
 mod selection_factors;
+pub mod test_utils;
 mod utility;
 
 #[cfg(test)]
-pub mod test_utils;
-#[cfg(test)]
 mod tests;
 
-pub use crate::indexer_selection::{
+pub use crate::{
     allocations::{Allocations, QueryStatus, Receipt},
     block_requirements::BlockRequirements,
     indexers::{IndexerDataReader, IndexerDataWriter},
     selection_factors::{IndexingData, IndexingStatus, SelectionFactors},
 };
-use crate::{
-    block_resolver::BlockResolver,
-    indexer_selection::{block_requirements::*, economic_security::*},
-};
+use crate::{block_requirements::*, economic_security::*};
+use async_trait::async_trait;
 use cost_model;
 pub use cost_model::CostModel;
 use lazy_static::lazy_static;
@@ -127,6 +124,16 @@ impl UnresolvedBlock {
             Self::WithNumber(number) => &block.number == number,
         }
     }
+}
+
+#[async_trait]
+pub trait BlockResolver {
+    fn latest_block(&self) -> Option<BlockPointer>;
+    fn skip_latest(&mut self, skip: usize);
+    async fn resolve_block(
+        &self,
+        unresolved: UnresolvedBlock,
+    ) -> Result<BlockPointer, UnresolvedBlock>;
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -258,7 +265,7 @@ impl Indexers {
         &self,
         context: &mut Context<'_>,
         indexing: &Indexing,
-        block_resolver: &BlockResolver,
+        block_resolver: &impl BlockResolver,
     ) {
         // Get this early to be closer to the time when the query was made so
         // that race conditions occur less frequently. They will still occur,
@@ -299,7 +306,7 @@ impl Indexers {
 
     pub async fn freshness_requirements(
         context: &mut Context<'_>,
-        block_resolver: &BlockResolver,
+        block_resolver: &impl BlockResolver,
     ) -> Result<BlockRequirements, SelectionError> {
         freshness_requirements(&mut context.operations, block_resolver).await
     }
@@ -311,7 +318,7 @@ impl Indexers {
         subgraph: &SubgraphDeploymentID,
         indexers: &[Address],
         context: &mut Context<'_>,
-        block_resolver: &BlockResolver,
+        block_resolver: &impl BlockResolver,
         freshness_requirements: &BlockRequirements,
         budget: GRT,
     ) -> Result<Option<(IndexerQuery, ScoringSample)>, SelectionError> {
@@ -374,7 +381,7 @@ impl Indexers {
         config: &UtilityConfig,
         deployment: &SubgraphDeploymentID,
         context: &mut Context<'_>,
-        block_resolver: &BlockResolver,
+        block_resolver: &impl BlockResolver,
         indexers: &[Address],
         budget: GRT,
         freshness_requirements: &BlockRequirements,
@@ -497,7 +504,7 @@ impl Indexers {
         &self,
         indexing: &Indexing,
         context: &mut Context<'_>,
-        block_resolver: &BlockResolver,
+        block_resolver: &impl BlockResolver,
         budget: GRT,
         config: &UtilityConfig,
         freshness_requirements: &BlockRequirements,

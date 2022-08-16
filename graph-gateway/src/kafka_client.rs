@@ -1,7 +1,5 @@
-use crate::{
-    indexer_selection::{IndexerScore, SelectionError},
-    query_engine::Query,
-};
+use crate::query_engine::Query;
+use indexer_selection::{IndexerScore, SelectionError};
 use lazy_static::lazy_static;
 use prelude::*;
 use rdkafka::{

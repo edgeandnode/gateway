@@ -13,22 +13,19 @@ cost-model = { git = "ssh://git@github.com/graphprotocol/agora.git", rev = "ae20
 eventuals = "0.6.7"
 futures = "0.3"
 futures-util = "0.3"
-graphql-parser = { git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df" }
 graphql_client = "0.10"
 hdwallet = "0.3"
 hex = "0.4"
 im = "15.0"
-itertools = "0.10"
+indexer-selection = { path = "../indexer-selection" }
 lazy_static = "1.4"
 maxminddb = "0.23"
-num-traits = "0.2"
 openssl = "0.10"
 ordered-float = "3.0"
 parking_lot = "0.12.0"
 postgres-openssl = "0.5"
 prelude = { path = "../prelude" }
 primitive-types = "0.8"
-rand = { version = "0.8", default-features = false }
 receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "8d46a95" }
 reqwest = { version = "0.11", features = ["json", "trust-dns"] }
 secp256k1 = { version = "0.20", default-features = false }
@@ -54,14 +51,6 @@ rdkafka = { version = "0.28.0", features = [
 ] } # TODO: For M1 machines on arm64 rdkafka = { version = "0.28.0", features =  ["dynamic-linking","ssl","gssapi"] }
 
 [dev-dependencies]
-# core-foundation is added because it is a transitive dependency of plotters (through font-kit)
-# and the selected version (0.9.1) fails to build on MacOS
-core-foundation = "0.9.3"
 eventuals = { version = "0.6.7", features = ["trace"] }
-plotters = { version = "0.3", features = [
-  "bitmap_encoder",
-  "bitmap_gif",
-  "line_series",
-  "svg_backend",
-] }
+rand = { version = "0.8", features = ["small_rng"] }
 regex = "1.5"

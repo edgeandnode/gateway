@@ -1,4 +1,4 @@
-use crate::indexer_selection::SecretKey;
+use crate::SecretKey;
 use prelude::*;
 pub use receipts::{BorrowFail, PartialVoucher, QueryStatus, ReceiptPool, Voucher, VoucherError};
 use std::{collections::HashMap, fmt, ops::Deref};

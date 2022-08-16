@@ -4,19 +4,18 @@ mod price_automation;
 mod tests;
 mod unattestable_errors;
 
-pub use crate::indexer_selection::{Indexing, UtilityConfig};
 use crate::{
-    block_resolver::BlockResolver,
     fisherman_client::*,
     indexer_client::*,
-    indexer_selection::{
-        self, Context, IndexerError, IndexerPreferences, IndexerQuery, IndexerScore, Indexers,
-        Receipt, SelectionError, UnresolvedBlock,
-    },
     kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
 };
 pub use graphql_client::Response;
+use indexer_selection::{
+    self, BlockResolver, Context, IndexerError, IndexerPreferences, IndexerQuery, IndexerScore,
+    Indexers, Receipt, SelectionError, UnresolvedBlock,
+};
+pub use indexer_selection::{Indexing, UtilityConfig};
 use lazy_static::lazy_static;
 pub use prelude::*;
 pub use price_automation::{QueryBudgetFactors, VolumeEstimator};
@@ -199,33 +198,35 @@ impl Inputs {
     }
 }
 
-pub struct QueryEngine<I, K, F>
+pub struct QueryEngine<I, K, F, R>
 where
     I: IndexerInterface + Clone + Send,
     K: KafkaInterface + Send,
     F: FishermanInterface + Clone + Send,
+    R: BlockResolver + Clone,
 {
     indexers: Arc<Indexers>,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
-    block_resolvers: Arc<HashMap<String, BlockResolver>>,
+    block_resolvers: Arc<HashMap<String, R>>,
     indexer_client: I,
     kafka_client: Arc<K>,
     fisherman_client: Option<Arc<F>>,
     config: Config,
 }
 
-impl<I, K, F> QueryEngine<I, K, F>
+impl<I, K, F, R> QueryEngine<I, K, F, R>
 where
     I: IndexerInterface + Clone + Send + 'static,
     K: KafkaInterface + Send,
     F: FishermanInterface + Clone + Send + Sync + 'static,
+    R: BlockResolver + Clone,
 {
     pub fn new(
         config: Config,
         indexer_client: I,
         kafka_client: Arc<K>,
         fisherman_client: Option<Arc<F>>,
-        block_resolvers: Arc<HashMap<String, BlockResolver>>,
+        block_resolvers: Arc<HashMap<String, R>>,
         deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
         inputs: Inputs,
     ) -> Self {

@@ -1,9 +1,6 @@
 use crate::{
-    block_resolver::BlockResolver,
-    indexer_selection::{
-        test_utils::{default_cost_model, gen_blocks, TEST_KEY},
-        *,
-    },
+    test_utils::{default_cost_model, gen_blocks, TestBlockResolver, TEST_KEY},
+    *,
 };
 use plotters::{
     prelude::{DrawingBackend, *},
@@ -237,7 +234,7 @@ async fn run_simulation(
 
     let network = "test";
     let blocks = gen_blocks(&(0u64..100).into_iter().collect::<Vec<u64>>());
-    let resolver = BlockResolver::test(&blocks);
+    let resolver = TestBlockResolver::new(blocks.clone());
     let latest = blocks.last().unwrap();
     let deployment: SubgraphDeploymentID = bytes_from_id(99).into();
 

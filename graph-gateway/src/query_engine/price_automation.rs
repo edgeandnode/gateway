@@ -15,7 +15,8 @@
 // The magic values chosen were based off of 30 days hosted service volume taken on Feb 17, 2022
 // then tweaking until it looked like a fair distribution.
 
-use crate::{indexer_selection::decay::*, query_engine::clock::*};
+use crate::query_engine::clock::*;
+use indexer_selection::decay::*;
 use prelude::*;
 
 #[derive(Clone)]

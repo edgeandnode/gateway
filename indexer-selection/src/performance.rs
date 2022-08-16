@@ -12,7 +12,7 @@
 // and then we get the count-weighted average of utilities.
 // This trades off precision for query-time work.
 
-use crate::indexer_selection::decay::{Decay, DecayUtility};
+use crate::decay::{Decay, DecayUtility};
 use prelude::*;
 
 #[derive(Clone, Debug, Default)]
@@ -155,7 +155,7 @@ mod tests {
         for _ in 0..100000 {
             let mut utility_cutoff: f64 = thread_rng().gen();
             utility_cutoff = max_utility * (1.0 - utility_cutoff.powf(UTILITY_PREFERENCE));
-            use crate::indexer_selection::WeightedSample;
+            use crate::WeightedSample;
             let mut selected = WeightedSample::new();
             let scores = scores.iter().filter(|score| **score >= utility_cutoff);
             for (i, _) in scores.enumerate() {

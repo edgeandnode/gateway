@@ -1,6 +1,4 @@
-use crate::indexer_selection::{
-    utility::SelectionFactor, BadIndexerReason, Context, SelectionError,
-};
+use crate::{utility::SelectionFactor, BadIndexerReason, Context, SelectionError};
 use cost_model::{CostError, CostModel};
 use prelude::*;
 use std::convert::TryFrom;
@@ -157,7 +155,7 @@ pub async fn get_price(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::indexer_selection::test_utils::{assert_within, default_cost_model};
+    use crate::test_utils::{assert_within, default_cost_model};
     use prelude::test_utils::BASIC_QUERY;
 
     #[tokio::test]

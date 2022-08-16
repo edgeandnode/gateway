@@ -5,7 +5,6 @@ mod fisherman_client;
 mod geoip;
 mod graphql;
 mod indexer_client;
-mod indexer_selection;
 mod indexer_status;
 mod ipfs_client;
 mod kafka_client;
@@ -23,7 +22,6 @@ use crate::{
     fisherman_client::*,
     geoip::GeoIP,
     indexer_client::IndexerClient,
-    indexer_selection::{IndexerDataReader, IndexerDataWriter, IndexingData, SelectionFactors},
     indexer_status::IndexingStatus,
     ipfs_client::*,
     kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
@@ -41,6 +39,9 @@ use actix_web::{
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use eventuals::EventualExt;
+use indexer_selection::{
+    BlockResolver as _, IndexerDataReader, IndexerDataWriter, IndexingData, SelectionFactors,
+};
 use lazy_static::lazy_static;
 use network_subgraph::AllocationInfo;
 use prelude::{shared_lookup::SharedLookupWriter, *};
