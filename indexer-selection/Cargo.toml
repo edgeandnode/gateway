@@ -3,8 +3,13 @@ edition = "2021"
 name = "indexer-selection"
 version = "0.0.1"
 
+[[bin]]
+name = "sim"
+path = "bin/sim.rs"
+
 [dependencies]
 async-trait = "0.1"
+chrono = "0.4"
 cost-model = { git = "ssh://git@github.com/graphprotocol/agora.git", rev = "ae20442" }
 eventuals = "0.6.7"
 futures = "0.3"
@@ -27,6 +32,7 @@ url = "2.2"
 # core-foundation is added because it is a transitive dependency of plotters (through font-kit)
 # and the selected version (0.9.1) fails to build on MacOS
 core-foundation = "0.9.3"
+eventuals = { version = "0.6.7", features = ["trace"] }
 plotters = { version = "0.3", features = [
   "bitmap_encoder",
   "bitmap_gif",

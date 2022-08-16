@@ -1430,6 +1430,7 @@ name = "indexer-selection"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "chrono",
  "core-foundation",
  "cost-model",
  "eventuals",
