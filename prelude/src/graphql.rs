@@ -1,21 +1,20 @@
+use anyhow::Result;
 use reqwest::{Client, IntoUrl};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value as JSON;
 
-pub async fn query<T, U>(client: &Client, url: U, body: &JSON) -> Result<Response<T>, String>
+pub async fn query<T, U>(client: &Client, url: U, body: &JSON) -> Result<Response<T>>
 where
     T: DeserializeOwned,
     U: IntoUrl,
 {
-    client
+    Ok(client
         .post(url)
         .json(body)
         .send()
-        .await
-        .map_err(|err| err.to_string())?
+        .await?
         .json::<Response<T>>()
-        .await
-        .map_err(|err| err.to_string())
+        .await?)
 }
 
 #[derive(Deserialize)]
@@ -30,14 +29,15 @@ pub struct Error {
 }
 
 impl<T> Response<T> {
-    pub fn unpack(self) -> Result<T, String> {
+    pub fn unpack(self) -> Result<T> {
         self.data.ok_or_else(|| {
-            self.errors
+            anyhow::anyhow!(self
+                .errors
                 .unwrap_or_default()
                 .into_iter()
                 .map(|err| err.message)
                 .collect::<Vec<String>>()
-                .join(", ")
+                .join(", "))
         })
     }
 }

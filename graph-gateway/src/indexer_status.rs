@@ -190,8 +190,9 @@ impl Actor {
         }"# });
         let statuses =
             graphql::query::<IndexerStatusResponse, _>(client, status_url, &status_query)
-                .await?
-                .unpack()?
+                .await
+                .and_then(|err| err.unpack())
+                .map_err(|err| err.to_string())?
                 .indexing_statuses;
 
         let cost_url = url.join("cost").map_err(|err| err.to_string())?;

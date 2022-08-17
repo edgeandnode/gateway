@@ -2246,13 +2246,16 @@ checksum = "eb9f9e6e233e5c4a35559a617bf40a4ec447db2e84c20b55a6f83167b7e57872"
 name = "prelude"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
  "bs58",
  "eventuals",
  "hex",
  "primitive-types",
  "prometheus",
  "rand",
+ "reqwest",
  "serde",
+ "serde_json",
  "sha3",
  "siphasher",
  "tokio",

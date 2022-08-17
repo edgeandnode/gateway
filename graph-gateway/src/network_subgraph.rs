@@ -92,7 +92,8 @@ impl Client {
             self.network_subgraph.clone(),
             &json!({ "query": "{ graphNetworks { slashingPercentage } }" }),
         )
-        .await?
+        .await
+        .map_err(|err| err.to_string())?
         .data
         .and_then(|data| data.graph_networks.into_iter().next())
         .ok_or("empty response")?;
@@ -231,7 +232,8 @@ impl Client {
                     },
                 }),
             )
-            .await?;
+            .await
+            .map_err(|err| err.to_string())?;
             let errors = response
                 .errors
                 .unwrap_or_default()

@@ -1,16 +1,19 @@
 pub mod bytes;
 pub mod decimal;
 pub mod epoch_cache;
+pub mod graphql;
 pub mod shared_lookup;
 pub mod test_utils;
 pub mod weighted_sample;
 
 pub use crate::{bytes::*, decimal::*};
+pub use anyhow;
 pub use eventuals::{Eventual, EventualWriter, Ptr};
 pub use prometheus::{
     self,
     core::{MetricVec, MetricVecBuilder},
 };
+pub use reqwest;
 use serde::Deserialize;
 use siphasher::sip::SipHasher24;
 use std::hash::{Hash, Hasher as _};

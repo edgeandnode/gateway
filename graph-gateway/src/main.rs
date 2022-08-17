@@ -3,7 +3,6 @@ mod block_resolver;
 mod ethereum_client;
 mod fisherman_client;
 mod geoip;
-mod graphql;
 mod indexer_client;
 mod indexer_status;
 mod ipfs_client;
