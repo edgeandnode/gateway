@@ -1,8 +1,7 @@
 use crate::{
     geoip::GeoIP,
     graphql,
-    indexer_selection::Indexing,
-    network_subgraph::IndexerInfo,
+    indexer_selection::{IndexerInfo, Indexing},
     prelude::{epoch_cache::EpochCache, *},
 };
 use cost_model::{self, CostModel};
@@ -46,7 +45,7 @@ impl Actor {
     pub fn create(
         min_version: Version,
         geoip: Option<GeoIP>,
-        indexers: Eventual<Ptr<HashMap<Address, IndexerInfo>>>,
+        indexers: Eventual<Ptr<HashMap<Address, Arc<IndexerInfo>>>>,
     ) -> Data {
         let (indexings_tx, indexings_rx) = Eventual::new();
         let client = reqwest::Client::builder()
@@ -73,7 +72,8 @@ impl Actor {
                             let actor = actor.clone();
                             let client = client.clone();
                             async move {
-                                match Self::indexer_to_indexings(actor, client, indexer, info).await
+                                match Self::indexer_to_indexings(actor, client, indexer, &info)
+                                    .await
                                 {
                                     Ok(indexings) => indexings,
                                     Err(indexer_status_err) => {
@@ -105,7 +105,7 @@ impl Actor {
         actor: Arc<Mutex<Actor>>,
         client: reqwest::Client,
         indexer: Address,
-        info: IndexerInfo,
+        info: &IndexerInfo,
     ) -> Result<Vec<(Indexing, IndexingStatus)>, String> {
         let version_url = info
             .url
@@ -130,7 +130,7 @@ impl Actor {
         locked_actor.apply_geoblocking(&info).await?;
         drop(locked_actor);
 
-        Self::query_status(&client, actor, info.url, &indexer)
+        Self::query_status(&client, actor, info.url.clone(), &indexer)
             .await
             .map_err(|err| format!("IndexerStatusError({err})"))
     }

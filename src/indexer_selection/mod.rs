@@ -1,10 +1,8 @@
 pub mod actor;
-mod allocations;
 mod block_requirements;
 mod data_freshness;
 pub mod decay;
 mod economic_security;
-mod indexers;
 mod performance;
 mod price_efficiency;
 mod reputation;
@@ -17,15 +15,14 @@ pub mod test_utils;
 mod tests;
 
 pub use crate::indexer_selection::{
-    allocations::{Allocations, QueryStatus, Receipt},
+    block_requirements::freshness_requirements,
     block_requirements::BlockRequirements,
-    indexers::IndexerData,
     selection_factors::{IndexingStatus, SelectionFactors},
 };
 use crate::{
     block_resolver::BlockResolver,
-    indexer_selection::{block_requirements::*, economic_security::*},
-    prelude::{weighted_sample::WeightedSample, *},
+    indexer_selection::{block_requirements::make_query_deterministic, economic_security::*},
+    prelude::{epoch_cache::EpochCache, weighted_sample::WeightedSample, *},
 };
 use cost_model;
 pub use cost_model::CostModel;
@@ -44,7 +41,6 @@ pub type Context<'c> = cost_model::Context<'c, &'c str>;
 pub struct Selection {
     indexing: Indexing,
     score: IndexerScore,
-    receipt: Receipt,
     scoring_sample: ScoringSample,
 }
 
@@ -55,9 +51,7 @@ pub struct IndexerQuery {
     pub network: String,
     pub indexing: Indexing,
     pub query: String,
-    pub receipt: Receipt,
     pub score: IndexerScore,
-    pub allocation: Address,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -78,7 +72,6 @@ impl From<UnresolvedBlock> for SelectionError {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum BadIndexerReason {
-    MissingIndexerStake,
     BehindMinimumBlock,
     MissingIndexingStatus,
     QueryNotCosted,
@@ -95,20 +88,12 @@ impl From<BadIndexerReason> for SelectionError {
 #[derive(Clone, Debug)]
 pub enum IndexerError {
     NoAttestation,
+    MissingAllocation,
     UnattestableError,
     Timeout,
     UnexpectedPayload,
     UnresolvedBlock,
     Other(String),
-}
-
-impl IndexerError {
-    pub fn is_timeout(&self) -> bool {
-        match self {
-            Self::Timeout => true,
-            _ => false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -142,7 +127,7 @@ pub struct UtilityConfig {
 
 #[derive(Clone, Debug)]
 pub struct IndexerScore {
-    pub url: Arc<Url>,
+    pub url: Url,
     pub fee: GRT,
     pub slashable: USD,
     pub utility: NotNan<f64>,
@@ -161,87 +146,60 @@ pub struct UtilityScores {
 }
 
 #[derive(Default)]
-pub struct Indexers {
+pub struct State {
     pub network_params: NetworkParameters,
-    indexers: HashMap<Address, IndexerData>,
-    indexings: HashMap<Indexing, SelectionFactors>,
+    pub indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
+    indexings: EpochCache<Indexing, SelectionFactors, 2>,
     pub special_indexers: Option<Arc<HashMap<Address, NotNan<f64>>>>,
 }
 
-impl Indexers {
-    pub fn new() -> Indexers {
-        Default::default()
+#[derive(Debug)]
+pub struct IndexerInfo {
+    pub url: Url,
+    pub stake: GRT,
+}
+
+impl State {
+    pub fn insert_indexing(&mut self, indexing: Indexing, status: IndexingStatus) {
+        let selection_factors = self
+            .indexings
+            .get_or_insert(indexing, |_| SelectionFactors::default());
+        selection_factors.set_status(status);
     }
 
-    pub fn observe_successful_query(
-        &mut self,
-        indexing: &Indexing,
-        duration: Duration,
-        receipt: &[u8],
-    ) {
-        if let Some(selection_factors) = self.indexings.get(indexing) {
-            // TODO: (Zac) receipts need special handling
-            selection_factors.observe_successful_query(duration, receipt);
+    pub fn observe_successful_query(&mut self, indexing: &Indexing, duration: Duration) {
+        if let Some(selection_factors) = self.indexings.get_mut(indexing) {
+            selection_factors.observe_successful_query(duration);
         }
     }
 
-    pub fn observe_failed_query(
-        &mut self,
-        indexing: &Indexing,
-        duration: Duration,
-        receipt: &[u8],
-        error: &IndexerError,
-    ) {
-        if let Some(selection_factors) = self.indexings.get(indexing) {
-            selection_factors.observe_failed_query(duration, receipt, error);
+    pub fn observe_failed_query(&mut self, indexing: &Indexing, duration: Duration, timeout: bool) {
+        if let Some(selection_factors) = self.indexings.get_mut(indexing) {
+            selection_factors.observe_failed_query(duration, timeout);
         };
     }
 
-    pub async fn observe_indexing_behind(
+    pub fn observe_indexing_behind(
         &mut self,
-        context: &mut Context<'_>,
         indexing: &Indexing,
-        block_resolver: &BlockResolver,
+        minimum_block: Option<u64>,
+        latest: u64,
     ) {
-        // Get this early to be closer to the time when the query was made so
-        // that race conditions occur less frequently. They will still occur,
-        // but less is better.
-        let latest = block_resolver.latest_block().map(|b| b.number).unwrap_or(0);
-        // TODO: (Zac) Determinism - this can't happen here (needs pure function)
-        let freshness_requirements =
-            freshness_requirements(&mut context.operations, block_resolver).await;
-
-        let minimum_block = match freshness_requirements {
-            Ok(requirements) => requirements.minimum_block,
-            // If we observed a block hash in the query that we could no longer associate with a
-            // number, then we have detected a reorg and the indexer receives no penalty.
-            Err(_) => return,
-        };
-        if let Some(selection_factors) = self.indexings.get(indexing) {
+        if let Some(selection_factors) = self.indexings.get_mut(indexing) {
             selection_factors.observe_indexing_behind(minimum_block, latest);
         }
     }
 
-    pub fn penalize(&self, indexing: &Indexing, weight: u8) {
-        if let Some(selection_factors) = self.indexings.get(indexing) {
+    pub fn penalize(&mut self, indexing: &Indexing, weight: u8) {
+        if let Some(selection_factors) = self.indexings.get_mut(indexing) {
             selection_factors.penalize(weight);
         }
     }
 
     pub fn decay(&mut self) {
-        for selection_factors in self.indexings.values() {
-            selection_factors.decay();
-        }
+        self.indexings.apply(|sf| sf.decay());
     }
 
-    pub async fn freshness_requirements(
-        context: &mut Context<'_>,
-        block_resolver: &BlockResolver,
-    ) -> Result<BlockRequirements, SelectionError> {
-        freshness_requirements(&mut context.operations, block_resolver).await
-    }
-
-    // TODO: (Zac) Not async?
     pub async fn select_indexer(
         &self,
         config: &UtilityConfig,
@@ -286,18 +244,11 @@ impl Indexers {
         .await?;
         make_query_deterministic_timer.observe_duration();
 
-        let mut allocation = Address([0; 20]);
-        allocation
-            .0
-            .copy_from_slice(&selection.receipt.commitment[0..20]);
-
         let indexer_query = IndexerQuery {
             network: network.into(),
             indexing: selection.indexing,
             query: query.query,
-            receipt: selection.receipt.commitment.into(),
             score: selection.score,
-            allocation,
         };
         Ok(Some((indexer_query, selection.scoring_sample)))
     }
@@ -405,23 +356,14 @@ impl Indexers {
         // kick off resolutions (eg: getting block hashes, or adding collateral)
         // and at the same time try to use another Indexer.
 
-        let fee = score.fee.clone();
         let sample = scoring_sample
             .take()
             .filter(|(address, _)| address != &indexing.indexer);
-        self.indexings
-            .get(&indexing)
-            .ok_or(BadIndexerReason::MissingIndexingStatus)?
-            .commit(&fee)
-            .map(|receipt| {
-                Some(Selection {
-                    indexing: indexing.clone(),
-                    score,
-                    receipt,
-                    scoring_sample: ScoringSample(sample),
-                })
-            })
-            .map_err(|_| SelectionError::NoAllocation(indexing.clone()))
+        Ok(Some(Selection {
+            indexing: indexing.clone(),
+            score,
+            scoring_sample: ScoringSample(sample),
+        }))
     }
 
     fn score_indexer(
@@ -435,26 +377,19 @@ impl Indexers {
     ) -> Result<IndexerScore, SelectionError> {
         let _score_indexers_timer = METRICS.score_indexer_duration.start_timer();
         let mut aggregator = UtilityAggregator::new();
-        let indexer_data = self
+        let indexer = self
             .indexers
-            .get(&indexing.indexer)
-            .map(|data| (data.url.clone(), data.stake.clone()))
-            .unwrap_or_default();
-        let indexer_url = indexer_data
-            .0
+            .get_unobserved(&indexing.indexer)
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
-        let indexer_stake = indexer_data
-            .1
-            .ok_or(BadIndexerReason::MissingIndexerStake)?;
         let economic_security = self
             .network_params
-            .economic_security_utility(indexer_stake, config.economic_security)
+            .economic_security_utility(indexer.stake, config.economic_security)
             .ok_or(SelectionError::MissingNetworkParams)?;
         aggregator.add(economic_security.utility);
 
         let selection_factors = self
             .indexings
-            .get(&indexing)
+            .get_unobserved(&indexing)
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
 
         let latest_block = block_resolver
@@ -505,11 +440,12 @@ impl Indexers {
         // backstop indexers may have a reduced utility.
         utility *= self
             .special_indexers
+            .as_ref()
             .and_then(|map| map.get(&indexing.indexer).map(|w| **w))
             .unwrap_or(1.0);
 
         Ok(IndexerScore {
-            url: indexer_url,
+            url: indexer.url.clone(),
             fee,
             slashable: economic_security.slashable_usd,
             utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,

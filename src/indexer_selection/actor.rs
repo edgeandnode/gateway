@@ -1,28 +1,23 @@
-use super::{IndexerError, Indexing};
-
-use {
-    crate::{
-        indexer_selection::Indexers,
-        prelude::GRT,
-        utils::{buffer_queue::QueueReader, double_buffer::DoubleBufferWriter},
-    },
-    tokio::{
-        select,
-        time::{sleep_until, Duration, Instant},
-    },
+use crate::{
+    indexer_selection::{BlockRequirements, IndexerInfo, Indexing, IndexingStatus, State},
+    prelude::*,
+    utils::{buffer_queue::QueueReader, double_buffer::DoubleBufferWriter},
+};
+use std::{collections::HashMap, sync::Arc};
+use tokio::{
+    select,
+    time::{sleep_until, Duration, Instant},
 };
 
-pub struct QueryObservationErrorKind {
-    is_timeout: bool,
-}
-
+#[derive(Debug)]
 pub enum Update {
-    UsdToGRTConversion(GRT),
+    USDToGRTConversion(GRT),
+    SlashingPercentage(PPM),
+    Indexers(HashMap<Address, IndexerUpdate>),
     QueryObservation {
         indexing: Indexing,
         duration: Duration,
-        result: Result<(), QueryObservationErrorKind>,
-        receipt: Vec<u8>,
+        result: Result<(), IndexerErrorObservation>,
     },
     Penalty {
         indexing: Indexing,
@@ -30,8 +25,33 @@ pub enum Update {
     },
 }
 
+#[derive(Debug)]
+pub struct IndexerUpdate {
+    pub info: Arc<IndexerInfo>,
+    pub indexings: HashMap<SubgraphDeploymentID, IndexingStatus>,
+}
+
+#[derive(Debug)]
+pub enum IndexerErrorObservation {
+    Timeout,
+    IndexingBehind {
+        refreshed_requirements: BlockRequirements,
+        latest: u64,
+    },
+    Other,
+}
+
+impl IndexerErrorObservation {
+    fn is_timeout(&self) -> bool {
+        match self {
+            Self::Timeout => true,
+            _ => false,
+        }
+    }
+}
+
 pub async fn process_updates(
-    mut writer: DoubleBufferWriter<Indexers>,
+    mut writer: DoubleBufferWriter<State>,
     mut events: QueueReader<Update>,
 ) {
     let mut event_buffer = Vec::new();
@@ -44,31 +64,71 @@ pub async fn process_updates(
                 writer.update(|indexers| indexers.decay()).await;
             },
             _ = events.read(&mut event_buffer) => {
+                tracing::trace!(isa_update_queue_depth = event_buffer.len());
                 process_events(&mut event_buffer, &mut writer).await;
             },
         }
     }
 }
 
-async fn process_events(event_buffer: &mut Vec<Update>, writer: &mut DoubleBufferWriter<Indexers>) {
+#[cfg(test)]
+pub async fn test_process_updates(
+    writer: &mut DoubleBufferWriter<State>,
+    events: &mut QueueReader<Update>,
+) {
+    let mut event_buffer = Vec::new();
+    events.try_read(&mut event_buffer);
+    process_events(&mut event_buffer, writer).await;
+}
+
+async fn process_events(event_buffer: &mut Vec<Update>, writer: &mut DoubleBufferWriter<State>) {
     writer
-        .update(|indexers| {
+        .update(|isa| {
             for event in event_buffer.iter() {
                 match event {
-                    Update::UsdToGRTConversion(usd_to_grt) => {
-                        indexers.network_params.usd_to_grt_conversion = Some(*usd_to_grt);
+                    Update::USDToGRTConversion(usd_to_grt) => {
+                        isa.network_params.usd_to_grt_conversion = Some(*usd_to_grt);
+                    }
+                    Update::SlashingPercentage(slashing_percentage) => {
+                        isa.network_params.slashing_percentage = Some(*slashing_percentage);
+                    }
+                    Update::Indexers(indexers) => {
+                        for (indexer, indexer_update) in indexers {
+                            isa.indexers
+                                .insert(indexer.clone(), indexer_update.info.clone());
+                            for (deployment, status) in &indexer_update.indexings {
+                                let indexing = Indexing {
+                                    indexer: *indexer,
+                                    deployment: *deployment,
+                                };
+                                isa.insert_indexing(indexing, status.clone());
+                            }
+                        }
+                        isa.indexers.increment_epoch();
+                        isa.indexings.increment_epoch();
                     }
                     Update::QueryObservation {
                         indexing,
                         duration,
                         result,
                     } => match result {
-                        Ok(()) => indexers.observe_successful_query(indexing, *duration, &receipt),
+                        Ok(()) => isa.observe_successful_query(indexing, *duration),
                         Err(error) => {
-                            indexers.observe_failed_query(indexing, *duration, receipt, error)
+                            isa.observe_failed_query(indexing, *duration, error.is_timeout());
+                            if let IndexerErrorObservation::IndexingBehind {
+                                refreshed_requirements,
+                                latest,
+                            } = error
+                            {
+                                isa.observe_indexing_behind(
+                                    indexing,
+                                    refreshed_requirements.minimum_block.clone(),
+                                    *latest,
+                                )
+                            }
                         }
                     },
-                    Update::Penalty { indexing, weight } => indexers.penalize(indexing, *weight),
+                    Update::Penalty { indexing, weight } => isa.penalize(indexing, *weight),
                 }
             }
         })

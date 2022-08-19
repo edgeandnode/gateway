@@ -1,9 +1,4 @@
-use crate::{
-    indexer_selection::{actor::Update, IndexerPreferences},
-    prelude::*,
-    query_engine::{APIKey, VolumeEstimator},
-    utils::buffer_queue::QueueWriter,
-};
+use crate::{indexer_selection::actor::Update, prelude::*, utils::buffer_queue::QueueWriter};
 use graphql_client::{GraphQLQuery, Response};
 use lazy_static::lazy_static;
 use reqwest;
@@ -15,27 +10,22 @@ trait Writer<T> {
     fn write(&mut self, value: T);
 }
 
-impl<T> Writer<T> for EventualWriter<T>
-where
-    T: Send + Clone + Eq + 'static,
-{
+impl<T: eventuals::Value> Writer<T> for EventualWriter<T> {
     fn write(&mut self, value: T) {
-        EventualWriter::write(self, value);
+        EventualWriter::write(self, value)
     }
 }
 
 impl<T> Writer<T> for QueueWriter<T> {
     fn write(&mut self, value: T) {
-        QueueWriter::write(self, value);
+        let _ = QueueWriter::write(self, value);
     }
 }
 
 pub fn create(
     agent_url: String,
     poll_interval: Duration,
-    usd_to_grt_conversion: EventualWriter<USD>,
     update_writer: QueueWriter<Update>,
-    api_keys: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
     accept_empty: bool,
 ) {
     let _trace = tracing::info_span!("sync client", ?poll_interval).entered();
@@ -46,7 +36,7 @@ pub fn create(
         conversion_rates::OPERATION_NAME,
         conversion_rates::QUERY,
         parse_conversion_rates,
-        usd_to_grt_conversion,
+        update_writer,
         accept_empty,
     );
 }
@@ -57,13 +47,13 @@ fn create_sync_client<Q, T, F>(
     operation: &'static str,
     query: &'static str,
     mut parse_data: F,
-    mut writer: EventualWriter<T>,
+    mut writer: impl Writer<T> + Send + 'static,
     accept_empty: bool,
 ) where
     F: 'static + FnMut(Q::ResponseData) -> Option<T> + Send,
-    T: 'static + Clone + Eq + Send,
+    T: Send,
     Q: GraphQLQuery,
-    Q::ResponseData: 'static,
+    Q::ResponseData: 'static + Send,
 {
     tokio::spawn(
         async move {
@@ -110,9 +100,9 @@ async fn execute_query<'f, Q, T, F>(
 ) -> Option<T>
 where
     F: 'static + FnMut(Q::ResponseData) -> Option<T>,
-    T: 'static + Clone + Eq + Send,
+    T: Send,
     Q: GraphQLQuery,
-    Q::ResponseData: 'static,
+    Q::ResponseData: 'static + Send,
 {
     // TODO: Don't use graphql_client and and just rely on graphql-parser. This is a bit more trouble than it's worth.
     let body = json!({
@@ -196,9 +186,9 @@ where
 )]
 struct ConversionRates;
 
-fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Update {
+fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Option<Update> {
     use conversion_rates::{ConversionRatesData, ConversionRatesDataValue};
-    let grt = match data {
+    match data {
         conversion_rates::ResponseData {
             data:
                 Some(ConversionRatesData {
@@ -210,11 +200,14 @@ fn parse_conversion_rates(data: conversion_rates::ResponseData) -> Update {
                     ..
                 }),
         } => {
-            tracing::debug!(?grt_per_usd);
-            grt_per_usd.parse::<GRT>().ok()
+            tracing::info!(usd_to_grt = %grt_per_usd);
+            grt_per_usd
+                .parse::<GRT>()
+                .ok()
+                .map(Update::USDToGRTConversion)
         }
         _ => None,
-    };
+    }
 }
 
 #[derive(Clone)]

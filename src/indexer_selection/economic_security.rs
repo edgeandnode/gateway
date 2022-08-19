@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn trillion_usd_to_grt() {
-        let params = NetworkParameters {
+        let mut params = NetworkParameters {
             usd_to_grt_conversion: None,
             slashing_percentage: 0u64.try_into().ok(),
         };
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn trillion_grt_to_usd() {
-        let params = NetworkParameters {
+        let mut params = NetworkParameters {
             usd_to_grt_conversion: None,
             slashing_percentage: 0u64.try_into().ok(),
         };

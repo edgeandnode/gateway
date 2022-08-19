@@ -18,10 +18,7 @@ impl<T> Clone for QueueWriter<T> {
 
 impl<T> QueueWriter<T> {
     pub fn write(&self, value: T) -> Result<(), SendError<T>> {
-        match self.send.send(value) {
-            Ok(()) => Ok(()),
-            Err(e) => Err(e),
-        }
+        self.send.send(value)
     }
 }
 
@@ -34,9 +31,13 @@ impl<T> QueueReader<T> {
         // without awaiting. So, no messages can be lost.
         if let Some(first) = self.recv.recv().await {
             buffer.push(first);
-            while let Ok(next) = self.recv.try_recv() {
-                buffer.push(next);
-            }
+            self.try_read(buffer)
+        }
+    }
+
+    pub fn try_read(&mut self, buffer: &mut Vec<T>) {
+        while let Ok(next) = self.recv.try_recv() {
+            buffer.push(next)
         }
     }
 }

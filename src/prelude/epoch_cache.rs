@@ -2,8 +2,13 @@ use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 
 /// HashMap where entries are automatically removed once they reach a count of `C` epochs where they
 /// have been unused. Any get or insert operations on the entry will reset its counter.
-#[derive(Default)]
 pub struct EpochCache<K: Eq + Hash, V, const C: u8>(HashMap<K, (V, u8)>);
+
+impl<K: Eq + Hash, V, const C: u8> Default for EpochCache<K, V, C> {
+    fn default() -> Self {
+        Self(HashMap::default())
+    }
+}
 
 impl<K: Eq + Hash, V, const C: u8> EpochCache<K, V, C> {
     pub fn new() -> Self {
@@ -13,6 +18,15 @@ impl<K: Eq + Hash, V, const C: u8> EpochCache<K, V, C> {
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// WARNING: This will not observe the use of the value for the curretn epoch.
+    pub fn get_unobserved<Q>(&self, key: &Q) -> Option<&V>
+    where
+        Q: Eq + Hash + ?Sized,
+        K: Borrow<Q>,
+    {
+        self.0.get(key).map(|v| &v.0)
     }
 
     pub fn get<Q>(&mut self, key: &Q) -> Option<&V>
@@ -25,13 +39,23 @@ impl<K: Eq + Hash, V, const C: u8> EpochCache<K, V, C> {
         Some(&value.0)
     }
 
+    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
+    where
+        Q: Eq + Hash + ?Sized,
+        K: Borrow<Q>,
+    {
+        let value = self.0.get_mut(key)?;
+        value.1 = 0;
+        Some(&mut value.0)
+    }
+
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         self.0.insert(key, (value, 0)).map(|(v, _)| v)
     }
 
-    pub fn get_or_insert(&mut self, key: K, f: impl FnOnce(&K) -> V) -> &V {
+    pub fn get_or_insert(&mut self, key: K, f: impl FnOnce(&K) -> V) -> &mut V {
         let entry = self.0.entry(key);
-        &entry
+        &mut entry
             .and_modify(|(_, c)| *c = 0)
             .or_insert_with_key(|k| (f(k), 0))
             .0
@@ -51,6 +75,12 @@ impl<K: Eq + Hash, V, const C: u8> EpochCache<K, V, C> {
                 },
             )
             .collect();
+    }
+
+    pub fn apply(&mut self, mut f: impl FnMut(&mut V)) {
+        for (v, _) in self.0.values_mut() {
+            f(v);
+        }
     }
 }
 

@@ -26,12 +26,11 @@ use crate::{
     fisherman_client::*,
     geoip::GeoIP,
     indexer_client::IndexerClient,
-    indexer_selection::{IndexerData, Indexers, SelectionFactors},
+    indexer_selection::{actor::IndexerUpdate, IndexerInfo},
     indexer_status::IndexingStatus,
     ipfs_client::*,
     kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
     manifest_client::*,
-    network_subgraph::IndexerInfo,
     opt::*,
     prelude::*,
     query_engine::*,
@@ -60,8 +59,9 @@ use std::{
     time::SystemTime,
 };
 use structopt::StructOpt as _;
-use tokio::{spawn, sync::Mutex};
+use tokio::spawn;
 use url::Url;
+use utils::buffer_queue::QueueWriter;
 
 #[actix_web::main]
 async fn main() {
@@ -78,17 +78,20 @@ async fn main() {
         }
     };
 
-    let (inputs, input_writers) = double_buffer!(Indexers::default());
+    let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
     let special_indexers = if opt.mips.0.len() > 0 {
         Some(Arc::new(opt.mips.0))
     } else {
         None
     };
-    input_writers.update(|indexers| indexers.special_indexers = special_indexers.clone());
+    let _ = isa_writer.update(|indexers| indexers.special_indexers = special_indexers.clone());
 
     // Start the actor to manage updates
     let (update_writer, update_reader) = crate::utils::buffer_queue::pair();
-    spawn(async move { indexer_selection::actor::process_updates(input_writers, update_reader) });
+    spawn(async move {
+        indexer_selection::actor::process_updates(isa_writer, update_reader).await;
+        tracing::error!("ISA actor stopped");
+    });
 
     let geoip = opt
         .geoip_database
@@ -133,36 +136,27 @@ async fn main() {
 
     let api_keys =
         studio_client::Actor::create(http_client.clone(), opt.studio_url, opt.studio_auth);
-    let InputWriters {
-        indexer_inputs:
-            indexer_selection::InputWriters {
-                mut slashing_percentage,
-                usd_to_grt_conversion,
-                indexers,
-                indexings,
-                ..
-            },
-        ..
-    } = input_writers;
-    let indexers = Arc::new(Mutex::new(indexers));
-    let indexings = Arc::new(Mutex::new(indexings));
-    let (api_keys_writer, api_keys) = Eventual::new();
     agent_client::create(
         opt.sync_agent,
         Duration::from_secs(30),
-        usd_to_grt_conversion,
         update_writer.clone(),
-        api_keys_writer,
         false,
     );
     let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
     let network_subgraph_data =
         network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
 
-    network_subgraph_data
-        .slashing_percentage
-        .pipe(move |p| slashing_percentage.write(p))
-        .forever();
+    {
+        let update_writer = update_writer.clone();
+        network_subgraph_data
+            .slashing_percentage
+            .pipe(move |p| {
+                let _ = update_writer.write(Update::SlashingPercentage(p));
+            })
+            .forever();
+    }
+
+    let receipt_pools = ReceiptPools::default();
 
     let indexer_status_data = indexer_status::Actor::create(
         opt.min_indexer_version,
@@ -170,7 +164,10 @@ async fn main() {
         network_subgraph_data.indexers.clone(),
     );
     {
+        let signer_key = signer_key.clone();
+        let receipt_pools = receipt_pools.clone();
         let block_resolvers = block_resolvers.clone();
+        let update_writer = update_writer.clone();
         eventuals::join((
             network_subgraph_data.allocations,
             network_subgraph_data.indexers,
@@ -178,17 +175,15 @@ async fn main() {
         ))
         .pipe_async(move |(allocations, indexer_info, indexing_statuses)| {
             let signer_key = signer_key.clone();
+            let receipt_pools = receipt_pools.clone();
             let block_resolvers = block_resolvers.clone();
-            let indexers = indexers.clone();
-            let indexings = indexings.clone();
+            let update_writer = update_writer.clone();
             async move {
-                let mut indexers = indexers.lock().await;
-                let mut indexings = indexings.lock().await;
                 write_indexer_inputs(
-                    signer_key,
+                    &signer_key,
                     &block_resolvers,
-                    &mut indexers,
-                    &mut indexings,
+                    &update_writer,
+                    &receipt_pools,
                     &allocations,
                     &indexer_info,
                     &indexing_statuses,
@@ -224,16 +219,18 @@ async fn main() {
         indexer_client: IndexerClient {
             client: http_client.clone(),
         },
-        block_resolvers: block_resolvers.clone(),
         subgraph_info,
         subgraph_deployments: network_subgraph_data.subgraph_deployments,
         deployment_indexers: network_subgraph_data.deployment_indexers,
-        inputs: inputs.clone(),
         api_keys,
         api_key_payment_required: opt.api_key_payment_required,
         stats_db,
         fisherman_client,
         kafka_client,
+        block_resolvers: block_resolvers.clone(),
+        observations: update_writer,
+        receipt_pools,
+        isa_state,
     };
 
     let network_subgraph_query_data = NetworkSubgraphQueryData {
@@ -350,12 +347,12 @@ fn request_host(request: &ServiceRequest) -> String {
 }
 
 async fn write_indexer_inputs(
-    signer_key: SecretKey,
+    signer: &SecretKey,
     block_resolvers: &HashMap<String, BlockResolver>,
-    indexers: &mut HashMap<Address, IndexerData>,
-    indexings: &mut HashMap<Indexing, SelectionFactors>,
+    update_writer: &QueueWriter<Update>,
+    receipt_pools: &ReceiptPools,
     allocations: &HashMap<Address, AllocationInfo>,
-    indexer_info: &HashMap<Address, IndexerInfo>,
+    indexer_info: &HashMap<Address, Arc<IndexerInfo>>,
     indexing_statuses: &HashMap<Indexing, IndexingStatus>,
 ) {
     tracing::info!(
@@ -364,14 +361,23 @@ async fn write_indexer_inputs(
         indexing_statuses = indexing_statuses.len(),
     );
 
-    for (indexer, info) in indexer_info {
-        let writer = indexers.entry(*indexer).or_default();
-        writer.url = Some(Arc::new(info.url.clone()));
-        writer.stake = Some(info.staked_tokens);
-    }
+    let mut indexers = indexer_info
+        .iter()
+        .map(|(indexer, info)| {
+            let update = IndexerUpdate {
+                info: info.clone(),
+                indexings: HashMap::new(),
+            };
+            (indexer.clone(), update)
+        })
+        .collect::<HashMap<Address, IndexerUpdate>>();
 
     let mut latest_blocks = HashMap::<String, u64>::new();
     for (indexing, status) in indexing_statuses {
+        let indexer = match indexers.get_mut(&indexing.indexer) {
+            Some(indexer) => indexer,
+            None => continue,
+        };
         let latest = match latest_blocks.entry(status.network.clone()) {
             Entry::Occupied(entry) => *entry.get(),
             Entry::Vacant(entry) => *entry.insert(
@@ -381,21 +387,28 @@ async fn write_indexer_inputs(
                     .unwrap_or(0),
             ),
         };
-
         let allocations = allocations
             .iter()
             .filter(|(_, info)| &info.indexing == indexing)
             .map(|(id, info)| (id.clone(), info.allocated_tokens.clone()))
-            .collect::<Vec<(Address, GRT)>>();
+            .collect::<HashMap<Address, GRT>>();
 
-        let writer = indexings.entry(*indexing).or_default();
-        writer.update_allocations(signer_key.clone(), allocations);
-        writer.set_status(indexer_selection::IndexingStatus {
-            cost_model: status.cost_model.clone(),
-            block: status.block.number,
-            latest,
-        });
+        receipt_pools
+            .update_receipt_pool(signer, indexing, &allocations)
+            .await;
+
+        indexer.indexings.insert(
+            indexing.deployment.clone(),
+            indexer_selection::IndexingStatus {
+                allocations: Arc::new(allocations),
+                cost_model: status.cost_model.clone(),
+                block: status.block.number,
+                latest,
+            },
+        );
     }
+
+    let _ = update_writer.write(Update::Indexers(indexers));
 
     METRICS.allocations.set(allocations.len() as i64);
 }
@@ -483,7 +496,9 @@ struct SubgraphQueryData {
     subgraph_info: SubgraphInfoMap,
     subgraph_deployments: SubgraphDeployments,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
-    inputs: DoubleBufferReader<Indexers>,
+    receipt_pools: ReceiptPools,
+    isa_state: DoubleBufferReader<indexer_selection::State>,
+    observations: QueueWriter<Update>,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     api_key_payment_required: bool,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
@@ -576,15 +591,17 @@ async fn handle_subgraph_query_inner(
     query: &mut Query,
     api_key: &str,
 ) -> Result<HttpResponse, String> {
-    let query_engine = QueryEngine::new(
-        data.config.clone(),
-        data.indexer_client.clone(),
-        data.kafka_client.clone(),
-        data.fisherman_client.clone(),
-        data.block_resolvers.clone(),
-        data.deployment_indexers.clone(),
-        data.inputs.clone(),
-    );
+    let query_engine = QueryEngine {
+        config: data.config.clone(),
+        indexer_client: data.indexer_client.clone(),
+        kafka_client: data.kafka_client.clone(),
+        fisherman_client: data.fisherman_client.clone(),
+        deployment_indexers: data.deployment_indexers.clone(),
+        block_resolvers: data.block_resolvers.clone(),
+        receipt_pools: data.receipt_pools.clone(),
+        isa: data.isa_state.clone(),
+        observations: data.observations.clone(),
+    };
     let api_keys = data.api_keys.value_immediate().unwrap_or_default();
     query.api_key = api_keys.get(api_key).cloned();
     let api_key = match &query.api_key {

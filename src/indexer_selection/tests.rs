@@ -1,7 +1,7 @@
 use crate::{
     block_resolver::BlockResolver,
     indexer_selection::{
-        test_utils::{default_cost_model, gen_blocks, TEST_KEY},
+        test_utils::{default_cost_model, gen_blocks},
         *,
     },
     prelude::{test_utils::*, *},
@@ -11,7 +11,6 @@ use plotters::{
     style,
 };
 use rand::{thread_rng, Rng as _};
-use secp256k1::SecretKey;
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone)]
@@ -226,9 +225,9 @@ async fn run_simulation(
     tests: &[IndexerCharacteristics],
     utility_config: &UtilityConfig,
 ) -> Vec<f64> {
-    let mut indexers = Indexers::default();
-    indexers.network_params.slashing_percentage = "0.1".parse().ok();
-    indexers.network_params.usd_to_grt_conversion = 1u64.try_into().ok();
+    let mut isa = State::default();
+    isa.network_params.slashing_percentage = "0.1".parse().ok();
+    isa.network_params.usd_to_grt_conversion = 1u64.try_into().ok();
 
     let network = "test";
     let blocks = gen_blocks(&(0u64..100).into_iter().collect::<Vec<u64>>());
@@ -238,7 +237,6 @@ async fn run_simulation(
 
     let mut results = Vec::<IndexerResults>::new();
     let mut indexer_ids = Vec::new();
-    let test_key = SecretKey::from_str(TEST_KEY).unwrap();
     let mut special_indexers = HashMap::<Address, NotNan<f64>>::new();
     for data in tests.iter() {
         results.push(IndexerResults::default());
@@ -246,30 +244,34 @@ async fn run_simulation(
             indexer: bytes_from_id(indexer_ids.len()).into(),
             deployment,
         };
-        indexer_ids.push(indexing.indexer);
-        let indexing_writer = indexers.indexings.entry(indexing).or_default();
-        indexing_writer.update_allocations(
-            test_key.clone(),
-            vec![(Address::default(), data.allocation)],
-        );
-        indexing_writer.set_status(IndexingStatus {
-            cost_model: Some(Ptr::new(default_cost_model(data.price))),
-            block: latest.number - data.blocks_behind,
-            latest: latest.number,
-        });
-        indexers.indexers.insert(
+        isa.indexers.insert(
             indexing.indexer,
-            IndexerData {
-                url: Some(Arc::new("http://localhost".parse().unwrap())),
-                stake: Some(data.stake),
+            Arc::new(IndexerInfo {
+                url: "http://localhost".parse().unwrap(),
+                stake: data.stake,
+            }),
+        );
+        let allocations = Arc::new(
+            [(Address::default(), data.allocation)]
+                .into_iter()
+                .collect(),
+        );
+        isa.insert_indexing(
+            indexing,
+            IndexingStatus {
+                allocations,
+                cost_model: Some(Ptr::new(default_cost_model(data.price))),
+                block: latest.number - data.blocks_behind,
+                latest: latest.number,
             },
         );
+        indexer_ids.push(indexing.indexer);
         if let Some(special_weight) = data.special_weight {
             special_indexers.insert(indexing.indexer, special_weight.try_into().unwrap());
         }
     }
 
-    indexers.special_indexers = Some(Arc::new(special_indexers));
+    isa.special_indexers = Some(Arc::new(special_indexers));
 
     const COUNT: usize = 86400;
     const QPS: u64 = 2000;
@@ -278,10 +280,10 @@ async fn run_simulation(
     for i in 0..COUNT {
         let budget: GRT = "0.00005".parse().unwrap();
         let mut context = Context::new("{ a }", "").unwrap();
-        let freshness_requirements = Indexers::freshness_requirements(&mut context, &resolver)
+        let freshness_requirements = freshness_requirements(&mut context.operations, &resolver)
             .await
             .unwrap();
-        let result = indexers
+        let result = isa
             .select_indexer(
                 &utility_config,
                 network,
@@ -296,7 +298,7 @@ async fn run_simulation(
             .unwrap();
 
         if i % (COUNT / QPS as usize) == 0 {
-            indexers.decay();
+            isa.decay();
         }
 
         let query = match result {
@@ -318,20 +320,10 @@ async fn run_simulation(
         if data.reliability > thread_rng().gen() {
             total_latency_ms += data.latency_ms;
             total_blocks_behind += data.blocks_behind;
-            let receipt = &query.receipt;
-            let fees: GRTWei =
-                primitive_types::U256::from_big_endian(&receipt[(receipt.len() - 32)..])
-                    .try_into()
-                    .unwrap();
-            entry.query_fees = fees.shift();
-            indexers.observe_successful_query(&indexing, duration, &query.receipt);
+            entry.query_fees += query.score.fee;
+            isa.observe_successful_query(&indexing, duration);
         } else {
-            indexers.observe_failed_query(
-                &indexing,
-                duration,
-                &query.receipt,
-                &IndexerError::Other("error".to_string()),
-            );
+            isa.observe_failed_query(&indexing, duration, false);
         }
     }
 

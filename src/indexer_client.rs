@@ -9,7 +9,11 @@ use serde::{Deserialize, Serialize};
 
 #[async_trait]
 pub trait IndexerInterface {
-    async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, IndexerError>;
+    async fn query_indexer(
+        &self,
+        query: &IndexerQuery,
+        receipt: &[u8],
+    ) -> Result<IndexerResponse, IndexerError>;
 }
 
 #[derive(Clone, Debug)]
@@ -48,8 +52,12 @@ pub struct IndexerClient {
 #[async_trait]
 impl IndexerInterface for IndexerClient {
     #[tracing::instrument(skip(self, query))]
-    async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, IndexerError> {
-        let receipt = hex::encode(&query.receipt.commitment);
+    async fn query_indexer(
+        &self,
+        query: &IndexerQuery,
+        receipt: &[u8],
+    ) -> Result<IndexerResponse, IndexerError> {
+        let receipt = hex::encode(receipt);
         let receipt = &receipt[0..(receipt.len() - 64)];
         let url = query
             .score
