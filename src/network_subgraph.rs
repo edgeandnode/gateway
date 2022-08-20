@@ -53,7 +53,7 @@ impl Client {
         let client = Arc::new(Mutex::new(Client {
             network_subgraph,
             http_client,
-            latest_block: 0,
+            latest_block: 11439999,
             slashing_percentage: slashing_percentage_tx,
             subgraph_deployments: subgraph_deployments_tx,
             deployment_indexers: deployment_indexers_tx,
