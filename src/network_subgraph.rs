@@ -53,7 +53,7 @@ impl Client {
         let client = Arc::new(Mutex::new(Client {
             network_subgraph,
             http_client,
-            latest_block: 11439999,
+            latest_block: 0,
             slashing_percentage: slashing_percentage_tx,
             subgraph_deployments: subgraph_deployments_tx,
             deployment_indexers: deployment_indexers_tx,
@@ -209,6 +209,22 @@ impl Client {
         let mut index: u32 = 0;
         let mut query_block: Option<BlockPointer> = None;
         let mut results = Vec::new();
+        // graph-node is rejecting values of `number_gte:0` on subgraphs with a larger `startBlock`
+        // TODO: delete when resolved
+        if self.latest_block == 0 {
+            #[derive(Deserialize)]
+            struct InitResponse {
+                meta: Meta,
+            }
+            let init = graphql::query::<InitResponse, _>(
+                &self.http_client,
+                self.network_subgraph.clone(),
+                &json!({"query": "{ meta: _meta { block { number hash } } }"}),
+            )
+            .await?
+            .unpack()?;
+            self.latest_block = init.meta.block.number;
+        }
         loop {
             let block = query_block
                 .as_ref()
