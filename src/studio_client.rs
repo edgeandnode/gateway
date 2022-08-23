@@ -1,7 +1,7 @@
 use crate::{
     indexer_selection::IndexerPreferences,
     prelude::*,
-    query_engine::{APIKey, VolumeEstimator},
+    query_engine::{APIKey, QueryStatus, VolumeEstimator},
 };
 use eventuals::{self, EventualExt as _};
 use reqwest;
@@ -81,7 +81,7 @@ impl Actor {
                 is_subsidized: api_key.is_subsidized,
                 user_id: api_key.user_id,
                 user_address: api_key.user_address.parse().ok()?,
-                queries_activated: api_key.queries_activated,
+                query_status: api_key.query_status,
                 max_budget: api_key.max_budget.and_then(|b| USD::try_from(b).ok()),
                 subgraphs: api_key
                     .subgraphs
@@ -179,7 +179,7 @@ struct GatewayApiKey {
     is_subsidized: bool,
     user_id: i64,
     user_address: String,
-    queries_activated: bool,
+    query_status: QueryStatus,
     max_budget: Option<f64>,
     #[serde(default)]
     indexer_preferences: Vec<GatewayIndexerPreference>,

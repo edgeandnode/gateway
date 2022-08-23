@@ -595,15 +595,18 @@ async fn handle_subgraph_query_inner(
             return Err("Invalid API key".into());
         }
     };
-    // to handle the subsidized queries feature.
-    // if a user does not have queries_activated true, check if the api_key is subsidized.
-    // if the api key is subsidized, allow the query through
-    if !api_key.queries_activated && !api_key.is_subsidized {
-        return Err(
+
+    match api_key.query_status {
+        QueryStatus::Active => (),
+        QueryStatus::Inactive if !api_key.is_subsidized => (),
+        QueryStatus::Inactive => return Err(
             "Querying not activated yet; make sure to add some GRT to your balance in the studio"
                 .into(),
-        );
-    }
+        ),
+        QueryStatus::ServiceShutoff => {
+            return Err("Payment required for subsequent requests for this API key".into())
+        }
+    };
 
     let domain = request
         .headers()
