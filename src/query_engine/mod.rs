@@ -24,6 +24,7 @@ use lazy_static::lazy_static;
 pub use price_automation::{QueryBudgetFactors, VolumeEstimator};
 use primitive_types::U256;
 use prometheus;
+use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::{
     collections::HashMap,
@@ -130,13 +131,22 @@ pub struct APIKey {
     pub is_subsidized: bool,
     pub user_id: i64,
     pub user_address: Address,
-    pub queries_activated: bool,
+    pub query_status: QueryStatus,
     pub max_budget: Option<USD>,
     pub deployments: Vec<SubgraphDeploymentID>,
     pub subgraphs: Vec<(SubgraphID, i32)>,
     pub domains: Vec<(String, i32)>,
     pub indexer_preferences: IndexerPreferences,
     pub usage: Arc<Mutex<VolumeEstimator>>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum QueryStatus {
+    #[default]
+    Inactive,
+    Active,
+    ServiceShutoff,
 }
 
 #[derive(Debug)]
