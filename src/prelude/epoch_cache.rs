@@ -20,7 +20,7 @@ impl<K: Eq + Hash, V, const C: u8> EpochCache<K, V, C> {
         self.0.len()
     }
 
-    /// WARNING: This will not observe the use of the value for the curretn epoch.
+    /// WARNING: This will not observe the use of the value for the current epoch.
     pub fn get_unobserved<Q>(&self, key: &Q) -> Option<&V>
     where
         Q: Eq + Hash + ?Sized,

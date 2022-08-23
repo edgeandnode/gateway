@@ -84,7 +84,9 @@ async fn main() {
     } else {
         None
     };
-    let _ = isa_writer.update(|indexers| indexers.special_indexers = special_indexers.clone());
+    let _ = isa_writer
+        .update(|indexers| indexers.special_indexers = special_indexers.clone())
+        .await;
 
     // Start the actor to manage updates
     let (update_writer, update_reader) = crate::utils::buffer_queue::pair();

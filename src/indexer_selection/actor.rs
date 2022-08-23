@@ -66,6 +66,7 @@ pub async fn process_updates(
             _ = events.read(&mut event_buffer) => {
                 tracing::trace!(isa_update_queue_depth = event_buffer.len());
                 process_events(&mut event_buffer, &mut writer).await;
+                event_buffer.clear();
             },
         }
     }
@@ -81,7 +82,7 @@ pub async fn test_process_updates(
     process_events(&mut event_buffer, writer).await;
 }
 
-async fn process_events(event_buffer: &mut Vec<Update>, writer: &mut DoubleBufferWriter<State>) {
+async fn process_events(event_buffer: &[Update], writer: &mut DoubleBufferWriter<State>) {
     writer
         .update(|isa| {
             for event in event_buffer.iter() {
@@ -133,5 +134,4 @@ async fn process_events(event_buffer: &mut Vec<Update>, writer: &mut DoubleBuffe
             }
         })
         .await;
-    event_buffer.clear();
 }
