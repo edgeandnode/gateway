@@ -59,49 +59,58 @@ impl Actor {
             .await?
             .json::<GetGatewayApiKeysResponsePayload>()
             .await?;
-        let api_keys = response.api_keys.into_iter().filter_map(|api_key| {
-            let mut indexer_preferences = IndexerPreferences::default();
-            for preference in api_key.indexer_preferences {
-                match preference.name.as_str() {
-                    "Fastest speed" => indexer_preferences.performance = preference.weight,
-                    "Lowest price" => indexer_preferences.price_efficiency = preference.weight,
-                    "Data freshness" => indexer_preferences.data_freshness = preference.weight,
-                    "Economic security" => {
-                        indexer_preferences.economic_security = preference.weight
-                    }
-                    unexpected_indexer_preference_name => {
-                        tracing::warn!(%unexpected_indexer_preference_name)
+        let api_keys = response
+            .api_keys
+            .into_iter()
+            .filter_map(|api_key| {
+                let mut indexer_preferences = IndexerPreferences::default();
+                for preference in api_key.indexer_preferences {
+                    match preference.name.as_str() {
+                        "Fastest speed" => indexer_preferences.performance = preference.weight,
+                        "Lowest price" => indexer_preferences.price_efficiency = preference.weight,
+                        "Data freshness" => indexer_preferences.data_freshness = preference.weight,
+                        "Economic security" => {
+                            indexer_preferences.economic_security = preference.weight
+                        }
+                        unexpected_indexer_preference_name => {
+                            tracing::warn!(%unexpected_indexer_preference_name)
+                        }
                     }
                 }
-            }
-            Some(APIKey {
-                usage: self.api_key_usage.get(&api_key.key),
-                id: api_key.id,
-                key: api_key.key,
-                is_subsidized: api_key.is_subsidized,
-                user_id: api_key.user_id,
-                user_address: api_key.user_address.parse().ok()?,
-                query_status: api_key.query_status,
-                max_budget: api_key.max_budget.and_then(|b| USD::try_from(b).ok()),
-                subgraphs: api_key
-                    .subgraphs
-                    .into_iter()
-                    .filter_map(|s| Some((s.network_subgraph_id.parse::<SubgraphID>().ok()?, s.id)))
-                    .collect(),
-                deployments: api_key
-                    .deployments
-                    .into_iter()
-                    .filter_map(|id| SubgraphDeploymentID::from_ipfs_hash(&id))
-                    .collect(),
-                domains: api_key
-                    .domains
-                    .into_iter()
-                    .map(|domain| (domain.domain, domain.id))
-                    .collect(),
-                indexer_preferences,
+                let api_key = APIKey {
+                    usage: self.api_key_usage.get(&api_key.key),
+                    id: api_key.id,
+                    key: api_key.key,
+                    is_subsidized: api_key.is_subsidized,
+                    user_id: api_key.user_id,
+                    user_address: api_key.user_address.parse().ok()?,
+                    query_status: api_key.query_status,
+                    max_budget: api_key.max_budget.and_then(|b| USD::try_from(b).ok()),
+                    subgraphs: api_key
+                        .subgraphs
+                        .into_iter()
+                        .filter_map(|s| {
+                            Some((s.network_subgraph_id.parse::<SubgraphID>().ok()?, s.id))
+                        })
+                        .collect(),
+                    deployments: api_key
+                        .deployments
+                        .into_iter()
+                        .filter_map(|id| SubgraphDeploymentID::from_ipfs_hash(&id))
+                        .collect(),
+                    domains: api_key
+                        .domains
+                        .into_iter()
+                        .map(|domain| (domain.domain, domain.id))
+                        .collect(),
+                    indexer_preferences,
+                };
+                Some((api_key.key.clone(), Arc::new(api_key)))
             })
-        });
-        Ok(api_keys.map(|v| (v.key.clone(), Arc::new(v))).collect())
+            .collect::<HashMap<String, Arc<APIKey>>>();
+
+        tracing::info!(api_keys = api_keys.len());
+        Ok(api_keys)
     }
 }
 
