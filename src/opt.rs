@@ -161,6 +161,18 @@ pub struct Opt {
     )]
     pub geoip_blocked_countries: Vec<String>,
     #[structopt(
+        help = "Subgraph studio admin url",
+        long = "--studio-url",
+        env = "STUDIO_URL"
+    )]
+    pub studio_url: Url,
+    #[structopt(
+        help = "Subgraph studio auth",
+        long = "--studio-auth",
+        env = "STUDIO_AUTH"
+    )]
+    pub studio_auth: String,
+    #[structopt(
         help = "Stats database hostname",
         long = "--stats-db-host",
         env = "STATS_DB_HOST",
