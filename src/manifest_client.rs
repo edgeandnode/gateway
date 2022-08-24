@@ -1,4 +1,5 @@
 use crate::{ipfs_client::*, prelude::*, subgraph_deployments::SubgraphDeployments};
+use anyhow::{anyhow, Result};
 use eventuals::EventualExt;
 use im;
 use serde::Deserialize;
@@ -49,25 +50,22 @@ pub fn create(
                 let client = ipfs_client.clone();
                 let subgraph_deployments = subgraph_deployments.clone();
                 let info = Eventual::spawn(move |mut writer| async move {
-                    let subgraph = match subgraph_deployments.deployment_subgraph(&deployment).await
-                    {
-                        Some(subgraph) => subgraph,
-                        None => {
-                            tracing::error!(%deployment, "deployment missing supgraph");
-                            return Err(eventuals::Closed);
-                        }
-                    };
                     loop {
-                        match fetch_manifest(&client, subgraph, deployment).await {
-                            Ok(response) => {
-                                writer.write(Ptr::new(response));
-                                return Err(eventuals::Closed);
-                            }
-                            Err((deployment, manifest_fetch_err)) => {
-                                tracing::warn!(%deployment, %manifest_fetch_err);
-                                sleep(Duration::from_secs(20)).await;
-                            }
-                        }
+                        let manifest_fetch_err =
+                            match subgraph_deployments.deployment_subgraph(&deployment).await {
+                                None => anyhow!("deployment missing subgraph"),
+                                Some(subgraph) => {
+                                    match fetch_manifest(&client, subgraph, deployment).await {
+                                        Err(manifest_fetch_err) => manifest_fetch_err,
+                                        Ok(response) => {
+                                            writer.write(Ptr::new(response));
+                                            return Err(eventuals::Closed);
+                                        }
+                                    }
+                                }
+                            };
+                        tracing::warn!(%deployment, %manifest_fetch_err);
+                        sleep(Duration::from_secs(20)).await;
                     }
                 });
                 manifests.insert(deployment, info);
@@ -81,13 +79,9 @@ pub async fn fetch_manifest(
     client: &IPFSClient,
     subgraph: SubgraphID,
     deployment: SubgraphDeploymentID,
-) -> Result<SubgraphInfo, (SubgraphDeploymentID, String)> {
-    let payload = client
-        .cat(&deployment.ipfs_hash())
-        .await
-        .map_err(|err| (deployment, err.to_string()))?;
-    let manifest = serde_yaml::from_str::<SubgraphManifest>(&payload)
-        .map_err(|err| (deployment, err.to_string()))?;
+) -> Result<SubgraphInfo> {
+    let payload = client.cat(&deployment.ipfs_hash()).await?;
+    let manifest = serde_yaml::from_str::<SubgraphManifest>(&payload)?;
     let min_block = manifest
         .data_sources
         .iter()
@@ -101,7 +95,7 @@ pub async fn fetch_manifest(
         .into_iter()
         .map(|data_source| data_source.network)
         .next()
-        .ok_or_else(|| (deployment, "Network not found".to_string()))?;
+        .ok_or_else(|| anyhow!("Network not found"))?;
     Ok(SubgraphInfo {
         id: subgraph,
         deployment,
