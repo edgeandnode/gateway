@@ -162,6 +162,14 @@ impl Client {
                 },
             );
         }
+        if deployment_indexers.is_empty() || indexers.is_empty() || allocations.is_empty() {
+            return Err(format!(
+                "Discarding empty update (deployment_indexers={}, indexers={}, allocations={})",
+                deployment_indexers.len(),
+                indexers.len(),
+                allocations.len()
+            ));
+        }
         self.deployment_indexers
             .write(Ptr::new(deployment_indexers));
         self.indexers.write(Ptr::new(indexers));
@@ -195,7 +203,10 @@ impl Client {
                     .collect();
                 (subgraph.id, versions)
             })
-            .collect();
+            .collect::<Vec<(SubgraphID, Vec<SubgraphDeploymentID>)>>();
+        if subgraph_deployments.is_empty() {
+            return Err("Discarding empty update (subgraph_deployments)".to_string());
+        }
         self.subgraph_deployments
             .write(Ptr::new(subgraph_deployments));
         Ok(())
