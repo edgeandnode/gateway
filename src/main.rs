@@ -16,8 +16,8 @@ mod prelude;
 mod query_engine;
 mod rate_limiter;
 mod stats_db;
-mod subgraph_deployments;
 mod studio_client;
+mod subgraph_deployments;
 mod vouchers;
 mod ws_client;
 use crate::{
@@ -231,6 +231,7 @@ async fn main() {
         deployment_indexers: network_subgraph_data.deployment_indexers,
         inputs: inputs.clone(),
         api_keys,
+        api_key_payment_required: opt.api_key_payment_required,
         stats_db,
         fisherman_client,
         kafka_client,
@@ -487,6 +488,7 @@ struct SubgraphQueryData {
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     inputs: Inputs,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
+    api_key_payment_required: bool,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
     kafka_client: Arc<KafkaClient>,
 }
@@ -596,17 +598,19 @@ async fn handle_subgraph_query_inner(
         }
     };
 
-    match api_key.query_status {
-        QueryStatus::Active => (),
-        QueryStatus::Inactive if !api_key.is_subsidized => (),
-        QueryStatus::Inactive => return Err(
-            "Querying not activated yet; make sure to add some GRT to your balance in the studio"
-                .into(),
-        ),
-        QueryStatus::ServiceShutoff => {
-            return Err("Payment required for subsequent requests for this API key".into())
-        }
-    };
+    if data.api_key_payment_required {
+        match api_key.query_status {
+            QueryStatus::Active => (),
+            QueryStatus::Inactive if !api_key.is_subsidized => (),
+            QueryStatus::Inactive => return Err(
+                "Querying not activated yet; make sure to add some GRT to your balance in the studio"
+                    .into(),
+            ),
+            QueryStatus::ServiceShutoff => {
+                return Err("Payment required for subsequent requests for this API key".into())
+            }
+        };
+    }
 
     let domain = request
         .headers()

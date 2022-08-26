@@ -173,6 +173,12 @@ pub struct Opt {
     )]
     pub studio_auth: String,
     #[structopt(
+        long,
+        help = "Respect the payment state of API keys (disable for testnets)",
+        env = "API_KEY_PAYMENT_REQUIRED"
+    )]
+    pub api_key_payment_required: bool,
+    #[structopt(
         help = "Stats database hostname",
         long = "--stats-db-host",
         env = "STATS_DB_HOST",
