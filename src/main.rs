@@ -154,7 +154,7 @@ async fn main() {
         opt.sync_agent,
         Duration::from_secs(30),
         usd_to_grt_conversion,
-        opt.sync_agent_accept_empty,
+        false,
     );
     let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
     let network_subgraph_data =
@@ -601,7 +601,7 @@ async fn handle_subgraph_query_inner(
     if data.api_key_payment_required {
         match api_key.query_status {
             QueryStatus::Active => (),
-            QueryStatus::Inactive if !api_key.is_subsidized => (),
+            QueryStatus::Inactive if api_key.is_subsidized => (),
             QueryStatus::Inactive => return Err(
                 "Querying not activated yet; make sure to add some GRT to your balance in the studio"
                     .into(),

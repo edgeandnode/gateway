@@ -13,117 +13,70 @@ use url::{self, Url};
 #[derive(StructOpt, Debug)]
 pub struct Opt {
     #[structopt(
-        help = "Ethereum wallet mnemonic",
         long = "--mnemonic",
-        env = "MNEMONIC"
+        env = "MNEMONIC",
+        help = "Ethereum wallet mnemonic"
     )]
     pub signer_key: SignerKey,
-    #[structopt(
-        help = "URL of gateway agent syncing API",
-        long = "--sync-agent",
-        env = "SYNC_AGENT"
-    )]
+    #[structopt(long, env, help = "URL of gateway agent syncing API")]
     pub sync_agent: String,
-    #[structopt(
-        help = "Accept empty values from the gateway agent syncing API (useful for testing)",
-        long = "--sync-agent-accept-empty",
-        env = "SYNC_AGENT_ACCEPT_EMPTY"
-    )]
-    pub sync_agent_accept_empty: bool,
-    #[structopt(
-        help = "IPFS endpoint with access to the subgraph files",
-        long = "--ipfs",
-        env = "IPFS"
-    )]
+    #[structopt(long, env, help = "IPFS endpoint with access to the subgraph files")]
     pub ipfs: Url,
-    #[structopt(help = "Fisherman endpoint", long = "--fisherman", env = "FISHERMAN")]
+    #[structopt(long, env, help = "Fisherman endpoint")]
     pub fisherman: Option<Url>,
     #[structopt(
-        help = "Ethereum provider URLs, format: '<network>=<block-time>,<rest-url>(,<ws-url>)?;...'\ne.g. rinkeby=15,https://eth-rinkeby.alchemyapi.io/v2/<api-key>",
-        long = "--ethereum-providers",
-        env = "ETHEREUM_PROVIDERS"
+        long,
+        env,
+        help = "Ethereum provider URLs, format: '<network>=<block-time>,<rest-url>(,<ws-url>)?;...'\ne.g. rinkeby=15,https://eth-rinkeby.alchemyapi.io/v2/<api-key>"
     )]
     pub ethereum_providers: EthereumProviders,
-    #[structopt(
-        help = "Network subgraph URL",
-        long = "--network-subgraph",
-        env = "NETWORK_SUBGRAPH"
-    )]
+    #[structopt(long, env, help = "Network subgraph URL")]
     pub network_subgraph: Url,
-    #[structopt(
-        help = "Network subgraph auth token",
-        long = "--network-subgraph-auth-token",
-        env = "NETWORK_SUBGRAPH_AUTH_TOKEN"
-    )]
+    #[structopt(long, env, help = "Network subgraph auth token")]
     pub network_subgraph_auth_token: String,
     #[structopt(
+        long,
+        env,
         help = "MIP weights and addresses, format: '<weight>:<address>,...'\ne.g. 0.1:0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-        long = "--mips",
-        env = "MIPS",
         default_value = "0.2:"
     )]
     pub mips: MIPs,
-    #[structopt(help = "Format log output as JSON", long = "--log-json")]
+    #[structopt(long, env, parse(try_from_str), help = "Format log output as JSON")]
     pub log_json: bool,
-    #[structopt(
-        long = "--indexer-selection-retry-limit",
-        env = "INDEXER_SELECTION_LIMIT",
-        default_value = "5"
-    )]
+    #[structopt(long, env, default_value = "5")]
     pub indexer_selection_retry_limit: usize,
-    #[structopt(
-        long = "--block-cache-head",
-        env = "BLOCK_CACHE_HEAD",
-        default_value = "64"
-    )]
+    #[structopt(long, env, default_value = "64")]
     pub block_cache_head: usize,
-    #[structopt(
-        long = "--block-cache-size",
-        env = "BLOCK_CACHE_SIZE",
-        default_value = "32768"
-    )]
+    #[structopt(long, env, default_value = "32768")]
     pub block_cache_size: usize,
-    #[structopt(
-        long = "--query-budget-scale",
-        env = "QUERY_BUDGET_SCALE",
-        default_value = "3.1"
-    )]
+    #[structopt(long, env, default_value = "3.1")]
     pub query_budget_scale: f64,
-    #[structopt(
-        long = "--query-budget-discount",
-        env = "QUERY_BUDGET_DISCOUNT",
-        default_value = "0.595"
-    )]
+    #[structopt(long, env, default_value = "0.595")]
     pub query_budget_discount: f64,
     #[structopt(
-        help = "The number of processes per Gateway location. This is used when approximating worldwide query volume.",
-        long = "--replica-count",
-        env = "REPLICA_COUNT"
+        long,
+        env,
+        help = "The number of processes per Gateway location. This is used when approximating worldwide query volume."
     )]
     pub replica_count: u64,
     #[structopt(
-        help = "The number of geographic Gateway locations. This is used when approximating worldwide query volume.",
-        long = "--location-count",
-        env = "LOCATION_COUNT"
+        long,
+        env,
+        help = "The number of geographic Gateway locations. This is used when approximating worldwide query volume."
     )]
     pub location_count: u64,
-    #[structopt(long = "--port", env = "PORT", default_value = "6700")]
+    #[structopt(long, env, default_value = "6700")]
     pub port: u16,
-    #[structopt(long = "--metrics-port", env = "METRICS_PORT", default_value = "7300")]
+    #[structopt(long, env, default_value = "7300")]
     pub metrics_port: u16,
     #[structopt(
-        help = "Duration of IP rate limiting window in seconds",
         long = "--ip-rate-limit-window",
         env = "IP_RATE_LIMIT_WINDOW",
+        help = "Duration of IP rate limiting window in seconds",
         default_value = "10"
     )]
     pub ip_rate_limit_window_secs: u8,
-    #[structopt(
-        help = "IP rate limit per window",
-        long = "--ip-rate-limit",
-        env = "IP_RATE_LIMIT",
-        default_value = "250"
-    )]
+    #[structopt(long, env, help = "IP rate limit per window", default_value = "250")]
     pub ip_rate_limit: u16,
     #[structopt(
         help = "Duration of API rate limiting window in seconds",
@@ -132,128 +85,62 @@ pub struct Opt {
         default_value = "10"
     )]
     pub api_rate_limit_window_secs: u8,
-    #[structopt(
-        help = "API rate limit per window",
-        long = "--api-rate-limit",
-        env = "API_RATE_LIMIT",
-        default_value = "1000"
-    )]
+    #[structopt(long, env, help = "API rate limit per window", default_value = "1000")]
     pub api_rate_limit: u16,
-    #[structopt(
-        help = "Minimum indexer version",
-        long = "--min-indexer-version",
-        env = "MINIMUM_INDEXER_VERSION",
-        default_value = "0.0.0"
-    )]
+    #[structopt(long, env, help = "Minimum indexer version", default_value = "0.0.0")]
     pub min_indexer_version: Version,
-    #[structopt(
-        help = "GeoIP database path",
-        long = "--geoip-database",
-        env = "GEOIP_DATABASE"
-    )]
+    #[structopt(long, env, help = "GeoIP database path")]
     pub geoip_database: Option<PathBuf>,
     #[structopt(
+        long,
+        env,
         help = "GeoIP blocked countries (ISO 3166-1 alpha-2 codes)",
-        long = "--geoip-blocked-countries",
-        env = "GEOIP_BLOCKED_COUNTRIES",
         default_value = "",
         use_delimiter = true
     )]
     pub geoip_blocked_countries: Vec<String>,
-    #[structopt(
-        help = "Subgraph studio admin url",
-        long = "--studio-url",
-        env = "STUDIO_URL"
-    )]
+    #[structopt(long, env, help = "Subgraph studio admin url")]
     pub studio_url: Url,
-    #[structopt(
-        help = "Subgraph studio auth",
-        long = "--studio-auth",
-        env = "STUDIO_AUTH"
-    )]
+    #[structopt(long, env, help = "Subgraph studio auth")]
     pub studio_auth: String,
     #[structopt(
         long,
+        env,
         help = "Respect the payment state of API keys (disable for testnets)",
-        env = "API_KEY_PAYMENT_REQUIRED"
+        parse(try_from_str)
     )]
     pub api_key_payment_required: bool,
     #[structopt(
+        long,
+        env,
         help = "Stats database hostname",
-        long = "--stats-db-host",
-        env = "STATS_DB_HOST",
         default_value = "localhost"
     )]
     pub stats_db_host: String,
-    #[structopt(
-        help = "Stats database port",
-        long = "--stats-db-port",
-        env = "STATS_DB_PORT",
-        default_value = "5432"
-    )]
+    #[structopt(long, env, help = "Stats database port", default_value = "5432")]
     pub stats_db_port: u16,
-    #[structopt(
-        help = "Stats database name",
-        long = "--stats-db-name",
-        env = "STATS_DB_NAME",
-        default_value = "dev"
-    )]
+    #[structopt(long, env, help = "Stats database name", default_value = "dev")]
     pub stats_db_name: String,
-    #[structopt(
-        help = "Stats database username",
-        long = "--stats-db-user",
-        env = "STATS_DB_USER",
-        default_value = "dev"
-    )]
+    #[structopt(long, env, help = "Stats database username", default_value = "dev")]
     pub stats_db_user: String,
-    #[structopt(
-        help = "Stats database password",
-        long = "--stats-db-password",
-        env = "STATS_DB_PASSWORD",
-        default_value = "dev"
-    )]
+    #[structopt(long, env, help = "Stats database password", default_value = "dev")]
     pub stats_db_password: String,
-    #[structopt(
-        help = "Redpanda broker domains",
-        long = "--brokers",
-        env = "REDPANDA_BROKERS"
-    )]
+    #[structopt(long, env, help = "Redpanda broker domains")]
     pub redpanda_brokers: String,
-    #[structopt(
-        help = "Security protocol",
-        long = "--ssl-method",
-        env = "REDPANDA_SECURITY_PROTOCOL"
-    )]
-    pub security_protocol: Option<String>,
-    #[structopt(
-        help = "SASL mechanism",
-        long = "--sasl",
-        env = "REDPANDA_SASL_MECHANISM",
-        default_value = "SCRAM-SHA-256"
-    )]
-    pub sasl_mechanism: String,
-    #[structopt(help = "SASL user", long = "--sasl-user", env = "REDPANDA_SASL_USER")]
-    pub sasl_username: Option<String>,
-    #[structopt(
-        help = "SASL password",
-        long = "--sasl-password",
-        env = "REDPANDA_SASL_PASSWORD"
-    )]
-    pub sasl_password: Option<String>,
-    #[structopt(help = "SSL ca location", long = "--ssl-ca", env = "REDPANDA_SSL_CA")]
-    pub ssl_ca_location: Option<String>,
-    #[structopt(
-        help = "SSL cert location",
-        long = "--ssl-cert",
-        env = "REDPANDA_SSL_CERT"
-    )]
-    pub ssl_certificate_location: Option<String>,
-    #[structopt(
-        help = "SSL key location",
-        long = "--ssl-key",
-        env = "REDPANDA_SSL_KEY"
-    )]
-    pub ssl_key_location: Option<String>,
+    #[structopt(long, env, help = "Security protocol")]
+    pub redpanda_security_protocol: Option<String>,
+    #[structopt(long, env, help = "SASL mechanism", default_value = "SCRAM-SHA-256")]
+    pub redpanda_sasl_mechanism: String,
+    #[structopt(long, env, help = "SASL user")]
+    pub redpanda_sasl_user: Option<String>,
+    #[structopt(long, env, help = "SASL password")]
+    pub redpanda_sasl_password: Option<String>,
+    #[structopt(long, env, help = "SSL ca location")]
+    pub redpanda_ssl_ca: Option<String>,
+    #[structopt(long, env, help = "SSL cert location")]
+    pub redpanda_ssl_cert: Option<String>,
+    #[structopt(long, env, help = "SSL key location")]
+    pub redpanda_ssl_key: Option<String>,
 }
 
 impl Opt {
@@ -265,23 +152,23 @@ impl Opt {
         config.set("queue.buffering.max.ms", "1000");
         config.set("queue.buffering.max.messages", "1000000");
         config.set("allow.auto.create.topics", "true");
-        config.set("sasl.mechanism", &self.sasl_mechanism);
-        if let Some(security_protocol) = self.security_protocol.as_ref() {
+        config.set("sasl.mechanism", &self.redpanda_sasl_mechanism);
+        if let Some(security_protocol) = self.redpanda_security_protocol.as_ref() {
             config.set("security.protocol", security_protocol);
         }
-        if let Some(sasl_username) = self.sasl_username.as_ref() {
+        if let Some(sasl_username) = self.redpanda_sasl_user.as_ref() {
             config.set("sasl.username", sasl_username);
         }
-        if let Some(sasl_password) = self.sasl_password.as_ref() {
+        if let Some(sasl_password) = self.redpanda_sasl_password.as_ref() {
             config.set("sasl.password", sasl_password);
         }
-        if let Some(ssl_ca_location) = self.ssl_ca_location.as_ref() {
+        if let Some(ssl_ca_location) = self.redpanda_ssl_ca.as_ref() {
             config.set("ssl.ca.location", ssl_ca_location);
         }
-        if let Some(ssl_certificate_location) = self.ssl_certificate_location.as_ref() {
-            config.set("ssl.certificate.location", ssl_certificate_location);
+        if let Some(ssl_cert_location) = self.redpanda_ssl_cert.as_ref() {
+            config.set("ssl.certificate.location", ssl_cert_location);
         }
-        if let Some(ssl_key_location) = self.ssl_key_location.as_ref() {
+        if let Some(ssl_key_location) = self.redpanda_ssl_key.as_ref() {
             config.set("ssl.key.location", ssl_key_location);
         }
         config
