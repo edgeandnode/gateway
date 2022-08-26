@@ -556,7 +556,7 @@ where
             allocation,
             query: Arc::new(indexer_query.query),
             receipt,
-            result: result,
+            result,
             indexer_errors: String::default(),
             duration: query_duration,
         });

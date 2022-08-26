@@ -168,9 +168,3 @@ pub struct BlockHead {
     pub block: BlockPointer,
     pub uncles: Vec<Bytes32>,
 }
-
-// TODO: (Zac) Remove this trait?
-pub trait Reader {
-    type Writer;
-    fn new() -> (Self::Writer, Self);
-}

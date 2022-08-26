@@ -20,7 +20,13 @@ use rand::{
     Rng, RngCore as _, SeedableRng,
 };
 use serde_json::json;
-use std::{collections::BTreeMap, env, fmt, ops::RangeInclusive};
+use siphasher::sip::SipHasher24;
+use std::{
+    collections::BTreeMap,
+    env, fmt,
+    hash::{Hash, Hasher as _},
+    ops::RangeInclusive,
+};
 use tokio::{self, sync::Mutex};
 use url::Url;
 
@@ -310,26 +316,20 @@ impl Topology {
         }
     }
 
-    fn deployments(&self) -> Vec<DeploymentTopology> {
+    fn deployments(&self) -> Vec<&DeploymentTopology> {
         self.subgraphs
             .iter()
-            .flat_map(|(_, subgraph)| subgraph.deployments.clone())
+            .flat_map(|(_, subgraph)| &subgraph.deployments)
             .collect()
     }
 
-    fn indexings(&self) -> Vec<(DeploymentTopology, IndexerTopology, NetworkTopology)> {
+    fn indexings(&self, indexer: &Address) -> Vec<(&DeploymentTopology, &NetworkTopology)> {
         self.deployments()
             .into_iter()
-            .flat_map(|deployment| {
+            .filter(|deployment| deployment.indexings.contains(indexer))
+            .map(|deployment| {
                 let network = self.networks.get(&deployment.network).unwrap();
-                deployment
-                    .indexings
-                    .clone()
-                    .into_iter()
-                    .map(move |indexer| {
-                        let indexer = self.indexers.get(&indexer).unwrap().clone();
-                        (deployment.clone(), indexer, network.clone())
-                    })
+                (deployment, network)
             })
             .collect()
     }
@@ -357,18 +357,23 @@ impl Topology {
                     url: url.clone(),
                     stake: indexer.staked_grt.as_udecimal(&stake_table),
                 });
+                let cost_model = Some(Ptr::new(default_cost_model(
+                    indexer.fee.as_udecimal(&fee_table),
+                )));
                 let indexings = self
-                    .indexings()
+                    .indexings(&indexer.id)
                     .into_iter()
-                    .filter_map(|(deployment, indexer, network)| {
+                    .filter_map(|(deployment, network)| {
+                        let mut hasher = SipHasher24::default();
+                        indexer.id.hash(&mut hasher);
+                        deployment.id.hash(&mut hasher);
+                        let allocation_id = Address(bytes_from_id(hasher.finish() as usize).into());
                         let update = IndexingStatus {
                             allocations: Arc::new(HashMap::from_iter([(
-                                Address::default(),
+                                allocation_id,
                                 indexer.allocated_grt.as_udecimal(&stake_table),
                             )])),
-                            cost_model: Some(Ptr::new(default_cost_model(
-                                indexer.fee.as_udecimal(&fee_table),
-                            ))),
+                            cost_model: cost_model.clone(),
                             block: indexer.block(network.blocks.len()) as u64,
                             latest: network.blocks.last()?.number,
                         };
@@ -497,7 +502,7 @@ impl Topology {
             .blocks
             .is_empty()
         {
-            return Self::expect_err(trace, result, MissingBlock(UnresolvedBlock::WithNumber(0)));
+            return Self::expect_err(trace, result, NoIndexerSelected);
         }
 
         if !valid.is_empty() {
@@ -723,7 +728,7 @@ async fn test() {
             isa: isa_state.clone(),
             observations: update_writer,
         };
-        for _ in 0..100 {
+        for _ in 0..10 {
             test_process_updates(&mut isa_writer, &mut update_reader).await;
             let mut query = topology.lock().await.gen_query();
             let result = query_engine.execute_query(&mut query).await;
