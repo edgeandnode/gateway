@@ -1,4 +1,10 @@
-use crate::{ethereum_client, indexer_selection::UnresolvedBlock, prelude::*};
+pub use crate::indexer_selection::BlockResolver as _;
+use crate::{
+    ethereum_client,
+    indexer_selection::{self, UnresolvedBlock},
+    prelude::*,
+};
+use async_trait::async_trait;
 use im;
 use lazy_static::lazy_static;
 
@@ -10,42 +16,19 @@ pub struct BlockResolver {
     skip_latest: usize,
 }
 
-impl BlockResolver {
-    pub fn new(
-        network: String,
-        cache: Eventual<Ptr<BlockCache>>,
-        chain_client: mpsc::Sender<ethereum_client::Msg>,
-    ) -> Self {
-        Self {
-            network,
-            cache,
-            chain_client,
-            skip_latest: 0,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn test(blocks: &[BlockPointer]) -> BlockResolver {
-        let (mut cache_writer, cache) = BlockCache::new(blocks.len(), 0);
-        let (dummy, _) = mpsc::channel(1);
-        let resolver = BlockResolver::new("test".to_string(), cache, dummy);
-        for block in blocks {
-            cache_writer.insert(block.clone(), &[]);
-        }
-        resolver
-    }
-
-    pub fn latest_block(&self) -> Option<BlockPointer> {
+#[async_trait]
+impl indexer_selection::BlockResolver for BlockResolver {
+    fn latest_block(&self) -> Option<BlockPointer> {
         let cache = self.cache.value_immediate()?;
         let index = cache.head.len().saturating_sub(self.skip_latest + 1);
         cache.head.get(index).cloned()
     }
 
-    pub fn skip_latest(&mut self, skip: usize) {
+    fn skip_latest(&mut self, skip: usize) {
         self.skip_latest = skip;
     }
 
-    pub async fn resolve_block(
+    async fn resolve_block(
         &self,
         unresolved: UnresolvedBlock,
     ) -> Result<BlockPointer, UnresolvedBlock> {
@@ -71,6 +54,32 @@ impl BlockResolver {
                 Err(unresolved)
             }
         }
+    }
+}
+
+impl BlockResolver {
+    pub fn new(
+        network: String,
+        cache: Eventual<Ptr<BlockCache>>,
+        chain_client: mpsc::Sender<ethereum_client::Msg>,
+    ) -> Self {
+        Self {
+            network,
+            cache,
+            chain_client,
+            skip_latest: 0,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn test(blocks: &[BlockPointer]) -> BlockResolver {
+        let (mut cache_writer, cache) = BlockCache::new(blocks.len(), 0);
+        let (dummy, _) = mpsc::channel(1);
+        let resolver = BlockResolver::new("test".to_string(), cache, dummy);
+        for block in blocks {
+            cache_writer.insert(block.clone(), &[]);
+        }
+        resolver
     }
 
     async fn fetch_cache_miss(&self, unresolved: UnresolvedBlock) -> Option<BlockPointer> {

@@ -5,7 +5,7 @@ mod tests;
 mod unattestable_errors;
 
 use crate::{
-    block_resolver::BlockResolver,
+    block_resolver::*,
     fisherman_client::*,
     indexer_client::*,
     indexer_selection::{

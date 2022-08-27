@@ -1,6 +1,7 @@
 use crate::{
-    block_resolver::BlockResolver,
-    indexer_selection::{BadIndexerReason, Context, SelectionError, UnresolvedBlock},
+    indexer_selection::{
+        BadIndexerReason, BlockResolver, Context, SelectionError, UnresolvedBlock,
+    },
     prelude::*,
 };
 use cost_model::QueryVariables;
@@ -53,7 +54,7 @@ fn block_hash_field<'a, T: q::Text<'a>>(hash: &Bytes32) -> BTreeMap<&'static str
 
 pub async fn make_query_deterministic(
     context: &mut Context<'_>,
-    block_resolver: &BlockResolver,
+    block_resolver: &impl BlockResolver,
     latest_block: &BlockPointer,
     blocks_behind: u64,
 ) -> Result<DeterministicQuery, SelectionError> {
@@ -186,7 +187,7 @@ pub async fn make_query_deterministic(
 
 pub async fn freshness_requirements<'c>(
     operations: &mut [q::OperationDefinition<'c, &'c str>],
-    block_resolver: &BlockResolver,
+    block_resolver: &impl BlockResolver,
 ) -> Result<BlockRequirements, SelectionError> {
     let mut requirements = BlockRequirements::default();
     for top_level_field in top_level_fields(operations)? {
@@ -286,15 +287,15 @@ fn parse_number<'t, T: q::Text<'t>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        block_resolver::BlockResolver,
-        indexer_selection::{test_utils::gen_blocks, Context},
+    use crate::indexer_selection::{
+        test_utils::{gen_blocks, TestBlockResolver},
+        BlockResolver, Context,
     };
 
     #[tokio::test]
     async fn requirements_field() {
         requirements_test(
-            &BlockResolver::test(&[]),
+            &TestBlockResolver::new(vec![]),
             "query { a }",
             "",
             BlockRequirements {
@@ -308,7 +309,7 @@ mod tests {
     #[tokio::test]
     async fn requirements_arg() {
         requirements_test(
-            &BlockResolver::test(&[]),
+            &TestBlockResolver::new(vec![]),
             "query { a(abc: true) }",
             "",
             BlockRequirements {
@@ -322,7 +323,7 @@ mod tests {
     #[tokio::test]
     async fn requirements_block_number() {
         requirements_test(
-            &BlockResolver::test(&[]),
+            &TestBlockResolver::new(vec![]),
             "query { a(block: { number: 10}) }",
             "",
             BlockRequirements {
@@ -336,7 +337,7 @@ mod tests {
     #[tokio::test]
     async fn requirements_multiple_block_numbers() {
         requirements_test(
-            &BlockResolver::test(&[]),
+            &TestBlockResolver::new(vec![]),
             "query { a(block: { number: 10 }) a(block: { number: 20 }) }",
             "",
             BlockRequirements {
@@ -350,7 +351,7 @@ mod tests {
     #[tokio::test]
     async fn requirements_block_hash() {
         let blocks = gen_blocks(&[54321]);
-        let resolver = &BlockResolver::test(&blocks);
+        let resolver = &TestBlockResolver::new(blocks.clone());
         requirements_test(
             &resolver,
             &format!(
@@ -369,7 +370,7 @@ mod tests {
     #[tokio::test]
     async fn block_number_gte_requirements() {
         requirements_test(
-            &BlockResolver::test(&[]),
+            &TestBlockResolver::new(vec![]),
             "query { a(block: { number_gte: 10 }) }",
             "",
             BlockRequirements {
@@ -383,7 +384,7 @@ mod tests {
     #[tokio::test]
     async fn block_number_gte_determinism() {
         let blocks = gen_blocks(&[0, 1, 2, 3, 4, 5, 6, 7]);
-        let resolver = BlockResolver::test(&blocks);
+        let resolver = TestBlockResolver::new(blocks.clone());
         let mut context = Context::new("query { a(block: { number_gte: 4 }) }", "").unwrap();
         let blocks_behind = 2;
         let latest = resolver
@@ -402,7 +403,7 @@ mod tests {
     }
 
     async fn requirements_test(
-        block_resolver: &BlockResolver,
+        block_resolver: &TestBlockResolver,
         query: &str,
         variables: &str,
         expect: BlockRequirements,

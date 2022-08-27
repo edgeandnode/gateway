@@ -20,10 +20,10 @@ pub use crate::indexer_selection::{
     selection_factors::{IndexingStatus, SelectionFactors},
 };
 use crate::{
-    block_resolver::BlockResolver,
     indexer_selection::{block_requirements::make_query_deterministic, economic_security::*},
     prelude::{epoch_cache::EpochCache, weighted_sample::WeightedSample, *},
 };
+use async_trait::async_trait;
 use cost_model;
 pub use cost_model::CostModel;
 use lazy_static::lazy_static;
@@ -125,6 +125,16 @@ pub struct UtilityConfig {
     pub price_efficiency: f64,
 }
 
+#[async_trait]
+pub trait BlockResolver {
+    fn latest_block(&self) -> Option<BlockPointer>;
+    fn skip_latest(&mut self, skip: usize);
+    async fn resolve_block(
+        &self,
+        unresolved: UnresolvedBlock,
+    ) -> Result<BlockPointer, UnresolvedBlock>;
+}
+
 #[derive(Clone, Debug)]
 pub struct IndexerScore {
     pub url: Url,
@@ -207,7 +217,7 @@ impl State {
         subgraph: &SubgraphDeploymentID,
         indexers: &[Address],
         context: &mut Context<'_>,
-        block_resolver: &BlockResolver,
+        block_resolver: &impl BlockResolver,
         freshness_requirements: &BlockRequirements,
         budget: GRT,
     ) -> Result<Option<(IndexerQuery, ScoringSample)>, SelectionError> {
@@ -260,7 +270,7 @@ impl State {
         config: &UtilityConfig,
         deployment: &SubgraphDeploymentID,
         context: &mut Context<'_>,
-        block_resolver: &BlockResolver,
+        block_resolver: &impl BlockResolver,
         indexers: &[Address],
         budget: GRT,
         freshness_requirements: &BlockRequirements,
@@ -370,7 +380,7 @@ impl State {
         &self,
         indexing: &Indexing,
         context: &mut Context<'_>,
-        block_resolver: &BlockResolver,
+        block_resolver: &impl BlockResolver,
         budget: GRT,
         config: &UtilityConfig,
         freshness_requirements: &BlockRequirements,

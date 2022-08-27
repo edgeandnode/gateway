@@ -22,7 +22,7 @@ mod utils;
 mod vouchers;
 mod ws_client;
 use crate::{
-    block_resolver::{BlockCache, BlockResolver},
+    block_resolver::*,
     fisherman_client::*,
     geoip::GeoIP,
     indexer_client::IndexerClient,
