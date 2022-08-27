@@ -1,4 +1,7 @@
-use crate::indexer_selection::decay::{impl_struct_decay, Decay, DecayUtility};
+use crate::{
+    decay::{Decay, DecayUtility},
+    impl_struct_decay,
+};
 
 // TODO: Other factors like how long the indexer has been in the network.
 // Because reliability (which is what is captured here now) is useful on it's own, it may be useful

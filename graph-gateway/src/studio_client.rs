@@ -1,8 +1,6 @@
-use crate::{
-    indexer_selection::IndexerPreferences,
-    query_engine::{APIKey, QueryStatus, VolumeEstimator},
-};
+use crate::query_engine::{APIKey, QueryStatus, VolumeEstimator};
 use eventuals::{self, EventualExt as _};
+use indexer_selection::IndexerPreferences;
 use prelude::*;
 use reqwest;
 use serde::Deserialize;

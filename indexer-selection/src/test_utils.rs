@@ -1,4 +1,4 @@
-use crate::indexer_selection::{BlockPointer, BlockResolver, CostModel, UnresolvedBlock};
+use crate::{BlockPointer, BlockResolver, CostModel, UnresolvedBlock};
 use async_trait::async_trait;
 use prelude::{test_utils::bytes_from_id, *};
 

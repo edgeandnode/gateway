@@ -1,16 +1,16 @@
 use crate::{
     fisherman_client::*,
     indexer_client::*,
-    indexer_selection::{
-        actor::{test_process_updates, IndexerUpdate},
-        test_utils::{default_cost_model, TEST_KEY},
-        IndexerError, IndexerInfo, IndexingStatus,
-    },
     kafka_client::{self, KafkaInterface},
     manifest_client::SubgraphInfo,
     query_engine::*,
 };
 use async_trait::async_trait;
+use indexer_selection::{
+    actor::{test_process_updates, IndexerUpdate},
+    test_utils::{default_cost_model, TEST_KEY},
+    IndexerError, IndexerInfo, IndexingStatus,
+};
 use prelude::{buffer_queue, decimal, double_buffer, test_utils::*, *};
 use rand::{
     distributions,

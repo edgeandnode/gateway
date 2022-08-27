@@ -1,5 +1,5 @@
-use crate::indexer_selection::actor::Update;
 use graphql_client::{GraphQLQuery, Response};
+use indexer_selection::actor::Update;
 use lazy_static::lazy_static;
 use prelude::{buffer_queue::QueueWriter, *};
 use reqwest;

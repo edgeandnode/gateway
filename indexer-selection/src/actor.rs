@@ -1,5 +1,6 @@
-use crate::indexer_selection::{BlockRequirements, IndexerInfo, Indexing, IndexingStatus, State};
-use prelude::{buffer_queue::QueueReader, double_buffer::DoubleBufferWriter, *};
+use crate::{BlockRequirements, IndexerInfo, Indexing, IndexingStatus, State};
+use prelude::*;
+use prelude::{buffer_queue::QueueReader, double_buffer::DoubleBufferWriter};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
     select,
@@ -69,7 +70,6 @@ pub async fn process_updates(
     }
 }
 
-#[cfg(test)]
 pub async fn test_process_updates(
     writer: &mut DoubleBufferWriter<State>,
     events: &mut QueueReader<Update>,

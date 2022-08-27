@@ -1,8 +1,6 @@
-use crate::{
-    indexer_selection::IndexerInfo, query_engine::Indexing,
-    subgraph_deployments::SubgraphDeployments,
-};
+use crate::{query_engine::Indexing, subgraph_deployments::SubgraphDeployments};
 use eventuals::{self, EventualExt as _};
+use indexer_selection::IndexerInfo;
 use prelude::{graphql, *};
 use serde::Deserialize;
 use serde_json::json;

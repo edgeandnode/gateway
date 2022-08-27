@@ -1,6 +1,4 @@
-use crate::indexer_selection::{
-    BadIndexerReason, BlockResolver, Context, SelectionError, UnresolvedBlock,
-};
+use crate::{BadIndexerReason, BlockResolver, Context, SelectionError, UnresolvedBlock};
 use cost_model::QueryVariables;
 use graphql_parser::query::{self as q, Number};
 use itertools::Itertools as _;
@@ -285,7 +283,7 @@ fn parse_number<'t, T: q::Text<'t>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::indexer_selection::{
+    use crate::{
         test_utils::{gen_blocks, TestBlockResolver},
         BlockResolver, Context,
     };

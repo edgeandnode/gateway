@@ -8,7 +8,8 @@ pub mod test_utils;
 pub mod weighted_sample;
 
 pub use crate::{bytes::*, decimal::*};
-pub use eventuals::{Eventual, EventualWriter, Ptr};
+pub use anyhow;
+pub use eventuals::{self, Eventual, EventualWriter, Ptr};
 pub use prometheus::{
     self,
     core::{MetricVec, MetricVecBuilder},
@@ -18,6 +19,7 @@ use siphasher::sip::SipHasher24;
 use std::hash::{Hash, Hasher as _};
 pub use std::{cmp::Ordering, fmt, str::FromStr};
 pub use tokio::{
+    self,
     sync::{mpsc, oneshot},
     time::{Duration, Instant},
 };

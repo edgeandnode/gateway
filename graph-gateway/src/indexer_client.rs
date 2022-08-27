@@ -1,6 +1,6 @@
-use crate::indexer_selection::{IndexerError, IndexerQuery};
 use async_trait::async_trait;
 use hex;
+use indexer_selection::{IndexerError, IndexerQuery};
 use prelude::*;
 use reqwest;
 use serde::{Deserialize, Serialize};

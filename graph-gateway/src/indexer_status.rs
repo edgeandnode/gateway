@@ -1,10 +1,8 @@
-use crate::{
-    geoip::GeoIP,
-    indexer_selection::{IndexerInfo, Indexing},
-};
+use crate::geoip::GeoIP;
 use cost_model::{self, CostModel};
 use eventuals::EventualExt as _;
 use futures::future::join_all;
+use indexer_selection::{IndexerInfo, Indexing};
 use prelude::{epoch_cache::EpochCache, graphql, *};
 use reqwest;
 use semver::Version;

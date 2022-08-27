@@ -1,10 +1,8 @@
-pub use crate::indexer_selection::BlockResolver as _;
-use crate::{
-    ethereum_client,
-    indexer_selection::{self, UnresolvedBlock},
-};
+use crate::ethereum_client;
 use async_trait::async_trait;
 use im;
+pub use indexer_selection::BlockResolver as _;
+use indexer_selection::{self, UnresolvedBlock};
 use lazy_static::lazy_static;
 use prelude::*;
 
@@ -223,7 +221,7 @@ impl Metrics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::indexer_selection::test_utils::gen_blocks;
+    use indexer_selection::test_utils::gen_blocks;
 
     /// Skipping some number of blocks from latest does not require all
     /// blocks between the latest and the skipped to.

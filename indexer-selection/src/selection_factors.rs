@@ -1,4 +1,4 @@
-use crate::indexer_selection::{
+use crate::{
     block_requirements::*, data_freshness::*, decay::DecayBuffer, performance::*,
     price_efficiency::*, reputation::*, utility::*, BadIndexerReason, Context, SelectionError,
 };

@@ -1,6 +1,7 @@
-use crate::{ethereum_client, indexer_selection::SecretKey};
+use crate::ethereum_client;
 use bip39;
 use hdwallet::{self, KeyChain as _};
+use indexer_selection::SecretKey;
 use ordered_float::NotNan;
 use prelude::*;
 use rdkafka::config::ClientConfig as KafkaConfig;

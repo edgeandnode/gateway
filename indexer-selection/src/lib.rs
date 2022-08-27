@@ -7,21 +7,17 @@ mod performance;
 mod price_efficiency;
 mod reputation;
 mod selection_factors;
-mod utility;
-
-#[cfg(test)]
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
+mod utility;
 
-pub use crate::indexer_selection::{
+pub use crate::{
     block_requirements::freshness_requirements,
     block_requirements::BlockRequirements,
     selection_factors::{IndexingStatus, SelectionFactors},
 };
-use crate::indexer_selection::{
-    block_requirements::make_query_deterministic, economic_security::*,
-};
+use crate::{block_requirements::make_query_deterministic, economic_security::*};
 use async_trait::async_trait;
 use cost_model;
 pub use cost_model::CostModel;

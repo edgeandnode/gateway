@@ -4,19 +4,19 @@ mod price_automation;
 mod tests;
 mod unattestable_errors;
 
-pub use crate::indexer_selection::{actor::Update, Indexing, UtilityConfig};
 use crate::{
     block_resolver::*,
     fisherman_client::*,
     indexer_client::*,
-    indexer_selection::{
-        self, actor::IndexerErrorObservation, Context, IndexerError, IndexerPreferences,
-        IndexerQuery, IndexerScore, SelectionError, UnresolvedBlock,
-    },
     kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
 };
 pub use graphql_client::Response;
+use indexer_selection::{
+    self, actor::IndexerErrorObservation, Context, IndexerError, IndexerPreferences, IndexerQuery,
+    IndexerScore, SelectionError, UnresolvedBlock,
+};
+pub use indexer_selection::{actor::Update, Indexing, UtilityConfig};
 use lazy_static::lazy_static;
 use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, *};
 pub use price_automation::{QueryBudgetFactors, VolumeEstimator};

@@ -1,4 +1,4 @@
-use crate::indexer_selection::utility::{concave_utility, SelectionFactor, UtilityParameters};
+use crate::utility::{concave_utility, SelectionFactor, UtilityParameters};
 use prelude::*;
 
 pub struct EconomicSecurity {
@@ -45,7 +45,7 @@ impl NetworkParameters {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::indexer_selection::test_utils::*;
+    use crate::test_utils::*;
 
     #[test]
     fn two_usd_to_grt() {

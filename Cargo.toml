@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "graph-gateway",
+    "indexer-selection",
     "prelude",
 ]
 

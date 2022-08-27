@@ -1,7 +1,8 @@
-use crate::indexer_selection::utility::*;
-use std::time::Duration;
+use crate::utility::*;
+use prelude::*;
 
 // This could have been done more automatically by using a proc-macro, but this is simpler.
+#[macro_export]
 macro_rules! impl_struct_decay {
     ($name:ty {$($field:ident),*}) => {
         impl Decay for $name {
@@ -31,7 +32,6 @@ macro_rules! impl_struct_decay {
         }
     };
 }
-pub(crate) use impl_struct_decay;
 
 pub trait Decay {
     fn shift(&mut self, next: Option<&mut Self>, fraction: f64, keep: f64);
@@ -172,7 +172,7 @@ impl Decay for Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::indexer_selection::reputation::Reputation;
+    use crate::reputation::Reputation;
     use plotters::prelude::*;
     use prelude::test_utils::create_dir;
     use rand::{rngs::SmallRng, Rng as _, SeedableRng as _};
