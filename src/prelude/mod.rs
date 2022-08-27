@@ -1,7 +1,6 @@
 pub mod bytes;
 pub mod decimal;
 pub mod epoch_cache;
-pub mod shared_lookup;
 pub mod weighted_sample;
 
 #[cfg(test)]
@@ -168,9 +167,4 @@ impl Ord for BlockPointer {
 pub struct BlockHead {
     pub block: BlockPointer,
     pub uncles: Vec<Bytes32>,
-}
-
-pub trait Reader {
-    type Writer;
-    fn new() -> (Self::Writer, Self);
 }

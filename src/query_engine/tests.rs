@@ -2,13 +2,15 @@ use crate::{
     fisherman_client::*,
     indexer_client::*,
     indexer_selection::{
+        actor::{test_process_updates, IndexerUpdate},
         test_utils::{default_cost_model, TEST_KEY},
-        IndexerError, IndexingStatus, SecretKey,
+        IndexerError, IndexerInfo, IndexingStatus,
     },
     kafka_client::{self, KafkaInterface},
     manifest_client::SubgraphInfo,
     prelude::{decimal, test_utils::*, *},
     query_engine::*,
+    utils::{buffer_queue, double_buffer::double_buffer},
 };
 use async_trait::async_trait;
 use rand::{
@@ -18,8 +20,15 @@ use rand::{
     Rng, RngCore as _, SeedableRng,
 };
 use serde_json::json;
-use std::{collections::BTreeMap, env, fmt, ops::RangeInclusive};
+use siphasher::sip::SipHasher24;
+use std::{
+    collections::BTreeMap,
+    env, fmt,
+    hash::{Hash, Hasher as _},
+    ops::RangeInclusive,
+};
 use tokio::{self, sync::Mutex};
+use url::Url;
 
 /// Query engine tests use pseudorandomly generated network state and client query as inputs.
 /// The using these inputs, the query engine produces a query result that gets checked based on
@@ -59,7 +68,6 @@ impl TokenAmount {
 
 struct Topology {
     config: TopologyConfig,
-    inputs: InputWriters,
     rng: SmallRng,
     networks: BTreeMap<String, NetworkTopology>,
     indexers: BTreeMap<Address, IndexerTopology>,
@@ -123,10 +131,9 @@ impl IndexerTopology {
 }
 
 impl Topology {
-    fn new(config: TopologyConfig, inputs: InputWriters, rng: &SmallRng) -> Self {
+    fn new(config: TopologyConfig, rng: &SmallRng) -> Self {
         let mut topology = Self {
             config: config.clone(),
-            inputs,
             rng: SmallRng::from_rng(rng.clone()).unwrap(),
             subgraphs: BTreeMap::new(),
             networks: BTreeMap::new(),
@@ -309,73 +316,89 @@ impl Topology {
         }
     }
 
-    fn deployments(&self) -> Vec<DeploymentTopology> {
+    fn deployments(&self) -> Vec<&DeploymentTopology> {
         self.subgraphs
             .iter()
-            .flat_map(|(_, subgraph)| subgraph.deployments.clone())
+            .flat_map(|(_, subgraph)| &subgraph.deployments)
             .collect()
     }
 
-    fn indexings(&self) -> Vec<(DeploymentTopology, IndexerTopology, NetworkTopology)> {
+    fn indexings(&self, indexer: &Address) -> Vec<(&DeploymentTopology, &NetworkTopology)> {
         self.deployments()
             .into_iter()
-            .flat_map(|deployment| {
+            .filter(|deployment| deployment.indexings.contains(indexer))
+            .map(|deployment| {
                 let network = self.networks.get(&deployment.network).unwrap();
-                deployment
-                    .indexings
-                    .clone()
-                    .into_iter()
-                    .map(move |indexer| {
-                        let indexer = self.indexers.get(&indexer).unwrap().clone();
-                        (deployment.clone(), indexer, network.clone())
-                    })
+                (deployment, network)
             })
             .collect()
     }
 
-    async fn write_inputs(&mut self) -> Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>> {
-        let indexings = self.indexings();
-        let indexer_inputs = &mut self.inputs.indexer_inputs;
-        indexer_inputs
-            .slashing_percentage
-            .write("0.1".parse().unwrap());
-        indexer_inputs
-            .usd_to_grt_conversion
-            .write("1.0".parse().unwrap());
+    async fn write_inputs(
+        &mut self,
+        writer: &QueueWriter<Update>,
+        receipt_pools: ReceiptPools,
+    ) -> Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>> {
+        writer
+            .write(Update::USDToGRTConversion("1.0".parse().unwrap()))
+            .unwrap();
+        writer
+            .write(Update::SlashingPercentage("0.1".parse().unwrap()))
+            .unwrap();
+
         let stake_table = [0.0, 50e3, 100e3, 150e3];
-        for indexer in self.indexers.values() {
-            let indexer_writer = indexer_inputs.indexers.write(&indexer.id).await;
-            indexer_writer
-                .url
-                .write(Arc::new("http://localhost".parse().unwrap()));
-            indexer_writer
-                .stake
-                .write(indexer.staked_grt.as_udecimal(&stake_table));
-        }
-        for (deployment, indexer, network) in indexings.iter() {
-            let indexing = Indexing {
-                deployment: deployment.id,
-                indexer: indexer.id,
-            };
-            let fee = indexer.fee.as_udecimal(&[0.0, 0.1, 1.0, 2.0]);
-            let indexing_writer = indexer_inputs.indexings.write(&indexing).await;
-            indexing_writer
-                .update_allocations(
-                    SecretKey::from_str(TEST_KEY).unwrap(),
-                    vec![(
-                        Address::default(),
-                        indexer.allocated_grt.as_udecimal(&stake_table),
-                    )],
-                )
-                .await;
-            if let Some(latest) = network.blocks.last() {
-                indexing_writer.status.write(IndexingStatus {
-                    cost_model: Some(Ptr::new(default_cost_model(fee))),
-                    block: indexer.block(network.blocks.len()) as u64,
-                    latest: latest.number,
+        let fee_table = [0.0, 0.1, 1.0, 2.0];
+        let url = "http://localhost".parse::<Url>().unwrap();
+        let indexers = self
+            .indexers
+            .values()
+            .map(|indexer| {
+                let info = Arc::new(IndexerInfo {
+                    url: url.clone(),
+                    stake: indexer.staked_grt.as_udecimal(&stake_table),
                 });
+                let cost_model = Some(Ptr::new(default_cost_model(
+                    indexer.fee.as_udecimal(&fee_table),
+                )));
+                let indexings = self
+                    .indexings(&indexer.id)
+                    .into_iter()
+                    .filter_map(|(deployment, network)| {
+                        let mut hasher = SipHasher24::default();
+                        indexer.id.hash(&mut hasher);
+                        deployment.id.hash(&mut hasher);
+                        let allocation_id = Address(bytes_from_id(hasher.finish() as usize).into());
+                        let update = IndexingStatus {
+                            allocations: Arc::new(HashMap::from_iter([(
+                                allocation_id,
+                                indexer.allocated_grt.as_udecimal(&stake_table),
+                            )])),
+                            cost_model: cost_model.clone(),
+                            block: indexer.block(network.blocks.len()) as u64,
+                            latest: network.blocks.last()?.number,
+                        };
+                        Some((deployment.id, update))
+                    })
+                    .collect::<HashMap<SubgraphDeploymentID, IndexingStatus>>();
+                (indexer.id, IndexerUpdate { info, indexings })
+            })
+            .collect::<HashMap<Address, IndexerUpdate>>();
+
+        let signer = SecretKey::from_str(TEST_KEY).unwrap();
+        for (indexer, update) in &indexers {
+            for (deployment, status) in &update.indexings {
+                let indexing = Indexing {
+                    indexer: *indexer,
+                    deployment: *deployment,
+                };
+                receipt_pools
+                    .update_receipt_pool(&signer, &indexing, &status.allocations)
+                    .await;
             }
         }
+
+        writer.write(Update::Indexers(indexers)).unwrap();
+
         let deployment_indexers = Eventual::from_value(Ptr::new(
             self.deployments()
                 .iter()
@@ -479,7 +502,7 @@ impl Topology {
             .blocks
             .is_empty()
         {
-            return Self::expect_err(trace, result, MissingBlock(UnresolvedBlock::WithNumber(0)));
+            return Self::expect_err(trace, result, NoIndexerSelected);
         }
 
         if !valid.is_empty() {
@@ -574,7 +597,11 @@ struct TopologyIndexer {
 
 #[async_trait]
 impl IndexerInterface for TopologyIndexer {
-    async fn query_indexer(&self, query: &IndexerQuery) -> Result<IndexerResponse, IndexerError> {
+    async fn query_indexer(
+        &self,
+        query: &IndexerQuery,
+        _receipt: &[u8],
+    ) -> Result<IndexerResponse, IndexerError> {
         use regex::Regex;
         let topology = self.topology.lock().await;
         let indexer = topology.indexers.get(&query.indexing.indexer).unwrap();
@@ -659,7 +686,8 @@ async fn test() {
     tracing::info!(%seed);
     let rng = SmallRng::seed_from_u64(seed);
     for _ in 0..100 {
-        let (input_writers, inputs) = Inputs::new();
+        let (update_writer, mut update_reader) = buffer_queue::pair();
+        let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
         let topology = Arc::new(Mutex::new(Topology::new(
             TopologyConfig {
                 indexers: 5..=10,
@@ -669,13 +697,17 @@ async fn test() {
                 deployments: 1..=3,
                 indexings: 0..=3,
             },
-            input_writers,
             &rng,
         )));
-        let resolvers = topology.lock().await.resolvers();
-        let deployment_indexers = topology.lock().await.write_inputs().await;
-        let query_engine = QueryEngine::new(
-            Config {
+        let block_resolvers = topology.lock().await.resolvers();
+        let receipt_pools = ReceiptPools::default();
+        let deployment_indexers = topology
+            .lock()
+            .await
+            .write_inputs(&update_writer, receipt_pools.clone())
+            .await;
+        let query_engine = QueryEngine {
+            config: Config {
                 indexer_selection_retry_limit: 3,
                 budget_factors: QueryBudgetFactors {
                     scale: 1.0,
@@ -683,18 +715,21 @@ async fn test() {
                     processes: 1.0,
                 },
             },
-            TopologyIndexer {
+            indexer_client: TopologyIndexer {
                 topology: topology.clone(),
             },
-            Arc::new(DummyKafka),
-            Some(Arc::new(TopologyFisherman {
+            kafka_client: Arc::new(DummyKafka),
+            fisherman_client: Some(Arc::new(TopologyFisherman {
                 topology: topology.clone(),
             })),
-            resolvers,
             deployment_indexers,
-            inputs,
-        );
-        for _ in 0..100 {
+            block_resolvers,
+            receipt_pools: receipt_pools.clone(),
+            isa: isa_state.clone(),
+            observations: update_writer,
+        };
+        for _ in 0..10 {
+            test_process_updates(&mut isa_writer, &mut update_reader).await;
             let mut query = topology.lock().await.gen_query();
             let result = query_engine.execute_query(&mut query).await;
             let trace = match topology.lock().await.check_result(&query, result) {

@@ -5,7 +5,7 @@ use crate::{
 use cost_model::{CostError, CostModel};
 use std::convert::TryFrom;
 
-pub async fn get_price(
+pub fn get_price(
     cost_model: &Option<Ptr<CostModel>>,
     context: &mut Context<'_>,
     weight: f64,
@@ -174,7 +174,6 @@ mod test {
                 0.5,
                 &budget.to_string().parse::<GRT>().unwrap(),
             )
-            .await
             .unwrap();
             let utility = utility.utility.powf(utility.weight);
             println!("fee: {}, {:?}", fee, utility);

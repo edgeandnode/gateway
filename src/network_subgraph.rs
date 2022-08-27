@@ -1,5 +1,6 @@
 use crate::{
-    graphql, prelude::*, query_engine::Indexing, subgraph_deployments::SubgraphDeployments,
+    graphql, indexer_selection::IndexerInfo, prelude::*, query_engine::Indexing,
+    subgraph_deployments::SubgraphDeployments,
 };
 use eventuals::{self, EventualExt as _};
 use serde::Deserialize;
@@ -16,15 +17,8 @@ pub struct Data {
     pub slashing_percentage: Eventual<PPM>,
     pub subgraph_deployments: SubgraphDeployments,
     pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
-    pub indexers: Eventual<Ptr<HashMap<Address, IndexerInfo>>>,
+    pub indexers: Eventual<Ptr<HashMap<Address, Arc<IndexerInfo>>>>,
     pub allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
-}
-
-#[derive(Clone)]
-pub struct IndexerInfo {
-    pub url: Url,
-    pub staked_tokens: GRT,
-    pub delegated_tokens: GRT,
 }
 
 pub struct AllocationInfo {
@@ -39,7 +33,7 @@ pub struct Client {
     slashing_percentage: EventualWriter<PPM>,
     subgraph_deployments: EventualWriter<Ptr<Vec<(SubgraphID, Vec<SubgraphDeploymentID>)>>>,
     deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
-    indexers: EventualWriter<Ptr<HashMap<Address, IndexerInfo>>>,
+    indexers: EventualWriter<Ptr<HashMap<Address, Arc<IndexerInfo>>>>,
     allocations: EventualWriter<Ptr<HashMap<Address, AllocationInfo>>>,
 }
 
@@ -117,14 +111,13 @@ impl Client {
                         id
                         url
                         stakedTokens
-                        delegatedTokens
                     }
                 }
                 "#,
             )
             .await?;
         let mut deployment_indexers = HashMap::<SubgraphDeploymentID, Vec<Address>>::new();
-        let mut indexers = HashMap::<Address, IndexerInfo>::new();
+        let mut indexers = HashMap::<Address, Arc<IndexerInfo>>::new();
         let mut allocations = HashMap::<Address, AllocationInfo>::new();
         for allocation in &response {
             let url = match allocation
@@ -145,11 +138,10 @@ impl Client {
             };
             indexers.insert(
                 allocation.indexer.id.clone(),
-                IndexerInfo {
+                Arc::new(IndexerInfo {
                     url,
-                    staked_tokens: allocation.indexer.staked_tokens.shift(),
-                    delegated_tokens: allocation.indexer.delegated_tokens.shift(),
-                },
+                    stake: allocation.indexer.staked_tokens.shift(),
+                }),
             );
             allocations.insert(
                 allocation.id,
@@ -331,7 +323,6 @@ struct Indexer {
     id: Address,
     url: Option<String>,
     staked_tokens: GRTWei,
-    delegated_tokens: GRTWei,
 }
 
 #[derive(Deserialize)]

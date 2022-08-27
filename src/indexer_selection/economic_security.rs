@@ -6,19 +6,20 @@ pub struct EconomicSecurity {
     pub utility: SelectionFactor,
 }
 
+#[derive(Default)]
 pub struct NetworkParameters {
-    pub slashing_percentage: Eventual<PPM>,
-    pub usd_to_grt_conversion: Eventual<GRT>,
+    pub slashing_percentage: Option<PPM>,
+    pub usd_to_grt_conversion: Option<GRT>,
 }
 
 impl NetworkParameters {
     pub fn usd_to_grt(&self, usd: USD) -> Option<GRT> {
-        let conversion_rate = self.usd_to_grt_conversion.value_immediate()?;
+        let conversion_rate = self.usd_to_grt_conversion?;
         Some(usd * conversion_rate)
     }
 
     pub fn grt_to_usd(&self, grt: GRT) -> Option<USD> {
-        let conversion_rate = self.usd_to_grt_conversion.value_immediate()?;
+        let conversion_rate = self.usd_to_grt_conversion?;
         Some(grt / conversion_rate)
     }
 
@@ -27,7 +28,7 @@ impl NetworkParameters {
         indexer_stake: GRT,
         utility_parameters: UtilityParameters,
     ) -> Option<EconomicSecurity> {
-        let slashing_percentage = self.slashing_percentage.value_immediate()?;
+        let slashing_percentage = self.slashing_percentage?;
         let slashable_grt = indexer_stake * slashing_percentage.change_precision();
         let slashable_usd = self.grt_to_usd(slashable_grt)?;
         let utility = concave_utility(slashable_usd.as_f64(), utility_parameters.a);
@@ -49,8 +50,8 @@ mod tests {
     #[test]
     fn two_usd_to_grt() {
         let params = NetworkParameters {
-            usd_to_grt_conversion: Eventual::from_value("0.511732966311998143".parse().unwrap()),
-            slashing_percentage: Eventual::from_value(0u64.try_into().unwrap()),
+            usd_to_grt_conversion: "0.511732966311998143".parse().ok(),
+            slashing_percentage: 0u64.try_into().ok(),
         };
         // Check conversion of 2 USD to GRT
         assert_eq!(
@@ -62,8 +63,8 @@ mod tests {
     #[test]
     fn two_grt_to_usd() {
         let params = NetworkParameters {
-            usd_to_grt_conversion: Eventual::from_value("0.511732966311998143".parse().unwrap()),
-            slashing_percentage: Eventual::from_value(0u64.try_into().unwrap()),
+            usd_to_grt_conversion: "0.511732966311998143".parse().ok(),
+            slashing_percentage: 0u64.try_into().ok(),
         };
         // Check conversion of 2 GRT to USD
         assert_eq!(
@@ -74,16 +75,15 @@ mod tests {
 
     #[test]
     fn trillion_usd_to_grt() {
-        let (mut conversion_writer, conversion) = Eventual::new();
-        let params = NetworkParameters {
-            usd_to_grt_conversion: conversion,
-            slashing_percentage: Eventual::from_value(0u64.try_into().unwrap()),
+        let mut params = NetworkParameters {
+            usd_to_grt_conversion: None,
+            slashing_percentage: 0u64.try_into().ok(),
         };
         let trillion: USD = 10u64.pow(12).try_into().unwrap();
         // Assert None is returned if eventual has no value.
         assert_eq!(params.usd_to_grt(trillion), None);
         // Set conversion rate
-        conversion_writer.write("0.511732966311998143".parse().unwrap());
+        params.usd_to_grt_conversion = "0.511732966311998143".parse().ok();
         // Check conversion of 1 trillion USD to GRT
         assert_eq!(
             params.usd_to_grt(trillion),
@@ -93,16 +93,15 @@ mod tests {
 
     #[test]
     fn trillion_grt_to_usd() {
-        let (mut conversion_writer, conversion) = Eventual::new();
-        let params = NetworkParameters {
-            usd_to_grt_conversion: conversion,
-            slashing_percentage: Eventual::from_value(0u64.try_into().unwrap()),
+        let mut params = NetworkParameters {
+            usd_to_grt_conversion: None,
+            slashing_percentage: 0u64.try_into().ok(),
         };
         let trillion: GRT = 10u64.pow(12).try_into().unwrap();
         // Assert None is returned if eventual has no value.
         assert_eq!(params.grt_to_usd(trillion), None);
         // Set conversion rate
-        conversion_writer.write("0.511732966311998143".parse().unwrap());
+        params.usd_to_grt_conversion = "0.511732966311998143".parse().ok();
         // Check conversion of 1 trillion GRT to USD
         assert_eq!(
             params.grt_to_usd(trillion),
@@ -144,10 +143,8 @@ mod tests {
         expected_utility: f64,
     ) {
         let params = NetworkParameters {
-            usd_to_grt_conversion: Eventual::from_value(usd_to_grt.try_into().unwrap()),
-            slashing_percentage: Eventual::from_value(
-                slashing_percentage.to_string().parse().unwrap(),
-            ),
+            usd_to_grt_conversion: usd_to_grt.try_into().ok(),
+            slashing_percentage: slashing_percentage.to_string().parse().ok(),
         };
         let security = params
             .economic_security_utility(stake.try_into().unwrap(), UtilityParameters::one(u_a))
