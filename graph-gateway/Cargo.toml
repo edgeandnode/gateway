@@ -24,7 +24,6 @@ parking_lot = "0.12.0"
 postgres-openssl = "0.5"
 prelude = { path = "../prelude" }
 primitive-types = "0.8"
-reqwest = { version = "0.11", features = ["json", "trust-dns"] }
 secp256k1 = { version = "0.20", default-features = false }
 semver = "1.0"
 serde = "1.0"
@@ -35,17 +34,20 @@ structopt = "0.3"
 structopt-derive = "0.4"
 tiny-bip39 = "1.0"
 tokio-postgres = { version = "0.7", features = ["runtime"] }
-tokio-tungstenite = { version = "0.17", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.17", default-features = false, features = [
+    "connect",
+    "rustls-tls-native-roots"
+] }
 tracing = { version = "0.1", default-features = false, features = [
     "attributes",
 ] }
-trust-dns-resolver = { version = "0.21", features = ["dns-over-native-tls"] }
+trust-dns-resolver = { version = "0.21", features = ["dns-over-rustls"] }
 url = "2.2"
-uuid = { version = "1.0", features = ["v4"] }
-rdkafka = { version = "0.28.0", features = [
+uuid = { version = "1.0", default-features = false, features = ["v4"] }
+rdkafka = { version = "0.28", features = [
     "ssl-vendored",
     "gssapi-vendored",
-] } # TODO: For M1 machines on arm64 rdkafka = { version = "0.28.0", features =  ["dynamic-linking","ssl","gssapi"] }
+] }
 
 [dev-dependencies]
 eventuals = { version = "0.6.7", features = ["trace"] }

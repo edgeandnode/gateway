@@ -11,7 +11,11 @@ hex = "0.4"
 primitive-types = "0.8"
 prometheus = { version = "0.13", default-features = false }
 rand = "0.8"
-reqwest = { version = "0.11", features = ["json", "trust-dns"] }
+reqwest = { version = "0.11", default-features = false, features = [
+    "json",
+    "rustls-tls-native-roots",
+    "trust-dns",
+] }
 serde = { version = "1.0", features = ["derive"]}
 serde_json = "1.0"
 sha3 = "0.10"
