@@ -13,8 +13,11 @@ use crate::{
 };
 pub use graphql_client::Response;
 use indexer_selection::{
-    self, actor::IndexerErrorObservation, Context, IndexerError, IndexerPreferences, IndexerQuery,
-    IndexerScore, SelectionError, UnresolvedBlock,
+    self,
+    actor::IndexerErrorObservation,
+    receipts::{BorrowFail, QueryStatus as ReceiptStatus, ReceiptPool},
+    Context, IndexerError, IndexerPreferences, IndexerQuery, IndexerScore, SelectionError,
+    UnresolvedBlock,
 };
 pub use indexer_selection::{actor::Update, Indexing, UtilityConfig};
 use lazy_static::lazy_static;
@@ -22,7 +25,6 @@ use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, *};
 pub use price_automation::{QueryBudgetFactors, VolumeEstimator};
 use primitive_types::U256;
 use prometheus;
-use receipts::{BorrowFail, QueryStatus as ReceiptStatus, ReceiptPool};
 use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_json::value::RawValue;

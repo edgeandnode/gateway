@@ -37,7 +37,7 @@ use actix_web::{
     http::{header, StatusCode},
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
-use eventuals::EventualExt;
+use eventuals::EventualExt as _;
 use indexer_selection::{actor::IndexerUpdate, IndexerInfo};
 use lazy_static::lazy_static;
 use network_subgraph::AllocationInfo;

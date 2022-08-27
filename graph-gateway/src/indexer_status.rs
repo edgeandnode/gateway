@@ -1,7 +1,7 @@
 use crate::geoip::GeoIP;
-use cost_model::{self, CostModel};
 use eventuals::EventualExt as _;
 use futures::future::join_all;
+use indexer_selection::cost_model::CostModel;
 use indexer_selection::{IndexerInfo, Indexing};
 use prelude::{epoch_cache::EpochCache, graphql, *};
 use reqwest;

@@ -1,10 +1,12 @@
 use actix_web::{http::StatusCode, web, HttpResponse, HttpResponseBuilder};
 use hex;
-use indexer_selection::SecretKey;
+use indexer_selection::{
+    receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher},
+    SecretKey,
+};
 use lazy_static::lazy_static;
 use prelude::*;
 use primitive_types::U256;
-use receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher};
 use secp256k1::{PublicKey, Secp256k1};
 use serde::{Deserialize, Deserializer};
 use serde_json::json;
