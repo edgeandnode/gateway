@@ -1,4 +1,4 @@
-FROM rust:1.63-buster AS build
+FROM rust:1.63-bullseye AS build
 
 ARG GH_USER
 ARG GH_TOKEN
@@ -12,9 +12,7 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/gateway
-COPY Cargo.toml .
-COPY graphql/ ./graphql/
-COPY src/ ./src/
+COPY ./ ./
 
 # Setup GitHub credentials for cargo fetch
 RUN npm install -g git-credential-env \
@@ -23,9 +21,9 @@ RUN npm install -g git-credential-env \
   && git config --global --add url.https://github.com/.insteadOf git@github.com: \
   && mkdir ~/.cargo && echo "[net]\ngit-fetch-with-cli = true" > ~/.cargo/config.toml
 
-RUN cargo build --release
+RUN cargo build --release --bin graph-gateway
 
-FROM debian:buster-slim
+FROM debian:bullseye-slim
 
 RUN apt-get update && apt-get install -y \
   libssl1.1 \
