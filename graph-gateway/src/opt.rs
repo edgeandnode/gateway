@@ -20,8 +20,6 @@ pub struct Opt {
         help = "Ethereum wallet mnemonic"
     )]
     pub signer_key: SignerKey,
-    #[structopt(long, env, help = "URL of gateway agent syncing API")]
-    pub sync_agent: String,
     #[structopt(long, env, help = "IPFS endpoint with access to the subgraph files")]
     pub ipfs: Url,
     #[structopt(long, env, help = "Fisherman endpoint")]

@@ -11,7 +11,6 @@ use crate::{
     kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
 };
-pub use graphql_client::Response;
 use indexer_selection::{
     self,
     actor::IndexerErrorObservation,
@@ -21,7 +20,7 @@ use indexer_selection::{
 };
 pub use indexer_selection::{actor::Update, Indexing, UtilityConfig};
 use lazy_static::lazy_static;
-use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, *};
+use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, graphql::Response, *};
 pub use price_automation::{QueryBudgetFactors, VolumeEstimator};
 use primitive_types::U256;
 use prometheus;
