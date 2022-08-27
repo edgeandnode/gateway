@@ -1,5 +1,7 @@
 use crate::{
-    graphql, indexer_selection::IndexerInfo, prelude::*, query_engine::Indexing,
+    indexer_selection::IndexerInfo,
+    prelude::{graphql, *},
+    query_engine::Indexing,
     subgraph_deployments::SubgraphDeployments,
 };
 use eventuals::{self, EventualExt as _};

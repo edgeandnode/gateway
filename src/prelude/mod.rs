@@ -1,6 +1,7 @@
 pub mod bytes;
 pub mod decimal;
 pub mod epoch_cache;
+pub mod graphql;
 pub mod weighted_sample;
 
 #[cfg(test)]

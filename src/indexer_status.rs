@@ -1,8 +1,7 @@
 use crate::{
     geoip::GeoIP,
-    graphql,
     indexer_selection::{IndexerInfo, Indexing},
-    prelude::{epoch_cache::EpochCache, *},
+    prelude::{epoch_cache::EpochCache, graphql, *},
 };
 use cost_model::{self, CostModel};
 use eventuals::EventualExt as _;
