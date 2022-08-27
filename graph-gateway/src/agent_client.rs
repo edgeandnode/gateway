@@ -1,7 +1,7 @@
-use crate::{indexer_selection::actor::Update, utils::buffer_queue::QueueWriter};
+use crate::indexer_selection::actor::Update;
 use graphql_client::{GraphQLQuery, Response};
 use lazy_static::lazy_static;
-use prelude::*;
+use prelude::{buffer_queue::QueueWriter, *};
 use reqwest;
 use serde_json::{json, Value as JSON};
 use tokio::time::sleep;

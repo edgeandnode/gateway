@@ -9,10 +9,9 @@ use crate::{
     kafka_client::{self, KafkaInterface},
     manifest_client::SubgraphInfo,
     query_engine::*,
-    utils::{buffer_queue, double_buffer::double_buffer},
 };
 use async_trait::async_trait;
-use prelude::{decimal, test_utils::*, *};
+use prelude::{buffer_queue, decimal, double_buffer, test_utils::*, *};
 use rand::{
     distributions,
     rngs::{OsRng, SmallRng},

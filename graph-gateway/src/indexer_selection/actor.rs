@@ -1,8 +1,5 @@
-use crate::{
-    indexer_selection::{BlockRequirements, IndexerInfo, Indexing, IndexingStatus, State},
-    utils::{buffer_queue::QueueReader, double_buffer::DoubleBufferWriter},
-};
-use prelude::*;
+use crate::indexer_selection::{BlockRequirements, IndexerInfo, Indexing, IndexingStatus, State};
+use prelude::{buffer_queue::QueueReader, double_buffer::DoubleBufferWriter, *};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
     select,

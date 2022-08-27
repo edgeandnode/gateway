@@ -16,7 +16,6 @@ mod rate_limiter;
 mod stats_db;
 mod studio_client;
 mod subgraph_deployments;
-mod utils;
 mod vouchers;
 mod ws_client;
 use crate::{
@@ -33,7 +32,6 @@ use crate::{
     query_engine::*,
     rate_limiter::*,
     subgraph_deployments::SubgraphDeployments,
-    utils::double_buffer::*,
 };
 use actix_cors::Cors;
 use actix_web::{
@@ -44,7 +42,11 @@ use actix_web::{
 use eventuals::EventualExt;
 use lazy_static::lazy_static;
 use network_subgraph::AllocationInfo;
-use prelude::*;
+use prelude::{
+    buffer_queue::{self, QueueWriter},
+    double_buffer::DoubleBufferReader,
+    *,
+};
 use prometheus::{self, Encoder as _};
 use reqwest;
 use secp256k1::SecretKey;
@@ -59,7 +61,6 @@ use std::{
 use structopt::StructOpt as _;
 use tokio::spawn;
 use url::Url;
-use utils::buffer_queue::QueueWriter;
 
 #[actix_web::main]
 async fn main() {
@@ -87,7 +88,7 @@ async fn main() {
         .await;
 
     // Start the actor to manage updates
-    let (update_writer, update_reader) = crate::utils::buffer_queue::pair();
+    let (update_writer, update_reader) = buffer_queue::pair();
     spawn(async move {
         indexer_selection::actor::process_updates(isa_writer, update_reader).await;
         tracing::error!("ISA actor stopped");

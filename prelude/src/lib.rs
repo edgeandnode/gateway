@@ -1,5 +1,7 @@
+pub mod buffer_queue;
 pub mod bytes;
 pub mod decimal;
+pub mod double_buffer;
 pub mod epoch_cache;
 pub mod graphql;
 pub mod test_utils;

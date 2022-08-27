@@ -15,11 +15,10 @@ use crate::{
     },
     kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
-    utils::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader},
 };
 pub use graphql_client::Response;
 use lazy_static::lazy_static;
-use prelude::*;
+use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, *};
 pub use price_automation::{QueryBudgetFactors, VolumeEstimator};
 use primitive_types::U256;
 use prometheus;

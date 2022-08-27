@@ -5,13 +5,13 @@ struct DoubleBufferData<T> {
     values: [RwLock<T>; 2],
 }
 
+#[macro_export]
 macro_rules! double_buffer {
     ($val:expr) => {{
         let (a, b) = ($val, $val);
-        $crate::utils::double_buffer::reader_writer_pair(a, b)
+        $crate::double_buffer::reader_writer_pair(a, b)
     }};
 }
-pub(crate) use double_buffer;
 
 /// a & b must be equal.
 /// The API takes two values and does not verify equality to avoid requiring implementing
