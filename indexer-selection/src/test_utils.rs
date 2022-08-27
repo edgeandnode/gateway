@@ -1,6 +1,8 @@
 use crate::{BlockPointer, BlockResolver, CostModel, UnresolvedBlock};
 use async_trait::async_trait;
 use prelude::{test_utils::bytes_from_id, *};
+use siphasher::sip::SipHasher24;
+use std::hash::{Hash as _, Hasher as _};
 
 pub const TEST_KEY: &'static str =
     "244226452948404D635166546A576E5A7234753778217A25432A462D4A614E64";
@@ -30,6 +32,13 @@ pub fn gen_blocks(numbers: &[u64]) -> Vec<BlockPointer> {
             hash: bytes_from_id(number as usize).into(),
         })
         .collect()
+}
+
+pub fn test_allocation_id(indexer: &Address, deployment: &SubgraphDeploymentID) -> Address {
+    let mut hasher = SipHasher24::default();
+    indexer.hash(&mut hasher);
+    deployment.hash(&mut hasher);
+    Address(bytes_from_id(hasher.finish() as usize).into())
 }
 
 #[derive(Clone)]

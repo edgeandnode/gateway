@@ -7,8 +7,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use indexer_selection::{
-    actor::{test_process_updates, IndexerUpdate},
-    test_utils::{default_cost_model, TEST_KEY},
+    actor::{apply_state_update, IndexerUpdate},
+    test_utils::{default_cost_model, test_allocation_id, TEST_KEY},
     IndexerError, IndexerInfo, IndexingStatus,
 };
 use prelude::{buffer_queue, decimal, double_buffer, test_utils::*, *};
@@ -19,13 +19,7 @@ use rand::{
     Rng, RngCore as _, SeedableRng,
 };
 use serde_json::json;
-use siphasher::sip::SipHasher24;
-use std::{
-    collections::BTreeMap,
-    env, fmt,
-    hash::{Hash, Hasher as _},
-    ops::RangeInclusive,
-};
+use std::{collections::BTreeMap, env, fmt, ops::RangeInclusive};
 use tokio::{self, sync::Mutex};
 use url::Url;
 
@@ -363,13 +357,9 @@ impl Topology {
                     .indexings(&indexer.id)
                     .into_iter()
                     .filter_map(|(deployment, network)| {
-                        let mut hasher = SipHasher24::default();
-                        indexer.id.hash(&mut hasher);
-                        deployment.id.hash(&mut hasher);
-                        let allocation_id = Address(bytes_from_id(hasher.finish() as usize).into());
                         let update = IndexingStatus {
                             allocations: Arc::new(HashMap::from_iter([(
-                                allocation_id,
+                                test_allocation_id(&indexer.id, &deployment.id),
                                 indexer.allocated_grt.as_udecimal(&stake_table),
                             )])),
                             cost_model: cost_model.clone(),
@@ -727,8 +717,18 @@ async fn test() {
             isa: isa_state.clone(),
             observations: update_writer,
         };
+        let mut update_buf = Vec::new();
         for _ in 0..10 {
-            test_process_updates(&mut isa_writer, &mut update_reader).await;
+            update_reader.read(&mut update_buf).await;
+            isa_writer
+                .update(|state| {
+                    for update in &update_buf {
+                        apply_state_update(state, update);
+                    }
+                })
+                .await;
+            update_buf.clear();
+
             let mut query = topology.lock().await.gen_query();
             let result = query_engine.execute_query(&mut query).await;
             let trace = match topology.lock().await.check_result(&query, result) {

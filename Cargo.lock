@@ -1127,7 +1127,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "simple-rate-limiter",
- "siphasher",
  "structopt",
  "structopt-derive",
  "tiny-bip39",
@@ -1450,6 +1449,7 @@ dependencies = [
  "secp256k1 0.20.3",
  "serde",
  "serde_json",
+ "siphasher",
  "url",
 ]
 

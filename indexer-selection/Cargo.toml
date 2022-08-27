@@ -3,9 +3,9 @@ edition = "2021"
 name = "indexer-selection"
 version = "0.0.1"
 
-# [[bin]]
-# name = "sim"
-# path = "bin/sim.rs"
+[[bin]]
+name = "sim"
+path = "bin/sim.rs"
 
 [dependencies]
 async-trait = "0.1"
@@ -25,6 +25,7 @@ receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "8d46a
 secp256k1 = { version = "0.20", default-features = false }
 serde = "1.0"
 serde_json = { version = "1.0", features = ["raw_value"] }
+siphasher = "0.3"
 url = "2.2"
 
 [dev-dependencies]

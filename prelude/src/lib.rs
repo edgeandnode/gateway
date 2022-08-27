@@ -14,6 +14,7 @@ pub use prometheus::{
     self,
     core::{MetricVec, MetricVecBuilder},
 };
+pub use reqwest;
 use serde::Deserialize;
 use siphasher::sip::SipHasher24;
 use std::hash::{Hash, Hasher as _};

@@ -63,72 +63,64 @@ pub async fn process_updates(
             },
             _ = events.read(&mut event_buffer) => {
                 tracing::trace!(isa_update_queue_depth = event_buffer.len());
-                process_events(&mut event_buffer, &mut writer).await;
+                writer
+                    .update(|state| {
+                        for update in event_buffer.iter() {
+                            apply_state_update(state, update);
+                        }
+                    })
+                    .await;
                 event_buffer.clear();
             },
         }
     }
 }
 
-pub async fn test_process_updates(
-    writer: &mut DoubleBufferWriter<State>,
-    events: &mut QueueReader<Update>,
-) {
-    let mut event_buffer = Vec::new();
-    events.try_read(&mut event_buffer);
-    process_events(&mut event_buffer, writer).await;
-}
-
-async fn process_events(event_buffer: &[Update], writer: &mut DoubleBufferWriter<State>) {
-    writer
-        .update(|isa| {
-            for event in event_buffer.iter() {
-                match event {
-                    Update::USDToGRTConversion(usd_to_grt) => {
-                        isa.network_params.usd_to_grt_conversion = Some(*usd_to_grt);
-                    }
-                    Update::SlashingPercentage(slashing_percentage) => {
-                        isa.network_params.slashing_percentage = Some(*slashing_percentage);
-                    }
-                    Update::Indexers(indexers) => {
-                        for (indexer, indexer_update) in indexers {
-                            isa.indexers
-                                .insert(indexer.clone(), indexer_update.info.clone());
-                            for (deployment, status) in &indexer_update.indexings {
-                                let indexing = Indexing {
-                                    indexer: *indexer,
-                                    deployment: *deployment,
-                                };
-                                isa.insert_indexing(indexing, status.clone());
-                            }
-                        }
-                        isa.indexers.increment_epoch();
-                        isa.indexings.increment_epoch();
-                    }
-                    Update::QueryObservation {
-                        indexing,
-                        duration,
-                        result,
-                    } => match result {
-                        Ok(()) => isa.observe_successful_query(indexing, *duration),
-                        Err(error) => {
-                            isa.observe_failed_query(indexing, *duration, error.is_timeout());
-                            if let IndexerErrorObservation::IndexingBehind {
-                                refreshed_requirements,
-                                latest,
-                            } = error
-                            {
-                                isa.observe_indexing_behind(
-                                    indexing,
-                                    refreshed_requirements.minimum_block.clone(),
-                                    *latest,
-                                )
-                            }
-                        }
-                    },
-                    Update::Penalty { indexing, weight } => isa.penalize(indexing, *weight),
+pub fn apply_state_update(state: &mut State, update: &Update) {
+    match update {
+        Update::USDToGRTConversion(usd_to_grt) => {
+            state.network_params.usd_to_grt_conversion = Some(*usd_to_grt);
+        }
+        Update::SlashingPercentage(slashing_percentage) => {
+            state.network_params.slashing_percentage = Some(*slashing_percentage);
+        }
+        Update::Indexers(indexers) => {
+            for (indexer, indexer_update) in indexers {
+                state
+                    .indexers
+                    .insert(indexer.clone(), indexer_update.info.clone());
+                for (deployment, status) in &indexer_update.indexings {
+                    let indexing = Indexing {
+                        indexer: *indexer,
+                        deployment: *deployment,
+                    };
+                    state.insert_indexing(indexing, status.clone());
                 }
             }
-        })
-        .await;
+            state.indexers.increment_epoch();
+            state.indexings.increment_epoch();
+        }
+        Update::QueryObservation {
+            indexing,
+            duration,
+            result,
+        } => match result {
+            Ok(()) => state.observe_successful_query(indexing, *duration),
+            Err(error) => {
+                state.observe_failed_query(indexing, *duration, error.is_timeout());
+                if let IndexerErrorObservation::IndexingBehind {
+                    refreshed_requirements,
+                    latest,
+                } = error
+                {
+                    state.observe_indexing_behind(
+                        indexing,
+                        refreshed_requirements.minimum_block.clone(),
+                        *latest,
+                    )
+                }
+            }
+        },
+        Update::Penalty { indexing, weight } => state.penalize(indexing, *weight),
+    }
 }
