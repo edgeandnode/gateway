@@ -719,7 +719,7 @@ async fn test() {
         };
         let mut update_buf = Vec::new();
         for _ in 0..10 {
-            update_reader.read(&mut update_buf).await;
+            update_reader.try_read(&mut update_buf);
             isa_writer
                 .update(|state| {
                     for update in &update_buf {
