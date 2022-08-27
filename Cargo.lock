@@ -604,7 +604,7 @@ dependencies = [
 [[package]]
 name = "cost-model"
 version = "0.1.0"
-source = "git+ssh://git@github.com/graphprotocol/agora.git?rev=ae20442#ae2044216f09fa4d8a7f8aa005333ca96ae68f82"
+source = "git+ssh://git@github.com/graphprotocol/agora.git?rev=v0.1.14#618ea5f2aecf616062397129b83ca19baf8dffa2"
 dependencies = [
  "firestorm 0.4.6",
  "fraction",
@@ -613,7 +613,6 @@ dependencies = [
  "nom",
  "num-bigint",
  "num-traits",
- "rental",
  "serde",
  "serde_json",
  "single",
@@ -2513,27 +2512,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rental"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc89fe2acac36d212474d138aaf939c04a82df5b61d07011571ebce5aef81f2e"
-dependencies = [
- "rental-impl",
- "stable_deref_trait",
-]
-
-[[package]]
-name = "rental-impl"
-version = "0.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "475e68978dc5b743f2f40d8e0a8fdc83f1c5e78cbf4b8fa5e74e73beebc340de"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "reqwest"
 version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2982,12 +2960,6 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
-
-[[package]]
-name = "stable_deref_trait"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "standback"

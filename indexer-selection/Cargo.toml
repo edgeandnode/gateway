@@ -10,7 +10,7 @@ path = "bin/sim.rs"
 [dependencies]
 async-trait = "0.1"
 chrono = "0.4"
-cost-model = { git = "ssh://git@github.com/graphprotocol/agora.git", rev = "ae20442" }
+cost-model = { git = "ssh://git@github.com/graphprotocol/agora.git", rev = "v0.1.14" }
 futures = "0.3"
 graphql-parser = { git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df" }
 hex = "0.4"
