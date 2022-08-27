@@ -184,7 +184,7 @@ dependencies = [
  "serde_urlencoded",
  "smallvec",
  "socket2",
- "time 0.3.13",
+ "time 0.3.14",
  "url",
 ]
 
@@ -1098,32 +1098,25 @@ dependencies = [
  "actix-http",
  "actix-router",
  "actix-web",
- "anyhow",
  "async-trait",
- "bs58",
- "core-foundation",
  "cost-model",
  "eventuals",
  "futures",
  "futures-util",
- "graphql-parser 0.3.0",
  "graphql_client",
  "hdwallet",
  "hex",
  "im",
- "itertools",
+ "indexer-selection",
  "lazy_static",
  "maxminddb",
- "num-traits",
  "openssl",
  "ordered-float",
  "parking_lot",
- "plotters",
  "postgres-openssl",
+ "prelude",
  "primitive-types",
- "prometheus",
  "rand",
- "rand_distr",
  "rdkafka",
  "receipts 0.1.0 (git+ssh://git@github.com/edgeandnode/receipts.git?rev=8d46a95)",
  "regex",
@@ -1133,17 +1126,13 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "sha3",
  "simple-rate-limiter",
- "siphasher",
  "structopt",
  "structopt-derive",
  "tiny-bip39",
- "tokio",
  "tokio-postgres",
  "tokio-tungstenite",
  "tracing",
- "tracing-subscriber",
  "trust-dns-resolver",
  "url",
  "uuid",
@@ -1437,6 +1426,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer-selection"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "core-foundation",
+ "cost-model",
+ "eventuals",
+ "futures",
+ "graphql-parser 0.3.0",
+ "hex",
+ "itertools",
+ "lazy_static",
+ "num-traits",
+ "ordered-float",
+ "plotters",
+ "prelude",
+ "primitive-types",
+ "rand",
+ "receipts 0.1.0 (git+ssh://git@github.com/edgeandnode/receipts.git?rev=8d46a95)",
+ "secp256k1 0.20.3",
+ "serde",
+ "serde_json",
+ "siphasher",
+ "url",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1582,12 +1599,6 @@ dependencies = [
  "cfg-if",
  "winapi",
 ]
-
-[[package]]
-name = "libm"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "292a948cd991e376cf75541fe5b97a1081d713c618b4f1b9500f8844e49eb565"
 
 [[package]]
 name = "libz-sys"
@@ -1849,7 +1860,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "578ede34cf02f8924ab9447f50c28075b4d3e5b269972345e7e0372b38c6cdcd"
 dependencies = [
  "autocfg",
- "libm",
 ]
 
 [[package]]
@@ -2235,6 +2245,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb9f9e6e233e5c4a35559a617bf40a4ec447db2e84c20b55a6f83167b7e57872"
 
 [[package]]
+name = "prelude"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "bs58",
+ "eventuals",
+ "hex",
+ "primitive-types",
+ "prometheus",
+ "rand",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha3",
+ "siphasher",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "primitive-types"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2358,16 +2389,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d34f1408f55294453790c48b2f1ebbb1c5b4b7563eb1f418bcfcfdbb06ebb4e7"
 dependencies = [
  "getrandom",
-]
-
-[[package]]
-name = "rand_distr"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
-dependencies = [
- "num-traits",
- "rand",
 ]
 
 [[package]]
@@ -2800,15 +2821,14 @@ dependencies = [
 
 [[package]]
 name = "serde_yaml"
-version = "0.9.10"
+version = "0.8.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a09f551ccc8210268ef848f0bab37b306e87b85b2e017b899e7fb815f5aed62"
+checksum = "578a7433b776b56a35785ed5ce9a7e777ac0598aac5a6dd1b4b18a307c7fc71b"
 dependencies = [
  "indexmap",
- "itoa 1.0.3",
  "ryu",
  "serde",
- "unsafe-libyaml",
+ "yaml-rust",
 ]
 
 [[package]]
@@ -2950,9 +2970,9 @@ checksum = "2fd0db749597d91ff862fd1d55ea87f7855a744a8425a64695b6fca237d1dad1"
 
 [[package]]
 name = "socket2"
-version = "0.4.4"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66d72b759436ae32898a2af0a14218dbf55efde3feeb170eb623637db85ee1e0"
+checksum = "10c98bba371b9b22a71a9414e420f92ddeb2369239af08200816169d5e2dd7aa"
 dependencies = [
  "libc",
  "winapi",
@@ -3183,9 +3203,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.13"
+version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db76ff9fa4b1458b3c7f077f3ff9887394058460d21e634355b273aaf11eea45"
+checksum = "3c3f9a28b618c3a6b9251b6908e9c99e04b9e5c02e6581ccbb67d59c34ef7f9b"
 dependencies = [
  "itoa 1.0.3",
  "libc",
@@ -3623,12 +3643,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "unsafe-libyaml"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "931179334a56395bcf64ba5e0ff56781381c1a5832178280c7d7f91d1679aeb0"
-
-[[package]]
 name = "untrusted"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3911,6 +3925,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d129932f4644ac2396cb456385cbf9e63b5b30c6e8dc4820bdca4eb082037a5"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "yaml-rust"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
+dependencies = [
+ "linked-hash-map",
 ]
 
 [[package]]
