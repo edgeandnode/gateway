@@ -1,0 +1,86 @@
+[package]
+edition = "2021"
+name = "graph-gateway"
+version = "7.0.3"
+
+[dependencies]
+actix-cors = "=0.6.0-beta.4"
+actix-http = "=3.0.0-beta.14"
+actix-web = "=4.0.0-beta.13"
+actix-router = "=0.5.0-beta.4"
+anyhow = "=1.0"
+async-trait = "0.1"
+bs58 = "0.4"
+cost-model = { git = "ssh://git@github.com/graphprotocol/agora.git", rev = "ae20442" }
+eventuals = "0.6.7"
+futures = "0.3"
+futures-util = "0.3"
+graphql-parser = { git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df" }
+graphql_client = "0.10"
+hdwallet = "0.3"
+hex = "0.4"
+im = "15.0" # Good vector implementation, CHAMP encoding should be added if we use a hash map/set
+itertools = "0.10"
+lazy_static = "1.4"
+maxminddb = "0.23"
+num-traits = "0.2"
+openssl = "0.10"
+ordered-float = "3.0"
+parking_lot = "0.12.0"
+postgres-openssl = "0.5"
+prelude = { path = "../prelude" }
+primitive-types = "0.8"
+prometheus = { version = "0.13", default-features = false }
+rand = { version = "0.8", default-features = false }
+receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "8d46a95" }
+reqwest = { version = "0.11", features = ["json", "trust-dns"] }
+secp256k1 = { version = "0.20", default-features = false }
+semver = "1.0"
+serde = "1.0"
+serde_json = { version = "1.0", features = ["raw_value"] }
+serde_yaml = "0.9"
+sha3 = "0.10"
+simple-rate-limiter = "1.0"
+siphasher = "0.3"
+structopt = "0.3"
+structopt-derive = "0.4"
+tiny-bip39 = "1.0"
+tokio = { version = "1.14.0", features = [
+  "sync",
+  "time",
+  "macros",
+  "rt-multi-thread",
+  "parking_lot",
+] }
+tokio-postgres = { version = "0.7", features = ["runtime"] }
+tokio-tungstenite = { version = "0.17", features = ["native-tls"] }
+tracing = { version = "0.1", default-features = false, features = [
+  "attributes",
+] }
+tracing-subscriber = { version = "0.3", features = [
+  "env-filter",
+  "parking_lot",
+  "json",
+] }
+trust-dns-resolver = { version = "0.21", features = ["dns-over-native-tls"] }
+url = "2.2"
+uuid = { version = "1.0", features = ["v4"] }
+rdkafka = { version = "0.28.0", features = [
+  "ssl-vendored",
+  "gssapi-vendored",
+] } # TODO: For M1 machines on arm64 rdkafka = { version = "0.28.0", features =  ["dynamic-linking","ssl","gssapi"] }
+
+[dev-dependencies]
+# core-foundation is added because it is a transitive dependency of plotters (through font-kit)
+# and the selected version (0.9.1) fails to build on MacOS
+core-foundation = "0.9.3"
+eventuals = { version = "0.6.7", features = ["trace"] }
+plotters = { version = "0.3", features = [
+  "bitmap_encoder",
+  "bitmap_gif",
+  "line_series",
+  "svg_backend",
+] }
+rand = { version = "0.8", features = ["small_rng"] }
+rand_distr = "0.4"
+regex = "1.5"
