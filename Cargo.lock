@@ -608,7 +608,7 @@ source = "git+ssh://git@github.com/graphprotocol/agora.git?rev=v0.1.14#618ea5f2a
 dependencies = [
  "firestorm 0.4.6",
  "fraction",
- "graphql-parser 0.3.0",
+ "graphql-parser",
  "lazy_static",
  "nom",
  "num-bigint",
@@ -1092,7 +1092,6 @@ dependencies = [
  "eventuals",
  "futures",
  "futures-util",
- "graphql_client",
  "hdwallet",
  "hex",
  "im",
@@ -1126,70 +1125,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "graphql-introspection-query"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f2a4732cf5140bd6c082434494f785a19cfb566ab07d1382c3671f5812fed6d"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "graphql-parser"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5613c31f18676f164112732202124f373bb2103ff017b3b85ca954ea6a66ada"
-dependencies = [
- "combine",
- "failure",
-]
-
-[[package]]
 name = "graphql-parser"
 version = "0.3.0"
 source = "git+https://github.com/graphql-rust/graphql-parser?rev=8a759df#8a759df14ff6a2d97b55bcbccad0a53ce0bee4a6"
 dependencies = [
  "combine",
  "thiserror",
-]
-
-[[package]]
-name = "graphql_client"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9b58571cfc3cc42c3e8ff44fc6cfbb6c0dea17ed22d20f9d8f1efc4e8209a3f"
-dependencies = [
- "graphql_query_derive",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "graphql_client_codegen"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4bf9cd823359d74ad3d3ecf1afd4a975f4ff2f891cdf9a66744606daf52de8c"
-dependencies = [
- "graphql-introspection-query",
- "graphql-parser 0.2.3",
- "heck 0.3.3",
- "lazy_static",
- "proc-macro2",
- "quote",
- "serde",
- "serde_json",
- "syn",
-]
-
-[[package]]
-name = "graphql_query_derive"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e56b093bfda71de1da99758b036f4cc811fd2511c8a76f75680e9ffbd2bb4251"
-dependencies = [
- "graphql_client_codegen",
- "proc-macro2",
- "syn",
 ]
 
 [[package]]
@@ -1422,7 +1363,7 @@ dependencies = [
  "cost-model",
  "eventuals",
  "futures",
- "graphql-parser 0.3.0",
+ "graphql-parser",
  "hex",
  "itertools",
  "lazy_static",

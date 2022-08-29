@@ -1,4 +1,3 @@
-mod agent_client;
 mod block_resolver;
 mod ethereum_client;
 mod fisherman_client;
@@ -134,27 +133,21 @@ async fn main() {
         .build()
         .unwrap();
 
-    let api_keys =
+    let studio_data =
         studio_client::Actor::create(http_client.clone(), opt.studio_url, opt.studio_auth);
-    agent_client::create(
-        opt.sync_agent,
-        Duration::from_secs(30),
+    update_from_eventual(
+        studio_data.usd_to_grt,
         update_writer.clone(),
-        false,
+        Update::USDToGRTConversion,
     );
-    let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
+
     let network_subgraph_data =
         network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
-
-    {
-        let update_writer = update_writer.clone();
-        network_subgraph_data
-            .slashing_percentage
-            .pipe(move |p| {
-                let _ = update_writer.write(Update::SlashingPercentage(p));
-            })
-            .forever();
-    }
+    update_from_eventual(
+        network_subgraph_data.slashing_percentage,
+        update_writer.clone(),
+        Update::SlashingPercentage,
+    );
 
     let receipt_pools = ReceiptPools::default();
 
@@ -198,6 +191,7 @@ async fn main() {
         .deployment_indexers
         .clone()
         .map(|deployments| async move { deployments.keys().cloned().collect() });
+    let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
     let subgraph_info = manifest_client::create(
         ipfs_client,
         network_subgraph_data.subgraph_deployments.clone(),
@@ -222,7 +216,7 @@ async fn main() {
         subgraph_info,
         subgraph_deployments: network_subgraph_data.subgraph_deployments,
         deployment_indexers: network_subgraph_data.deployment_indexers,
-        api_keys,
+        api_keys: studio_data.api_keys,
         api_key_payment_required: opt.api_key_payment_required,
         stats_db,
         fisherman_client,
@@ -325,6 +319,18 @@ async fn main() {
     .run()
     .await
     .expect("Failed to start server");
+}
+
+fn update_from_eventual<V, F>(eventual: Eventual<V>, writer: QueueWriter<Update>, f: F)
+where
+    V: eventuals::Value,
+    F: 'static + Send + Fn(V) -> Update,
+{
+    eventual
+        .pipe(move |v| {
+            let _ = writer.write(f(v));
+        })
+        .forever();
 }
 
 fn request_api_key(request: &ServiceRequest) -> String {

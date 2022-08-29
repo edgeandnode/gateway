@@ -79,9 +79,11 @@ pub async fn process_updates(
 pub fn apply_state_update(state: &mut State, update: &Update) {
     match update {
         Update::USDToGRTConversion(usd_to_grt) => {
+            tracing::info!(%usd_to_grt);
             state.network_params.usd_to_grt_conversion = Some(*usd_to_grt);
         }
         Update::SlashingPercentage(slashing_percentage) => {
+            tracing::info!(%slashing_percentage);
             state.network_params.slashing_percentage = Some(*slashing_percentage);
         }
         Update::Indexers(indexers) => {
