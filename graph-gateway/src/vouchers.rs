@@ -1,3 +1,4 @@
+use crate::metrics::*;
 use actix_web::{http::StatusCode, web, HttpResponse, HttpResponseBuilder};
 use hex;
 use indexer_selection::{
@@ -27,7 +28,7 @@ pub async fn handle_collect_receipts(
             response
         }
         Err(collect_receipts_err) => {
-            METRICS.collect_receipts.failed.inc();
+            METRICS.collect_receipts.err.inc();
             tracing::info!(%collect_receipts_err);
             HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body(collect_receipts_err)
         }
@@ -67,7 +68,7 @@ pub async fn handle_partial_voucher(
             response
         }
         Err(partial_voucher_err) => {
-            METRICS.partial_voucher.failed.inc();
+            METRICS.partial_voucher.err.inc();
             tracing::info!(%partial_voucher_err);
             HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body(partial_voucher_err)
         }
@@ -107,7 +108,7 @@ pub async fn handle_voucher(data: web::Data<SecretKey>, payload: web::Bytes) -> 
             response
         }
         Err(voucher_err) => {
-            METRICS.voucher.failed.inc();
+            METRICS.voucher.err.inc();
             tracing::info!(%voucher_err);
             HttpResponseBuilder::new(StatusCode::BAD_REQUEST).body(voucher_err)
         }
@@ -186,31 +187,4 @@ fn deserialize_signature<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[
 fn deserialize_u256<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, D::Error> {
     let input: &str = Deserialize::deserialize(deserializer)?;
     U256::from_str(input).map_err(serde::de::Error::custom)
-}
-
-#[derive(Clone)]
-struct Metrics {
-    collect_receipts: ResponseMetrics,
-    partial_voucher: ResponseMetrics,
-    voucher: ResponseMetrics,
-}
-
-lazy_static! {
-    static ref METRICS: Metrics = Metrics::new();
-}
-
-impl Metrics {
-    fn new() -> Self {
-        Self {
-            collect_receipts: ResponseMetrics::new(
-                "gateway_collect_receipts",
-                "requests to collect-receipts",
-            ),
-            partial_voucher: ResponseMetrics::new(
-                "gateway_partial_voucher",
-                "requests for partial-voucher",
-            ),
-            voucher: ResponseMetrics::new("gateway_voucher", "requests for voucher"),
-        }
-    }
 }

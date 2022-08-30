@@ -20,11 +20,9 @@ pub use crate::{
 use crate::{block_requirements::make_query_deterministic, economic_security::*};
 use async_trait::async_trait;
 pub use cost_model::{self, CostModel};
-use lazy_static::lazy_static;
 use num_traits::identities::Zero as _;
 pub use ordered_float::NotNan;
 use prelude::{epoch_cache::EpochCache, weighted_sample::WeightedSample, *};
-use prometheus;
 use rand::{thread_rng, Rng as _};
 pub use receipts;
 pub use secp256k1::SecretKey;
@@ -231,8 +229,6 @@ impl State {
             Err(err) => return Err(err),
         };
 
-        let make_query_deterministic_timer =
-            METRICS.make_query_deterministic_duration.start_timer();
         let head = block_resolver
             .latest_block()
             .ok_or(SelectionError::MissingBlock(UnresolvedBlock::WithNumber(0)))?;
@@ -248,7 +244,6 @@ impl State {
             selection.score.blocks_behind,
         )
         .await?;
-        make_query_deterministic_timer.observe_duration();
 
         let indexer_query = IndexerQuery {
             network: network.into(),
@@ -271,7 +266,6 @@ impl State {
         budget: GRT,
         freshness_requirements: &BlockRequirements,
     ) -> Result<Option<Selection>, SelectionError> {
-        let _make_selection_timer = METRICS.make_selection_duration.start_timer();
         let mut scores = Vec::new();
         let mut high_fee_count = 0;
         let mut scoring_sample = WeightedSample::new();
@@ -381,7 +375,6 @@ impl State {
         config: &UtilityConfig,
         freshness_requirements: &BlockRequirements,
     ) -> Result<IndexerScore, SelectionError> {
-        let _score_indexers_timer = METRICS.score_indexer_duration.start_timer();
         let mut aggregator = UtilityAggregator::new();
         let indexer = self
             .indexers
@@ -587,30 +580,4 @@ pub struct IndexerPreferences {
     pub performance: f64,
     pub data_freshness: f64,
     pub price_efficiency: f64,
-}
-
-struct Metrics {
-    make_query_deterministic_duration: prometheus::Histogram,
-    make_selection_duration: prometheus::Histogram,
-    score_indexer_duration: prometheus::Histogram,
-}
-
-lazy_static! {
-    static ref METRICS: Metrics = Metrics {
-        make_query_deterministic_duration: prometheus::register_histogram!(
-            "make_query_deterministic_duration",
-            "Duration of making query deterministic"
-        )
-        .unwrap(),
-        make_selection_duration: prometheus::register_histogram!(
-            "make_selection_duration",
-            "Duration of making indexer selection"
-        )
-        .unwrap(),
-        score_indexer_duration: prometheus::register_histogram!(
-            "score_indexer_duration",
-            "Duration of indexer scoring"
-        )
-        .unwrap(),
-    };
 }

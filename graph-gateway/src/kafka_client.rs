@@ -1,6 +1,5 @@
 use crate::query_engine::Query;
 use indexer_selection::{IndexerScore, SelectionError};
-use lazy_static::lazy_static;
 use prelude::*;
 use rdkafka::{
     config::ClientConfig,
@@ -35,11 +34,8 @@ impl KafkaInterface for KafkaClient {
         let record = BaseRecord::<'_, (), [u8]>::to(M::TOPIC).payload(&payload);
         match self.producer.send(record) {
             Ok(()) => (),
-            Err((kafka_producer_err, _)) => {
-                tracing::error!(%kafka_producer_err);
-                METRICS.failed_sends.inc();
-            }
-        }
+            Err((kafka_producer_err, _)) => tracing::error!(%kafka_producer_err),
+        };
     }
 }
 
@@ -213,24 +209,4 @@ impl ISAScoringError {
 
 impl Msg for ISAScoringError {
     const TOPIC: &'static str = "gateway_isa_errors";
-}
-
-lazy_static! {
-    static ref METRICS: Metrics = Metrics::new();
-}
-
-struct Metrics {
-    pub failed_sends: prometheus::IntCounter,
-}
-
-impl Metrics {
-    fn new() -> Self {
-        Self {
-            failed_sends: prometheus::register_int_counter!(
-                "gateway_kafka_failed_sends",
-                "Failed message sends to Kafka topics",
-            )
-            .unwrap(),
-        }
-    }
 }

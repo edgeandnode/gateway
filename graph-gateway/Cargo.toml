@@ -23,6 +23,7 @@ parking_lot = "0.12.0"
 postgres-openssl = "0.5"
 prelude = { path = "../prelude" }
 primitive-types = "0.8"
+prometheus = { version = "0.13", default-features = false }
 secp256k1 = { version = "0.20", default-features = false }
 semver = "1.0"
 serde = "1.0"
