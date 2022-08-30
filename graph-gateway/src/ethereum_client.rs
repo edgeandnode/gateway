@@ -1,8 +1,6 @@
-use crate::{block_resolver::BlockCacheWriter, ws_client};
+use crate::{block_resolver::BlockCacheWriter, metrics::*, ws_client};
 use indexer_selection::UnresolvedBlock;
-use lazy_static::lazy_static;
 use prelude::*;
-use prometheus;
 use reqwest;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
@@ -226,7 +224,7 @@ impl Client {
     async fn handle_head(&mut self, head: BlockHead, latest: bool) {
         tracing::info!(?head);
         if latest {
-            with_metric(&METRICS.head_block, &[&self.provider.network], |g| {
+            with_metric(&METRICS.chain_head, &[&self.provider.network], |g| {
                 g.set(head.block.number as i64)
             });
         }
@@ -280,27 +278,6 @@ impl From<APIBlockHead> for BlockHead {
                 number: from.number,
             },
             uncles: from.uncles,
-        }
-    }
-}
-
-lazy_static! {
-    static ref METRICS: Metrics = Metrics::new();
-}
-
-struct Metrics {
-    head_block: prometheus::IntGaugeVec,
-}
-
-impl Metrics {
-    fn new() -> Self {
-        Self {
-            head_block: prometheus::register_int_gauge_vec!(
-                "head_block",
-                "Chain head block number",
-                &["network"]
-            )
-            .unwrap(),
         }
     }
 }

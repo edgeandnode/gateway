@@ -10,6 +10,7 @@ use crate::{
     indexer_client::*,
     kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
+    metrics::*,
 };
 use indexer_selection::{
     self,
@@ -23,7 +24,6 @@ use lazy_static::lazy_static;
 use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, graphql::Response, *};
 pub use price_automation::{QueryBudgetFactors, VolumeEstimator};
 use primitive_types::U256;
-use prometheus;
 use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -284,20 +284,10 @@ where
     F: FishermanInterface + Clone + Send + Sync + 'static,
 {
     pub async fn execute_query(&self, query: &mut Query) -> Result<(), QueryEngineError> {
-        let api_key = query.api_key.as_ref().unwrap().key.clone();
         let deployment_id = query.subgraph.as_ref().unwrap().deployment.ipfs_hash();
-        let _timer = with_metric(
-            &METRICS.queries.duration,
-            &[&deployment_id, &api_key],
-            |h| h.start_timer(),
-        );
+        let _timer = METRICS.client_query.start_timer(&[&deployment_id]);
         let result = self.execute_deployment_query(query, &deployment_id).await;
-        let result_counter = if let Ok(_) = result {
-            &METRICS.queries.ok
-        } else {
-            &METRICS.queries.failed
-        };
-        with_metric(result_counter, &[&deployment_id, &api_key], |c| c.inc());
+        METRICS.client_query.check(&[&deployment_id], &result);
         result
     }
 
@@ -321,11 +311,6 @@ where
         if deployment_indexers.is_empty() {
             return Err(NoIndexers);
         }
-        let _execution_timer = with_metric(
-            &METRICS.query_execution_duration,
-            &[&deployment_id],
-            |hist| hist.start_timer(),
-        );
 
         let query_body = query.query.clone();
         let query_variables = query.variables.clone();
@@ -531,19 +516,15 @@ where
         receipt: Vec<u8>,
         deployment_id: &str,
     ) -> Result<(), IndexerError> {
-        let indexer_id = indexer_query.indexing.indexer.to_string();
-        self.observe_indexer_selection_metrics(deployment_id, &indexer_query);
         let t0 = Instant::now();
         let result = self
             .indexer_client
             .query_indexer(&indexer_query, &receipt)
             .await;
         let query_duration = Instant::now() - t0;
-        with_metric(
-            &METRICS.indexer_request.duration,
-            &[&deployment_id, &indexer_id],
-            |hist| hist.observe(query_duration.as_secs_f64()),
-        );
+        with_metric(&METRICS.indexer_query.duration, &[&deployment_id], |hist| {
+            hist.observe(query_duration.as_secs_f64())
+        });
 
         let mut allocation = Address([0; 20]);
         allocation.0.copy_from_slice(&receipt[0..20]);
@@ -559,22 +540,10 @@ where
             duration: query_duration,
         });
         let result = query.indexer_attempts.last_mut().unwrap();
-        let response = match &result.result {
-            Ok(response) => response,
-            Err(err) => {
-                with_metric(
-                    &METRICS.indexer_request.failed,
-                    &[&deployment_id, &indexer_id],
-                    |counter| counter.inc(),
-                );
-                return Err(err.clone());
-            }
-        };
-        with_metric(
-            &METRICS.indexer_request.ok,
-            &[&deployment_id, &indexer_id],
-            |counter| counter.inc(),
-        );
+        METRICS
+            .indexer_query
+            .check(&[deployment_id], &result.result);
+        let response = result.result.as_ref().map_err(|err| err.clone())?;
 
         let indexer_errors = serde_json::from_str::<Response<Box<RawValue>>>(&response.payload)
             .map_err(|_| IndexerError::UnexpectedPayload)?
@@ -596,11 +565,6 @@ where
                 .iter()
                 .any(|err| error.contains(err))
             {
-                with_metric(
-                    &METRICS.indexer_response_unattestable,
-                    &[&deployment_id, &indexer_id],
-                    |counter| counter.inc(),
-                );
                 let _ = self.observations.write(Update::Penalty {
                     indexing: indexer_query.indexing,
                     weight: 35,
@@ -681,34 +645,6 @@ where
         );
     }
 
-    fn observe_indexer_selection_metrics(&self, deployment: &str, selection: &IndexerQuery) {
-        let metrics = &METRICS.indexer_selection;
-        if let Ok(hist) = metrics
-            .blocks_behind
-            .get_metric_with_label_values(&[deployment])
-        {
-            hist.observe(selection.score.blocks_behind as f64);
-        }
-        if let Ok(hist) = metrics.fee.get_metric_with_label_values(&[deployment]) {
-            hist.observe(selection.score.fee.as_f64());
-        }
-        if let Ok(counter) = metrics
-            .indexer_selected
-            .get_metric_with_label_values(&[deployment, &selection.indexing.indexer.to_string()])
-        {
-            counter.inc();
-        }
-        if let Ok(hist) = metrics
-            .slashable_dollars
-            .get_metric_with_label_values(&[deployment])
-        {
-            hist.observe(selection.score.slashable.as_f64());
-        }
-        if let Ok(hist) = metrics.utility.get_metric_with_label_values(&[deployment]) {
-            hist.observe(*selection.score.utility);
-        }
-    }
-
     fn challenge_indexer_response(
         &self,
         indexing: Indexing,
@@ -740,93 +676,5 @@ where
                 });
             }
         });
-    }
-}
-
-struct Metrics {
-    indexer_request: ResponseMetricVecs,
-    indexer_response_unattestable: prometheus::IntCounterVec,
-    indexer_selection: IndexerSelectionMetrics,
-    indexer_selection_duration: prometheus::HistogramVec,
-    queries: ResponseMetricVecs,
-    query_execution_duration: prometheus::HistogramVec,
-}
-
-struct IndexerSelectionMetrics {
-    blocks_behind: prometheus::HistogramVec,
-    fee: prometheus::HistogramVec,
-    indexer_selected: prometheus::IntCounterVec,
-    slashable_dollars: prometheus::HistogramVec,
-    utility: prometheus::HistogramVec,
-}
-
-lazy_static! {
-    static ref METRICS: Metrics = Metrics::new();
-}
-
-impl Metrics {
-    fn new() -> Self {
-        Self {
-            indexer_request: ResponseMetricVecs::new(
-                "query_engine_indexer_request",
-                "indexer responses",
-                &["deployment", "indexer"],
-            ),
-            indexer_response_unattestable: prometheus::register_int_counter_vec!(
-                "query_engine_indexer_response_unattestable",
-                "Number of unattestable indexer responses",
-                &["deployment", "indexer"]
-            )
-            .unwrap(),
-            indexer_selection: IndexerSelectionMetrics {
-                blocks_behind: prometheus::register_histogram_vec!(
-                    "indexer_selection_blocks_behind",
-                    "Number of blocks that indexers are behind",
-                    &["deployment"]
-                )
-                .unwrap(),
-                fee: prometheus::register_histogram_vec!(
-                    "indexer_selection_fee",
-                    "Query fee amount based on cost models",
-                    &["deployment"]
-                )
-                .unwrap(),
-                indexer_selected: prometheus::register_int_counter_vec!(
-                    "indexer_selection_indexer_selected",
-                    "Number of times an indexer was selected",
-                    &["deployment", "indexer"]
-                )
-                .unwrap(),
-                slashable_dollars: prometheus::register_histogram_vec!(
-                    "indexer_selection_slashable_dollars",
-                    "Slashable dollars of selected indexers",
-                    &["deployment"]
-                )
-                .unwrap(),
-                utility: prometheus::register_histogram_vec!(
-                    "indexer_selection_utility",
-                    "Combined overall utility",
-                    &["deployment"]
-                )
-                .unwrap(),
-            },
-            indexer_selection_duration: prometheus::register_histogram_vec!(
-                "query_engine_indexer_selection_duration",
-                "Duration of selecting an indexer for a query",
-                &["deployment"]
-            )
-            .unwrap(),
-            queries: ResponseMetricVecs::new(
-                "gateway_queries",
-                "processing queries",
-                &["deployment", "apiKey"],
-            ),
-            query_execution_duration: prometheus::register_histogram_vec!(
-                "query_engine_query_execution_duration",
-                "Duration of executing the query for a deployment",
-                &["deployment"]
-            )
-            .unwrap(),
-        }
     }
 }

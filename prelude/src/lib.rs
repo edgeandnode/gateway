@@ -10,10 +10,6 @@ pub mod weighted_sample;
 pub use crate::{bytes::*, decimal::*};
 pub use anyhow;
 pub use eventuals::{self, Eventual, EventualWriter, Ptr};
-pub use prometheus::{
-    self,
-    core::{MetricVec, MetricVecBuilder},
-};
 pub use reqwest;
 use serde::Deserialize;
 use siphasher::sip::SipHasher24;
@@ -45,78 +41,6 @@ pub fn sip24_hash(value: &impl Hash) -> u64 {
     let mut hasher = SipHasher24::default();
     value.hash(&mut hasher);
     hasher.finish()
-}
-
-#[derive(Clone)]
-pub struct ResponseMetrics {
-    pub duration: prometheus::Histogram,
-    pub ok: prometheus::IntCounter,
-    pub failed: prometheus::IntCounter,
-}
-
-impl ResponseMetrics {
-    pub fn new(prefix: &str, description: &str) -> Self {
-        Self {
-            duration: prometheus::register_histogram!(
-                &format!("{}_duration", prefix),
-                &format!("Duration for {}", description),
-            )
-            .unwrap(),
-            ok: prometheus::register_int_counter!(
-                &format!("{}_ok", prefix),
-                &format!("Successful {}", description),
-            )
-            .unwrap(),
-            failed: prometheus::register_int_counter!(
-                &format!("{}_failed", prefix),
-                &format!("Failed {}", description),
-            )
-            .unwrap(),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct ResponseMetricVecs {
-    pub duration: prometheus::HistogramVec,
-    pub ok: prometheus::IntCounterVec,
-    pub failed: prometheus::IntCounterVec,
-}
-
-impl ResponseMetricVecs {
-    pub fn new(prefix: &str, description: &str, labels: &[&str]) -> Self {
-        Self {
-            duration: prometheus::register_histogram_vec!(
-                &format!("{}_duration", prefix),
-                &format!("Duration for {}", description),
-                labels,
-            )
-            .unwrap(),
-            ok: prometheus::register_int_counter_vec!(
-                &format!("{}_ok", prefix),
-                &format!("Successful {}", description),
-                labels,
-            )
-            .unwrap(),
-            failed: prometheus::register_int_counter_vec!(
-                &format!("{}_failed", prefix),
-                &format!("Failed {}", description),
-                labels,
-            )
-            .unwrap(),
-        }
-    }
-}
-
-pub fn with_metric<T, F, B>(metric_vec: &MetricVec<B>, label_values: &[&str], f: F) -> Option<T>
-where
-    B: MetricVecBuilder,
-    F: Fn(B::M) -> T,
-{
-    metric_vec
-        .get_metric_with_label_values(label_values)
-        .ok()
-        .map(f)
 }
 
 /// Encode the given name into a valid BIP-32 key chain path.

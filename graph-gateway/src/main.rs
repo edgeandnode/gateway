@@ -7,6 +7,7 @@ mod indexer_status;
 mod ipfs_client;
 mod kafka_client;
 mod manifest_client;
+mod metrics;
 mod network_subgraph;
 mod opt;
 mod query_engine;
@@ -25,6 +26,7 @@ use crate::{
     ipfs_client::*,
     kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
     manifest_client::*,
+    metrics::*,
     opt::*,
     query_engine::*,
     rate_limiter::*,
@@ -38,7 +40,6 @@ use actix_web::{
 };
 use eventuals::EventualExt as _;
 use indexer_selection::{actor::IndexerUpdate, IndexerInfo};
-use lazy_static::lazy_static;
 use network_subgraph::AllocationInfo;
 use prelude::{
     buffer_queue::{self, QueueWriter},
@@ -162,7 +163,7 @@ async fn main() {
         let block_resolvers = block_resolvers.clone();
         let update_writer = update_writer.clone();
         eventuals::join((
-            network_subgraph_data.allocations,
+            network_subgraph_data.allocations.clone(),
             network_subgraph_data.indexers,
             indexer_status_data.indexings,
         ))
@@ -226,12 +227,16 @@ async fn main() {
         receipt_pools,
         isa_state,
     };
-
     let network_subgraph_query_data = NetworkSubgraphQueryData {
         http_client,
         network_subgraph: opt.network_subgraph,
         network_subgraph_auth_token: opt.network_subgraph_auth_token,
     };
+    let ready_data = ReadyData {
+        block_resolvers,
+        allocations: network_subgraph_data.allocations,
+    };
+
     let metrics_port = opt.metrics_port;
     // Host metrics on a separate server with a port that isn't open to public requests.
     actix_web::rt::spawn(async move {
@@ -286,7 +291,7 @@ async fn main() {
             .route("/", web::get().to(|| async { "Ready to roll!" }))
             .service(
                 web::resource("/ready")
-                    .app_data(web::Data::new(block_resolvers.clone()))
+                    .app_data(web::Data::new(ready_data.clone()))
                     .route(web::get().to(handle_ready)),
             )
             .service(
@@ -415,8 +420,6 @@ async fn write_indexer_inputs(
     }
 
     let _ = update_writer.write(Update::Indexers(indexers));
-
-    METRICS.allocations.set(allocations.len() as i64);
 }
 
 #[tracing::instrument]
@@ -432,12 +435,24 @@ async fn handle_metrics() -> HttpResponse {
     HttpResponseBuilder::new(StatusCode::OK).body(buffer)
 }
 
-async fn handle_ready(data: web::Data<Arc<HashMap<String, BlockResolver>>>) -> HttpResponse {
-    let ready = data
+#[derive(Clone)]
+struct ReadyData {
+    block_resolvers: Arc<HashMap<String, BlockResolver>>,
+    allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
+}
+
+async fn handle_ready(data: web::Data<ReadyData>) -> HttpResponse {
+    let block_resolvers_ready = data
+        .block_resolvers
         .iter()
-        .all(|(_, resolver)| resolver.latest_block().is_some())
-        && (METRICS.allocations.get() > 0);
-    if ready {
+        .all(|(_, resolver)| resolver.latest_block().is_some());
+    let allocations_ready = data
+        .allocations
+        .value_immediate()
+        .map(|map| map.len())
+        .unwrap_or(0)
+        > 0;
+    if block_resolvers_ready && allocations_ready {
         HttpResponseBuilder::new(StatusCode::OK).body("Ready")
     } else {
         // Respond with 425 Too Early
@@ -458,7 +473,7 @@ async fn handle_network_query(
     payload: String,
     data: web::Data<NetworkSubgraphQueryData>,
 ) -> HttpResponse {
-    let _timer = METRICS.network_subgraph_queries.duration.start_timer();
+    let _timer = METRICS.network_subgraph.duration.start_timer();
     let post_request = |body: String| async {
         let response = data
             .http_client
@@ -476,12 +491,12 @@ async fn handle_network_query(
     };
     match post_request(payload).await {
         Ok(result) => {
-            METRICS.network_subgraph_queries.ok.inc();
+            METRICS.network_subgraph.ok.inc();
             HttpResponseBuilder::new(StatusCode::OK).body(result)
         }
         Err(network_subgraph_post_err) => {
             tracing::error!(%network_subgraph_post_err);
-            METRICS.network_subgraph_queries.failed.inc();
+            METRICS.network_subgraph.err.inc();
             graphql_error_response("Failed to process network subgraph query")
         }
     }
@@ -612,10 +627,7 @@ async fn handle_subgraph_query_inner(
     query.api_key = api_keys.get(api_key).cloned();
     let api_key = match &query.api_key {
         Some(api_key) => api_key.clone(),
-        None => {
-            METRICS.unknown_api_key.inc();
-            return Err("Invalid API key".into());
-        }
+        None => return Err("Invalid API key".into()),
     };
 
     if data.api_key_payment_required {
@@ -641,7 +653,6 @@ async fn handle_subgraph_query_inner(
     tracing::debug!(%domain, authorized = ?api_key.domains);
     let authorized_domains = api_key.domains.iter().map(|(d, _)| d.as_str());
     if !api_key.domains.is_empty() && !is_domain_authorized(authorized_domains, &domain) {
-        with_metric(&METRICS.unauthorized_domain, &[&api_key.key], |c| c.inc());
         return Err("Domain not authorized by API key".into());
     }
 
@@ -652,13 +663,9 @@ async fn handle_subgraph_query_inner(
     let subgraph_authorized =
         api_key.subgraphs.is_empty() || api_key.subgraphs.iter().any(|(s, _)| s == subgraph);
     if !deployment_authorized || !subgraph_authorized {
-        with_metric(
-            &METRICS.queries_unauthorized_deployment,
-            &[&api_key.key],
-            |counter| counter.inc(),
-        );
         return Err("Subgraph not authorized by API key".into());
     }
+
     if let Err(err) = query_engine.execute_query(query).await {
         return Err(match err {
             QueryEngineError::MalformedQuery => "Invalid query".into(),
@@ -682,18 +689,14 @@ async fn handle_subgraph_query_inner(
     }
     let last_attempt = query.indexer_attempts.last().unwrap();
     let response = last_attempt.result.as_ref().unwrap();
-    if let Ok(hist) = METRICS
-        .query_result_size
-        .get_metric_with_label_values(&[&deployment.ipfs_hash()])
-    {
-        hist.observe(response.payload.len() as f64);
-    }
+
     let _ = data.stats_db.send(stats_db::Msg::AddQuery {
         api_key,
         fee: last_attempt.score.fee,
         domain: domain.to_string(),
         subgraph: query.subgraph.as_ref().unwrap().id.clone(),
     });
+
     let attestation = response
         .attestation
         .as_ref()
@@ -809,59 +812,6 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
             status_code = attempt.status_code() as u32,
             "Indexer attempt",
         );
-    }
-}
-
-#[derive(Clone)]
-struct Metrics {
-    allocations: prometheus::IntGauge,
-    network_subgraph_queries: ResponseMetrics,
-    query_result_size: prometheus::HistogramVec,
-    queries_unauthorized_deployment: prometheus::IntCounterVec,
-    unauthorized_domain: prometheus::IntCounterVec,
-    unknown_api_key: prometheus::IntCounter,
-}
-
-lazy_static! {
-    static ref METRICS: Metrics = Metrics::new();
-}
-
-impl Metrics {
-    fn new() -> Self {
-        Self {
-            allocations: prometheus::register_int_gauge!(
-                "total_allocations",
-                "Total allocation count"
-            )
-            .unwrap(),
-            network_subgraph_queries: ResponseMetrics::new(
-                "gateway_network_subgraph_query",
-                "network subgraph queries",
-            ),
-            query_result_size: prometheus::register_histogram_vec!(
-                "query_engine_query_result_size",
-                "Size of query result",
-                &["deployment"]
-            )
-            .unwrap(),
-            queries_unauthorized_deployment: prometheus::register_int_counter_vec!(
-                "gateway_queries_for_excluded_deployment",
-                "Queries for a subgraph deployment not included in an API key",
-                &["apiKey"]
-            )
-            .unwrap(),
-            unauthorized_domain: prometheus::register_int_counter_vec!(
-                "gateway_queries_from_unauthorized_domain",
-                "Queries from a domain not authorized in the API key",
-                &["apiKey"],
-            )
-            .unwrap(),
-            unknown_api_key: prometheus::register_int_counter!(
-                "gateway_queries_for_unknown_api_key",
-                "Queries made against an unknown API key",
-            )
-            .unwrap(),
-        }
     }
 }
 
