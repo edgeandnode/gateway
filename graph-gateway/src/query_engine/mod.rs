@@ -167,6 +167,7 @@ pub enum QueryEngineError {
     MissingBlock(UnresolvedBlock),
     MissingNetworkParams,
     MissingExchangeRate,
+    ExcessiveFee,
 }
 
 impl From<SelectionError> for QueryEngineError {
@@ -414,6 +415,12 @@ where
                 Ok(None) => return Err(NoIndexerSelected),
                 Err(err) => return Err(err.into()),
             };
+
+            if indexer_query.score.fee > GRT::try_from(100u64).unwrap() {
+                tracing::error!(excessive_fee = %indexer_query.score.fee);
+                return Err(QueryEngineError::ExcessiveFee);
+            }
+
             self.notify_isa_sample(
                 &query,
                 &indexer_query.indexing.indexer,

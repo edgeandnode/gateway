@@ -15,6 +15,7 @@ pub struct Actor {
     api_key_usage: VolumeEstimations,
     api_keys_writer: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
     usd_to_grt_writer: EventualWriter<USD>,
+    usd_to_grt_previous: Option<USD>,
 }
 
 pub struct Data {
@@ -36,6 +37,7 @@ impl Actor {
             api_key_usage: VolumeEstimations::new(),
             api_keys_writer,
             usd_to_grt_writer,
+            usd_to_grt_previous: None,
         }));
         eventuals::timer(Duration::from_secs(30))
             .pipe_async(move |_| {
@@ -134,9 +136,24 @@ impl Actor {
             .send()
             .await?
             .json::<GRTPrice>()
-            .await?;
-        USD::try_from(price.usd.recip())
-            .map_err(|_| "Failed to convert price to decimal value".into())
+            .await?
+            .usd;
+        // Check that the float value isn't completely outside of reasonable bounds.
+        if (price < 1e-3) || (price > 1e-3) {
+            return Err("Conversion rate out of range".into());
+        }
+        let usd_to_grt =
+            USD::try_from(price.recip()).map_err(|_| "Failed to convert price to decimal value")?;
+        // Avoid sudden price shocks of at least 10%.
+        if let Some(prev) = self.usd_to_grt_previous {
+            if (usd_to_grt == USD::zero())
+                || ((usd_to_grt.saturating_sub(prev) / prev) >= "0.1".parse::<USD>().unwrap())
+            {
+                return Err("Price shock detected".into());
+            }
+        }
+        self.usd_to_grt_previous = Some(usd_to_grt);
+        Ok(usd_to_grt)
     }
 }
 
