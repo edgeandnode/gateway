@@ -493,7 +493,7 @@ impl Topology {
             .blocks
             .is_empty()
         {
-            return Self::expect_err(trace, result, NoIndexerSelected);
+            return Self::expect_err(trace, result, MissingBlock(UnresolvedBlock::WithNumber(0)));
         }
 
         if !valid.is_empty() {
