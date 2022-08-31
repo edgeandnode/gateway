@@ -630,10 +630,10 @@ async fn handle_subgraph_query_inner(
         None => return Err("Invalid API key".into()),
     };
 
-    if data.api_key_payment_required {
+    if data.api_key_payment_required && !api_key.is_subsidized {
+        // Enforce the API key payment status, unless it's being subsidized.
         match api_key.query_status {
             QueryStatus::Active => (),
-            QueryStatus::Inactive if api_key.is_subsidized => (),
             QueryStatus::Inactive => return Err(
                 "Querying not activated yet; make sure to add some GRT to your balance in the studio"
                     .into(),
