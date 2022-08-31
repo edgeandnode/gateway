@@ -3,7 +3,7 @@ use indexer_selection::{
     actor::{apply_state_update, IndexerUpdate, Update},
     freshness_requirements,
     test_utils::{default_cost_model, gen_blocks, test_allocation_id, TestBlockResolver},
-    Context, IndexerInfo, IndexingStatus, State, UtilityConfig,
+    BlockStatus, Context, IndexerInfo, IndexingStatus, State, UtilityConfig,
 };
 use itertools::Itertools as _;
 use prelude::{graphql, *};
@@ -169,8 +169,10 @@ async fn main() -> anyhow::Result<()> {
                         indexer.allocation,
                     )])),
                     cost_model: Some(Ptr::new(default_cost_model(indexer.price))),
-                    block: latest.number - indexer.blocks_behind,
-                    latest: latest.number,
+                    block: Some(BlockStatus {
+                        reported_number: latest.number.saturating_sub(indexer.blocks_behind),
+                        blocks_behind: indexer.blocks_behind,
+                    }),
                 },
             )]);
             (indexer.address, IndexerUpdate { info, indexings })

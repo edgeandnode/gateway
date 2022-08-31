@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use indexer_selection::{
     actor::{apply_state_update, IndexerUpdate},
     test_utils::{default_cost_model, test_allocation_id, TEST_KEY},
-    IndexerError, IndexerInfo, IndexingStatus,
+    BlockStatus, IndexerError, IndexerInfo, IndexingStatus,
 };
 use prelude::{buffer_queue, decimal, double_buffer, test_utils::*, *};
 use rand::{
@@ -363,8 +363,10 @@ impl Topology {
                                 indexer.allocated_grt.as_udecimal(&stake_table),
                             )])),
                             cost_model: cost_model.clone(),
-                            block: indexer.block(network.blocks.len()) as u64,
-                            latest: network.blocks.last()?.number,
+                            block: Some(BlockStatus {
+                                reported_number: indexer.block(network.blocks.len()) as u64,
+                                blocks_behind: indexer.blocks_behind as u64,
+                            }),
                         };
                         Some((deployment.id, update))
                     })

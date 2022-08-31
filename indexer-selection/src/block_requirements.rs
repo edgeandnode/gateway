@@ -8,12 +8,10 @@ use std::{collections::BTreeMap, convert::TryFrom};
 
 #[derive(Default, Debug, Eq, PartialEq)]
 pub struct BlockRequirements {
-    // If specified, the subgraph must have indexed
-    // up to at least this number.
+    /// If specified, the subgraph must have indexed up to at least this number.
     pub minimum_block: Option<u64>,
-    // If true, the query has an unspecified block
-    // which means the query benefits from syncing as far
-    // in the future as possible.
+    /// If true, the query has an unspecified block which means the query benefits from syncing as
+    /// far in the future as possible.
     pub has_latest: bool,
 }
 
@@ -51,7 +49,7 @@ fn block_hash_field<'a, T: q::Text<'a>>(hash: &Bytes32) -> BTreeMap<&'static str
 pub async fn make_query_deterministic(
     context: &mut Context<'_>,
     block_resolver: &impl BlockResolver,
-    latest_block: &BlockPointer,
+    query_block: &BlockPointer,
     blocks_behind: u64,
 ) -> Result<DeterministicQuery, SelectionError> {
     // TODO: Ugh this code is a mess, and it's not even doing fragments yet.
@@ -77,10 +75,10 @@ pub async fn make_query_deterministic(
                             }
                             Ok(Some((&"number_gte", number))) => {
                                 let number = parse_number(number, &context.variables)?;
-                                if latest_block.number < number {
+                                if query_block.number < number {
                                     return Err(BadIndexerReason::BehindMinimumBlock.into());
                                 }
-                                *fields = block_hash_field(&latest_block.hash);
+                                *fields = block_hash_field(&query_block.hash);
                                 require_latest = false;
                                 query_requires_latest = true;
                             }
@@ -112,10 +110,10 @@ pub async fn make_query_deterministic(
                                     }
                                     Ok(Some((name, number))) if name.as_str() == "number_gte" => {
                                         let number = parse_number(number, &context.variables)?;
-                                        if latest_block.number < number {
+                                        if query_block.number < number {
                                             return Err(BadIndexerReason::BehindMinimumBlock.into());
                                         }
-                                        let fields = block_hash_field(&latest_block.hash);
+                                        let fields = block_hash_field(&query_block.hash);
                                         // This is different then the above which just replaces the
                                         // fields in the existing object, because we must not modify
                                         // the variable in case it's used elsewhere.
@@ -135,7 +133,7 @@ pub async fn make_query_deterministic(
             }
         }
         if require_latest {
-            let fields = block_hash_field(&latest_block.hash);
+            let fields = block_hash_field(&query_block.hash);
             let arg = ("block", q::Value::Object(fields));
             top_level_field.arguments.push(arg);
             query_requires_latest = true;

@@ -1,6 +1,6 @@
 use crate::{
-    block_requirements::*, data_freshness::*, decay::DecayBuffer, performance::*,
-    price_efficiency::*, reputation::*, utility::*, BadIndexerReason, Context, SelectionError,
+    block_requirements::*, decay::DecayBuffer, performance::*, price_efficiency::*, reputation::*,
+    utility::*, BadIndexerReason, Context, SelectionError,
 };
 use cost_model::CostModel;
 use prelude::*;
@@ -8,25 +8,32 @@ use std::{collections::HashMap, sync::Arc};
 
 #[derive(Default)]
 pub struct SelectionFactors {
-    status: Option<IndexingStatus>,
+    status: IndexingStatus,
     performance: DecayBuffer<Performance>,
     reputation: DecayBuffer<Reputation>,
-    freshness: DataFreshness,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct IndexingStatus {
     pub allocations: Arc<HashMap<Address, GRT>>,
     pub cost_model: Option<Ptr<CostModel>>,
-    pub block: u64,
-    pub latest: u64,
+    pub block: Option<BlockStatus>,
+}
+
+/// Indexers are expected to monotonically increase their block height on a deployment. We also
+/// speculate that the indexer will remain the same amount of blocks behind chain head as it was the
+/// last time it reported its status. The count of blocks behind will be adjusted based on indexer
+/// responses at the blocks requested. Any observation of the indexer behind the reported block will
+/// result in a penalty and the block status being cleared until the next time it is reported.
+#[derive(Clone, Debug)]
+pub struct BlockStatus {
+    pub reported_number: u64,
+    pub blocks_behind: u64,
 }
 
 impl SelectionFactors {
     pub fn set_status(&mut self, status: IndexingStatus) {
-        let behind = status.latest.saturating_sub(status.block);
-        self.freshness.set_blocks_behind(behind, status.latest);
-        self.status = Some(status);
+        self.status = status;
     }
 
     pub fn observe_successful_query(&mut self, duration: Duration) {
@@ -42,15 +49,24 @@ impl SelectionFactors {
         }
     }
 
-    pub fn observe_indexing_behind(&mut self, minimum_block: Option<u64>, latest: u64) {
-        match minimum_block {
-            Some(minimum_block) => self
-                .freshness
-                .observe_indexing_behind(minimum_block, latest),
-            // The only way to reach this would be if they returned that the block was unknown or
-            // not indexed for a query with an empty selection set.
-            None => self.reputation.current_mut().penalize(130),
+    pub fn observe_indexing_behind(&mut self, block_queried: u64, latest_block: u64) {
+        let mut status = match &mut self.status.block {
+            Some(status) => status,
+            None => return,
         };
+        let blocks_behind = match latest_block.checked_sub(block_queried) {
+            Some(blocks_behind) => blocks_behind,
+            None => return,
+        };
+        if block_queried <= status.reported_number {
+            self.status.block = None;
+            self.reputation.current_mut().penalize(130);
+        } else {
+            // They are at least one block behind the assumed status (this will usually be the
+            // case). In some cases for timing issues they may have already reported they are even
+            // farther behind, so we assume the worst of the two.
+            status.blocks_behind = status.blocks_behind.max(blocks_behind + 1);
+        }
     }
 
     pub fn penalize(&mut self, weight: u8) {
@@ -63,7 +79,11 @@ impl SelectionFactors {
     }
 
     pub fn blocks_behind(&self) -> Result<u64, BadIndexerReason> {
-        self.freshness.blocks_behind()
+        self.status
+            .block
+            .as_ref()
+            .map(|s| s.blocks_behind)
+            .ok_or(BadIndexerReason::MissingIndexingStatus)
     }
 
     pub fn expected_performance_utility(
@@ -82,25 +102,38 @@ impl SelectionFactors {
 
     pub fn expected_freshness_utility(
         &self,
-        freshness_requirements: &BlockRequirements,
+        requirements: &BlockRequirements,
         utility_parameters: UtilityParameters,
         latest_block: u64,
-        blocks_behind: u64,
     ) -> Result<SelectionFactor, SelectionError> {
-        self.freshness.expected_utility(
-            freshness_requirements,
-            utility_parameters,
-            latest_block,
-            blocks_behind,
-        )
+        let status = self
+            .status
+            .block
+            .as_ref()
+            .ok_or(BadIndexerReason::MissingIndexingStatus)?;
+        // Check that the indexer has synced at least up to any minimum block required.
+        if let Some(minimum) = requirements.minimum_block {
+            let indexer_latest = latest_block.saturating_sub(status.blocks_behind);
+            if indexer_latest < minimum {
+                return Err(BadIndexerReason::BehindMinimumBlock.into());
+            }
+        }
+        // Add utility if the latest block is requested. Otherwise, data freshness is not a utility,
+        // but a binary of minimum block. Note that it can be both.
+        let utility = if !requirements.has_latest || (status.blocks_behind == 0) {
+            1.0
+        } else {
+            let freshness = 1.0 / status.blocks_behind as f64;
+            concave_utility(freshness, utility_parameters.a)
+        };
+        Ok(SelectionFactor {
+            utility,
+            weight: utility_parameters.weight,
+        })
     }
 
     pub fn total_allocation(&self) -> GRT {
-        let status = match &self.status {
-            Some(status) => status,
-            None => return GRT::zero(),
-        };
-        status
+        self.status
             .allocations
             .iter()
             .map(|(_, size)| size)
@@ -113,10 +146,6 @@ impl SelectionFactors {
         weight: f64,
         max_budget: &GRT,
     ) -> Result<(USD, SelectionFactor), SelectionError> {
-        let cost_model = self
-            .status
-            .as_ref()
-            .and_then(|stat| stat.cost_model.clone());
-        get_price(&cost_model, context, weight, max_budget)
+        get_price(&self.status.cost_model, context, weight, max_budget)
     }
 }

@@ -438,6 +438,7 @@ where
             };
 
             let indexing = indexer_query.indexing;
+            let query_block = indexer_query.block_number;
             let receipt = self
                 .receipt_pools
                 .commit(&indexing, indexer_query.score.fee)
@@ -465,12 +466,10 @@ where
                     )
                     .await
                     {
-                        Ok(refreshed_requirements) => {
-                            Err(IndexerErrorObservation::IndexingBehind {
-                                refreshed_requirements,
-                                latest,
-                            })
-                        }
+                        Ok(_) => Err(IndexerErrorObservation::IndexingBehind {
+                            block_queried: query_block,
+                            latest_block: latest,
+                        }),
                         // If we observed a block hash in the query that we could no longer
                         // associate with a number, then we have detected a reorg and the indexer
                         // receives no penalty.

@@ -1,4 +1,4 @@
-use crate::{BlockRequirements, IndexerInfo, Indexing, IndexingStatus, State};
+use crate::{IndexerInfo, Indexing, IndexingStatus, State};
 use prelude::*;
 use prelude::{buffer_queue::QueueReader, double_buffer::DoubleBufferWriter};
 use std::{collections::HashMap, sync::Arc};
@@ -33,8 +33,8 @@ pub struct IndexerUpdate {
 pub enum IndexerErrorObservation {
     Timeout,
     IndexingBehind {
-        refreshed_requirements: BlockRequirements,
-        latest: u64,
+        block_queried: u64,
+        latest_block: u64,
     },
     Other,
 }
@@ -111,15 +111,11 @@ pub fn apply_state_update(state: &mut State, update: &Update) {
             Err(error) => {
                 state.observe_failed_query(indexing, *duration, error.is_timeout());
                 if let IndexerErrorObservation::IndexingBehind {
-                    refreshed_requirements,
-                    latest,
+                    block_queried,
+                    latest_block,
                 } = error
                 {
-                    state.observe_indexing_behind(
-                        indexing,
-                        refreshed_requirements.minimum_block.clone(),
-                        *latest,
-                    )
+                    state.observe_indexing_behind(indexing, *block_queried, *latest_block);
                 }
             }
         },

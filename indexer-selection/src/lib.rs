@@ -1,6 +1,5 @@
 pub mod actor;
 mod block_requirements;
-mod data_freshness;
 pub mod decay;
 mod economic_security;
 mod performance;
@@ -15,7 +14,7 @@ mod utility;
 pub use crate::{
     block_requirements::freshness_requirements,
     block_requirements::BlockRequirements,
-    selection_factors::{IndexingStatus, SelectionFactors},
+    selection_factors::{BlockStatus, IndexingStatus, SelectionFactors},
 };
 use crate::{block_requirements::make_query_deterministic, economic_security::*};
 use async_trait::async_trait;
@@ -46,6 +45,7 @@ pub struct IndexerQuery {
     pub indexing: Indexing,
     pub query: String,
     pub score: IndexerScore,
+    pub block_number: u64,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -152,7 +152,7 @@ pub struct UtilityScores {
 #[derive(Default)]
 pub struct State {
     pub network_params: NetworkParameters,
-    pub indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
+    indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
     indexings: EpochCache<Indexing, SelectionFactors, 2>,
     pub special_indexers: Option<Arc<HashMap<Address, NotNan<f64>>>>,
 }
@@ -186,11 +186,11 @@ impl State {
     pub fn observe_indexing_behind(
         &mut self,
         indexing: &Indexing,
-        minimum_block: Option<u64>,
-        latest: u64,
+        block_queried: u64,
+        latest_block: u64,
     ) {
         if let Some(selection_factors) = self.indexings.get_mut(indexing) {
-            selection_factors.observe_indexing_behind(minimum_block, latest);
+            selection_factors.observe_indexing_behind(block_queried, latest_block);
         }
     }
 
@@ -232,7 +232,7 @@ impl State {
         let head = block_resolver
             .latest_block()
             .ok_or(SelectionError::MissingBlock(UnresolvedBlock::WithNumber(0)))?;
-        let latest_block = block_resolver
+        let query_block = block_resolver
             .resolve_block(UnresolvedBlock::WithNumber(
                 head.number.saturating_sub(selection.score.blocks_behind),
             ))
@@ -240,7 +240,7 @@ impl State {
         let query = make_query_deterministic(
             context,
             block_resolver,
-            &latest_block,
+            &query_block,
             selection.score.blocks_behind,
         )
         .await?;
@@ -250,6 +250,7 @@ impl State {
             indexing: selection.indexing,
             query: query.query,
             score: selection.score,
+            block_number: query_block.number,
         };
         Ok(Some((indexer_query, selection.scoring_sample)))
     }
@@ -418,7 +419,6 @@ impl State {
             freshness_requirements,
             config.data_freshness,
             latest_block.number,
-            blocks_behind,
         )?;
         aggregator.add(data_freshness);
 
