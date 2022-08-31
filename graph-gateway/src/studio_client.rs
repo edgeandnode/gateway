@@ -140,7 +140,10 @@ impl Actor {
         if (price < 1e-3) || (price > 1e3) {
             return Err(format!("Conversion rate out of range ({})", price).into());
         }
-        USD::try_from(price.recip()).map_err(|_| "Failed to convert price to decimal value".into())
+        let usd_to_grt =
+            USD::try_from(price.recip()).map_err(|_| "Failed to convert price to decimal value")?;
+        tracing::debug!(%usd_to_grt, source_price = price);
+        Ok(usd_to_grt)
     }
 }
 
