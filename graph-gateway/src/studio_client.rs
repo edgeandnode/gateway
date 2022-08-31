@@ -134,9 +134,13 @@ impl Actor {
             .send()
             .await?
             .json::<GRTPrice>()
-            .await?;
-        USD::try_from(price.usd.recip())
-            .map_err(|_| "Failed to convert price to decimal value".into())
+            .await?
+            .usd;
+        // Check that the float value isn't completely outside of reasonable bounds.
+        if (price < 1e-3) || (price > 1e3) {
+            return Err(format!("Conversion rate out of range ({})", price).into());
+        }
+        USD::try_from(price.recip()).map_err(|_| "Failed to convert price to decimal value".into())
     }
 }
 

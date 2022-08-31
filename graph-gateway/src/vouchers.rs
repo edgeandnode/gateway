@@ -49,6 +49,10 @@ fn process_oneshot_voucher(
         fees = %voucher.fees.to_string(),
         "collect receipts request",
     );
+    if voucher.fees > U256::from(10_000_000) {
+        tracing::error!(excessive_voucher_fees = %voucher.fees);
+        return Err("Voucher value too large".into());
+    }
     Ok(HttpResponseBuilder::new(StatusCode::OK).json(json!({
         "allocation": format!("0x{}", hex::encode(voucher.allocation_id)),
         "amount": voucher.fees.to_string(),
@@ -90,6 +94,10 @@ fn process_partial_voucher(
         fees = %partial_voucher.voucher.fees.to_string(),
         "partial voucher request",
     );
+    if partial_voucher.voucher.fees > U256::from(10_000_000) {
+        tracing::error!(excessive_voucher_fees = %partial_voucher.voucher.fees);
+        return Err("Voucher value too large".into());
+    }
     Ok(HttpResponseBuilder::new(StatusCode::OK).json(json!({
         "allocation": format!("0x{}", hex::encode(partial_voucher.voucher.allocation_id)),
         "fees": partial_voucher.voucher.fees.to_string(),
@@ -140,6 +148,10 @@ fn process_voucher(signer: &SecretKey, payload: &web::Bytes) -> Result<HttpRespo
         fees = %voucher.fees.to_string(),
         "voucher request",
     );
+    if voucher.fees > U256::from(10_000_000) {
+        tracing::error!(excessive_voucher_fees = %voucher.fees);
+        return Err("Voucher value too large".into());
+    }
     Ok(HttpResponseBuilder::new(StatusCode::OK).json(json!({
         "allocation": allocation_id.to_string(),
         "fees": voucher.fees.to_string(),

@@ -685,6 +685,7 @@ async fn handle_subgraph_query_inner(
             QueryEngineError::MissingBlock(_) => "Gateway failed to resolve required blocks".into(),
             QueryEngineError::MissingNetworkParams => "Internal error: MissingNetworkParams".into(),
             QueryEngineError::MissingExchangeRate => "Internal error: MissingExchangeRate".into(),
+            QueryEngineError::ExcessiveFee => "Internal error: ExcessiveFee".into(),
         });
     }
     let last_attempt = query.indexer_attempts.last().unwrap();
