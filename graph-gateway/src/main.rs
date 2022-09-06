@@ -671,7 +671,10 @@ async fn handle_subgraph_query_inner(
             QueryEngineError::MalformedQuery => "Invalid query".into(),
             QueryEngineError::NoIndexers => "No indexers found for subgraph deployment".into(),
             QueryEngineError::NoIndexerSelected => {
-                "No suitable indexer found for subgraph deployment".into()
+                format!(
+                    "No suitable indexer found for subgraph deployment, {} indexers attempted",
+                    query.indexer_attempts.len()
+                )
             }
             QueryEngineError::FeesTooHigh(count) => {
                 format!(
