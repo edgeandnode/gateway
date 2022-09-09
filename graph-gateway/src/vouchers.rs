@@ -49,7 +49,8 @@ fn process_oneshot_voucher(
         fees = %voucher.fees.to_string(),
         "collect receipts request",
     );
-    if voucher.fees > U256::from(10_000_000) {
+    // Don't allow more than 10M GRT in a single collection
+    if voucher.fees > U256::from(10000000000000000000000000u128) {
         tracing::error!(excessive_voucher_fees = %voucher.fees);
         return Err("Voucher value too large".into());
     }
@@ -94,7 +95,8 @@ fn process_partial_voucher(
         fees = %partial_voucher.voucher.fees.to_string(),
         "partial voucher request",
     );
-    if partial_voucher.voucher.fees > U256::from(10_000_000) {
+    // 10M GRT
+    if partial_voucher.voucher.fees > U256::from(10000000000000000000000000u128) {
         tracing::error!(excessive_voucher_fees = %partial_voucher.voucher.fees);
         return Err("Voucher value too large".into());
     }
@@ -148,7 +150,8 @@ fn process_voucher(signer: &SecretKey, payload: &web::Bytes) -> Result<HttpRespo
         fees = %voucher.fees.to_string(),
         "voucher request",
     );
-    if voucher.fees > U256::from(10_000_000) {
+    // 10M GRT
+    if voucher.fees > U256::from(10000000000000000000000000u128) {
         tracing::error!(excessive_voucher_fees = %voucher.fees);
         return Err("Voucher value too large".into());
     }
