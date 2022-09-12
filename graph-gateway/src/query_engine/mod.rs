@@ -438,7 +438,7 @@ where
             };
 
             let indexing = indexer_query.indexing;
-            let query_block = indexer_query.block_number;
+            let latest_query_block = indexer_query.latest_block;
             let receipt = self
                 .receipt_pools
                 .commit(&indexing, indexer_query.score.fee)
@@ -459,22 +459,11 @@ where
                 Err(IndexerError::UnresolvedBlock) => {
                     // Get this early to be closer to the time when the query was made so that race
                     // conditions occur less frequently. They will still occur though.
-                    let latest = block_resolver.latest_block().map(|b| b.number).unwrap_or(0);
-                    match indexer_selection::freshness_requirements(
-                        &mut context.operations,
-                        &block_resolver,
-                    )
-                    .await
-                    {
-                        Ok(_) => Err(IndexerErrorObservation::IndexingBehind {
-                            block_queried: query_block,
-                            latest_block: latest,
-                        }),
-                        // If we observed a block hash in the query that we could no longer
-                        // associate with a number, then we have detected a reorg and the indexer
-                        // receives no penalty.
-                        Err(_) => Err(IndexerErrorObservation::Other),
-                    }
+                    let latest_block = block_resolver.latest_block().map(|b| b.number).unwrap_or(0);
+                    Err(IndexerErrorObservation::IndexingBehind {
+                        latest_query_block,
+                        latest_block,
+                    })
                 }
                 Err(_) => Err(IndexerErrorObservation::Other),
             };

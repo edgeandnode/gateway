@@ -45,7 +45,7 @@ pub struct IndexerQuery {
     pub indexing: Indexing,
     pub query: String,
     pub score: IndexerScore,
-    pub block_number: u64,
+    pub latest_block: u64,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -186,11 +186,11 @@ impl State {
     pub fn observe_indexing_behind(
         &mut self,
         indexing: &Indexing,
-        block_queried: u64,
+        latest_query_block: u64,
         latest_block: u64,
     ) {
         if let Some(selection_factors) = self.indexings.get_mut(indexing) {
-            selection_factors.observe_indexing_behind(block_queried, latest_block);
+            selection_factors.observe_indexing_behind(latest_query_block, latest_block);
         }
     }
 
@@ -232,7 +232,7 @@ impl State {
         let head = block_resolver
             .latest_block()
             .ok_or(SelectionError::MissingBlock(UnresolvedBlock::WithNumber(0)))?;
-        let query_block = block_resolver
+        let latest_block = block_resolver
             .resolve_block(UnresolvedBlock::WithNumber(
                 head.number.saturating_sub(selection.score.blocks_behind),
             ))
@@ -240,7 +240,7 @@ impl State {
         let query = make_query_deterministic(
             context,
             block_resolver,
-            &query_block,
+            &latest_block,
             selection.score.blocks_behind,
         )
         .await?;
@@ -250,7 +250,7 @@ impl State {
             indexing: selection.indexing,
             query: query.query,
             score: selection.score,
-            block_number: query_block.number,
+            latest_block: latest_block.number,
         };
         Ok(Some((indexer_query, selection.scoring_sample)))
     }

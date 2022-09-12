@@ -49,16 +49,16 @@ impl SelectionFactors {
         }
     }
 
-    pub fn observe_indexing_behind(&mut self, block_queried: u64, latest_block: u64) {
+    pub fn observe_indexing_behind(&mut self, latest_query_block: u64, latest_block: u64) {
         let mut status = match &mut self.status.block {
             Some(status) => status,
             None => return,
         };
-        let blocks_behind = match latest_block.checked_sub(block_queried) {
+        let blocks_behind = match latest_block.checked_sub(latest_query_block) {
             Some(blocks_behind) => blocks_behind,
             None => return,
         };
-        if block_queried <= status.reported_number {
+        if latest_query_block <= status.reported_number {
             self.status.block = None;
             self.reputation.current_mut().penalize(130);
         } else {

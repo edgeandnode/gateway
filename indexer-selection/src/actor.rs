@@ -33,7 +33,7 @@ pub struct IndexerUpdate {
 pub enum IndexerErrorObservation {
     Timeout,
     IndexingBehind {
-        block_queried: u64,
+        latest_query_block: u64,
         latest_block: u64,
     },
     Other,
@@ -111,11 +111,11 @@ pub fn apply_state_update(state: &mut State, update: &Update) {
             Err(error) => {
                 state.observe_failed_query(indexing, *duration, error.is_timeout());
                 if let IndexerErrorObservation::IndexingBehind {
-                    block_queried,
+                    latest_query_block,
                     latest_block,
                 } = error
                 {
-                    state.observe_indexing_behind(indexing, *block_queried, *latest_block);
+                    state.observe_indexing_behind(indexing, *latest_query_block, *latest_block);
                 }
             }
         },
