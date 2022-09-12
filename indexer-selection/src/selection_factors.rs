@@ -59,14 +59,12 @@ impl SelectionFactors {
             None => return,
         };
         if latest_query_block <= status.reported_number {
-            self.status.block = None;
             self.reputation.current_mut().penalize(130);
-        } else {
-            // They are at least one block behind the assumed status (this will usually be the
-            // case). In some cases for timing issues they may have already reported they are even
-            // farther behind, so we assume the worst of the two.
-            status.blocks_behind = status.blocks_behind.max(blocks_behind + 1);
         }
+        // They are at least one block behind the assumed status (this will usually be the case).
+        // In some cases for timing issues they may have already reported they are even farther
+        // behind, so we assume the worst of the two.
+        status.blocks_behind = status.blocks_behind.max(blocks_behind + 1);
     }
 
     pub fn penalize(&mut self, weight: u8) {
