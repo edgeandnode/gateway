@@ -366,6 +366,7 @@ impl Topology {
                             block: Some(BlockStatus {
                                 reported_number: indexer.block(network.blocks.len()) as u64,
                                 blocks_behind: indexer.blocks_behind as u64,
+                                behind_reported_block: false,
                             }),
                         };
                         Some((deployment.id, update))

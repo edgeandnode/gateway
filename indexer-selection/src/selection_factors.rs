@@ -29,6 +29,7 @@ pub struct IndexingStatus {
 pub struct BlockStatus {
     pub reported_number: u64,
     pub blocks_behind: u64,
+    pub behind_reported_block: bool,
 }
 
 impl SelectionFactors {
@@ -58,8 +59,11 @@ impl SelectionFactors {
             Some(blocks_behind) => blocks_behind,
             None => return,
         };
-        if latest_query_block <= status.reported_number {
+        if (latest_query_block <= status.reported_number) && !status.behind_reported_block {
             self.reputation.current_mut().penalize(130);
+            // Only apply this harsh penaly once, until the reported status is
+            // updated.
+            status.behind_reported_block = true;
         }
         // They are at least one block behind the assumed status (this will usually be the case).
         // In some cases for timing issues they may have already reported they are even farther

@@ -172,6 +172,7 @@ async fn main() -> anyhow::Result<()> {
                     block: Some(BlockStatus {
                         reported_number: latest.number.saturating_sub(indexer.blocks_behind),
                         blocks_behind: indexer.blocks_behind,
+                        behind_reported_block: false,
                     }),
                 },
             )]);

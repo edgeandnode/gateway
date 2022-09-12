@@ -416,6 +416,7 @@ async fn write_indexer_inputs(
                 block: Some(BlockStatus {
                     reported_number: status.block.number,
                     blocks_behind: latest.saturating_sub(status.block.number),
+                    behind_reported_block: false,
                 }),
             },
         );

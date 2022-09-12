@@ -262,6 +262,7 @@ async fn run_simulation(
                 block: Some(BlockStatus {
                     reported_number: latest.number.saturating_sub(data.blocks_behind),
                     blocks_behind: data.blocks_behind,
+                    behind_reported_block: false,
                 }),
             },
         );
