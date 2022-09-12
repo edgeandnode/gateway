@@ -1380,7 +1380,6 @@ dependencies = [
  "serde",
  "serde_json",
  "siphasher",
- "url",
 ]
 
 [[package]]

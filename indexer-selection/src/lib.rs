@@ -26,7 +26,6 @@ use rand::{thread_rng, Rng as _};
 pub use receipts;
 pub use secp256k1::SecretKey;
 use std::{collections::HashMap, sync::Arc};
-use url::Url;
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
@@ -131,7 +130,7 @@ pub trait BlockResolver {
 
 #[derive(Clone, Debug)]
 pub struct IndexerScore {
-    pub url: Url,
+    pub url: URL,
     pub fee: GRT,
     pub slashable: USD,
     pub utility: NotNan<f64>,
@@ -159,7 +158,7 @@ pub struct State {
 
 #[derive(Debug)]
 pub struct IndexerInfo {
-    pub url: Url,
+    pub url: URL,
     pub stake: GRT,
 }
 

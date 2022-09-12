@@ -10,7 +10,6 @@ use tokio::{
     time::{interval, sleep, Interval},
 };
 use tracing::{self, Instrument};
-use url::Url;
 
 const MPSC_BUFFER: usize = 32;
 const WS_RETRY_LIMIT: usize = 3;
@@ -19,8 +18,8 @@ const WS_RETRY_LIMIT: usize = 3;
 pub struct Provider {
     pub network: String,
     pub block_time: Duration,
-    pub rest_url: Url,
-    pub websocket_url: Option<Url>,
+    pub rest_url: URL,
+    pub websocket_url: Option<URL>,
 }
 
 #[derive(Debug)]
@@ -197,7 +196,7 @@ impl Client {
                 };
                 tracing::trace!(%method, %param);
                 let response = match rest_client
-                    .post(url)
+                    .post(url.0)
                     .json(&Self::post_body(method, &[param, false.into()]))
                     .send()
                     .await
