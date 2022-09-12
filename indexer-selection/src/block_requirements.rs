@@ -8,12 +8,10 @@ use std::{collections::BTreeMap, convert::TryFrom};
 
 #[derive(Default, Debug, Eq, PartialEq)]
 pub struct BlockRequirements {
-    // If specified, the subgraph must have indexed
-    // up to at least this number.
+    /// If specified, the subgraph must have indexed up to at least this number.
     pub minimum_block: Option<u64>,
-    // If true, the query has an unspecified block
-    // which means the query benefits from syncing as far
-    // in the future as possible.
+    /// If true, the query has an unspecified block which means the query benefits from syncing as
+    /// far in the future as possible.
     pub has_latest: bool,
 }
 

@@ -36,12 +36,7 @@ pub struct SelectionFactor {
 }
 
 impl SelectionFactor {
-    pub const fn zero() -> Self {
-        Self {
-            weight: 0.0,
-            utility: 0.0,
-        }
-    }
+    /// Just a utility value and a weight of 1.0.
     pub const fn one(utility: f64) -> Self {
         Self {
             weight: 1.0,

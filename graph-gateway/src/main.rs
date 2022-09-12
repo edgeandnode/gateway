@@ -39,7 +39,7 @@ use actix_web::{
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use eventuals::EventualExt as _;
-use indexer_selection::{actor::IndexerUpdate, IndexerInfo};
+use indexer_selection::{actor::IndexerUpdate, BlockStatus, IndexerInfo};
 use network_subgraph::AllocationInfo;
 use prelude::{
     buffer_queue::{self, QueueWriter},
@@ -413,8 +413,11 @@ async fn write_indexer_inputs(
             indexer_selection::IndexingStatus {
                 allocations: Arc::new(allocations),
                 cost_model: status.cost_model.clone(),
-                block: status.block.number,
-                latest,
+                block: Some(BlockStatus {
+                    reported_number: status.block.number,
+                    blocks_behind: latest.saturating_sub(status.block.number),
+                    behind_reported_block: false,
+                }),
             },
         );
     }

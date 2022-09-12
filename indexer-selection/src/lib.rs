@@ -1,6 +1,5 @@
 pub mod actor;
 mod block_requirements;
-mod data_freshness;
 pub mod decay;
 mod economic_security;
 mod performance;
@@ -15,7 +14,7 @@ mod utility;
 pub use crate::{
     block_requirements::freshness_requirements,
     block_requirements::BlockRequirements,
-    selection_factors::{IndexingStatus, SelectionFactors},
+    selection_factors::{BlockStatus, IndexingStatus, SelectionFactors},
 };
 use crate::{block_requirements::make_query_deterministic, economic_security::*};
 use async_trait::async_trait;
@@ -46,6 +45,7 @@ pub struct IndexerQuery {
     pub indexing: Indexing,
     pub query: String,
     pub score: IndexerScore,
+    pub latest_block: u64,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -152,7 +152,7 @@ pub struct UtilityScores {
 #[derive(Default)]
 pub struct State {
     pub network_params: NetworkParameters,
-    pub indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
+    indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
     indexings: EpochCache<Indexing, SelectionFactors, 2>,
     pub special_indexers: Option<Arc<HashMap<Address, NotNan<f64>>>>,
 }
@@ -186,11 +186,11 @@ impl State {
     pub fn observe_indexing_behind(
         &mut self,
         indexing: &Indexing,
-        minimum_block: Option<u64>,
-        latest: u64,
+        latest_query_block: u64,
+        latest_block: u64,
     ) {
         if let Some(selection_factors) = self.indexings.get_mut(indexing) {
-            selection_factors.observe_indexing_behind(minimum_block, latest);
+            selection_factors.observe_indexing_behind(latest_query_block, latest_block);
         }
     }
 
@@ -250,6 +250,7 @@ impl State {
             indexing: selection.indexing,
             query: query.query,
             score: selection.score,
+            latest_block: latest_block.number,
         };
         Ok(Some((indexer_query, selection.scoring_sample)))
     }
@@ -418,7 +419,6 @@ impl State {
             freshness_requirements,
             config.data_freshness,
             latest_block.number,
-            blocks_behind,
         )?;
         aggregator.add(data_freshness);
 

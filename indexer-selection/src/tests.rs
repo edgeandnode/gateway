@@ -1,4 +1,5 @@
 use crate::{
+    selection_factors::BlockStatus,
     test_utils::{default_cost_model, gen_blocks, TestBlockResolver},
     *,
 };
@@ -258,8 +259,11 @@ async fn run_simulation(
             IndexingStatus {
                 allocations,
                 cost_model: Some(Ptr::new(default_cost_model(data.price))),
-                block: latest.number - data.blocks_behind,
-                latest: latest.number,
+                block: Some(BlockStatus {
+                    reported_number: latest.number.saturating_sub(data.blocks_behind),
+                    blocks_behind: data.blocks_behind,
+                    behind_reported_block: false,
+                }),
             },
         );
         indexer_ids.push(indexing.indexer);
