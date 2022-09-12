@@ -6,11 +6,10 @@ use reqwest;
 use serde::Deserialize;
 use std::{collections::HashMap, error::Error, sync::Arc};
 use tokio::sync::Mutex;
-use url::Url;
 
 pub struct Actor {
     client: reqwest::Client,
-    url: Url,
+    url: URL,
     auth: String,
     api_key_usage: VolumeEstimations,
     api_keys_writer: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
@@ -23,11 +22,11 @@ pub struct Data {
 }
 
 impl Actor {
-    pub fn create(client: reqwest::Client, mut url: Url, auth: String) -> Data {
+    pub fn create(client: reqwest::Client, mut url: URL, auth: String) -> Data {
         let (api_keys_writer, api_keys) = Eventual::new();
         let (usd_to_grt_writer, usd_to_grt) = Eventual::new();
         if !url.path().ends_with("/") {
-            url.set_path(&format!("{}/", url.path()));
+            url.0.set_path(&format!("{}/", url.path()));
         }
         let actor = Arc::new(Mutex::new(Self {
             client,

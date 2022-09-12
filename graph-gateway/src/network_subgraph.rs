@@ -9,7 +9,6 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::Mutex;
-use url::Url;
 
 #[derive(Clone)]
 pub struct Data {
@@ -26,7 +25,7 @@ pub struct AllocationInfo {
 }
 
 pub struct Client {
-    network_subgraph: Url,
+    network_subgraph: URL,
     http_client: reqwest::Client,
     latest_block: u64,
     slashing_percentage: EventualWriter<PPM>,
@@ -37,7 +36,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn create(http_client: reqwest::Client, network_subgraph: Url) -> Data {
+    pub fn create(http_client: reqwest::Client, network_subgraph: URL) -> Data {
         let (slashing_percentage_tx, slashing_percentage_rx) = Eventual::new();
         let (subgraph_deployments_tx, subgraph_deployments_rx) = Eventual::new();
         let (deployment_indexers_tx, deployment_indexers_rx) = Eventual::new();
@@ -81,7 +80,7 @@ impl Client {
     }
 
     async fn poll_network_params(&mut self) -> Result<(), String> {
-        let response = graphql::query::<GraphNetworksResponse, _>(
+        let response = graphql::query::<GraphNetworksResponse>(
             &self.http_client,
             self.network_subgraph.clone(),
             &json!({ "query": "{ graphNetworks { slashingPercentage } }" }),
@@ -123,7 +122,7 @@ impl Client {
                 .indexer
                 .url
                 .as_ref()
-                .and_then(|url| url.parse::<Url>().ok())
+                .and_then(|url| url.parse::<URL>().ok())
             {
                 Some(url) => url,
                 None => continue,
@@ -218,7 +217,7 @@ impl Client {
             struct InitResponse {
                 meta: Meta,
             }
-            let init = graphql::query::<InitResponse, _>(
+            let init = graphql::query::<InitResponse>(
                 &self.http_client,
                 self.network_subgraph.clone(),
                 &json!({"query": "{ meta: _meta { block { number hash } } }"}),
@@ -232,7 +231,7 @@ impl Client {
                 .as_ref()
                 .map(|block| json!({ "hash": block.hash }))
                 .unwrap_or(json!({ "number_gte": self.latest_block }));
-            let response = graphql::query::<PaginatedQueryResponse<T>, _>(
+            let response = graphql::query::<PaginatedQueryResponse<T>>(
                 &self.http_client,
                 self.network_subgraph.clone(),
                 &json!({

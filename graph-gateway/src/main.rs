@@ -59,7 +59,6 @@ use std::{
 };
 use structopt::StructOpt as _;
 use tokio::spawn;
-use url::Url;
 
 #[actix_web::main]
 async fn main() {
@@ -466,7 +465,7 @@ async fn handle_ready(data: web::Data<ReadyData>) -> HttpResponse {
 #[derive(Clone)]
 struct NetworkSubgraphQueryData {
     http_client: reqwest::Client,
-    network_subgraph: Url,
+    network_subgraph: URL,
     network_subgraph_auth_token: String,
 }
 
@@ -480,7 +479,7 @@ async fn handle_network_query(
     let post_request = |body: String| async {
         let response = data
             .http_client
-            .post(data.network_subgraph.clone())
+            .post(data.network_subgraph.0.clone())
             .body(body)
             .header(header::CONTENT_TYPE.as_str(), "application/json")
             .header(
@@ -651,7 +650,7 @@ async fn handle_subgraph_query_inner(
         .headers()
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
+        .and_then(|v| Some(v.parse::<URL>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
     tracing::debug!(%domain, authorized = ?api_key.domains);
     let authorized_domains = api_key.domains.iter().map(|(d, _)| d.as_str());

@@ -1,14 +1,14 @@
-use reqwest::{Client, IntoUrl};
+use crate::URL;
+use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value as JSON;
 
-pub async fn query<T, U>(client: &Client, url: U, body: &JSON) -> Result<Response<T>, String>
+pub async fn query<T>(client: &Client, url: URL, body: &JSON) -> Result<Response<T>, String>
 where
     T: DeserializeOwned,
-    U: IntoUrl,
 {
     client
-        .post(url)
+        .post(url.0)
         .json(body)
         .send()
         .await

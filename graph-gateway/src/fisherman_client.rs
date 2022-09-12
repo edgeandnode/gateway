@@ -5,7 +5,6 @@ use reqwest;
 use serde::Deserialize;
 use serde_json::json;
 use std::error::Error;
-use url::Url;
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 pub enum ChallengeOutcome {
@@ -30,7 +29,7 @@ pub trait FishermanInterface {
 #[derive(Clone)]
 pub struct FishermanClient {
     client: reqwest::Client,
-    url: Url,
+    url: URL,
 }
 
 #[async_trait]
@@ -56,7 +55,7 @@ impl FishermanInterface for FishermanClient {
 }
 
 impl FishermanClient {
-    pub fn new(client: reqwest::Client, url: Url) -> Self {
+    pub fn new(client: reqwest::Client, url: URL) -> Self {
         Self { client, url }
     }
 
@@ -79,7 +78,7 @@ impl FishermanClient {
         }))?;
         tracing::trace!(%indexer, %challenge);
         self.client
-            .post(self.url.clone())
+            .post(self.url.0.clone())
             .header("Content-Type", "application/json")
             .body(challenge)
             .send()

@@ -8,7 +8,6 @@ use rdkafka::config::ClientConfig as KafkaConfig;
 use semver::Version;
 use std::{collections::HashMap, error::Error, path::PathBuf};
 use structopt_derive::StructOpt;
-use url::{self, Url};
 
 // TODO: Consider the security implications of passing mnemonics, passwords, etc. via environment variables or CLI arguments.
 
@@ -21,9 +20,9 @@ pub struct Opt {
     )]
     pub signer_key: SignerKey,
     #[structopt(long, env, help = "IPFS endpoint with access to the subgraph files")]
-    pub ipfs: Url,
+    pub ipfs: URL,
     #[structopt(long, env, help = "Fisherman endpoint")]
-    pub fisherman: Option<Url>,
+    pub fisherman: Option<URL>,
     #[structopt(
         long,
         env,
@@ -31,7 +30,7 @@ pub struct Opt {
     )]
     pub ethereum_providers: EthereumProviders,
     #[structopt(long, env, help = "Network subgraph URL")]
-    pub network_subgraph: Url,
+    pub network_subgraph: URL,
     #[structopt(long, env, help = "Network subgraph auth token")]
     pub network_subgraph_auth_token: String,
     #[structopt(
@@ -100,7 +99,7 @@ pub struct Opt {
     )]
     pub geoip_blocked_countries: Vec<String>,
     #[structopt(long, env, help = "Subgraph studio admin url")]
-    pub studio_url: Url,
+    pub studio_url: URL,
     #[structopt(long, env, help = "Subgraph studio auth")]
     pub studio_auth: String,
     #[structopt(
@@ -232,9 +231,8 @@ impl FromStr for EthereumProviders {
                         .unwrap()
                         .1
                         .into_iter()
-                        .cloned()
-                        .map(Url::parse)
-                        .collect::<Result<Vec<Url>, url::ParseError>>()?;
+                        .map(|s| s.parse::<URL>())
+                        .collect::<Result<Vec<URL>, _>>()?;
                     if (urls.len() < 1) || (urls.len() > 2) {
                         return Err(format!(
                             "Expected 1-2 URLS per provider, found {}",

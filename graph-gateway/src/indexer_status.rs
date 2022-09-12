@@ -11,7 +11,7 @@ use serde_json::json;
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::sync::Mutex;
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
-use url::{Host, Url};
+use url::Host;
 
 pub struct Data {
     pub indexings: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
@@ -176,7 +176,7 @@ impl Actor {
     async fn query_status(
         client: &reqwest::Client,
         actor: Arc<Mutex<Actor>>,
-        url: Url,
+        url: URL,
         indexer: &Address,
     ) -> Result<Vec<(Indexing, IndexingStatus)>, String> {
         let status_url = url.join("status").map_err(|err| err.to_string())?;
@@ -190,7 +190,7 @@ impl Actor {
             }
         }"# });
         let statuses =
-            graphql::query::<IndexerStatusResponse, _>(client, status_url, &status_query)
+            graphql::query::<IndexerStatusResponse>(client, status_url.into(), &status_query)
                 .await?
                 .unpack()?
                 .indexing_statuses;
@@ -210,7 +210,7 @@ impl Actor {
             }"#,
             "variables": { "deployments": deployments },
         });
-        let cost_models = graphql::query::<CostModelResponse, _>(client, cost_url, &cost_query)
+        let cost_models = graphql::query::<CostModelResponse>(client, cost_url.into(), &cost_query)
             .await
             .and_then(graphql::Response::unpack)
             .map(|cost_models| cost_models.cost_models)

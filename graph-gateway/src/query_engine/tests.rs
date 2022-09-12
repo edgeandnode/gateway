@@ -21,7 +21,6 @@ use rand::{
 use serde_json::json;
 use std::{collections::BTreeMap, env, fmt, ops::RangeInclusive};
 use tokio::{self, sync::Mutex};
-use url::Url;
 
 /// Query engine tests use pseudorandomly generated network state and client query as inputs.
 /// The using these inputs, the query engine produces a query result that gets checked based on
@@ -341,7 +340,7 @@ impl Topology {
 
         let stake_table = [0.0, 50e3, 100e3, 150e3];
         let fee_table = [0.0, 0.1, 1.0, 2.0];
-        let url = "http://localhost".parse::<Url>().unwrap();
+        let url = "http://localhost".parse::<URL>().unwrap();
         let indexers = self
             .indexers
             .values()

@@ -16,7 +16,6 @@ use std::{
     io::{BufRead as _, BufReader},
     sync::Arc,
 };
-use url::Url;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -65,9 +64,9 @@ async fn main() -> anyhow::Result<()> {
         .collect::<Vec<&String>>();
 
     let client = reqwest::Client::new();
-    let allocations = graphql::query::<AllocationResponse, _>(
+    let allocations = graphql::query::<AllocationResponse>(
         &client,
-        "https://gateway.thegraph.com/network",
+        "https://gateway.thegraph.com/network".parse().unwrap(),
         &json!({
             "query": r#"query($allocations: [String!]!) {
             allocations(where:{id_in:$allocations}) {
@@ -247,7 +246,7 @@ async fn main() -> anyhow::Result<()> {
 
 struct IndexerCharacteristics {
     address: Address,
-    url: Url,
+    url: URL,
     price: GRT,
     blocks_behind: u64,
     reliability: f64,
@@ -261,7 +260,7 @@ struct LogLine {
     timestamp: DateTime<FixedOffset>,
     deployment: SubgraphDeploymentID,
     indexer: Address,
-    url: Url,
+    url: URL,
     allocation: String,
     success: bool,
     fee: GRT,
