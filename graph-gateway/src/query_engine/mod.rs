@@ -74,10 +74,19 @@ pub struct IndexerAttempt {
     pub indexer: Address,
     pub allocation: Address,
     pub query: Arc<String>,
-    pub receipt: Vec<u8>,
+    pub receipt: Receipt,
     pub result: Result<IndexerResponse, IndexerError>,
     pub indexer_errors: String,
     pub duration: Duration,
+}
+
+#[derive(Clone)]
+pub struct Receipt(pub Vec<u8>);
+
+impl fmt::Debug for Receipt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x{}", hex::encode(&self.0))
+    }
 }
 
 impl IndexerAttempt {
@@ -442,7 +451,8 @@ where
             let receipt = self
                 .receipt_pools
                 .commit(&indexing, indexer_query.score.fee)
-                .await;
+                .await
+                .map(Receipt);
             let result = match receipt {
                 Ok(receipt) => {
                     self.execute_indexer_query(query, indexer_query, receipt, deployment_id)
@@ -476,7 +486,7 @@ where
                 Err(_) => ReceiptStatus::Failure,
             };
             self.receipt_pools
-                .release(&indexing, &attempt.receipt, receipt_status)
+                .release(&indexing, &attempt.receipt.0, receipt_status)
                 .await;
 
             let _ = self.observations.write(Update::QueryObservation {
@@ -508,13 +518,13 @@ where
         &self,
         query: &mut Query,
         indexer_query: IndexerQuery,
-        receipt: Vec<u8>,
+        receipt: Receipt,
         deployment_id: &str,
     ) -> Result<(), IndexerError> {
         let t0 = Instant::now();
         let result = self
             .indexer_client
-            .query_indexer(&indexer_query, &receipt)
+            .query_indexer(&indexer_query, &receipt.0)
             .await;
         let query_duration = Instant::now() - t0;
         with_metric(&METRICS.indexer_query.duration, &[&deployment_id], |hist| {
@@ -522,7 +532,7 @@ where
         });
 
         let mut allocation = Address([0; 20]);
-        allocation.0.copy_from_slice(&receipt[0..20]);
+        allocation.0.copy_from_slice(&receipt.0[0..20]);
 
         query.indexer_attempts.push(IndexerAttempt {
             score: indexer_query.score,
