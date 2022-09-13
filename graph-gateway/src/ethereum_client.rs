@@ -1,43 +1,30 @@
-use crate::{block_resolver::BlockCacheWriter, metrics::*, ws_client};
+use crate::{block_resolver::BlockCacheWriter, metrics::*};
 use indexer_selection::UnresolvedBlock;
 use prelude::*;
 use reqwest;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
 use std::collections::HashMap;
-use tokio::{
-    self,
-    time::{interval, sleep, Interval},
-};
 use tracing::{self, Instrument};
 
 const MPSC_BUFFER: usize = 32;
-const WS_RETRY_LIMIT: usize = 3;
 
 #[derive(Debug)]
 pub struct Provider {
     pub network: String,
     pub block_time: Duration,
-    pub rest_url: URL,
-    pub websocket_url: Option<URL>,
+    pub rpc: URL,
 }
 
 #[derive(Debug)]
 pub enum Msg {
     Request(UnresolvedBlock, oneshot::Sender<BlockPointer>),
     Resolved(Option<UnresolvedBlock>, BlockHead),
-    RetryWS,
-}
-
-enum Source {
-    WS(ws_client::Interface),
-    REST(Interval),
 }
 
 struct Client {
     provider: Provider,
     rest_client: reqwest::Client,
-    source: Source,
     msgs: (mpsc::Sender<Msg>, mpsc::Receiver<Msg>),
     resolving: HashMap<UnresolvedBlock, Vec<oneshot::Sender<BlockPointer>>>,
     block_cache: BlockCacheWriter,
@@ -47,7 +34,6 @@ pub fn create(provider: Provider, block_cache: BlockCacheWriter) -> mpsc::Sender
     let _trace = tracing::info_span!("Ethereum client", network = %provider.network).entered();
     let (msg_send, msg_recv) = mpsc::channel::<Msg>(MPSC_BUFFER);
     let mut client = Client {
-        source: Client::try_ws_source(&provider),
         provider,
         rest_client: reqwest::Client::new(),
         msgs: (msg_send.clone(), msg_recv),
@@ -56,8 +42,13 @@ pub fn create(provider: Provider, block_cache: BlockCacheWriter) -> mpsc::Sender
     };
     tokio::spawn(
         async move {
-            while let Ok(()) = client.run().await {}
-            tracing::error!("exit");
+            let mut timer = tokio::time::interval(client.provider.block_time);
+            loop {
+                tokio::select! {
+                    _ = timer.tick() => client.fetch_block(None),
+                    msg = client.msgs.1.recv() => client.handle_msg(msg).await,
+                }
+            }
         }
         .in_current_span(),
     );
@@ -65,62 +56,6 @@ pub fn create(provider: Provider, block_cache: BlockCacheWriter) -> mpsc::Sender
 }
 
 impl Client {
-    #[tracing::instrument(skip(self))]
-    async fn run(&mut self) -> Result<(), ()> {
-        match &mut self.source {
-            Source::WS(ws) => {
-                tokio::select! {
-                    msg = ws.recv.recv() => match msg {
-                        Some(msg) => self.handle_ws_msg(msg).await,
-                        None => self.fallback_to_rest(),
-                    },
-                    msg = self.msgs.1.recv() => self.handle_msg(msg).await,
-                }
-            }
-            Source::REST(timer) => {
-                tokio::select! {
-                    _ = timer.tick() => self.fetch_block(None),
-                    msg = self.msgs.1.recv() => self.handle_msg(msg).await,
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_ws_msg(&mut self, msg: ws_client::Msg) {
-        match msg {
-            ws_client::Msg::Connected => {
-                let sub =
-                    serde_json::to_string(&Self::post_body("eth_subscribe", &["newHeads".into()]))
-                        .expect("Ethereum subscription should serialize to JSON");
-                if let Source::WS(ws) = &mut self.source {
-                    if let Err(_) = ws.send.send(ws_client::Request::Send(sub)).await {
-                        self.fallback_to_rest();
-                    };
-                } else {
-                    self.fallback_to_rest();
-                }
-            }
-            ws_client::Msg::Recv(msg) => {
-                match serde_json::from_str::<APIResponse<APIBlockHead>>(&msg) {
-                    Ok(APIResponse {
-                        params: Some(APIResult { result: head }),
-                        ..
-                    }) => self.handle_head(head.into(), true).await,
-                    // Ignore subscription confirmation (hex code response)
-                    // See https://docs.alchemy.com/alchemy/guides/using-websockets#4.-newheads
-                    Ok(APIResponse {
-                        result: Some(text),
-                        error: None,
-                        ..
-                    }) if text.starts_with("0x") && hex::decode(&text[2..]).is_ok() => (),
-                    Ok(unexpected_response) => tracing::warn!(?unexpected_response),
-                    Err(err) => tracing::error!(%err),
-                }
-            }
-        };
-    }
-
     #[tracing::instrument(skip(self, msg))]
     async fn handle_msg(&mut self, msg: Option<Msg>) {
         match msg {
@@ -145,43 +80,14 @@ impl Client {
                     }
                 }
             }
-            Some(Msg::RetryWS) => {
-                tracing::info!("retry WS source");
-                self.source = Self::try_ws_source(&self.provider);
-            }
             None => return,
         }
-    }
-
-    fn fallback_to_rest(&mut self) {
-        tracing::warn!("fallback to REST");
-        self.source = Source::REST(interval(self.provider.block_time));
-        let recv = self.msgs.0.clone();
-        tokio::spawn(async move {
-            // Retry WS connection after 20 minutes
-            sleep(Duration::from_secs(60 * 20)).await;
-            let _ = recv.send(Msg::RetryWS).await;
-        });
-    }
-
-    fn try_ws_source(provider: &Provider) -> Source {
-        provider
-            .websocket_url
-            .as_ref()
-            .map(|ws_url| {
-                Source::WS(ws_client::create(
-                    MPSC_BUFFER,
-                    ws_url.clone(),
-                    WS_RETRY_LIMIT,
-                ))
-            })
-            .unwrap_or(Source::REST(interval(provider.block_time)))
     }
 
     #[tracing::instrument(skip(self))]
     fn fetch_block(&self, block: Option<UnresolvedBlock>) {
         let rest_client = self.rest_client.clone();
-        let url = self.provider.rest_url.clone();
+        let url = self.provider.rpc.clone();
         let msg_send = self.msgs.0.clone();
         tokio::spawn(
             async move {
@@ -238,13 +144,6 @@ impl Client {
             "params": params,
         })
     }
-}
-
-#[derive(Debug, Deserialize)]
-struct APIResponse<T> {
-    result: Option<String>,
-    params: Option<APIResult<T>>,
-    error: Option<HashMap<String, JSON>>,
 }
 
 #[derive(Debug, Deserialize)]
