@@ -16,7 +16,6 @@ mod stats_db;
 mod studio_client;
 mod subgraph_deployments;
 mod vouchers;
-mod ws_client;
 use crate::{
     block_resolver::*,
     fisherman_client::*,
