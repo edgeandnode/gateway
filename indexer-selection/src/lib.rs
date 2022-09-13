@@ -25,21 +25,13 @@ use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
 
+#[derive(Debug)]
 pub struct Selection {
     pub indexing: Indexing,
     pub score: IndexerScore,
 }
 
 pub struct ScoringSample(pub Address, pub Result<IndexerScore, SelectionError>);
-
-#[derive(Clone, Debug)]
-pub struct IndexerQuery {
-    pub network: String,
-    pub indexing: Indexing,
-    pub query: String,
-    pub score: IndexerScore,
-    pub latest_block: u64,
-}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum SelectionError {
@@ -84,7 +76,7 @@ impl From<BorrowFail> for IndexerError {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum UnresolvedBlock {
     WithHash(Bytes32),
     WithNumber(u64),

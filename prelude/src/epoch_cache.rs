@@ -61,6 +61,10 @@ impl<K: Eq + Hash, V, const C: u8> EpochCache<K, V, C> {
             .0
     }
 
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.0.remove(key).map(|(v, _)| v)
+    }
+
     pub fn increment_epoch(&mut self) {
         self.0 = self
             .0

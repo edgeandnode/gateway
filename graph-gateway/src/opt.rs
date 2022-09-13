@@ -1,4 +1,4 @@
-use crate::ethereum_client;
+use crate::chains::ethereum;
 use bip39;
 use hdwallet::{self, KeyChain as _};
 use indexer_selection::SecretKey;
@@ -44,10 +44,6 @@ pub struct Opt {
     pub log_json: bool,
     #[structopt(long, env, default_value = "5")]
     pub indexer_selection_retry_limit: usize,
-    #[structopt(long, env, default_value = "64")]
-    pub block_cache_head: usize,
-    #[structopt(long, env, default_value = "32768")]
-    pub block_cache_size: usize,
     #[structopt(long, env, default_value = "3.1")]
     pub query_budget_scale: f64,
     #[structopt(long, env, default_value = "0.595")]
@@ -205,7 +201,7 @@ impl FromStr for SignerKey {
 }
 
 #[derive(Debug)]
-pub struct EthereumProviders(pub Vec<ethereum_client::Provider>);
+pub struct EthereumProviders(pub Vec<ethereum::Provider>);
 
 impl FromStr for EthereumProviders {
     type Err = String;
@@ -217,24 +213,22 @@ impl FromStr for EthereumProviders {
         }
         providers
             .into_iter()
-            .map(
-                |provider| -> Result<ethereum_client::Provider, Box<dyn Error>> {
-                    let kv = provider.splitn(2, "=").collect::<Vec<&str>>();
-                    let params = kv
-                        .get(1)
-                        .ok_or("Expected params, found none")?
-                        .split(",")
-                        .collect::<Vec<&str>>();
-                    let block_time = params.get(0).unwrap_or(&"").parse::<u64>()?;
-                    let rpc = params.get(1).unwrap_or(&"").parse::<URL>()?;
-                    Ok(ethereum_client::Provider {
-                        network: kv[0].to_string(),
-                        block_time: Duration::from_secs(block_time),
-                        rpc,
-                    })
-                },
-            )
-            .collect::<Result<Vec<ethereum_client::Provider>, Box<dyn Error>>>()
+            .map(|provider| -> Result<ethereum::Provider, Box<dyn Error>> {
+                let kv = provider.splitn(2, "=").collect::<Vec<&str>>();
+                let params = kv
+                    .get(1)
+                    .ok_or("Expected params, found none")?
+                    .split(",")
+                    .collect::<Vec<&str>>();
+                let block_time = params.get(0).unwrap_or(&"").parse::<u64>()?;
+                let rpc = params.get(1).unwrap_or(&"").parse::<URL>()?;
+                Ok(ethereum::Provider {
+                    network: kv[0].to_string(),
+                    block_time: Duration::from_secs(block_time),
+                    rpc,
+                })
+            })
+            .collect::<Result<Vec<ethereum::Provider>, Box<dyn Error>>>()
             .map(|providers| EthereumProviders(providers))
             .map_err(|err| format!("{}\n{}", err_usage, err).into())
     }

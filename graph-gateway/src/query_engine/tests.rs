@@ -1,4 +1,5 @@
 use crate::{
+    chains::{self, test::Provider},
     fisherman_client::*,
     indexer_client::*,
     kafka_client::{self, KafkaInterface},
@@ -146,11 +147,18 @@ impl Topology {
         topology
     }
 
-    fn resolvers(&self) -> Arc<HashMap<String, BlockResolver>> {
+    fn block_caches(&self) -> Arc<HashMap<String, BlockCache>> {
         let resolvers = self
             .networks
             .iter()
-            .map(|(name, network)| (name.clone(), BlockResolver::test(&network.blocks)))
+            .map(|(name, network)| {
+                let provider = Provider {
+                    network: name.clone(),
+                    blocks: network.blocks.clone(),
+                };
+                let cache = BlockCache::new::<chains::test::Client>(provider);
+                (name.clone(), cache)
+            })
             .collect();
         Arc::new(resolvers)
     }
@@ -179,7 +187,7 @@ impl Topology {
 
     fn gen_network(&mut self) -> NetworkTopology {
         let mut network = NetworkTopology {
-            name: self.gen_str(log_2(*self.config.networks.end())),
+            name: self.gen_str(log_2(*self.config.networks.end()).max(1)),
             blocks: Vec::new(),
         };
         let block_count = self.gen_len(self.config.blocks.clone(), 32);
@@ -493,7 +501,7 @@ impl Topology {
             .blocks
             .is_empty()
         {
-            return Self::expect_err(trace, result, MissingBlock(UnresolvedBlock::WithNumber(0)));
+            return Self::expect_err(trace, result, NoIndexerSelected);
         }
 
         if !valid.is_empty() {
@@ -590,20 +598,34 @@ struct TopologyIndexer {
 impl IndexerInterface for TopologyIndexer {
     async fn query_indexer(
         &self,
-        query: &IndexerQuery,
+        selection: &Selection,
+        query: String,
         _receipt: &[u8],
     ) -> Result<IndexerResponse, IndexerError> {
         use regex::Regex;
         let topology = self.topology.lock().await;
-        let indexer = topology.indexers.get(&query.indexing.indexer).unwrap();
+        let indexer = topology.indexers.get(&selection.indexing.indexer).unwrap();
         if indexer.indexer_err {
             return Err(IndexerError::Other("indexer error".to_string()));
         }
-        let blocks = &topology.networks.get(&query.network).unwrap().blocks;
+        let deployment = topology
+            .deployments()
+            .into_iter()
+            .find(|d| &d.id == &selection.indexing.deployment)
+            .unwrap();
+        let blocks = &topology.networks.get(&deployment.network).unwrap().blocks;
+        println!("wat0: {}", query);
+        println!(
+            "wat1: {:?}",
+            blocks.iter().map(|b| b.hash).collect::<Vec<_>>()
+        );
+
         let matcher = Regex::new(r#"block: \{hash: \\"0x([[:xdigit:]]+)\\"}"#).unwrap();
-        for capture in matcher.captures_iter(&query.query) {
+        for capture in matcher.captures_iter(&query) {
+            println!("wat3");
             let hash = capture.get(1).unwrap().as_str().parse::<Bytes32>().unwrap();
             let number = blocks.iter().position(|block| block.hash == hash).unwrap();
+            println!("wat4 {}, {}", hash, number);
             if number > indexer.block(blocks.len()) {
                 return Err(IndexerError::Other(json!({
                     "errors": vec![json!({
@@ -618,7 +640,7 @@ impl IndexerInterface for TopologyIndexer {
             attestation: Some(Attestation {
                 request_cid: Bytes32::default(),
                 response_cid: Bytes32::default(),
-                deployment: Bytes32::from(*query.indexing.deployment),
+                deployment: Bytes32::from(*selection.indexing.deployment),
                 v: 0,
                 r: Bytes32::default(),
                 s: Bytes32::default(),
@@ -690,7 +712,7 @@ async fn test() {
             },
             &rng,
         )));
-        let block_resolvers = topology.lock().await.resolvers();
+        let block_caches = topology.lock().await.block_caches();
         let receipt_pools = ReceiptPools::default();
         let deployment_indexers = topology
             .lock()
@@ -714,7 +736,7 @@ async fn test() {
                 topology: topology.clone(),
             })),
             deployment_indexers,
-            block_resolvers,
+            block_caches,
             receipt_pools: receipt_pools.clone(),
             isa: isa_state.clone(),
             observations: update_writer.clone(),
