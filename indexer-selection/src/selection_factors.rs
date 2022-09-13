@@ -1,6 +1,6 @@
 use crate::{
-    block_requirements::*, decay::DecayBuffer, performance::*, price_efficiency::*, reputation::*,
-    utility::*, BadIndexerReason, Context, SelectionError,
+    decay::DecayBuffer, performance::*, price_efficiency::*, reputation::*, utility::*,
+    BadIndexerReason, Context, FreshnessRequirements, SelectionError,
 };
 use cost_model::CostModel;
 use prelude::*;
@@ -104,7 +104,7 @@ impl SelectionFactors {
 
     pub fn expected_freshness_utility(
         &self,
-        requirements: &BlockRequirements,
+        requirements: &FreshnessRequirements,
         utility_parameters: UtilityParameters,
         latest_block: u64,
     ) -> Result<SelectionFactor, SelectionError> {

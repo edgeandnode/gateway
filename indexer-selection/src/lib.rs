@@ -1,5 +1,4 @@
 pub mod actor;
-mod block_requirements;
 pub mod decay;
 mod economic_security;
 mod performance;
@@ -11,19 +10,15 @@ pub mod test_utils;
 mod tests;
 mod utility;
 
-pub use crate::{
-    block_requirements::freshness_requirements,
-    block_requirements::BlockRequirements,
-    selection_factors::{BlockStatus, IndexingStatus, SelectionFactors},
-};
-use crate::{block_requirements::make_query_deterministic, economic_security::*};
-use async_trait::async_trait;
+use crate::economic_security::*;
+pub use crate::selection_factors::{BlockStatus, IndexingStatus, SelectionFactors};
 pub use cost_model::{self, CostModel};
 use num_traits::identities::Zero as _;
 pub use ordered_float::NotNan;
 use prelude::{epoch_cache::EpochCache, weighted_sample::WeightedSample, *};
 use rand::{thread_rng, Rng as _};
 pub use receipts;
+use receipts::BorrowFail;
 pub use secp256k1::SecretKey;
 use std::{collections::HashMap, sync::Arc};
 use utility::*;
@@ -31,12 +26,11 @@ use utility::*;
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
 
 pub struct Selection {
-    indexing: Indexing,
-    score: IndexerScore,
-    scoring_sample: ScoringSample,
+    pub indexing: Indexing,
+    pub score: IndexerScore,
 }
 
-pub struct ScoringSample(pub Option<(Address, Result<IndexerScore, SelectionError>)>);
+pub struct ScoringSample(pub Address, pub Result<IndexerScore, SelectionError>);
 
 #[derive(Clone, Debug)]
 pub struct IndexerQuery {
@@ -49,18 +43,11 @@ pub struct IndexerQuery {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum SelectionError {
-    BadInput,
+    MalformedQuery,
     MissingNetworkParams,
-    MissingBlock(UnresolvedBlock),
     BadIndexer(BadIndexerReason),
     NoAllocation(Indexing),
     FeesTooHigh(usize),
-}
-
-impl From<UnresolvedBlock> for SelectionError {
-    fn from(unresolved: UnresolvedBlock) -> Self {
-        Self::MissingBlock(unresolved)
-    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -87,6 +74,14 @@ pub enum IndexerError {
     UnexpectedPayload,
     UnresolvedBlock,
     Other(String),
+}
+
+impl From<BorrowFail> for IndexerError {
+    fn from(from: BorrowFail) -> Self {
+        match from {
+            BorrowFail::NoAllocation => Self::MissingAllocation,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -118,14 +113,13 @@ pub struct UtilityConfig {
     pub price_efficiency: f64,
 }
 
-#[async_trait]
-pub trait BlockResolver {
-    fn latest_block(&self) -> Option<BlockPointer>;
-    fn skip_latest(&mut self, skip: usize);
-    async fn resolve_block(
-        &self,
-        unresolved: UnresolvedBlock,
-    ) -> Result<BlockPointer, UnresolvedBlock>;
+#[derive(Default, Debug, Eq, PartialEq)]
+pub struct FreshnessRequirements {
+    /// If specified, the subgraph must have indexed up to at least this number.
+    pub minimum_block: Option<u64>,
+    /// If true, the query has an unspecified block which means the query benefits from syncing as
+    /// far in the future as possible.
+    pub has_latest: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -203,69 +197,18 @@ impl State {
         self.indexings.apply(|sf| sf.decay());
     }
 
-    pub async fn select_indexer(
-        &self,
-        config: &UtilityConfig,
-        network: &str,
-        subgraph: &SubgraphDeploymentID,
-        indexers: &[Address],
-        context: &mut Context<'_>,
-        block_resolver: &impl BlockResolver,
-        freshness_requirements: &BlockRequirements,
-        budget: GRT,
-    ) -> Result<Option<(IndexerQuery, ScoringSample)>, SelectionError> {
-        let selection = match self.make_selection(
-            config,
-            subgraph,
-            context,
-            block_resolver,
-            &indexers,
-            budget,
-            &freshness_requirements,
-        ) {
-            Ok(Some(result)) => result,
-            Ok(None) => return Ok(None),
-            Err(err) => return Err(err),
-        };
-
-        let head = block_resolver
-            .latest_block()
-            .ok_or(SelectionError::MissingBlock(UnresolvedBlock::WithNumber(0)))?;
-        let latest_block = block_resolver
-            .resolve_block(UnresolvedBlock::WithNumber(
-                head.number.saturating_sub(selection.score.blocks_behind),
-            ))
-            .await?;
-        let query = make_query_deterministic(
-            context,
-            block_resolver,
-            &latest_block,
-            selection.score.blocks_behind,
-        )
-        .await?;
-
-        let indexer_query = IndexerQuery {
-            network: network.into(),
-            indexing: selection.indexing,
-            query: query.query,
-            score: selection.score,
-            latest_block: latest_block.number,
-        };
-        Ok(Some((indexer_query, selection.scoring_sample)))
-    }
-
     /// Select random indexer, weighted by utility. Indexers with incomplete data or that do not
     /// meet the minimum requirements will be excluded.
-    fn make_selection(
+    pub fn select_indexer(
         &self,
         config: &UtilityConfig,
         deployment: &SubgraphDeploymentID,
         context: &mut Context<'_>,
-        block_resolver: &impl BlockResolver,
+        latest_block: u64,
         indexers: &[Address],
         budget: GRT,
-        freshness_requirements: &BlockRequirements,
-    ) -> Result<Option<Selection>, SelectionError> {
+        freshness_requirements: &FreshnessRequirements,
+    ) -> Result<(Option<Selection>, Option<ScoringSample>), SelectionError> {
         let mut scores = Vec::new();
         let mut high_fee_count = 0;
         let mut scoring_sample = WeightedSample::new();
@@ -277,7 +220,7 @@ impl State {
             let result = self.score_indexer(
                 &indexing,
                 context,
-                block_resolver,
+                latest_block,
                 budget,
                 config,
                 freshness_requirements,
@@ -302,9 +245,7 @@ impl State {
             scoring_sample.add((indexing.indexer, result.clone()), 1.0);
             match &result {
                 Err(err) => match err {
-                    &SelectionError::BadInput
-                    | &SelectionError::MissingNetworkParams
-                    | &SelectionError::MissingBlock(_) => return Err(err.clone()),
+                    &SelectionError::MissingNetworkParams => return Err(err.clone()),
                     &SelectionError::BadIndexer(BadIndexerReason::FeeTooHigh) => {
                         high_fee_count += 1;
                     }
@@ -321,7 +262,7 @@ impl State {
         let max_utility = match scores.iter().map(|(_, score)| score.utility).max() {
             Some(n) => n,
             _ if high_fee_count > 0 => return Err(SelectionError::FeesTooHigh(high_fee_count)),
-            _ => return Ok(None),
+            _ => return Ok((None, None)),
         };
         // Having a random utility cutoff that is weighted toward 1 normalized
         // to the highest score makes it so that we define our selection based
@@ -347,33 +288,26 @@ impl State {
         }
         let (indexing, score) = match selected.take() {
             Some(selection) => selection,
-            None => return Ok(None),
+            None => return Ok((None, None)),
         };
         // Technically the "algorithm" part ends here, but eventually we want to
         // be able to go back with data already collected if a later step fails.
 
-        // TODO: Depending on how these steps fail, it can make sense to try to
-        // kick off resolutions (eg: getting block hashes, or adding collateral)
-        // and at the same time try to use another Indexer.
-
         let sample = scoring_sample
             .take()
-            .filter(|(address, _)| address != &indexing.indexer);
-        Ok(Some(Selection {
-            indexing: indexing.clone(),
-            score,
-            scoring_sample: ScoringSample(sample),
-        }))
+            .filter(|(address, _)| address != &indexing.indexer)
+            .map(|(address, result)| ScoringSample(address, result));
+        Ok((Some(Selection { indexing, score }), sample))
     }
 
     fn score_indexer(
         &self,
         indexing: &Indexing,
         context: &mut Context<'_>,
-        block_resolver: &impl BlockResolver,
+        latest_block: u64,
         budget: GRT,
         config: &UtilityConfig,
-        freshness_requirements: &BlockRequirements,
+        freshness_requirements: &FreshnessRequirements,
     ) -> Result<IndexerScore, SelectionError> {
         let mut aggregator = UtilityAggregator::new();
         let indexer = self
@@ -391,9 +325,6 @@ impl State {
             .get_unobserved(&indexing)
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
 
-        let latest_block = block_resolver
-            .latest_block()
-            .ok_or(SelectionError::MissingBlock(UnresolvedBlock::WithNumber(0)))?;
         let blocks_behind = selection_factors.blocks_behind()?;
 
         let (fee, price_efficiency) =
@@ -417,11 +348,9 @@ impl State {
         let data_freshness = selection_factors.expected_freshness_utility(
             freshness_requirements,
             config.data_freshness,
-            latest_block.number,
+            latest_block,
         )?;
         aggregator.add(data_freshness);
-
-        drop(selection_factors);
 
         // It's not immediately obvious why this mult works. We want to consider the amount
         // staked over the total amount staked of all Indexers in the running. But, we don't

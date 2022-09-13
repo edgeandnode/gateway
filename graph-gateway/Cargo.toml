@@ -11,10 +11,12 @@ actix-router = "=0.5.0-beta.4"
 async-trait = "0.1"
 futures = "0.3"
 futures-util = "0.3"
+graphql-parser = { git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df" }
 hdwallet = "0.3"
 hex = "0.4"
 im = "15.0"
 indexer-selection = { path = "../indexer-selection" }
+itertools = "0.10"
 lazy_static = "1.4"
 maxminddb = "0.23"
 openssl = "0.10"

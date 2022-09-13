@@ -1,5 +1,4 @@
-use crate::{BlockPointer, BlockResolver, CostModel, UnresolvedBlock};
-use async_trait::async_trait;
+use crate::{BlockPointer, CostModel};
 use prelude::{test_utils::bytes_from_id, *};
 use siphasher::sip::SipHasher24;
 use std::hash::{Hash as _, Hasher as _};
@@ -39,42 +38,4 @@ pub fn test_allocation_id(indexer: &Address, deployment: &SubgraphDeploymentID) 
     indexer.hash(&mut hasher);
     deployment.hash(&mut hasher);
     Address(bytes_from_id(hasher.finish() as usize).into())
-}
-
-#[derive(Clone)]
-pub struct TestBlockResolver {
-    blocks: Vec<BlockPointer>,
-    skip_latest: usize,
-}
-
-impl TestBlockResolver {
-    pub fn new(blocks: Vec<BlockPointer>) -> Self {
-        Self {
-            blocks,
-            skip_latest: 0,
-        }
-    }
-}
-
-#[async_trait]
-impl BlockResolver for TestBlockResolver {
-    fn latest_block(&self) -> Option<BlockPointer> {
-        let index = self.blocks.len().saturating_sub(1 + self.skip_latest);
-        self.blocks.get(index).cloned()
-    }
-
-    fn skip_latest(&mut self, skip: usize) {
-        self.skip_latest = skip;
-    }
-
-    async fn resolve_block(
-        &self,
-        unresolved: UnresolvedBlock,
-    ) -> Result<BlockPointer, UnresolvedBlock> {
-        self.blocks
-            .iter()
-            .find(|block| unresolved.matches(block))
-            .cloned()
-            .ok_or(unresolved)
-    }
 }

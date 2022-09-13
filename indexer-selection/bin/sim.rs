@@ -1,9 +1,8 @@
 use chrono::{DateTime, FixedOffset};
 use indexer_selection::{
     actor::{apply_state_update, IndexerUpdate, Update},
-    freshness_requirements,
-    test_utils::{default_cost_model, gen_blocks, test_allocation_id, TestBlockResolver},
-    BlockStatus, Context, IndexerInfo, IndexingStatus, State, UtilityConfig,
+    test_utils::{default_cost_model, gen_blocks, test_allocation_id},
+    BlockStatus, Context, FreshnessRequirements, IndexerInfo, IndexingStatus, State, UtilityConfig,
 };
 use itertools::Itertools as _;
 use prelude::{graphql, *};
@@ -137,11 +136,9 @@ async fn main() -> anyhow::Result<()> {
     let utility_config = UtilityConfig::default();
     // set budget above maximum price
     let budget = log_lines.iter().map(|l| l.fee).max().unwrap() + "0.00001".parse().unwrap();
-    let network = "test";
     // generate enough blocks for max blocks_behind
     let blocks = log_lines.iter().map(|l| l.blocks_behind).max().unwrap();
     let blocks = gen_blocks(&(0u64..blocks).into_iter().collect::<Vec<u64>>());
-    let resolver = TestBlockResolver::new(blocks.clone());
     let latest = blocks.last().unwrap();
 
     let mut isa = State::default();
@@ -196,48 +193,48 @@ async fn main() -> anyhow::Result<()> {
         }
 
         let mut context = Context::new("{ a }", "").unwrap();
-        let freshness_requirements = freshness_requirements(&mut context.operations, &resolver)
-            .await
-            .unwrap();
+        let freshness_requirements = FreshnessRequirements {
+            minimum_block: None,
+            has_latest: true,
+        };
+        let latest_block = blocks.last().unwrap().number;
         let result = isa
             .select_indexer(
                 &utility_config,
-                network,
                 &deployment,
-                &indexers,
                 &mut context,
-                &resolver,
-                &freshness_requirements,
+                latest_block,
+                &indexers,
                 budget,
+                &freshness_requirements,
             )
-            .await
             .unwrap();
-        let query = match result {
-            Some((query, _)) => query,
-            None => continue,
+        let selection = match result {
+            (Some(query), _) => query,
+            _ => continue,
         };
         let indexer = characteristics
             .iter()
-            .find(|i| &i.address == &query.indexing.indexer)
+            .find(|i| &i.address == &selection.indexing.indexer)
             .unwrap();
         let duration = Duration::from_millis(*indexer.latency_ms.choose(&mut rng).unwrap());
         let success = rng.gen_bool(indexer.reliability);
         if success {
-            isa.observe_successful_query(&query.indexing, duration);
+            isa.observe_successful_query(&selection.indexing, duration);
         } else {
-            isa.observe_failed_query(&query.indexing, duration, false);
+            isa.observe_failed_query(&selection.indexing, duration, false);
         }
         println!(
             "{},{},{},{},{},{},{},{},{}",
             "simulation",
             line.timestamp,
-            query.indexing.indexer,
-            query.score.url,
+            selection.indexing.indexer,
+            selection.score.url,
             success,
-            query.score.fee,
-            query.score.blocks_behind,
+            selection.score.fee,
+            selection.score.blocks_behind,
             duration.as_millis(),
-            query.score.utility,
+            selection.score.utility,
         );
     }
 

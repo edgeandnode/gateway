@@ -19,7 +19,7 @@ pub fn get_price(
             return Err(BadIndexerReason::QueryNotCosted)?;
         }
         Some(Err(CostError::QueryNotSupported | CostError::QueryInvalid)) => {
-            return Err(SelectionError::BadInput);
+            return Err(SelectionError::MalformedQuery);
         }
         Some(Err(CostError::FailedToParseQuery | CostError::FailedToParseVariables)) => {
             unreachable!("Model did not parse, but failed in doing so.")
