@@ -574,7 +574,7 @@ where
                     indexing: indexer_query.indexing,
                     weight: 35,
                 });
-                tracing::info!("penalizing for unattestable error");
+                tracing::info!(%error, "penalizing for unattestable error");
                 return Err(IndexerError::UnattestableError);
             }
         }
