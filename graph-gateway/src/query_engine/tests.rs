@@ -11,7 +11,12 @@ use indexer_selection::{
     test_utils::{default_cost_model, test_allocation_id, TEST_KEY},
     BlockStatus, IndexerError, IndexerInfo, IndexingStatus,
 };
-use prelude::{buffer_queue, decimal, double_buffer, test_utils::*, *};
+use prelude::{
+    buffer_queue::{self, Event},
+    decimal, double_buffer,
+    test_utils::*,
+    *,
+};
 use rand::{
     distributions,
     rngs::{OsRng, SmallRng},
@@ -725,7 +730,11 @@ async fn test() {
             isa_writer
                 .update(|state| {
                     for update in &update_buf {
-                        apply_state_update(state, update);
+                        if let Event::Update(update) = update {
+                            apply_state_update(state, update);
+                        } else {
+                            unreachable!();
+                        }
                     }
                 })
                 .await;
