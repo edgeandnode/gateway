@@ -1,6 +1,9 @@
 use crate::{IndexerInfo, Indexing, IndexingStatus, State};
 use prelude::*;
-use prelude::{buffer_queue::QueueReader, double_buffer::DoubleBufferWriter};
+use prelude::{
+    buffer_queue::{Event, QueueReader},
+    double_buffer::DoubleBufferWriter,
+};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
     select,
@@ -66,10 +69,17 @@ pub async fn process_updates(
                 writer
                     .update(|state| {
                         for update in event_buffer.iter() {
-                            apply_state_update(state, update);
+                            if let Event::Update(update) = update {
+                                apply_state_update(state, update);
+                            }
                         }
                     })
                     .await;
+                for update in event_buffer.iter() {
+                    if let Event::Flush(notify) = update {
+                        notify.notify_one();
+                    }
+                }
                 event_buffer.clear();
             },
         }

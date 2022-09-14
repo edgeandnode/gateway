@@ -508,6 +508,10 @@ where
                         block_resolver.skip_latest(latest_unresolved / 2);
                     }
                     attempt.result = Err(err);
+                    // If, for example, we need to back out an optimistic prediction of an indexer's freshness,
+                    // we should wait for that update to be available to the ISA before making the
+                    // selection again. Otherwise the indexer will be sent the same failed block.
+                    let _ = self.observations.flush().await;
                 }
             };
         }
