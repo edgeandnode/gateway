@@ -560,6 +560,14 @@ where
             .collect::<Vec<String>>();
         result.indexer_errors = indexer_errors.join(",");
 
+        if !indexer_errors.is_empty() {
+            tracing::debug!(
+                errors = %result.indexer_errors,
+                query = %result.query,
+                "indexer errors",
+            );
+        }
+
         if indexer_errors.iter().any(|err| {
             err == "Failed to decode `block.hash` value: `no block with that hash found`"
         }) {
