@@ -460,6 +460,7 @@ where
                 }
                 Err(BorrowFail::NoAllocation) => Err(IndexerError::MissingAllocation),
             };
+            METRICS.indexer_query.check(&[deployment_id], &result);
             assert_eq!(retry_count + 1, query.indexer_attempts.len());
             let attempt = query.indexer_attempts.last_mut().unwrap();
 
