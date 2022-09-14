@@ -366,8 +366,9 @@ where
             // to allow arbitrarily high values.
             budget = max_budget.min(budget * U256::from(10u8));
         }
-        let isa = self.isa.latest();
-        let budget: GRT = isa
+        let budget: GRT = self
+            .isa
+            .latest()
             .network_params
             .usd_to_grt(USD::try_from(budget).unwrap())
             .ok_or(QueryEngineError::MissingExchangeRate)?;
@@ -405,7 +406,9 @@ where
             // to the state of the client query.
             let mut context = context.clone();
 
-            let selection_result = isa
+            let selection_result = self
+                .isa
+                .latest()
                 .select_indexer(
                     &utility_config,
                     &subgraph.network,
