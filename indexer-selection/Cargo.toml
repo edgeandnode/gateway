@@ -20,6 +20,7 @@ num-traits = "0.2"
 ordered-float = "3.0"
 prelude = { path = "../prelude" }
 primitive-types = "0.8"
+prometheus = { version = "0.13", default-features = false }
 rand = "0.8"
 receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "8d46a95" }
 secp256k1 = { version = "0.20", default-features = false }

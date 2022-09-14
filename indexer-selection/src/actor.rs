@@ -1,9 +1,11 @@
 use crate::{IndexerInfo, Indexing, IndexingStatus, State};
+use lazy_static::lazy_static;
 use prelude::*;
 use prelude::{
     buffer_queue::{Event, QueueReader},
     double_buffer::DoubleBufferWriter,
 };
+use prometheus;
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
     select,
@@ -66,6 +68,7 @@ pub async fn process_updates(
             },
             _ = events.read(&mut event_buffer) => {
                 tracing::trace!(isa_update_queue_depth = event_buffer.len());
+                METRICS.isa_update_queue_depth.set(event_buffer.len() as i64);
                 writer
                     .update(|state| {
                         for update in event_buffer.iter() {
@@ -75,11 +78,14 @@ pub async fn process_updates(
                         }
                     })
                     .await;
+                let mut waiters = 0;
                 for update in event_buffer.iter() {
                     if let Event::Flush(notify) = update {
                         notify.notify_one();
+                        waiters += 1;
                     }
                 }
+                METRICS.isa_update_queue_waiters.set(waiters);
                 event_buffer.clear();
             },
         }
@@ -130,5 +136,31 @@ pub fn apply_state_update(state: &mut State, update: &Update) {
             }
         },
         Update::Penalty { indexing, weight } => state.penalize(indexing, *weight),
+    }
+}
+
+lazy_static! {
+    pub static ref METRICS: Metrics = Metrics::new();
+}
+
+pub struct Metrics {
+    pub isa_update_queue_depth: prometheus::IntGauge,
+    pub isa_update_queue_waiters: prometheus::IntGauge,
+}
+
+impl Metrics {
+    fn new() -> Self {
+        Self {
+            isa_update_queue_depth: prometheus::register_int_gauge!(
+                "gw_isa_update_queue_depth",
+                "ISA update queue depth",
+            )
+            .unwrap(),
+            isa_update_queue_waiters: prometheus::register_int_gauge!(
+                "gw_isa_update_queue_waiters",
+                "ISA update queue waiters",
+            )
+            .unwrap(),
+        }
     }
 }
