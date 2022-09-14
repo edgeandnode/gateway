@@ -43,10 +43,11 @@ impl<T> QueueWriter<T> {
     pub async fn flush(&self) -> Result<(), SendError<()>> {
         let notify = Arc::new(Notify::const_new());
         let notify2 = notify.clone();
+        let notified = notify.notified();
         if self.send.send(Event::Flush(notify2)).is_err() {
             return Err(SendError(()));
         }
-        notify.notified().await;
+        notified.await;
         Ok(())
     }
 }
