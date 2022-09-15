@@ -576,7 +576,8 @@ where
         }
 
         if indexer_errors.iter().any(|err| {
-            err == "Failed to decode `block.hash` value: `no block with that hash found`"
+            err.contains("Failed to decode `block.hash` value")
+                || err.contains("Failed to decode `block.number` value")
         }) {
             return Err(IndexerError::UnresolvedBlock);
         }
