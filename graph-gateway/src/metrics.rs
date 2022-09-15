@@ -103,8 +103,8 @@ impl ResponseMetrics {
             )
             .unwrap(),
         };
-        metrics.ok.reset();
-        metrics.err.reset();
+        metrics.ok.inc();
+        metrics.err.inc();
         metrics
     }
 }
