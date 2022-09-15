@@ -86,7 +86,7 @@ pub struct ResponseMetrics {
 
 impl ResponseMetrics {
     pub fn new(prefix: &str, description: &str) -> Self {
-        Self {
+        let metrics = Self {
             ok: register_int_counter!(
                 &format!("{}_ok", prefix),
                 &format!("{} success count", description),
@@ -102,7 +102,10 @@ impl ResponseMetrics {
                 &format!("{} duration", description),
             )
             .unwrap(),
-        }
+        };
+        metrics.ok.reset();
+        metrics.err.reset();
+        metrics
     }
 }
 
