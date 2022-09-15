@@ -7,16 +7,11 @@ use crate::{
 };
 use async_trait::async_trait;
 use indexer_selection::{
-    actor::{apply_state_update, IndexerUpdate},
+    actor::IndexerUpdate,
     test_utils::{default_cost_model, test_allocation_id, TEST_KEY},
     BlockStatus, IndexerError, IndexerInfo, IndexingStatus,
 };
-use prelude::{
-    buffer_queue::{self, Event},
-    decimal, double_buffer,
-    test_utils::*,
-    *,
-};
+use prelude::{buffer_queue, decimal, double_buffer, test_utils::*, *};
 use rand::{
     distributions,
     rngs::{OsRng, SmallRng},
@@ -682,8 +677,8 @@ async fn test() {
     tracing::info!(%seed);
     let rng = SmallRng::seed_from_u64(seed);
     for _ in 0..100 {
-        let (update_writer, mut update_reader) = buffer_queue::pair();
-        let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
+        let (update_writer, update_reader) = buffer_queue::pair();
+        let (isa_state, isa_writer) = double_buffer!(indexer_selection::State::default());
         let topology = Arc::new(Mutex::new(Topology::new(
             TopologyConfig {
                 indexers: 5..=10,
@@ -722,24 +717,14 @@ async fn test() {
             block_resolvers,
             receipt_pools: receipt_pools.clone(),
             isa: isa_state.clone(),
-            observations: update_writer,
+            observations: update_writer.clone(),
         };
-        let mut update_buf = Vec::new();
+        tokio::spawn(async move {
+            indexer_selection::actor::process_updates(isa_writer, update_reader).await;
+            unreachable!();
+        });
         for _ in 0..10 {
-            update_reader.try_read(&mut update_buf);
-            isa_writer
-                .update(|state| {
-                    for update in &update_buf {
-                        if let Event::Update(update) = update {
-                            apply_state_update(state, update);
-                        } else {
-                            unreachable!();
-                        }
-                    }
-                })
-                .await;
-            update_buf.clear();
-
+            update_writer.flush().await.unwrap();
             let mut query = topology.lock().await.gen_query();
             let result = query_engine.execute_query(&mut query).await;
             let trace = match topology.lock().await.check_result(&query, result) {
