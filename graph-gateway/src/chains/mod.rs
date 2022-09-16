@@ -173,6 +173,8 @@ impl Actor {
     }
 
     async fn handle_chain_head(&mut self, head: BlockHead) {
+        tracing::info!(chain_head = ?head);
+
         for uncle in &head.uncles {
             let removed = self.hash_to_number.remove(uncle);
             if let Some(removed) = removed {
