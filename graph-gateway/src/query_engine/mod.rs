@@ -229,7 +229,7 @@ impl ReceiptPools {
             .cloned()
             .ok_or(BorrowFail::NoAllocation)?;
         let mut pool = pool.lock().await;
-        pool.commit(fee.as_u256())
+        pool.commit(fee.shift::<0>().as_u256())
     }
 
     pub async fn release(&self, indexing: &Indexing, receipt: &[u8], status: ReceiptStatus) {
