@@ -66,19 +66,14 @@ impl<K: Eq + Hash, V, const C: u8> EpochCache<K, V, C> {
     }
 
     pub fn increment_epoch(&mut self) {
-        self.0 = self
-            .0
-            .drain()
-            .filter_map(
-                |(k, (v, c))| {
-                    if c < C {
-                        Some((k, (v, c + 1)))
-                    } else {
-                        None
-                    }
-                },
-            )
-            .collect();
+        self.0.retain(|_, (_, c)| {
+            if *c < C {
+                *c += 1;
+                true
+            } else {
+                false
+            }
+        });
     }
 
     pub fn apply(&mut self, mut f: impl FnMut(&mut V)) {

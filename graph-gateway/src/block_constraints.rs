@@ -3,7 +3,10 @@ use indexer_selection::{cost_model::QueryVariables, Context, UnresolvedBlock};
 use itertools::Itertools as _;
 use prelude::*;
 use serde_json::{self, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    mem,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {
@@ -109,12 +112,16 @@ pub fn make_query_deterministic(
     let mut query = Document {
         definitions: Vec::new(),
     };
-    query
-        .definitions
-        .extend(ctx.fragments.iter().cloned().map(Definition::Fragment));
-    query
-        .definitions
-        .extend(ctx.operations.iter().cloned().map(Definition::Operation));
+    query.definitions.extend(
+        mem::take(&mut ctx.fragments)
+            .into_iter()
+            .map(Definition::Fragment),
+    );
+    query.definitions.extend(
+        mem::take(&mut ctx.operations)
+            .into_iter()
+            .map(Definition::Operation),
+    );
 
     serde_json::to_string(&json!({ "query": query.to_string(), "variables": ctx.variables })).ok()
 }
