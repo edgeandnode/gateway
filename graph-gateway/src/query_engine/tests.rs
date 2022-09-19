@@ -501,7 +501,7 @@ impl Topology {
             .blocks
             .is_empty()
         {
-            return Self::expect_err(trace, result, NoIndexerSelected);
+            return Self::expect_err(trace, result, MissingBlock(UnresolvedBlock::WithNumber(0)));
         }
 
         if !valid.is_empty() {
@@ -614,18 +614,11 @@ impl IndexerInterface for TopologyIndexer {
             .find(|d| &d.id == &selection.indexing.deployment)
             .unwrap();
         let blocks = &topology.networks.get(&deployment.network).unwrap().blocks;
-        println!("wat0: {}", query);
-        println!(
-            "wat1: {:?}",
-            blocks.iter().map(|b| b.hash).collect::<Vec<_>>()
-        );
 
         let matcher = Regex::new(r#"block: \{hash: \\"0x([[:xdigit:]]+)\\"}"#).unwrap();
         for capture in matcher.captures_iter(&query) {
-            println!("wat3");
             let hash = capture.get(1).unwrap().as_str().parse::<Bytes32>().unwrap();
             let number = blocks.iter().position(|block| block.hash == hash).unwrap();
-            println!("wat4 {}, {}", hash, number);
             if number > indexer.block(blocks.len()) {
                 return Err(IndexerError::Other(json!({
                     "errors": vec![json!({
@@ -698,7 +691,7 @@ async fn test() {
         .unwrap_or(OsRng.next_u64());
     tracing::info!(%seed);
     let rng = SmallRng::seed_from_u64(seed);
-    for _ in 0..100 {
+    for _ in 0..10 {
         let (update_writer, update_reader) = buffer_queue::pair();
         let (isa_state, isa_writer) = double_buffer!(indexer_selection::State::default());
         let topology = Arc::new(Mutex::new(Topology::new(

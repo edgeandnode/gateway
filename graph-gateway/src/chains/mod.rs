@@ -29,6 +29,7 @@ pub enum ClientMsg {
     Err(UnresolvedBlock),
 }
 
+#[derive(Default)]
 pub struct BlockRequirements {
     pub constraints: BTreeSet<BlockConstraint>,
     pub resolved: BTreeSet<BlockPointer>,
@@ -113,6 +114,15 @@ impl BlockCache {
         &mut self,
         constraints: BTreeSet<BlockConstraint>,
     ) -> Result<BlockRequirements, UnresolvedBlock> {
+        if constraints.is_empty()
+            || ((constraints.len() == 1) && constraints.contains(&BlockConstraint::Unconstrained))
+        {
+            return Ok(BlockRequirements {
+                constraints,
+                resolved: BTreeSet::new(),
+            });
+        }
+
         let (tx, rx) = oneshot::channel();
         let request = Request::Requirements { constraints, tx };
         self.request_tx.send(request).ok().unwrap();
@@ -182,17 +192,12 @@ impl Actor {
             }
         }
 
-        self.hash_to_number
-            .insert(head.block.hash, head.block.number);
-        self.number_to_hash
-            .insert(head.block.number, head.block.hash);
-
-        let number = head.block.number;
-        self.chain_head_broadcast_tx.write(head.block);
+        self.handle_block(head.block.clone()).await;
 
         with_metric(&METRICS.chain_head, &[&self.network], |g| {
-            g.set(number as i64)
+            g.set(head.block.number as i64)
         });
+        self.chain_head_broadcast_tx.write(head.block);
     }
 
     async fn handle_block(&mut self, block: BlockPointer) {
@@ -201,9 +206,7 @@ impl Actor {
 
         self.complete_block_requests(Ok(block.clone()));
 
-        let capacity = self.pending_requirements.len();
-        for mut entry in mem::replace(&mut self.pending_requirements, Vec::with_capacity(capacity))
-        {
+        self.pending_requirements.retain_mut(|entry| {
             for resolved in entry
                 .unresolved
                 .iter()
@@ -215,26 +218,27 @@ impl Actor {
                 entry.requirements.resolved.insert(block.clone());
             }
             if entry.unresolved.is_empty() {
-                let _ = entry.tx.send(Ok(entry.requirements));
-                continue;
+                let tx = mem::replace(&mut entry.tx, oneshot::channel().0);
+                let _ = tx.send(Ok(mem::take(&mut entry.requirements)));
+                return false;
             }
             debug_assert!(entry.requirements.resolved());
-            self.pending_requirements.push(entry);
-        }
+            true
+        });
     }
 
     async fn handle_err(&mut self, unresolved: UnresolvedBlock) {
         self.complete_block_requests(Err(unresolved.clone()));
 
         // Cancel pending requirements requests depending on the unresolved block.
-        let capacity = self.pending_requirements.len();
-        for entry in mem::replace(&mut self.pending_requirements, Vec::with_capacity(capacity)) {
+        self.pending_requirements.retain_mut(|entry| {
+            let tx = mem::replace(&mut entry.tx, oneshot::channel().0);
             if entry.unresolved.contains(&unresolved) {
-                let _ = entry.tx.send(Err(unresolved.clone()));
-                continue;
+                let _ = tx.send(Err(unresolved.clone()));
+                return false;
             }
-            self.pending_requirements.push(entry);
-        }
+            true
+        });
     }
 
     async fn handle_block_request(

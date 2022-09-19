@@ -81,29 +81,26 @@ pub fn make_query_deterministic(
             };
             match selection_field
                 .arguments
-                .iter()
-                .cloned()
-                .enumerate()
-                .find(|(_, (k, _))| *k == "block")
+                .iter_mut()
+                .find(|(k, _)| *k == "block")
             {
-                Some((i, (_, arg))) => {
-                    let pos = selection_field.arguments.get_mut(i).unwrap();
+                Some((_, arg)) => {
                     match field_constraint(vars, &arg)? {
                         BlockConstraint::Hash(_) => (),
                         BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
-                            *pos = deterministic_block_field(&latest.hash);
+                            *arg = deterministic_block(&latest.hash);
                         }
                         BlockConstraint::Number(number) => {
                             let block = resolved.iter().find(|b| b.number == number);
                             debug_assert!(block.is_some());
-                            *pos = deterministic_block_field(&block?.hash);
+                            *arg = deterministic_block(&block?.hash);
                         }
                     };
                 }
                 None => {
                     selection_field
                         .arguments
-                        .push(deterministic_block_field(&latest.hash));
+                        .push(("block", deterministic_block(&latest.hash)));
                 }
             };
         }
@@ -122,18 +119,19 @@ pub fn make_query_deterministic(
     serde_json::to_string(&json!({ "query": query.to_string(), "variables": ctx.variables })).ok()
 }
 
-fn deterministic_block_field<'c>(hash: &Bytes32) -> (&'static str, Value<'c, &'c str>) {
-    let value = Value::Object(BTreeMap::from_iter([(
+fn deterministic_block<'c>(hash: &Bytes32) -> Value<'c, &'c str> {
+    Value::Object(BTreeMap::from_iter([(
         "hash",
         Value::String(hash.to_string()),
-    )]));
-    ("block", value)
+    )]))
 }
 
 fn field_constraint<'c>(
     vars: &QueryVariables,
     field: &Value<'c, &'c str>,
 ) -> Option<BlockConstraint> {
+    // TODO: The GraphQL spec is format agnostic, and may support recursive variables.
+    // Be careful not to allow a stack overflow from malicious inputs.
     match field {
         Value::Object(fields) => parse_constraint(vars, fields),
         Value::Variable(name) => match vars.get(name)? {
@@ -152,7 +150,7 @@ fn parse_constraint<'c, T: Text<'c>>(
     match field {
         None => Some(BlockConstraint::Unconstrained),
         Some((k, v)) => match (k.as_ref(), v) {
-            ("hash", Value::String(hash)) => hash.parse().ok().map(BlockConstraint::Hash),
+            ("hash", hash) => parse_hash(hash, vars).map(BlockConstraint::Hash),
             ("number", number) => parse_number(number, vars).map(BlockConstraint::Number),
             ("number_gte", number) => parse_number(number, vars).map(BlockConstraint::NumberGTE),
             _ => None,
@@ -160,7 +158,22 @@ fn parse_constraint<'c, T: Text<'c>>(
     }
 }
 
+fn parse_hash<'c, T: Text<'c>>(hash: &Value<'c, T>, variables: &QueryVariables) -> Option<Bytes32> {
+    // TODO: The GraphQL spec is format agnostic, and may support recursive variables.
+    // Be careful not to allow a stack overflow from malicious inputs.
+    match hash {
+        Value::String(hash) => hash.parse().ok(),
+        Value::Variable(name) => match variables.get(name.as_ref()) {
+            Some(Value::String(hash)) => hash.parse().ok(),
+            _ => return None,
+        },
+        _ => return None,
+    }
+}
+
 fn parse_number<'c, T: Text<'c>>(number: &Value<'c, T>, variables: &QueryVariables) -> Option<u64> {
+    // TODO: The GraphQL spec is format agnostic, and may support recursive variables.
+    // Be careful not to allow a stack overflow from malicious inputs.
     let n = match number {
         Value::Int(n) => n,
         Value::Variable(name) => match variables.get(name.as_ref()) {
