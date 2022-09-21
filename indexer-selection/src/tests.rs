@@ -1,6 +1,6 @@
 use crate::{
     selection_factors::BlockStatus,
-    test_utils::{default_cost_model, gen_blocks, TestBlockResolver},
+    test_utils::{default_cost_model, gen_blocks},
     *,
 };
 use plotters::{
@@ -227,9 +227,7 @@ async fn run_simulation(
     isa.network_params.slashing_percentage = "0.1".parse().ok();
     isa.network_params.usd_to_grt_conversion = 1u64.try_into().ok();
 
-    let network = "test";
     let blocks = gen_blocks(&(0u64..100).into_iter().collect::<Vec<u64>>());
-    let resolver = TestBlockResolver::new(blocks.clone());
     let latest = blocks.last().unwrap();
     let deployment: SubgraphDeploymentID = bytes_from_id(99).into();
 
@@ -281,47 +279,47 @@ async fn run_simulation(
     for i in 0..COUNT {
         let budget: GRT = "0.00005".parse().unwrap();
         let mut context = Context::new("{ a }", "").unwrap();
-        let freshness_requirements = freshness_requirements(&mut context.operations, &resolver)
-            .await
-            .unwrap();
-        let result = isa
+        let freshness_requirements = FreshnessRequirements {
+            minimum_block: None,
+            has_latest: true,
+        };
+        let latest_block = blocks.last().unwrap().number;
+        let (selection, _) = isa
             .select_indexer(
                 &utility_config,
-                network,
                 &deployment,
-                &indexer_ids,
                 &mut context,
-                &resolver,
-                &freshness_requirements,
+                latest_block,
+                &indexer_ids,
                 budget,
+                &freshness_requirements,
             )
-            .await
             .unwrap();
 
         if i % (COUNT / QPS as usize) == 0 {
             isa.decay();
         }
 
-        let query = match result {
-            Some((query, _)) => query,
+        let selection = match selection {
+            Some(selection) => selection,
             None => continue,
         };
         let index = indexer_ids
             .iter()
-            .position(|id| id == &query.indexing.indexer)
+            .position(|id| id == &selection.indexing.indexer)
             .unwrap();
         let entry = results.get_mut(index).unwrap();
         entry.queries_received += 1;
         let data = tests.get(index).unwrap();
         let indexing = Indexing {
             deployment,
-            indexer: query.indexing.indexer,
+            indexer: selection.indexing.indexer,
         };
         let duration = Duration::from_millis(data.latency_ms);
         if data.reliability > thread_rng().gen() {
             total_latency_ms += data.latency_ms;
             total_blocks_behind += data.blocks_behind;
-            entry.query_fees += query.score.fee;
+            entry.query_fees += selection.score.fee;
             isa.observe_successful_query(&indexing, duration);
         } else {
             isa.observe_failed_query(&indexing, duration, false);

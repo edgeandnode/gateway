@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use hex;
-use indexer_selection::{IndexerError, IndexerQuery};
+use indexer_selection::{IndexerError, Selection};
 use prelude::*;
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 pub trait IndexerInterface {
     async fn query_indexer(
         &self,
-        query: &IndexerQuery,
+        selection: &Selection,
+        query: String,
         receipt: &[u8],
     ) -> Result<IndexerResponse, IndexerError>;
 }
@@ -49,25 +50,29 @@ pub struct IndexerClient {
 
 #[async_trait]
 impl IndexerInterface for IndexerClient {
-    #[tracing::instrument(skip(self, query))]
+    #[tracing::instrument(skip(self, selection, query, receipt))]
     async fn query_indexer(
         &self,
-        query: &IndexerQuery,
+        selection: &Selection,
+        query: String,
         receipt: &[u8],
     ) -> Result<IndexerResponse, IndexerError> {
         let receipt = hex::encode(receipt);
         let receipt = &receipt[0..(receipt.len() - 64)];
-        let url = query
+        let url = selection
             .score
             .url
-            .join(&format!("/subgraphs/id/{:?}", query.indexing.deployment))
+            .join(&format!(
+                "/subgraphs/id/{:?}",
+                selection.indexing.deployment
+            ))
             .map_err(|err| IndexerError::Other(err.to_string()))?;
         let result = self
             .client
             .post(url)
             .header("Content-Type", "application/json")
             .header("Scalar-Receipt", receipt)
-            .body(query.query.clone())
+            .body(query)
             .send()
             .await;
         // We need to observe timeouts differently in the ISA, so we discriminate them here.

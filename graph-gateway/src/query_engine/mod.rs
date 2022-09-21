@@ -5,19 +5,21 @@ mod tests;
 mod unattestable_errors;
 
 use crate::{
-    block_resolver::*,
+    block_constraints::{block_constraints, make_query_deterministic, BlockConstraint},
+    chains::*,
     fisherman_client::*,
     indexer_client::*,
     kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
     metrics::*,
 };
+use futures::future::join_all;
 use indexer_selection::{
     self,
     actor::IndexerErrorObservation,
     receipts::{BorrowFail, QueryStatus as ReceiptStatus, ReceiptPool},
-    Context, IndexerError, IndexerPreferences, IndexerQuery, IndexerScore, SelectionError,
-    UnresolvedBlock,
+    Context, FreshnessRequirements, IndexerError, IndexerPreferences, IndexerScore, ScoringSample,
+    Selection, SelectionError, UnresolvedBlock,
 };
 pub use indexer_selection::{actor::Update, Indexing, UtilityConfig};
 use lazy_static::lazy_static;
@@ -28,7 +30,7 @@ use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, BTreeSet, HashMap},
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
@@ -44,7 +46,7 @@ pub struct Query {
     pub id: QueryID,
     pub ray_id: String,
     pub start_time: Instant,
-    pub query: Rc<String>,
+    pub query: Arc<String>,
     pub variables: Rc<Option<String>>,
     pub api_key: Option<Arc<APIKey>>,
     pub subgraph: Option<Ptr<SubgraphInfo>>,
@@ -58,7 +60,7 @@ impl Query {
             id: QueryID::new(),
             start_time: Instant::now(),
             ray_id,
-            query: Rc::new(query),
+            query: Arc::new(query),
             variables: Rc::new(variables),
             api_key: None,
             subgraph: None,
@@ -162,7 +164,8 @@ pub enum QueryStatus {
 
 #[derive(Debug)]
 pub struct QueryResponse {
-    pub query: IndexerQuery,
+    pub selection: Selection,
+    pub query: String,
     pub response: IndexerResponse,
 }
 
@@ -173,6 +176,7 @@ pub enum QueryEngineError {
     FeesTooHigh(usize),
     MalformedQuery,
     BlockBeforeMin,
+    NetworkNotSupported(String),
     MissingBlock(UnresolvedBlock),
     MissingNetworkParams,
     MissingExchangeRate,
@@ -185,11 +189,16 @@ impl From<SelectionError> for QueryEngineError {
             SelectionError::BadIndexer(_) | SelectionError::NoAllocation(_) => {
                 Self::NoIndexerSelected
             }
-            SelectionError::BadInput => Self::MalformedQuery,
-            SelectionError::MissingBlock(unresolved) => Self::MissingBlock(unresolved),
+            SelectionError::MalformedQuery => Self::MalformedQuery,
             SelectionError::FeesTooHigh(count) => Self::FeesTooHigh(count),
             SelectionError::MissingNetworkParams => Self::MissingNetworkParams,
         }
+    }
+}
+
+impl From<UnresolvedBlock> for QueryEngineError {
+    fn from(from: UnresolvedBlock) -> Self {
+        Self::MissingBlock(from)
     }
 }
 
@@ -281,7 +290,7 @@ where
     pub kafka_client: Arc<K>,
     pub fisherman_client: Option<Arc<F>>,
     pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
-    pub block_resolvers: Arc<HashMap<String, BlockResolver>>,
+    pub block_caches: Arc<HashMap<String, BlockCache>>,
     pub receipt_pools: ReceiptPools,
     pub isa: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
@@ -324,17 +333,33 @@ where
 
         let query_body = query.query.clone();
         let query_variables = query.variables.clone();
-        let mut context = Context::new(&query_body, query_variables.as_deref().unwrap_or_default())
+        let context = Context::new(&query_body, query_variables.as_deref().unwrap_or_default())
             .map_err(|_| MalformedQuery)?;
 
-        let mut block_resolver = self
-            .block_resolvers
+        let mut block_cache = self
+            .block_caches
             .get(&subgraph.network)
             .cloned()
-            .ok_or(MissingBlock(UnresolvedBlock::WithNumber(0)))?;
-        let freshness_requirements =
-            indexer_selection::freshness_requirements(&mut context.operations, &block_resolver)
-                .await?;
+            .ok_or_else(|| NetworkNotSupported(subgraph.network.clone()))?;
+
+        let block_constraints = block_constraints(&context).ok_or(MalformedQuery)?;
+        let block_requirements = join_all(
+            block_constraints
+                .iter()
+                .filter_map(|constraint| constraint.clone().into_unresolved())
+                .map(|unresolved| block_cache.fetch_block(unresolved)),
+        )
+        .await
+        .into_iter()
+        .collect::<Result<BTreeSet<BlockPointer>, UnresolvedBlock>>()?;
+
+        let freshness_requirements = FreshnessRequirements {
+            minimum_block: block_requirements.iter().map(|b| b.number).max(),
+            has_latest: block_constraints.iter().any(|c| match c {
+                BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
+                BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
+            }),
+        };
 
         // Reject queries for blocks before minimum start block of subgraph manifest.
         match freshness_requirements.minimum_block {
@@ -348,11 +373,10 @@ where
             indexer_preferences = ?api_key.indexer_preferences,
             max_budget = ?api_key.max_budget,
         );
-        // This has to run regardless even if we don't use the budget because
-        // it updates the query volume estimate. This is important in the case
-        // that the user switches back to automated volume discounting. Otherwise
-        // it will look like there is a long period of inactivity which would increase
-        // the price.
+        // This has to run even if we don't use the budget because it updates the query volume
+        // estimate. This is important in the case that the user switches back to automated volume
+        // discounting. Otherwise it will look like there is a long period of inactivity which would
+        // increase the price.
         let budget = api_key
             .usage
             .lock()
@@ -361,9 +385,9 @@ where
         let mut budget = USD::try_from(budget).unwrap();
         if let Some(max_budget) = api_key.max_budget {
             // Security: Consumers can and will set their budget to unreasonably high values. This
-            // .min prevents the budget from being set beyond what it would be automatically. The reason
-            // this is important is because sometimes queries are subsidized and we would be at-risk
-            // to allow arbitrarily high values.
+            // .min prevents the budget from being set beyond what it would be automatically. The
+            // reason this is important is because sometimes queries are subsidized and we would be
+            // at-risk to allow arbitrarily high values.
             budget = max_budget.min(budget * U256::from(10u8));
         }
         let budget: GRT = self
@@ -371,23 +395,21 @@ where
             .latest()
             .network_params
             .usd_to_grt(USD::try_from(budget).unwrap())
-            .ok_or(QueryEngineError::MissingExchangeRate)?;
+            .ok_or(MissingExchangeRate)?;
         query.budget = Some(budget);
 
         let utility_config = UtilityConfig::from_preferences(&api_key.indexer_preferences);
 
-        // Used to track instances of the latest block getting unresolved by idexers. If this
-        // happens enough, we will ignore the latest block since it may be uncled.
-        let mut latest_unresolved: usize = 0;
+        // Used to track how many times an indexer failed to resolve a block. This may indicate that
+        // our latest block has been uncled.
+        let mut latest_unresolved: u64 = 0;
 
         for retry_count in 0..self.config.indexer_selection_retry_limit {
-            let selection_timer = with_metric(
-                &METRICS.indexer_selection_duration,
-                &[&deployment_id],
-                |hist| hist.start_timer(),
-            );
-
-            tracing::info!(latest_block = ?block_resolver.latest_block());
+            let latest_block = block_cache
+                .chain_head
+                .value_immediate()
+                .ok_or(UnresolvedBlock::WithNumber(0))?;
+            tracing::debug!(?latest_block);
 
             // Since we modify the context in-place, we need to reset the context to the state of
             // the original client query. This to avoid the following scenario:
@@ -406,63 +428,60 @@ where
             // to the state of the client query.
             let mut context = context.clone();
 
-            let selection_result = self
-                .isa
-                .latest()
-                .select_indexer(
-                    &utility_config,
-                    &subgraph.network,
-                    &subgraph.deployment,
-                    &deployment_indexers,
-                    &mut context,
-                    &block_resolver,
-                    &freshness_requirements,
-                    budget,
-                )
-                .await;
-            selection_timer.map(|t| t.observe_duration());
+            let selection_timer = with_metric(
+                &METRICS.indexer_selection_duration,
+                &[&deployment_id],
+                |hist| hist.start_timer(),
+            );
+            let (selection, scoring_sample) = self.isa.latest().select_indexer(
+                &utility_config,
+                &subgraph.deployment,
+                &mut context,
+                latest_block.number,
+                &deployment_indexers,
+                budget,
+                &freshness_requirements,
+            )?;
+            drop(selection_timer);
 
-            let (indexer_query, scoring_sample) = match selection_result {
-                Ok(Some(indexer_query)) => indexer_query,
-                Ok(None) => return Err(NoIndexerSelected),
-                Err(err) => return Err(err.into()),
+            if let Some(ScoringSample(indexer, result)) = scoring_sample {
+                match result {
+                    Ok(score) => {
+                        self.notify_isa_sample(&query, &indexer, &score, "ISA scoring sample")
+                    }
+                    Err(err) => self.notify_isa_err(&query, &indexer, err, "ISA scoring sample"),
+                };
+            }
+
+            let selection = match selection {
+                Some(selection) => selection,
+                None => return Err(NoIndexerSelected),
             };
-
-            if indexer_query.score.fee > GRT::try_from(100u64).unwrap() {
-                tracing::error!(excessive_fee = %indexer_query.score.fee);
+            if selection.score.fee > GRT::try_from(100u64).unwrap() {
+                tracing::error!(excessive_fee = %selection.score.fee);
                 return Err(QueryEngineError::ExcessiveFee);
             }
 
             self.notify_isa_sample(
                 &query,
-                &indexer_query.indexing.indexer,
-                &indexer_query.score,
+                &selection.indexing.indexer,
+                &selection.score,
                 "Selected indexer score",
             );
-            match scoring_sample.0 {
-                Some((indexer, Ok(score))) => {
-                    self.notify_isa_sample(&query, &indexer, &score, "ISA scoring sample")
-                }
-                Some((indexer, Err(err))) => {
-                    self.notify_isa_err(&query, &indexer, err, "ISA scoring sample")
-                }
-                _ => (),
-            };
 
-            let indexing = indexer_query.indexing;
-            let latest_query_block = indexer_query.latest_block;
-            let receipt = self
-                .receipt_pools
-                .commit(&indexing, indexer_query.score.fee)
-                .await
-                .map(Receipt);
-            let result = match receipt {
-                Ok(receipt) => {
-                    self.execute_indexer_query(query, indexer_query, receipt, deployment_id)
-                        .await
-                }
-                Err(BorrowFail::NoAllocation) => Err(IndexerError::MissingAllocation),
-            };
+            // Select the latest block for the selected indexer. Also, skip 1 block for every 2
+            // attempts where the indexer failed to resolve the block we consider to be latest.
+            let blocks_behind = selection.score.blocks_behind + (latest_unresolved / 2);
+            let latest_query_block = block_cache.latest(blocks_behind).await?;
+            let deterministic_query =
+                make_query_deterministic(context, &block_requirements, &latest_query_block)
+                    .ok_or(MalformedQuery)?;
+
+            let indexing = selection.indexing;
+            let result = self
+                .execute_indexer_query(query, selection, deterministic_query, deployment_id)
+                .await;
+
             METRICS.indexer_query.check(&[deployment_id], &result);
             assert_eq!(retry_count + 1, query.indexer_attempts.len());
             let attempt = query.indexer_attempts.last_mut().unwrap();
@@ -473,9 +492,13 @@ where
                 Err(IndexerError::UnresolvedBlock) => {
                     // Get this early to be closer to the time when the query was made so that race
                     // conditions occur less frequently. They will still occur though.
-                    let latest_block = block_resolver.latest_block().map(|b| b.number).unwrap_or(0);
+                    let latest_block = block_cache
+                        .chain_head
+                        .value_immediate()
+                        .map(|b| b.number)
+                        .unwrap_or(0);
                     Err(IndexerErrorObservation::IndexingBehind {
-                        latest_query_block,
+                        latest_query_block: latest_query_block.number,
                         latest_block,
                     })
                 }
@@ -505,10 +528,7 @@ where
                 }
                 Err(err) => {
                     if let IndexerError::UnresolvedBlock = err {
-                        // Skip 1 block for every 2 attempts where the indexer failed to resolve
-                        // the block we consider to be latest. Our latest block may be uncled.
                         latest_unresolved += 1;
-                        block_resolver.skip_latest(latest_unresolved / 2);
                     }
                     attempt.result = Err(err);
                     // If, for example, we need to back out an optimistic prediction of an indexer's freshness,
@@ -525,14 +545,20 @@ where
     async fn execute_indexer_query(
         &self,
         query: &mut Query,
-        indexer_query: IndexerQuery,
-        receipt: Receipt,
+        selection: Selection,
+        deterministic_query: String,
         deployment_id: &str,
     ) -> Result<(), IndexerError> {
+        let receipt = self
+            .receipt_pools
+            .commit(&selection.indexing, selection.score.fee)
+            .await
+            .map(Receipt)?;
+
         let t0 = Instant::now();
         let result = self
             .indexer_client
-            .query_indexer(&indexer_query, &receipt.0)
+            .query_indexer(&selection, deterministic_query.clone(), &receipt.0)
             .await;
         let query_duration = Instant::now() - t0;
         with_metric(&METRICS.indexer_query.duration, &[&deployment_id], |hist| {
@@ -543,10 +569,10 @@ where
         allocation.0.copy_from_slice(&receipt.0[0..20]);
 
         query.indexer_attempts.push(IndexerAttempt {
-            score: indexer_query.score,
-            indexer: indexer_query.indexing.indexer,
+            score: selection.score,
+            indexer: selection.indexing.indexer,
             allocation,
-            query: Arc::new(indexer_query.query),
+            query: Arc::new(deterministic_query),
             receipt,
             result,
             indexer_errors: String::default(),
@@ -588,7 +614,7 @@ where
                 .any(|err| error.contains(err))
             {
                 let _ = self.observations.write(Update::Penalty {
-                    indexing: indexer_query.indexing,
+                    indexing: selection.indexing,
                     weight: 35,
                 });
                 tracing::info!(%error, "penalizing for unattestable error");
@@ -613,7 +639,7 @@ where
 
         if let Some(attestation) = &response.attestation {
             self.challenge_indexer_response(
-                indexer_query.indexing.clone(),
+                selection.indexing.clone(),
                 result.allocation.clone(),
                 result.query.clone(),
                 attestation.clone(),

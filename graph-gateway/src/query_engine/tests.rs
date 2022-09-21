@@ -1,4 +1,5 @@
 use crate::{
+    chains::{self, test::Provider},
     fisherman_client::*,
     indexer_client::*,
     kafka_client::{self, KafkaInterface},
@@ -146,11 +147,18 @@ impl Topology {
         topology
     }
 
-    fn resolvers(&self) -> Arc<HashMap<String, BlockResolver>> {
+    fn block_caches(&self) -> Arc<HashMap<String, BlockCache>> {
         let resolvers = self
             .networks
             .iter()
-            .map(|(name, network)| (name.clone(), BlockResolver::test(&network.blocks)))
+            .map(|(name, network)| {
+                let provider = Provider {
+                    network: name.clone(),
+                    blocks: network.blocks.clone(),
+                };
+                let cache = BlockCache::new::<chains::test::Client>(provider);
+                (name.clone(), cache)
+            })
             .collect();
         Arc::new(resolvers)
     }
@@ -179,7 +187,7 @@ impl Topology {
 
     fn gen_network(&mut self) -> NetworkTopology {
         let mut network = NetworkTopology {
-            name: self.gen_str(log_2(*self.config.networks.end())),
+            name: self.gen_str(log_2(*self.config.networks.end()).max(1)),
             blocks: Vec::new(),
         };
         let block_count = self.gen_len(self.config.blocks.clone(), 32);
@@ -590,18 +598,25 @@ struct TopologyIndexer {
 impl IndexerInterface for TopologyIndexer {
     async fn query_indexer(
         &self,
-        query: &IndexerQuery,
+        selection: &Selection,
+        query: String,
         _receipt: &[u8],
     ) -> Result<IndexerResponse, IndexerError> {
         use regex::Regex;
         let topology = self.topology.lock().await;
-        let indexer = topology.indexers.get(&query.indexing.indexer).unwrap();
+        let indexer = topology.indexers.get(&selection.indexing.indexer).unwrap();
         if indexer.indexer_err {
             return Err(IndexerError::Other("indexer error".to_string()));
         }
-        let blocks = &topology.networks.get(&query.network).unwrap().blocks;
+        let deployment = topology
+            .deployments()
+            .into_iter()
+            .find(|d| &d.id == &selection.indexing.deployment)
+            .unwrap();
+        let blocks = &topology.networks.get(&deployment.network).unwrap().blocks;
+
         let matcher = Regex::new(r#"block: \{hash: \\"0x([[:xdigit:]]+)\\"}"#).unwrap();
-        for capture in matcher.captures_iter(&query.query) {
+        for capture in matcher.captures_iter(&query) {
             let hash = capture.get(1).unwrap().as_str().parse::<Bytes32>().unwrap();
             let number = blocks.iter().position(|block| block.hash == hash).unwrap();
             if number > indexer.block(blocks.len()) {
@@ -618,7 +633,7 @@ impl IndexerInterface for TopologyIndexer {
             attestation: Some(Attestation {
                 request_cid: Bytes32::default(),
                 response_cid: Bytes32::default(),
-                deployment: Bytes32::from(*query.indexing.deployment),
+                deployment: Bytes32::from(*selection.indexing.deployment),
                 v: 0,
                 r: Bytes32::default(),
                 s: Bytes32::default(),
@@ -676,7 +691,7 @@ async fn test() {
         .unwrap_or(OsRng.next_u64());
     tracing::info!(%seed);
     let rng = SmallRng::seed_from_u64(seed);
-    for _ in 0..100 {
+    for _ in 0..10 {
         let (update_writer, update_reader) = buffer_queue::pair();
         let (isa_state, isa_writer) = double_buffer!(indexer_selection::State::default());
         let topology = Arc::new(Mutex::new(Topology::new(
@@ -690,7 +705,7 @@ async fn test() {
             },
             &rng,
         )));
-        let block_resolvers = topology.lock().await.resolvers();
+        let block_caches = topology.lock().await.block_caches();
         let receipt_pools = ReceiptPools::default();
         let deployment_indexers = topology
             .lock()
@@ -714,7 +729,7 @@ async fn test() {
                 topology: topology.clone(),
             })),
             deployment_indexers,
-            block_resolvers,
+            block_caches,
             receipt_pools: receipt_pools.clone(),
             isa: isa_state.clone(),
             observations: update_writer.clone(),

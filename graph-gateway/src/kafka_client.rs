@@ -187,9 +187,8 @@ pub struct ISAScoringError {
 impl ISAScoringError {
     pub fn new(query: &Query, indexer: &Address, err: &SelectionError, message: &str) -> Self {
         let (error_code, error_data) = match &err {
-            SelectionError::BadInput => (1, "".into()),
+            SelectionError::MalformedQuery => (1, "".into()),
             SelectionError::MissingNetworkParams => (2, "".into()),
-            SelectionError::MissingBlock(block) => (3, format!("{:?}", block)),
             SelectionError::BadIndexer(reason) => (4, format!("{:?}", reason)),
             SelectionError::NoAllocation(indexing) => (5, format!("{:?}", indexing)),
             SelectionError::FeesTooHigh(count) => (6, count.to_string()),

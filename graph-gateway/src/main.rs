@@ -1,5 +1,5 @@
-mod block_resolver;
-mod ethereum_client;
+mod block_constraints;
+mod chains;
 mod fisherman_client;
 mod geoip;
 mod indexer_client;
@@ -17,7 +17,7 @@ mod studio_client;
 mod subgraph_deployments;
 mod vouchers;
 use crate::{
-    block_resolver::*,
+    chains::*,
     fisherman_client::*,
     geoip::GeoIP,
     indexer_client::IndexerClient,
@@ -58,6 +58,7 @@ use std::{
 };
 use structopt::StructOpt as _;
 use tokio::spawn;
+use url::Url;
 
 #[actix_web::main]
 async fn main() {
@@ -111,20 +112,17 @@ async fn main() {
             return;
         }
     };
-    let block_resolvers = opt
+    let block_caches = opt
         .ethereum_providers
         .0
         .into_iter()
         .map(|provider| {
             let network = provider.network.clone();
-            let (block_cache_writer, block_cache) =
-                BlockCache::new(opt.block_cache_head, opt.block_cache_size);
-            let chain_client = ethereum_client::create(provider, block_cache_writer);
-            let resolver = BlockResolver::new(network.clone(), block_cache, chain_client);
-            (network, resolver)
+            let cache = BlockCache::new::<ethereum::Client>(provider);
+            (network, cache)
         })
-        .collect::<HashMap<String, BlockResolver>>();
-    let block_resolvers = Arc::new(block_resolvers);
+        .collect::<HashMap<String, BlockCache>>();
+    let block_caches = Arc::new(block_caches);
     let signer_key = opt.signer_key.0;
 
     let http_client = reqwest::Client::builder()
@@ -158,7 +156,7 @@ async fn main() {
     {
         let signer_key = signer_key.clone();
         let receipt_pools = receipt_pools.clone();
-        let block_resolvers = block_resolvers.clone();
+        let block_caches = block_caches.clone();
         let update_writer = update_writer.clone();
         eventuals::join((
             network_subgraph_data.allocations.clone(),
@@ -168,12 +166,12 @@ async fn main() {
         .pipe_async(move |(allocations, indexer_info, indexing_statuses)| {
             let signer_key = signer_key.clone();
             let receipt_pools = receipt_pools.clone();
-            let block_resolvers = block_resolvers.clone();
+            let block_caches = block_caches.clone();
             let update_writer = update_writer.clone();
             async move {
                 write_indexer_inputs(
                     &signer_key,
-                    &block_resolvers,
+                    &block_caches,
                     &update_writer,
                     &receipt_pools,
                     &allocations,
@@ -222,7 +220,7 @@ async fn main() {
         stats_db,
         fisherman_client,
         kafka_client,
-        block_resolvers: block_resolvers.clone(),
+        block_caches: block_caches.clone(),
         observations: update_writer,
         receipt_pools,
         isa_state,
@@ -234,7 +232,7 @@ async fn main() {
         network_subgraph_auth_token: opt.network_subgraph_auth_token,
     };
     let ready_data = ReadyData {
-        block_resolvers,
+        block_caches,
         allocations: network_subgraph_data.allocations,
     };
 
@@ -360,7 +358,7 @@ fn request_host(request: &ServiceRequest) -> String {
 
 async fn write_indexer_inputs(
     signer: &SecretKey,
-    block_resolvers: &HashMap<String, BlockResolver>,
+    block_caches: &HashMap<String, BlockCache>,
     update_writer: &QueueWriter<Update>,
     receipt_pools: &ReceiptPools,
     allocations: &HashMap<Address, AllocationInfo>,
@@ -393,9 +391,9 @@ async fn write_indexer_inputs(
         let latest = match latest_blocks.entry(status.network.clone()) {
             Entry::Occupied(entry) => *entry.get(),
             Entry::Vacant(entry) => *entry.insert(
-                block_resolvers
+                block_caches
                     .get(&status.network)
-                    .and_then(|resolver| resolver.latest_block().map(|b| b.number))
+                    .and_then(|cache| cache.chain_head.value_immediate().map(|b| b.number))
                     .unwrap_or(0),
             ),
         };
@@ -441,22 +439,22 @@ async fn handle_metrics() -> HttpResponse {
 
 #[derive(Clone)]
 struct ReadyData {
-    block_resolvers: Arc<HashMap<String, BlockResolver>>,
+    block_caches: Arc<HashMap<String, BlockCache>>,
     allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
 }
 
 async fn handle_ready(data: web::Data<ReadyData>) -> HttpResponse {
-    let block_resolvers_ready = data
-        .block_resolvers
+    let block_caches_ready = data
+        .block_caches
         .iter()
-        .all(|(_, resolver)| resolver.latest_block().is_some());
+        .all(|(_, cache)| cache.chain_head.value_immediate().is_some());
     let allocations_ready = data
         .allocations
         .value_immediate()
         .map(|map| map.len())
         .unwrap_or(0)
         > 0;
-    if block_resolvers_ready && allocations_ready {
+    if block_caches_ready && allocations_ready {
         HttpResponseBuilder::new(StatusCode::OK).body("Ready")
     } else {
         // Respond with 425 Too Early
@@ -517,7 +515,7 @@ struct SubgraphQueryData {
     config: Config,
     indexer_client: IndexerClient,
     fisherman_client: Option<Arc<FishermanClient>>,
-    block_resolvers: Arc<HashMap<String, BlockResolver>>,
+    block_caches: Arc<HashMap<String, BlockCache>>,
     subgraph_info: SubgraphInfoMap,
     subgraph_deployments: SubgraphDeployments,
     deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
@@ -623,7 +621,7 @@ async fn handle_subgraph_query_inner(
         kafka_client: data.kafka_client.clone(),
         fisherman_client: data.fisherman_client.clone(),
         deployment_indexers: data.deployment_indexers.clone(),
-        block_resolvers: data.block_resolvers.clone(),
+        block_caches: data.block_caches.clone(),
         receipt_pools: data.receipt_pools.clone(),
         isa: data.isa_state.clone(),
         observations: data.observations.clone(),
@@ -656,7 +654,7 @@ async fn handle_subgraph_query_inner(
         .headers()
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| Some(v.parse::<URL>().ok()?.host_str()?.to_string()))
+        .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
     tracing::debug!(%domain, authorized = ?api_key.domains);
     let authorized_domains = api_key.domains.iter().map(|(d, _)| d.as_str());
@@ -692,6 +690,9 @@ async fn handle_subgraph_query_inner(
             }
             QueryEngineError::BlockBeforeMin => {
                 "Requested block before minimum `startBlock` of subgraph manifest".into()
+            }
+            QueryEngineError::NetworkNotSupported(network) => {
+                format!("Network not supported: {}", network)
             }
             QueryEngineError::MissingBlock(_) => "Gateway failed to resolve required blocks".into(),
             QueryEngineError::MissingNetworkParams => "Internal error: MissingNetworkParams".into(),

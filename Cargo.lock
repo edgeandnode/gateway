@@ -1076,10 +1076,12 @@ dependencies = [
  "eventuals",
  "futures",
  "futures-util",
+ "graphql-parser",
  "hdwallet",
  "hex",
  "im",
  "indexer-selection",
+ "itertools",
  "lazy_static",
  "maxminddb",
  "openssl",
@@ -1352,13 +1354,11 @@ dependencies = [
 name = "indexer-selection"
 version = "0.0.1"
 dependencies = [
- "async-trait",
  "chrono",
  "core-foundation",
  "cost-model",
  "eventuals",
  "futures",
- "graphql-parser",
  "hex",
  "itertools",
  "lazy_static",
