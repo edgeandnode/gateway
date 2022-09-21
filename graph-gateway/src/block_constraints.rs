@@ -134,8 +134,6 @@ fn field_constraint<'c>(
     vars: &QueryVariables,
     field: &Value<'c, &'c str>,
 ) -> Option<BlockConstraint> {
-    // TODO: The GraphQL spec is format agnostic, and may support recursive variables.
-    // Be careful not to allow a stack overflow from malicious inputs.
     match field {
         Value::Object(fields) => parse_constraint(vars, fields),
         Value::Variable(name) => match vars.get(name)? {
@@ -163,8 +161,6 @@ fn parse_constraint<'c, T: Text<'c>>(
 }
 
 fn parse_hash<'c, T: Text<'c>>(hash: &Value<'c, T>, variables: &QueryVariables) -> Option<Bytes32> {
-    // TODO: The GraphQL spec is format agnostic, and may support recursive variables.
-    // Be careful not to allow a stack overflow from malicious inputs.
     match hash {
         Value::String(hash) => hash.parse().ok(),
         Value::Variable(name) => match variables.get(name.as_ref()) {
@@ -176,8 +172,6 @@ fn parse_hash<'c, T: Text<'c>>(hash: &Value<'c, T>, variables: &QueryVariables) 
 }
 
 fn parse_number<'c, T: Text<'c>>(number: &Value<'c, T>, variables: &QueryVariables) -> Option<u64> {
-    // TODO: The GraphQL spec is format agnostic, and may support recursive variables.
-    // Be careful not to allow a stack overflow from malicious inputs.
     let n = match number {
         Value::Int(n) => n,
         Value::Variable(name) => match variables.get(name.as_ref()) {
