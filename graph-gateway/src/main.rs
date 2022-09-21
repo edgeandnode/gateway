@@ -52,7 +52,7 @@ use serde::Deserialize;
 use serde_json::{json, value::RawValue};
 use simple_rate_limiter::RateLimiter;
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
     time::SystemTime,
 };
@@ -197,6 +197,8 @@ async fn main() {
         deployment_ids,
     );
 
+    let special_api_keys = Arc::new(HashSet::from_iter(opt.special_api_keys));
+
     let fisherman_client = opt
         .fisherman
         .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
@@ -224,6 +226,7 @@ async fn main() {
         observations: update_writer,
         receipt_pools,
         isa_state,
+        special_api_keys,
     };
     let network_subgraph_query_data = NetworkSubgraphQueryData {
         http_client,
@@ -525,6 +528,7 @@ struct SubgraphQueryData {
     api_key_payment_required: bool,
     stats_db: mpsc::UnboundedSender<stats_db::Msg>,
     kafka_client: Arc<KafkaClient>,
+    special_api_keys: Arc<HashSet<String>>,
 }
 
 #[derive(Debug)]
@@ -631,7 +635,10 @@ async fn handle_subgraph_query_inner(
         None => return Err("Invalid API key".into()),
     };
 
-    if data.api_key_payment_required && !api_key.is_subsidized {
+    if data.api_key_payment_required
+        && !api_key.is_subsidized
+        && !data.special_api_keys.contains(&api_key.key)
+    {
         // Enforce the API key payment status, unless it's being subsidized.
         match api_key.query_status {
             QueryStatus::Active => (),

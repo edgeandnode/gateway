@@ -40,6 +40,14 @@ pub struct Opt {
         default_value = "0.2:"
     )]
     pub mips: MIPs,
+    #[structopt(
+        long,
+        env,
+        help = "API keys that won't be blocked for non-payment",
+        default_value = "",
+        use_delimiter = true
+    )]
+    pub special_api_keys: Vec<String>,
     #[structopt(long, env, parse(try_from_str), help = "Format log output as JSON")]
     pub log_json: bool,
     #[structopt(long, env, default_value = "5")]
