@@ -12,7 +12,6 @@ mod network_subgraph;
 mod opt;
 mod query_engine;
 mod rate_limiter;
-mod stats_db;
 mod studio_client;
 mod subgraph_deployments;
 mod vouchers;
@@ -97,21 +96,6 @@ async fn main() {
         .filter(|_| !opt.geoip_blocked_countries.is_empty())
         .map(|db| GeoIP::new(db, opt.geoip_blocked_countries).unwrap());
 
-    let stats_db = match stats_db::create(
-        &opt.stats_db_host,
-        opt.stats_db_port,
-        &opt.stats_db_name,
-        &opt.stats_db_user,
-        &opt.stats_db_password,
-    )
-    .await
-    {
-        Ok(stats_db) => stats_db,
-        Err(stats_db_create_err) => {
-            tracing::error!(%stats_db_create_err);
-            return;
-        }
-    };
     let block_caches = opt
         .ethereum_providers
         .0
@@ -217,7 +201,6 @@ async fn main() {
         deployment_indexers: network_subgraph_data.deployment_indexers,
         api_keys: studio_data.api_keys,
         api_key_payment_required: opt.api_key_payment_required,
-        stats_db,
         fisherman_client,
         kafka_client,
         block_caches: block_caches.clone(),
@@ -524,7 +507,6 @@ struct SubgraphQueryData {
     observations: QueueWriter<Update>,
     api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     api_key_payment_required: bool,
-    stats_db: mpsc::UnboundedSender<stats_db::Msg>,
     kafka_client: Arc<KafkaClient>,
     special_api_keys: Arc<HashSet<String>>,
 }
@@ -702,13 +684,6 @@ async fn handle_subgraph_query_inner(
     }
     let last_attempt = query.indexer_attempts.last().unwrap();
     let response = last_attempt.result.as_ref().unwrap();
-
-    let _ = data.stats_db.send(stats_db::Msg::AddQuery {
-        api_key,
-        fee: last_attempt.score.fee,
-        domain: domain.to_string(),
-        subgraph: query.subgraph.as_ref().unwrap().id.clone(),
-    });
 
     let attestation = response
         .attestation
