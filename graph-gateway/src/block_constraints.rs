@@ -3,10 +3,7 @@ use indexer_selection::{cost_model::QueryVariables, Context, UnresolvedBlock};
 use itertools::Itertools as _;
 use prelude::*;
 use serde_json::{self, json};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    mem,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {
@@ -109,21 +106,21 @@ pub fn make_query_deterministic(
         }
     }
 
-    let mut query = Document {
-        definitions: Vec::new(),
-    };
-    query.definitions.extend(
-        mem::take(&mut ctx.fragments)
-            .into_iter()
-            .map(Definition::Fragment),
-    );
-    query.definitions.extend(
-        mem::take(&mut ctx.operations)
-            .into_iter()
-            .map(Definition::Operation),
-    );
+    let Context {
+        fragments,
+        operations,
+        ..
+    } = ctx;
+    let definitions = fragments
+        .into_iter()
+        .map(Definition::Fragment)
+        .chain(operations.into_iter().map(Definition::Operation))
+        .collect();
 
-    serde_json::to_string(&json!({ "query": query.to_string(), "variables": ctx.variables })).ok()
+    serde_json::to_string(
+        &json!({ "query": Document { definitions }.to_string(), "variables": ctx.variables }),
+    )
+    .ok()
 }
 
 fn deterministic_block<'c>(hash: &Bytes32) -> Value<'c, &'c str> {
