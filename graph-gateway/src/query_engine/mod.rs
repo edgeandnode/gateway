@@ -1,4 +1,3 @@
-mod clock;
 mod price_automation;
 #[cfg(test)]
 mod tests;
