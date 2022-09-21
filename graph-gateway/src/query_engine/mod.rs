@@ -5,7 +5,7 @@ mod tests;
 mod unattestable_errors;
 
 use crate::{
-    block_constraints::{block_constraints, make_query_deterministic},
+    block_constraints::{block_constraints, make_query_deterministic, BlockConstraint},
     chains::*,
     fisherman_client::*,
     indexer_client::*,
@@ -13,6 +13,7 @@ use crate::{
     manifest_client::SubgraphInfo,
     metrics::*,
 };
+use futures::future::join_all;
 use indexer_selection::{
     self,
     actor::IndexerErrorObservation,
@@ -29,7 +30,7 @@ use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, BTreeSet, HashMap},
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
@@ -342,10 +343,22 @@ where
             .ok_or_else(|| NetworkNotSupported(subgraph.network.clone()))?;
 
         let block_constraints = block_constraints(&context).ok_or(MalformedQuery)?;
-        let block_requirements = block_cache.block_requirements(block_constraints).await?;
+        let block_requirements = join_all(
+            block_constraints
+                .iter()
+                .filter_map(|constraint| constraint.clone().into_unresolved())
+                .map(|unresolved| block_cache.fetch_block(unresolved)),
+        )
+        .await
+        .into_iter()
+        .collect::<Result<BTreeSet<BlockPointer>, UnresolvedBlock>>()?;
+
         let freshness_requirements = FreshnessRequirements {
-            minimum_block: block_requirements.resolved.iter().map(|b| b.number).max(),
-            has_latest: block_requirements.has_latest(),
+            minimum_block: block_requirements.iter().map(|b| b.number).max(),
+            has_latest: block_constraints.iter().any(|c| match c {
+                BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
+                BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
+            }),
         };
 
         // Reject queries for blocks before minimum start block of subgraph manifest.
@@ -460,12 +473,9 @@ where
             // attempts where the indexer failed to resolve the block we consider to be latest.
             let blocks_behind = selection.score.blocks_behind + (latest_unresolved / 2);
             let latest_query_block = block_cache.latest(blocks_behind).await?;
-            let deterministic_query = make_query_deterministic(
-                context,
-                &block_requirements.resolved,
-                &latest_query_block,
-            )
-            .ok_or(MalformedQuery)?;
+            let deterministic_query =
+                make_query_deterministic(context, &block_requirements, &latest_query_block)
+                    .ok_or(MalformedQuery)?;
 
             let indexing = selection.indexing;
             let result = self

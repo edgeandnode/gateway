@@ -5,10 +5,7 @@ use crate::{block_constraints::*, metrics::*};
 use actix_web::Result;
 use indexer_selection::UnresolvedBlock;
 use prelude::{epoch_cache::EpochCache, tokio::time::interval, *};
-use std::{
-    collections::{btree_map::Entry, BTreeMap, BTreeSet},
-    mem,
-};
+use std::collections::{BTreeSet, HashMap};
 
 pub trait Provider {
     fn network(&self) -> &str;
@@ -35,40 +32,15 @@ pub struct BlockRequirements {
     pub resolved: BTreeSet<BlockPointer>,
 }
 
-impl BlockRequirements {
-    fn resolved(&self) -> bool {
-        self.constraints.iter().all(|c| match c {
-            BlockConstraint::Unconstrained => true,
-            BlockConstraint::Hash(h) => self.resolved.iter().any(|b| &b.hash == h),
-            BlockConstraint::Number(n) | BlockConstraint::NumberGTE(n) => {
-                self.resolved.iter().any(|b| &b.number == n)
-            }
-        })
-    }
-
-    pub fn has_latest(&self) -> bool {
-        self.constraints.iter().any(|c| match c {
-            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
-            BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
-        })
-    }
-}
-
 #[derive(Clone)]
 pub struct BlockCache {
     pub chain_head: Eventual<BlockPointer>,
     request_tx: mpsc::UnboundedSender<Request>,
 }
 
-enum Request {
-    Block {
-        number: u64,
-        tx: oneshot::Sender<Result<BlockPointer, UnresolvedBlock>>,
-    },
-    Requirements {
-        constraints: BTreeSet<BlockConstraint>,
-        tx: oneshot::Sender<Result<BlockRequirements, UnresolvedBlock>>,
-    },
+struct Request {
+    unresolved: UnresolvedBlock,
+    tx: oneshot::Sender<Result<BlockPointer, UnresolvedBlock>>,
 }
 
 impl BlockCache {
@@ -84,14 +56,23 @@ impl BlockCache {
             chain_head_broadcast_tx,
             number_to_hash: EpochCache::new(),
             hash_to_number: EpochCache::new(),
-            pending_block: BTreeMap::new(),
-            pending_requirements: Vec::new(),
+            pending: HashMap::new(),
         };
         actor.spawn();
         Self {
             chain_head: chain_head_broadcast_rx,
             request_tx,
         }
+    }
+
+    pub async fn fetch_block(
+        &self,
+        unresolved: UnresolvedBlock,
+    ) -> Result<BlockPointer, UnresolvedBlock> {
+        let (tx, rx) = oneshot::channel();
+        let request = Request { unresolved, tx };
+        self.request_tx.send(request).ok().unwrap();
+        rx.await.unwrap()
     }
 
     pub async fn latest(&mut self, skip: u64) -> Result<BlockPointer, UnresolvedBlock> {
@@ -103,49 +84,19 @@ impl BlockCache {
         if number == latest.number {
             return Ok(latest);
         }
-
-        let (tx, rx) = oneshot::channel();
-        let request = Request::Block { number, tx };
-        self.request_tx.send(request).ok().unwrap();
-        Ok(rx.await.unwrap().unwrap_or(latest))
-    }
-
-    pub async fn block_requirements(
-        &mut self,
-        constraints: BTreeSet<BlockConstraint>,
-    ) -> Result<BlockRequirements, UnresolvedBlock> {
-        if constraints.is_empty()
-            || ((constraints.len() == 1) && constraints.contains(&BlockConstraint::Unconstrained))
-        {
-            return Ok(BlockRequirements {
-                constraints,
-                resolved: BTreeSet::new(),
-            });
-        }
-
-        let (tx, rx) = oneshot::channel();
-        let request = Request::Requirements { constraints, tx };
-        self.request_tx.send(request).ok().unwrap();
-        rx.await.unwrap()
+        self.fetch_block(UnresolvedBlock::WithNumber(number)).await
     }
 }
 
 struct Actor {
     network: String,
+    request_rx: mpsc::UnboundedReceiver<Request>,
     client_tx: mpsc::UnboundedSender<UnresolvedBlock>,
     notify_rx: mpsc::UnboundedReceiver<ClientMsg>,
-    request_rx: mpsc::UnboundedReceiver<Request>,
     chain_head_broadcast_tx: EventualWriter<BlockPointer>,
     number_to_hash: EpochCache<u64, Bytes32, 2>,
     hash_to_number: EpochCache<Bytes32, u64, 2>,
-    pending_block: BTreeMap<u64, Vec<oneshot::Sender<Result<BlockPointer, UnresolvedBlock>>>>,
-    pending_requirements: Vec<PendingRequirementsRequest>,
-}
-
-struct PendingRequirementsRequest {
-    unresolved: BTreeSet<UnresolvedBlock>,
-    requirements: BlockRequirements,
-    tx: oneshot::Sender<Result<BlockRequirements, UnresolvedBlock>>,
+    pending: HashMap<UnresolvedBlock, Vec<oneshot::Sender<Result<BlockPointer, UnresolvedBlock>>>>,
 }
 
 impl Actor {
@@ -159,19 +110,14 @@ impl Actor {
                         _ = cache_timer.tick() => {
                             self.number_to_hash.increment_epoch();
                             self.hash_to_number.increment_epoch();
-                        }
+                        },
+                        Some(request) = self.request_rx.recv() => {
+                            self.handle_request(request).await;
+                        },
                         Some(msg) = self.notify_rx.recv() => match msg {
                             ClientMsg::Head(head) => self.handle_chain_head(head).await,
                             ClientMsg::Block(block) => self.handle_block(block).await,
                             ClientMsg::Err(unresolved) => self.handle_err(unresolved).await,
-                        },
-                        Some(request) = self.request_rx.recv() => match request {
-                            Request::Block { number, tx } => {
-                                self.handle_block_request(number, tx).await;
-                            }
-                            Request::Requirements{ constraints, tx } => {
-                                self.handle_block_requirements(constraints, tx).await;
-                            }
                         },
                         else => break,
                     };
@@ -180,6 +126,32 @@ impl Actor {
             }
             .in_current_span(),
         );
+    }
+
+    async fn handle_request(&mut self, request: Request) {
+        let cached = match request.unresolved {
+            UnresolvedBlock::WithHash(hash) => self
+                .hash_to_number
+                .get(&hash)
+                .map(|&number| BlockPointer { hash, number })
+                .ok_or(UnresolvedBlock::WithHash(hash)),
+            UnresolvedBlock::WithNumber(number) => self
+                .number_to_hash
+                .get(&number)
+                .map(|&hash| BlockPointer { hash, number })
+                .ok_or(UnresolvedBlock::WithNumber(number)),
+        };
+        match cached {
+            Ok(block) => {
+                with_metric(&METRICS.block_cache_hit, &[&self.network], |c| c.inc());
+                let _ = request.tx.send(Ok(block));
+            }
+            Err(unresolved) => {
+                with_metric(&METRICS.block_cache_miss, &[&self.network], |c| c.inc());
+                let _ = self.client_tx.send(unresolved.clone());
+                self.pending.entry(unresolved).or_default().push(request.tx);
+            }
+        }
     }
 
     async fn handle_chain_head(&mut self, head: BlockHead) {
@@ -204,123 +176,27 @@ impl Actor {
         self.hash_to_number.insert(block.hash.clone(), block.number);
         self.number_to_hash.insert(block.number, block.hash.clone());
 
-        self.complete_block_requests(Ok(block.clone()));
-
-        self.pending_requirements.retain_mut(|entry| {
-            for resolved in entry
-                .unresolved
-                .iter()
-                .filter(|u| u.matches(&block))
-                .cloned()
-                .collect::<Vec<UnresolvedBlock>>()
-            {
-                entry.unresolved.remove(&resolved);
-                entry.requirements.resolved.insert(block.clone());
+        for key in [
+            UnresolvedBlock::WithHash(block.hash),
+            UnresolvedBlock::WithNumber(block.number),
+        ] {
+            let waiters = match self.pending.remove(&key) {
+                Some(waiters) => waiters,
+                None => continue,
+            };
+            for tx in waiters {
+                let _ = tx.send(Ok(block.clone()));
             }
-            if entry.unresolved.is_empty() {
-                let tx = mem::replace(&mut entry.tx, oneshot::channel().0);
-                let _ = tx.send(Ok(mem::take(&mut entry.requirements)));
-                return false;
-            }
-            debug_assert!(entry.requirements.resolved());
-            true
-        });
+        }
     }
 
     async fn handle_err(&mut self, unresolved: UnresolvedBlock) {
-        self.complete_block_requests(Err(unresolved.clone()));
-
-        // Cancel pending requirements requests depending on the unresolved block.
-        self.pending_requirements.retain_mut(|entry| {
-            let tx = mem::replace(&mut entry.tx, oneshot::channel().0);
-            if entry.unresolved.contains(&unresolved) {
-                let _ = tx.send(Err(unresolved.clone()));
-                return false;
-            }
-            true
-        });
-    }
-
-    async fn handle_block_request(
-        &mut self,
-        number: u64,
-        tx: oneshot::Sender<Result<BlockPointer, UnresolvedBlock>>,
-    ) {
-        match self.number_to_hash.get(&number).cloned() {
-            Some(hash) => {
-                with_metric(&METRICS.block_cache_hit, &[&self.network], |c| c.inc());
-                let _ = tx.send(Ok(BlockPointer { number, hash }));
-            }
-            None => {
-                with_metric(&METRICS.block_cache_miss, &[&self.network], |c| c.inc());
-                let _ = self.client_tx.send(UnresolvedBlock::WithNumber(number));
-                self.pending_block.entry(number).or_default().push(tx);
-            }
-        }
-    }
-
-    fn complete_block_requests(&mut self, result: Result<BlockPointer, UnresolvedBlock>) {
-        let number = match &result {
-            Ok(block) => block.number,
-            Err(UnresolvedBlock::WithNumber(number)) => *number,
-            Err(UnresolvedBlock::WithHash(_)) => return,
+        let waiters = match self.pending.remove(&unresolved) {
+            Some(waiters) => waiters,
+            None => return,
         };
-        if let Entry::Occupied(entry) = self.pending_block.entry(number) {
-            for tx in entry.remove() {
-                let _ = tx.send(result.clone());
-            }
+        for tx in waiters {
+            let _ = tx.send(Err(unresolved.clone()));
         }
-    }
-
-    async fn handle_block_requirements(
-        &mut self,
-        constraints: BTreeSet<BlockConstraint>,
-        tx: oneshot::Sender<Result<BlockRequirements, UnresolvedBlock>>,
-    ) {
-        let mut requirements = BlockRequirements {
-            constraints,
-            resolved: BTreeSet::new(),
-        };
-        let mut unresolved = BTreeSet::new();
-        for constraint in &requirements.constraints {
-            let unresolved_block = match constraint.clone().into_unresolved() {
-                Some(unresolved_block) => unresolved_block,
-                None => continue,
-            };
-            let result = match &unresolved_block {
-                UnresolvedBlock::WithHash(h) => self.hash_to_number.get(&h).map(|n| BlockPointer {
-                    hash: h.clone(),
-                    number: *n,
-                }),
-                UnresolvedBlock::WithNumber(n) => {
-                    self.number_to_hash.get(n).map(|h| BlockPointer {
-                        hash: h.clone(),
-                        number: *n,
-                    })
-                }
-            };
-            match result {
-                Some(block) => {
-                    with_metric(&METRICS.block_cache_hit, &[&self.network], |c| c.inc());
-                    requirements.resolved.insert(block);
-                }
-                None => {
-                    with_metric(&METRICS.block_cache_miss, &[&self.network], |c| c.inc());
-                    let _ = self.client_tx.send(unresolved_block.clone());
-                    unresolved.insert(unresolved_block);
-                }
-            };
-        }
-
-        if requirements.resolved() {
-            let _ = tx.send(Ok(requirements));
-            return;
-        }
-
-        self.pending_requirements.push(PendingRequirementsRequest {
-            requirements,
-            unresolved,
-            tx,
-        });
     }
 }
