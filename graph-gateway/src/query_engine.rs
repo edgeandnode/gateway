@@ -1,8 +1,3 @@
-mod price_automation;
-#[cfg(test)]
-mod tests;
-mod unattestable_errors;
-
 use crate::{
     block_constraints::{block_constraints, make_query_deterministic, BlockConstraint},
     chains::*,
@@ -11,6 +6,8 @@ use crate::{
     kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
     manifest_client::SubgraphInfo,
     metrics::*,
+    price_automation::*,
+    unattestable_errors::UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
 };
 use futures::future::join_all;
 use indexer_selection::{
@@ -20,10 +17,9 @@ use indexer_selection::{
     Context, FreshnessRequirements, IndexerError, IndexerPreferences, IndexerScore, ScoringSample,
     Selection, SelectionError, UnresolvedBlock,
 };
-pub use indexer_selection::{actor::Update, Indexing, UtilityConfig};
+use indexer_selection::{actor::Update, Indexing, UtilityConfig};
 use lazy_static::lazy_static;
 use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, graphql::Response, *};
-pub use price_automation::{QueryBudgetFactors, VolumeEstimator};
 use primitive_types::U256;
 use secp256k1::SecretKey;
 use serde::Deserialize;
@@ -37,7 +33,6 @@ use std::{
     },
 };
 use tokio::sync::{Mutex, RwLock};
-use unattestable_errors::UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS;
 use uuid::Uuid;
 
 #[derive(Debug)]

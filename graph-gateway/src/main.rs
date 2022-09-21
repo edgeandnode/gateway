@@ -10,10 +10,14 @@ mod manifest_client;
 mod metrics;
 mod network_subgraph;
 mod opt;
+mod price_automation;
 mod query_engine;
 mod rate_limiter;
 mod studio_client;
 mod subgraph_deployments;
+#[cfg(test)]
+mod tests;
+mod unattestable_errors;
 mod vouchers;
 use crate::{
     chains::*,
@@ -26,6 +30,7 @@ use crate::{
     manifest_client::*,
     metrics::*,
     opt::*,
+    price_automation::QueryBudgetFactors,
     query_engine::*,
     rate_limiter::*,
     subgraph_deployments::SubgraphDeployments,
@@ -37,7 +42,10 @@ use actix_web::{
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use eventuals::EventualExt as _;
-use indexer_selection::{actor::IndexerUpdate, BlockStatus, IndexerInfo};
+use indexer_selection::{
+    actor::{IndexerUpdate, Update},
+    BlockStatus, IndexerInfo, Indexing,
+};
 use network_subgraph::AllocationInfo;
 use prelude::{
     buffer_queue::{self, QueueWriter},
