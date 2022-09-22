@@ -1,5 +1,4 @@
-use prelude::*;
-#[cfg(test)]
+use crate::*;
 use std::{cell::RefCell, rc::Rc};
 
 pub trait Clock {
@@ -16,13 +15,11 @@ impl Clock for SystemClock {
     }
 }
 
-#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct MockClock {
     current_time: Rc<RefCell<Instant>>,
 }
 
-#[cfg(test)]
 impl MockClock {
     pub fn new() -> Self {
         Self {
@@ -36,7 +33,6 @@ impl MockClock {
     }
 }
 
-#[cfg(test)]
 impl Clock for MockClock {
     fn now(&self) -> Instant {
         self.current_time.borrow().clone()

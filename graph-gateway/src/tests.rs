@@ -1,18 +1,26 @@
 use crate::{
-    chains::{self, test::Provider},
+    chains::{self, test::Provider, BlockCache},
     fisherman_client::*,
     indexer_client::*,
     kafka_client::{self, KafkaInterface},
     manifest_client::SubgraphInfo,
+    price_automation::QueryBudgetFactors,
     query_engine::*,
+    receipts::ReceiptPools,
 };
 use async_trait::async_trait;
 use indexer_selection::{
-    actor::IndexerUpdate,
+    actor::{IndexerUpdate, Update},
     test_utils::{default_cost_model, test_allocation_id, TEST_KEY},
-    BlockStatus, IndexerError, IndexerInfo, IndexingStatus,
+    BlockStatus, IndexerError, IndexerInfo, Indexing, IndexingStatus, SecretKey, Selection,
+    UnresolvedBlock,
 };
-use prelude::{buffer_queue, decimal, double_buffer, test_utils::*, *};
+use prelude::{
+    buffer_queue::{self, QueueWriter},
+    decimal, double_buffer,
+    test_utils::*,
+    *,
+};
 use rand::{
     distributions,
     rngs::{OsRng, SmallRng},
@@ -20,7 +28,12 @@ use rand::{
     Rng, RngCore as _, SeedableRng,
 };
 use serde_json::json;
-use std::{collections::BTreeMap, env, fmt, ops::RangeInclusive};
+use std::{
+    collections::{BTreeMap, HashMap},
+    env, fmt,
+    ops::RangeInclusive,
+    sync::Arc,
+};
 use tokio::{self, sync::Mutex};
 
 /// Query engine tests use pseudorandomly generated network state and client query as inputs.
@@ -683,7 +696,7 @@ impl fmt::Debug for Topology {
 }
 
 #[tokio::test]
-async fn test() {
+async fn query_engine() {
     init_test_tracing();
     let seed = env::vars()
         .find(|(k, _)| k == "TEST_SEED")
