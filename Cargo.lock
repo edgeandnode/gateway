@@ -1060,7 +1060,7 @@ checksum = "22030e2c5a68ec659fde1e949a745124b48e6fa8b045b7ed5bd1fe4ccc5c4e5d"
 
 [[package]]
 name = "graph-gateway"
-version = "8.1.2"
+version = "9.0.0"
 dependencies = [
  "actix-cors",
  "actix-http",
