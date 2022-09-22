@@ -142,12 +142,14 @@ impl IndexingState {
             .fold(GRT::zero(), |sum, size| sum + *size)
     }
 
-    pub fn get_price(
+    pub fn price_efficiency(
         &self,
         context: &mut Context<'_>,
         weight: f64,
         max_budget: &GRT,
     ) -> Result<(USD, SelectionFactor), SelectionError> {
-        get_price(&self.status.cost_model, context, weight, max_budget)
+        let fee = indexer_fee(&self.status.cost_model, context, weight, max_budget)?;
+        let utility = price_efficiency(&fee, weight, max_budget);
+        Ok((fee, utility))
     }
 }
