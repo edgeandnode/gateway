@@ -42,8 +42,7 @@ async fn main() -> anyhow::Result<()> {
     println!("label,timestamp,indexer,url,success,fee,blocks_behind,response_time_ms,utility");
     for line in &log_lines {
         println!(
-            "{},{},{},{},{},{},{},{},{}",
-            "example",
+            "example,{},{},{},{},{},{},{},{}",
             line.timestamp,
             line.indexer,
             line.url,
@@ -207,36 +206,33 @@ async fn main() -> anyhow::Result<()> {
                 &indexers,
                 budget,
                 &freshness_requirements,
-                1,
+                5,
             )
             .unwrap();
-        let selection = match selections.into_iter().next() {
-            Some(selection) => selection,
-            None => continue,
-        };
-        let indexer = characteristics
-            .iter()
-            .find(|i| &i.address == &selection.indexing.indexer)
-            .unwrap();
-        let duration = Duration::from_millis(*indexer.latency_ms.choose(&mut rng).unwrap());
-        let success = rng.gen_bool(indexer.reliability);
-        if success {
-            isa.observe_successful_query(&selection.indexing, duration);
-        } else {
-            isa.observe_failed_query(&selection.indexing, duration, false);
+        for selection in selections {
+            let indexer = characteristics
+                .iter()
+                .find(|i| &i.address == &selection.indexing.indexer)
+                .unwrap();
+            let duration = Duration::from_millis(*indexer.latency_ms.choose(&mut rng).unwrap());
+            let success = rng.gen_bool(indexer.reliability);
+            if success {
+                isa.observe_successful_query(&selection.indexing, duration);
+            } else {
+                isa.observe_failed_query(&selection.indexing, duration, false);
+            }
+            println!(
+                "simulation,{},{},{},{},{},{},{},{}",
+                line.timestamp,
+                selection.indexing.indexer,
+                selection.score.url,
+                success,
+                selection.score.fee,
+                selection.score.blocks_behind,
+                duration.as_millis(),
+                selection.score.utility,
+            );
         }
-        println!(
-            "{},{},{},{},{},{},{},{},{}",
-            "simulation",
-            line.timestamp,
-            selection.indexing.indexer,
-            selection.score.url,
-            success,
-            selection.score.fee,
-            selection.score.blocks_behind,
-            duration.as_millis(),
-            selection.score.utility,
-        );
     }
 
     Ok(())

@@ -23,12 +23,6 @@ struct IndexerCharacteristics {
     special_weight: Option<f64>,
 }
 
-#[derive(Debug, Default, Clone)]
-struct IndexerResults {
-    queries_received: i64,
-    query_fees: GRT,
-}
-
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "Writes output to disk"]
 async fn weights() {
@@ -231,11 +225,9 @@ async fn run_simulation(
     let latest = blocks.last().unwrap();
     let deployment: SubgraphDeploymentID = bytes_from_id(99).into();
 
-    let mut results = Vec::<IndexerResults>::new();
     let mut indexer_ids = Vec::new();
     let mut special_indexers = HashMap::<Address, NotNan<f64>>::new();
     for data in tests.iter() {
-        results.push(IndexerResults::default());
         let indexing = Indexing {
             indexer: bytes_from_id(indexer_ids.len()).into(),
             deployment,
@@ -276,15 +268,17 @@ async fn run_simulation(
     const QPS: u64 = 2000;
     let mut total_latency_ms = 0;
     let mut total_blocks_behind = 0;
+    let mut total_indexers_selected = 0;
+    let mut results = tests.iter().map(|_| GRT::zero()).collect::<Vec<GRT>>();
     for i in 0..COUNT {
-        let budget: GRT = "0.00005".parse().unwrap();
+        let budget: GRT = "0.0001".parse().unwrap();
         let mut context = Context::new("{ a }", "").unwrap();
         let freshness_requirements = FreshnessRequirements {
             minimum_block: None,
             has_latest: true,
         };
         let latest_block = blocks.last().unwrap().number;
-        let (selections, _) = isa
+        let (mut selections, _) = isa
             .select_indexers(
                 &utility_config,
                 &deployment,
@@ -293,7 +287,7 @@ async fn run_simulation(
                 &indexer_ids,
                 budget,
                 &freshness_requirements,
-                1,
+                5,
             )
             .unwrap();
 
@@ -301,46 +295,67 @@ async fn run_simulation(
             isa.decay();
         }
 
-        let selection = match selections.into_iter().next() {
-            Some(selection) => selection,
-            None => continue,
-        };
-        let index = indexer_ids
+        total_indexers_selected += selections.len() as u64;
+
+        let data = selections
             .iter()
-            .position(|id| id == &selection.indexing.indexer)
-            .unwrap();
-        let entry = results.get_mut(index).unwrap();
-        entry.queries_received += 1;
-        let data = tests.get(index).unwrap();
-        let indexing = Indexing {
-            deployment,
-            indexer: selection.indexing.indexer,
-        };
-        let duration = Duration::from_millis(data.latency_ms);
-        if data.reliability > thread_rng().gen() {
-            total_latency_ms += data.latency_ms;
-            total_blocks_behind += data.blocks_behind;
-            entry.query_fees += selection.score.fee;
-            isa.observe_successful_query(&indexing, duration);
-        } else {
-            isa.observe_failed_query(&indexing, duration, false);
+            .map(|s| {
+                let indexer = s.indexing.indexer.clone();
+                let i = indexer_ids.iter().position(|id| id == &indexer).unwrap();
+                (indexer, i)
+            })
+            .collect::<HashMap<Address, usize>>();
+        selections.sort_by(|a, b| {
+            let a = tests[*data.get(&a.indexing.indexer).unwrap()].latency_ms;
+            let b = tests[*data.get(&b.indexing.indexer).unwrap()].latency_ms;
+            a.cmp(&b)
+        });
+        let responding_indexer = selections
+            .iter()
+            .filter_map(|s| {
+                let characteristics = &tests[*data.get(&s.indexing.indexer).unwrap()];
+                if characteristics.reliability > thread_rng().gen() {
+                    Some(characteristics)
+                } else {
+                    None
+                }
+            })
+            .fuse()
+            .next();
+        if let Some(characteristics) = responding_indexer {
+            total_latency_ms += characteristics.latency_ms;
+            total_blocks_behind += characteristics.blocks_behind;
+        }
+
+        for selection in selections {
+            let index = *data.get(&selection.indexing.indexer).unwrap();
+            results[index] += selection.score.fee;
+            let characteristics = tests.get(index).unwrap();
+            let indexing = Indexing {
+                deployment,
+                indexer: selection.indexing.indexer,
+            };
+            let duration = Duration::from_millis(characteristics.latency_ms);
+            if characteristics.reliability > thread_rng().gen() {
+                isa.observe_successful_query(&indexing, duration);
+            } else {
+                isa.observe_failed_query(&indexing, duration, false);
+            }
         }
     }
 
-    let mut total_fees = GRT::zero();
-    for result in &results {
-        total_fees += result.query_fees;
-    }
+    let total_fees = results.iter().fold(GRT::zero(), |sum, fees| sum + *fees);
     println!(
-        "{:?}, fees: {}, avg. latency: {}ms, avg. blocks behind: {}",
+        "{:?}, fees: {}, avg. latency: {}ms, avg. blocks behind: {}, avg. indexers selected: {}",
         utility_config,
         total_fees,
         total_latency_ms / COUNT as u64,
         total_blocks_behind / COUNT as u64,
+        total_indexers_selected / COUNT as u64,
     );
     results
         .iter()
-        .map(|result| (result.query_fees / total_fees).as_f64())
+        .map(|fees| (*fees / total_fees).as_f64())
         .collect::<Vec<f64>>()
 }
 

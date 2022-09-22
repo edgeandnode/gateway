@@ -1,3 +1,3 @@
 /target/
-/test-outputs/
+test-outputs/
 **/*.rs.bk
