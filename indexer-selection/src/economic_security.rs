@@ -2,7 +2,7 @@ use crate::utility::{concave_utility, SelectionFactor, UtilityParameters};
 use prelude::*;
 
 pub struct EconomicSecurity {
-    pub slashable_usd: USD,
+    pub slashable: USD,
     pub utility: SelectionFactor,
 }
 
@@ -30,10 +30,10 @@ impl NetworkParameters {
     ) -> Option<EconomicSecurity> {
         let slashing_percentage = self.slashing_percentage?;
         let slashable_grt = indexer_stake * slashing_percentage.change_precision();
-        let slashable_usd = self.grt_to_usd(slashable_grt)?;
-        let utility = concave_utility(slashable_usd.as_f64(), utility_parameters.a);
+        let slashable = self.grt_to_usd(slashable_grt)?;
+        let utility = concave_utility(slashable.as_f64(), utility_parameters.a);
         Some(EconomicSecurity {
-            slashable_usd,
+            slashable,
             utility: SelectionFactor {
                 utility,
                 weight: utility_parameters.weight,
@@ -149,10 +149,7 @@ mod tests {
         let security = params
             .economic_security_utility(stake.try_into().unwrap(), UtilityParameters::one(u_a))
             .unwrap();
-        assert_eq!(
-            security.slashable_usd,
-            expected_slashable.try_into().unwrap()
-        );
+        assert_eq!(security.slashable, expected_slashable.try_into().unwrap());
         assert_within(security.utility.utility, expected_utility, 0.01);
     }
 }

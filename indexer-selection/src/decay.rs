@@ -46,7 +46,7 @@ pub trait DecayUtility {
 /// The DecayBuffer accounts for selection factors over various time-frames. Currently, these time
 /// frames are LEN consecutive powers of 4 intervals, i.e. [1m, 4m, 16m, ... 4096m] if LEN is 7 and
 /// `decay` is called once every minute.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DecayBufferUnconfigured<T, const LOSS_POINTS: u16, const LEN: usize> {
     frames: [T; LEN],
 }
