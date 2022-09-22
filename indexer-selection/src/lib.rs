@@ -13,7 +13,6 @@ mod utility;
 pub use crate::indexing::{BlockStatus, IndexingStatus};
 pub use cost_model::{self, CostModel};
 pub use ordered_float::NotNan;
-use price_efficiency::{indexer_fee, price_efficiency};
 pub use receipts;
 pub use secp256k1::SecretKey;
 
@@ -188,7 +187,7 @@ impl State {
     }
 
     pub fn decay(&mut self) {
-        self.indexings.apply(|sf| sf.decay());
+        self.indexings.apply(|s| s.decay());
     }
 
     /// Select random indexer, weighted by utility. Indexers with incomplete data or that do not
@@ -303,7 +302,6 @@ impl State {
         config: &UtilityConfig,
         freshness_requirements: &FreshnessRequirements,
     ) -> Result<IndexerScore, SelectionError> {
-        let mut aggregator = UtilityAggregator::new();
         let indexer = self
             .indexers
             .get_unobserved(&indexing.indexer)
@@ -312,7 +310,6 @@ impl State {
             .network_params
             .economic_security_utility(indexer.stake, config.economic_security)
             .ok_or(SelectionError::MissingNetworkParams)?;
-        aggregator.add(economic_security.utility);
 
         let selection_factors = self
             .indexings
@@ -323,7 +320,6 @@ impl State {
 
         let (fee, price_efficiency) =
             selection_factors.price_efficiency(context, config.price_efficiency, &budget)?;
-        aggregator.add(price_efficiency);
 
         let indexer_allocation = selection_factors.total_allocation();
         if indexer_allocation == GRT::zero() {
@@ -331,20 +327,17 @@ impl State {
         }
 
         let performance = selection_factors.expected_performance_utility(config.performance);
-        aggregator.add(performance);
 
         let reputation = selection_factors.expected_reputation_utility(UtilityParameters {
             a: 3.0,
             weight: 1.0,
         });
-        aggregator.add(reputation);
 
         let data_freshness = selection_factors.expected_freshness_utility(
             freshness_requirements,
             config.data_freshness,
             latest_block,
         )?;
-        aggregator.add(data_freshness);
 
         // It's not immediately obvious why this mult works. We want to consider the amount
         // staked over the total amount staked of all Indexers in the running. But, we don't
@@ -355,7 +348,13 @@ impl State {
         // delegating more and then getting more queries is kind of a self-fulfilling
         // prophesy. What balances this, is that any amount delegated is most productive
         // when delegated proportionally to each Indexer's utility for that subgraph.
-        let mut utility = aggregator.crunch();
+        let mut utility = weighted_product_model([
+            economic_security.utility,
+            price_efficiency,
+            performance,
+            reputation,
+            data_freshness,
+        ]);
 
         // Some indexers require an additional weight applied to their utility. For example,
         // backstop indexers may have a reduced utility.

@@ -67,23 +67,22 @@ pub type FastDecayBuffer<T> = DecayBufferUnconfigured<T, 10, 6>;
 
 impl<T: DecayUtility, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L> {
     pub fn expected_utility(&self, utility_parameters: UtilityParameters) -> SelectionFactor {
-        let mut aggregator = UtilityAggregator::new();
-        for (i, frame) in self.frames.iter().enumerate() {
-            // 1/10 query per minute = 85% confident.
-            let confidence = concave_utility(frame.count() * 10.0 / 4.0_f64.powf(i as f64), 0.19);
+        let agg_utility =
+            weighted_product_model(self.frames.iter().enumerate().map(|(i, frame)| {
+                // 1/10 query per minute = 85% confident.
+                let confidence =
+                    concave_utility(frame.count() * 10.0 / 4.0_f64.powf(i as f64), 0.19);
 
-            // Buckets decrease in relevance rapidly, making
-            // the most recent buckets contribute the most to the
-            // final result.
-            let importance = 1.0 / (1.0 + (i as f64));
+                // Buckets decrease in relevance rapidly, making
+                // the most recent buckets contribute the most to the
+                // final result.
+                let importance = 1.0 / (1.0 + (i as f64));
 
-            aggregator.add(SelectionFactor {
-                utility: frame.expected_utility(utility_parameters.a),
-                weight: confidence * importance * utility_parameters.weight,
-            });
-        }
-
-        let agg_utility = aggregator.crunch();
+                SelectionFactor {
+                    utility: frame.expected_utility(utility_parameters.a),
+                    weight: confidence * importance * utility_parameters.weight,
+                }
+            }));
         SelectionFactor::one(agg_utility)
     }
 }
