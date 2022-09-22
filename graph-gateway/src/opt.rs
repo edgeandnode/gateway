@@ -113,21 +113,6 @@ pub struct Opt {
         parse(try_from_str)
     )]
     pub api_key_payment_required: bool,
-    #[structopt(
-        long,
-        env,
-        help = "Stats database hostname",
-        default_value = "localhost"
-    )]
-    pub stats_db_host: String,
-    #[structopt(long, env, help = "Stats database port", default_value = "5432")]
-    pub stats_db_port: u16,
-    #[structopt(long, env, help = "Stats database name", default_value = "dev")]
-    pub stats_db_name: String,
-    #[structopt(long, env, help = "Stats database username", default_value = "dev")]
-    pub stats_db_user: String,
-    #[structopt(long, env, help = "Stats database password", default_value = "dev")]
-    pub stats_db_password: String,
     #[structopt(long, env, help = "Redpanda broker domains")]
     pub redpanda_brokers: String,
     #[structopt(long, env, help = "Security protocol")]
