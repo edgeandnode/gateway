@@ -1,5 +1,5 @@
 use crate::{
-    selection_factors::BlockStatus,
+    indexing::BlockStatus,
     test_utils::{default_cost_model, gen_blocks},
     *,
 };
