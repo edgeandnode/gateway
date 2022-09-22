@@ -13,6 +13,7 @@ mod utility;
 pub use crate::indexing::{BlockStatus, IndexingStatus};
 pub use cost_model::{self, CostModel};
 pub use ordered_float::NotNan;
+use price_efficiency::{indexer_fee, price_efficiency};
 pub use receipts;
 pub use secp256k1::SecretKey;
 
@@ -321,7 +322,7 @@ impl State {
         let blocks_behind = selection_factors.blocks_behind()?;
 
         let (fee, price_efficiency) =
-            selection_factors.get_price(context, config.price_efficiency, &budget)?;
+            selection_factors.price_efficiency(context, config.price_efficiency, &budget)?;
         aggregator.add(price_efficiency);
 
         let indexer_allocation = selection_factors.total_allocation();
