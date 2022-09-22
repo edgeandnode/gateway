@@ -1,5 +1,5 @@
 use primitive_types::U256;
-use std::{fmt, iter, ops, str};
+use std::{cmp::Ordering, fmt, iter, ops, str};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ParseStrError {
@@ -39,7 +39,7 @@ impl<const P: u8> str::FromStr for UDecimal<P> {
     type Err = ParseStrError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use ParseStrError::*;
-        let ascii_digit = |c: char| -> bool { ('0' <= c) && (c <= '9') };
+        let ascii_digit = |c: char| -> bool { ('0'..'9').contains(&c) };
         if !s.chars().any(ascii_digit) {
             return Err(InvalidInput);
         }
@@ -70,23 +70,23 @@ impl<const P: u8> fmt::Display for UDecimal<P> {
             .count()
             .min(p);
         if digits.len() < p {
-            let fill = iter::repeat('0').take(p - digits.len()).collect::<String>();
+            let fill = "0".repeat(p - digits.len());
             let frac = &digits[0..digits.len() - ctz];
             write!(f, "0.{}{}", fill, unsafe { str::from_utf8_unchecked(frac) })
         } else {
             let (mut int, mut frac) = digits.split_at(digits.len() - p);
             frac = &frac[0..frac.len() - ctz];
-            if int.len() == 0 {
+            if int.is_empty() {
                 int = &[b'0'];
             }
             if ctz == p {
-                write!(f, "{}", unsafe { str::from_utf8_unchecked(&int) })
+                write!(f, "{}", unsafe { str::from_utf8_unchecked(int) })
             } else {
                 write!(
                     f,
                     "{}.{}",
-                    unsafe { str::from_utf8_unchecked(&int) },
-                    unsafe { str::from_utf8_unchecked(&frac) }
+                    unsafe { str::from_utf8_unchecked(int) },
+                    unsafe { str::from_utf8_unchecked(frac) }
                 )
             }
         }
@@ -174,12 +174,10 @@ impl<const P: u8> UDecimal<P> {
 
     pub fn change_precision<const N: u8>(self) -> UDecimal<N> {
         UDecimal {
-            internal: if N > P {
-                self.internal * (U256::exp10((N - P) as usize))
-            } else if N < P {
-                self.internal / (U256::exp10((P - N) as usize))
-            } else {
-                self.internal
+            internal: match N.cmp(&P) {
+                Ordering::Greater => self.internal * (U256::exp10((N - P) as usize)),
+                Ordering::Less => self.internal / (U256::exp10((P - N) as usize)),
+                Ordering::Equal => self.internal,
             },
         }
     }
@@ -201,11 +199,8 @@ impl<const P: u8> UDecimal<P> {
         // Merge the 32 bytes into 4 u64 values to reduce the amount of float
         // operations required to calculate the final value.
         let mut le_u64 = [0u64; 4];
-        for n in 0..le_u64.len() {
-            let mut buf = [0u8; 8];
-            let i = n * 8;
-            buf.copy_from_slice(&le_u8[i..(i + 8)]);
-            le_u64[n] = u64::from_le_bytes(buf);
+        for (i, entry) in le_u64.iter_mut().enumerate() {
+            *entry = u64::from_le_bytes(le_u8[(i * 8)..((i + 1) * 8)].try_into().unwrap());
         }
         // Count trailing u64 zero values. This is used to avoid unnecessary
         // multiplications by zero.
@@ -247,7 +242,7 @@ impl<const P: u8> TryFrom<f64> for UDecimal<P> {
             return Err(FromF64Error::InvalidInput);
         }
         const U128_MAX: f64 = u128::MAX as f64;
-        from = from * 10.0f64.powi(P as i32);
+        from *= 10.0f64.powi(P as i32);
         let lower = from.min(U128_MAX);
         from -= lower;
         let lower = lower as u128;

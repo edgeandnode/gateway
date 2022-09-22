@@ -5,7 +5,7 @@ use std::{
     sync::Once,
 };
 
-pub const BASIC_QUERY: &'static str = "{ entities { id } }";
+pub const BASIC_QUERY: &str = "{ entities { id } }";
 
 pub fn bytes_from_id<const N: usize>(id: usize) -> [u8; N] {
     let mut buf = [0u8; N];

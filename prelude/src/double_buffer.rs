@@ -58,7 +58,7 @@ impl<T> DoubleBufferWriter<T> {
 }
 
 impl<T> DoubleBufferReader<T> {
-    pub fn latest<'a>(&'a self) -> impl 'a + Deref<Target = T> {
+    pub fn latest(&'_ self) -> impl '_ + Deref<Target = T> {
         loop {
             // This is guaranteed to only move forward in time,
             // and is almost guaranteed to acquire the lock "immediately".

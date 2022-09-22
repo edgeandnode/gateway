@@ -35,6 +35,6 @@ impl MockClock {
 
 impl Clock for MockClock {
     fn now(&self) -> Instant {
-        self.current_time.borrow().clone()
+        *self.current_time.borrow()
     }
 }

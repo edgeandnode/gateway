@@ -68,7 +68,7 @@ impl FromStr for SubgraphID {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         fn parse_v1(s: &str) -> Option<[u8; 32]> {
             // Attempt to decode v1 format: '0x' <hex account_id> '-' <decimal sequence_id>
-            let (account_id, sequence_id) = s.strip_prefix("0x").and_then(|s| s.split_once("-"))?;
+            let (account_id, sequence_id) = s.strip_prefix("0x").and_then(|s| s.split_once('-'))?;
             let account = account_id.parse::<Address>().ok()?;
             // Assuming u256 big-endian, since that's the word-size of the EVM
             let mut sequence_word = [0u8; 32];
