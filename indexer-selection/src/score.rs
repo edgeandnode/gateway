@@ -38,7 +38,8 @@ impl Merge for BlockStatus {
     }
 }
 
-/// TODO: docs
+/// The aggregate selection factors for a single logical indexer which represents the initial
+/// indexer combined with the other indexers selected so far.
 pub struct SelectionFactors {
     pub indexer: Address,
     pub url: URL,
