@@ -284,8 +284,8 @@ async fn run_simulation(
             has_latest: true,
         };
         let latest_block = blocks.last().unwrap().number;
-        let (selection, _) = isa
-            .select_indexer(
+        let (selections, _) = isa
+            .select_indexers(
                 &utility_config,
                 &deployment,
                 &mut context,
@@ -293,6 +293,7 @@ async fn run_simulation(
                 &indexer_ids,
                 budget,
                 &freshness_requirements,
+                1,
             )
             .unwrap();
 
@@ -300,7 +301,7 @@ async fn run_simulation(
             isa.decay();
         }
 
-        let selection = match selection {
+        let selection = match selections.into_iter().next() {
             Some(selection) => selection,
             None => continue,
         };

@@ -1,7 +1,7 @@
 use crate::{
     decay::DecayBuffer, economic_security::*, indexing::IndexingState, performance::Performance,
     price_efficiency::price_efficiency, reputation::Reputation, utility::*, BadIndexerReason,
-    BlockStatus, FreshnessRequirements, IndexerInfo, SelectionError, UtilityConfig,
+    BlockStatus, FreshnessRequirements, IndexerInfo, Indexing, SelectionError, UtilityConfig,
 };
 use ordered_float::NotNan;
 use prelude::*;
@@ -26,6 +26,18 @@ pub struct UtilityScores {
     pub reputation: f64,
 }
 
+pub trait Merge {
+    fn merge(&mut self, other: &Self);
+}
+
+impl Merge for BlockStatus {
+    fn merge(&mut self, other: &Self) {
+        self.reported_number = self.reported_number.min(other.reported_number);
+        self.blocks_behind = self.blocks_behind.max(other.blocks_behind);
+        self.behind_reported_block |= other.behind_reported_block;
+    }
+}
+
 /// TODO: docs
 pub struct SelectionFactors {
     pub indexer: Address,
@@ -41,15 +53,19 @@ pub struct SelectionFactors {
 impl SelectionFactors {
     pub fn new(
         fee: GRT,
-        indexer: Address,
+        indexing: &Indexing,
         indexer_info: &IndexerInfo,
         indexing_state: &IndexingState,
     ) -> Result<Self, SelectionError> {
+        let allocation = indexing_state.total_allocation();
+        if allocation == GRT::zero() {
+            return Err(SelectionError::NoAllocation(indexing.clone()));
+        }
         Ok(Self {
-            indexer,
+            indexer: indexing.indexer.clone(),
             url: indexer_info.url.clone(),
             stake: indexer_info.stake.clone(),
-            allocation: indexing_state.total_allocation(),
+            allocation,
             fee,
             status: indexing_state
                 .status
@@ -59,6 +75,25 @@ impl SelectionFactors {
             performance: indexing_state.performance.clone(),
             reputation: indexing_state.reputation.clone(),
         })
+    }
+
+    pub fn merge_selection(
+        &mut self,
+        indexer_info: &IndexerInfo,
+        indexing_state: &IndexingState,
+    ) -> Result<(), SelectionError> {
+        self.stake += indexer_info.stake;
+        self.allocation += indexing_state.total_allocation();
+        self.status.merge(
+            indexing_state
+                .status
+                .block
+                .as_ref()
+                .ok_or(BadIndexerReason::MissingIndexingStatus)?,
+        );
+        self.performance.merge(&indexing_state.performance);
+        self.reputation.merge(&indexing_state.reputation);
+        Ok(())
     }
 
     pub fn score(

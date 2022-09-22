@@ -198,8 +198,8 @@ async fn main() -> anyhow::Result<()> {
             has_latest: true,
         };
         let latest_block = blocks.last().unwrap().number;
-        let result = isa
-            .select_indexer(
+        let (selections, _) = isa
+            .select_indexers(
                 &utility_config,
                 &deployment,
                 &mut context,
@@ -207,11 +207,12 @@ async fn main() -> anyhow::Result<()> {
                 &indexers,
                 budget,
                 &freshness_requirements,
+                1,
             )
             .unwrap();
-        let selection = match result {
-            (Some(query), _) => query,
-            _ => continue,
+        let selection = match selections.into_iter().next() {
+            Some(selection) => selection,
+            None => continue,
         };
         let indexer = characteristics
             .iter()

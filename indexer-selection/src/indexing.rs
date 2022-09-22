@@ -92,7 +92,14 @@ impl IndexingState {
         context: &mut Context<'_>,
         weight: f64,
         budget: &GRT,
+        max_indexers: u8,
     ) -> Result<GRT, SelectionError> {
-        indexer_fee(&self.status.cost_model, context, weight, budget)
+        indexer_fee(
+            &self.status.cost_model,
+            context,
+            weight,
+            budget,
+            max_indexers,
+        )
     }
 }
