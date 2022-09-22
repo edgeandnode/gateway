@@ -6,6 +6,7 @@ use crate::{
     manifest_client::SubgraphInfo,
     price_automation::QueryBudgetFactors,
     query_engine::*,
+    receipts::ReceiptPools,
 };
 use async_trait::async_trait;
 use indexer_selection::{

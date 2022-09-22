@@ -13,6 +13,7 @@ mod opt;
 mod price_automation;
 mod query_engine;
 mod rate_limiter;
+mod receipts;
 mod studio_client;
 mod subgraph_deployments;
 #[cfg(test)]
@@ -33,6 +34,7 @@ use crate::{
     price_automation::QueryBudgetFactors,
     query_engine::*,
     rate_limiter::*,
+    receipts::ReceiptPools,
     subgraph_deployments::SubgraphDeployments,
 };
 use actix_cors::Cors;
