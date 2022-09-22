@@ -5,6 +5,7 @@ mod indexing;
 mod performance;
 mod price_efficiency;
 mod reputation;
+mod score;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
@@ -16,7 +17,7 @@ pub use ordered_float::NotNan;
 pub use receipts;
 pub use secp256k1::SecretKey;
 
-use crate::{economic_security::*, indexing::IndexingState};
+use crate::{economic_security::*, indexing::IndexingState, score::*};
 use num_traits::identities::Zero as _;
 use prelude::{epoch_cache::EpochCache, weighted_sample::WeightedSample, *};
 use rand::{thread_rng, Rng as _};
@@ -115,26 +116,6 @@ pub struct FreshnessRequirements {
     pub has_latest: bool,
 }
 
-#[derive(Clone, Debug)]
-pub struct IndexerScore {
-    pub url: URL,
-    pub fee: GRT,
-    pub slashable: USD,
-    pub utility: NotNan<f64>,
-    pub utility_scores: UtilityScores,
-    pub sybil: NotNan<f64>,
-    pub blocks_behind: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct UtilityScores {
-    pub economic_security: f64,
-    pub price_efficiency: f64,
-    pub data_freshness: f64,
-    pub performance: f64,
-    pub reputation: f64,
-}
-
 #[derive(Default)]
 pub struct State {
     pub network_params: NetworkParameters,
@@ -214,7 +195,7 @@ impl State {
                 &indexing,
                 context,
                 latest_block,
-                budget,
+                &budget,
                 config,
                 freshness_requirements,
             );
@@ -298,119 +279,27 @@ impl State {
         indexing: &Indexing,
         context: &mut Context<'_>,
         latest_block: u64,
-        budget: GRT,
+        budget: &GRT,
         config: &UtilityConfig,
         freshness_requirements: &FreshnessRequirements,
     ) -> Result<IndexerScore, SelectionError> {
-        let indexer = self
+        let indexer_info = self
             .indexers
             .get_unobserved(&indexing.indexer)
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
-        let economic_security = self
-            .network_params
-            .economic_security_utility(indexer.stake, config.economic_security)
-            .ok_or(SelectionError::MissingNetworkParams)?;
-
-        let selection_factors = self
+        let indexing_state = self
             .indexings
             .get_unobserved(&indexing)
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
-
-        let blocks_behind = selection_factors.blocks_behind()?;
-
-        let (fee, price_efficiency) =
-            selection_factors.price_efficiency(context, config.price_efficiency, &budget)?;
-
-        let indexer_allocation = selection_factors.total_allocation();
-        if indexer_allocation == GRT::zero() {
-            return Err(SelectionError::NoAllocation(indexing.clone()));
-        }
-
-        let performance = selection_factors.expected_performance_utility(config.performance);
-
-        let reputation = selection_factors.expected_reputation_utility(UtilityParameters {
-            a: 3.0,
-            weight: 1.0,
-        });
-
-        let data_freshness = selection_factors.expected_freshness_utility(
+        let fee = indexing_state.fee(context, config.price_efficiency, &budget)?;
+        SelectionFactors::new(fee, indexing.indexer.clone(), indexer_info, indexing_state)?.score(
+            config,
+            &self.network_params,
             freshness_requirements,
-            config.data_freshness,
+            budget,
+            &GRT::zero(),
             latest_block,
-        )?;
-
-        // It's not immediately obvious why this mult works. We want to consider the amount
-        // staked over the total amount staked of all Indexers in the running. But, we don't
-        // know the total stake. If we did, it would be dividing all of these by that
-        // constant. Dividing all weights by a constant has no effect on the selection
-        // algorithm. Interestingly, delegating to an indexer just about guarantees that the
-        // indexer will receive more queries if they met the minimum criteria above. So,
-        // delegating more and then getting more queries is kind of a self-fulfilling
-        // prophesy. What balances this, is that any amount delegated is most productive
-        // when delegated proportionally to each Indexer's utility for that subgraph.
-        let mut utility = weighted_product_model([
-            economic_security.utility,
-            price_efficiency,
-            performance,
-            reputation,
-            data_freshness,
-        ]);
-
-        // Some indexers require an additional weight applied to their utility. For example,
-        // backstop indexers may have a reduced utility.
-        utility *= self
-            .special_indexers
-            .as_ref()
-            .and_then(|map| map.get(&indexing.indexer).map(|w| **w))
-            .unwrap_or(1.0);
-
-        Ok(IndexerScore {
-            url: indexer.url.clone(),
-            fee,
-            slashable: economic_security.slashable_usd,
-            utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,
-            utility_scores: UtilityScores {
-                economic_security: economic_security.utility.utility,
-                price_efficiency: price_efficiency.utility,
-                data_freshness: data_freshness.utility,
-                performance: performance.utility,
-                reputation: reputation.utility,
-            },
-            sybil: Self::sybil(indexer_allocation)?,
-            blocks_behind,
-        })
-    }
-
-    /// Sybil protection
-    fn sybil(indexer_allocation: GRT) -> Result<NotNan<f64>, BadIndexerReason> {
-        let identity = indexer_allocation.as_f64();
-
-        // There is a GIP out there which would allow for allocations with 0 GRT stake.
-        // For example, MIPS. We don't want for those to never be selected. Furthermore,
-        // we can account for the cost of an allocation which would contribute to sybil.
-        const BONUS: f64 = 1000.0;
-
-        // Don't flatten so quickly, since numbers are large
-        const SLOPE: f64 = 100.0;
-
-        // To optimize for sybil protection, we want to just mult the utility by the identity
-        // weight. But this may run into some economic problems. Consider the following scenario:
-        //
-        // Two indexers: A, and B have utilities of 45% and 55%, respectively. They are equally
-        // delegated at 50% of the total delegation pool, each. Because their delegation is
-        // equal, they receive query fees proportional to their utility. A delegator notices that
-        // part of their delegation would be more efficiently allocated if they move it to the
-        // indexer with higher utility so that delegation reflects query volume. So, now they have
-        // utilities of 45% and 55%, and delegation of 45% and 55%. Because these are multiplied,
-        // the new selection is 40% and 60%. But, the delegations are 45% and 55%. So… a delegator
-        // notices that their delegation is inefficiently allocated and move their delegation to the
-        // more selected indexer. Now, delegation is 40% 60%, but utility stayed at 45% and 55%… and
-        // the new selections are 35% and 65%… and so the cycle continues. The gap continues to
-        // widen until all delegation is moved to the marginally better Indexer. This is the kind of
-        // winner-take-all scenario we are trying to avoid. In the absence of cold hard math and
-        // reasoning, going to try using log magics.
-        let sybil = (((identity + BONUS) / SLOPE) + 1.0).log(std::f64::consts::E);
-        NotNan::new(sybil).map_err(|_| BadIndexerReason::NaN)
+        )
     }
 }
 
