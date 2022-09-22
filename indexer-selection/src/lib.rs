@@ -1,25 +1,26 @@
 pub mod actor;
 pub mod decay;
 mod economic_security;
+mod indexing;
 mod performance;
 mod price_efficiency;
 mod reputation;
-mod selection_factors;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
 mod utility;
 
-use crate::economic_security::*;
-pub use crate::selection_factors::{BlockStatus, IndexingStatus, SelectionFactors};
+pub use crate::indexing::{BlockStatus, IndexingStatus};
 pub use cost_model::{self, CostModel};
-use num_traits::identities::Zero as _;
 pub use ordered_float::NotNan;
+pub use receipts;
+pub use secp256k1::SecretKey;
+
+use crate::{economic_security::*, indexing::IndexingState};
+use num_traits::identities::Zero as _;
 use prelude::{epoch_cache::EpochCache, weighted_sample::WeightedSample, *};
 use rand::{thread_rng, Rng as _};
-pub use receipts;
 use receipts::BorrowFail;
-pub use secp256k1::SecretKey;
 use std::{collections::HashMap, sync::Arc};
 use utility::*;
 
@@ -138,7 +139,7 @@ pub struct UtilityScores {
 pub struct State {
     pub network_params: NetworkParameters,
     indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
-    indexings: EpochCache<Indexing, SelectionFactors, 2>,
+    indexings: EpochCache<Indexing, IndexingState, 2>,
     pub special_indexers: Option<Arc<HashMap<Address, NotNan<f64>>>>,
 }
 
@@ -152,7 +153,7 @@ impl State {
     pub fn insert_indexing(&mut self, indexing: Indexing, status: IndexingStatus) {
         let selection_factors = self
             .indexings
-            .get_or_insert(indexing, |_| SelectionFactors::default());
+            .get_or_insert(indexing, |_| IndexingState::default());
         selection_factors.set_status(status);
     }
 

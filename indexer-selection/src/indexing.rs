@@ -7,7 +7,7 @@ use prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(Default)]
-pub struct SelectionFactors {
+pub struct IndexingState {
     status: IndexingStatus,
     performance: DecayBuffer<Performance>,
     reputation: DecayBuffer<Reputation>,
@@ -32,7 +32,7 @@ pub struct BlockStatus {
     pub behind_reported_block: bool,
 }
 
-impl SelectionFactors {
+impl IndexingState {
     pub fn set_status(&mut self, status: IndexingStatus) {
         self.status = status;
     }
