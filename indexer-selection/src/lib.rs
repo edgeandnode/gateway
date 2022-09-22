@@ -175,7 +175,8 @@ impl State {
     }
 
     /// Select random indexers, weighted by utility. Indexers with incomplete data or that do not
-    /// meet the minimum requirements will be excluded.
+    /// meet the minimum requirements will be excluded. Indexers will continue to be selected until
+    /// the `selection_limit` is reached, or the budget is exhausted.
     pub fn select_indexers(
         &self,
         config: &UtilityConfig,
