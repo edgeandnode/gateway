@@ -1,6 +1,7 @@
 use crate::{
     decay::{Decay, DecayUtility},
     impl_struct_decay,
+    score::Merge,
 };
 
 // TODO: Other factors like how long the indexer has been in the network.
@@ -13,6 +14,14 @@ pub struct Reputation {
     successful_queries: f64,
     failed_queries: f64,
     penalties: f64,
+}
+
+impl Merge for Reputation {
+    fn merge(&mut self, other: &Self) {
+        self.successful_queries += other.successful_queries;
+        self.failed_queries += other.failed_queries;
+        self.penalties += other.penalties;
+    }
 }
 
 impl_struct_decay!(Reputation {

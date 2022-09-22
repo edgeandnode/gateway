@@ -8,6 +8,7 @@ pub fn indexer_fee(
     context: &mut Context<'_>,
     weight: f64,
     max_budget: &GRT,
+    max_indexers: u8,
 ) -> Result<GRT, SelectionError> {
     let mut fee = match cost_model
         .as_ref()
@@ -68,7 +69,7 @@ pub fn indexer_fee(
         / (2.0 * s);
 
     let min_rate = GRT::try_from(min_rate).unwrap();
-    let min_optimal_fee = *max_budget * min_rate;
+    let min_optimal_fee = (*max_budget / GRT::try_from(max_indexers).unwrap()) * min_rate;
     // If their fee is less than the min optimal, lerp between them so that
     // indexers are rewarded for being closer.
     if fee < min_optimal_fee {
@@ -170,7 +171,7 @@ mod test {
         let weight = 0.5;
         for (budget, expected_utility) in tests {
             let budget = budget.to_string().parse::<GRT>().unwrap();
-            let fee = indexer_fee(&cost_model, &mut context, weight, &budget).unwrap();
+            let fee = indexer_fee(&cost_model, &mut context, weight, &budget, 1).unwrap();
             let utility = price_efficiency(&fee, weight, &budget);
             let utility = utility.utility.powf(utility.weight);
             println!("fee: {}, {:?}", fee, utility);

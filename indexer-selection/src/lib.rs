@@ -11,7 +11,10 @@ pub mod test_utils;
 mod tests;
 mod utility;
 
-pub use crate::indexing::{BlockStatus, IndexingStatus};
+pub use crate::{
+    indexing::{BlockStatus, IndexingStatus},
+    score::IndexerScore,
+};
 pub use cost_model::{self, CostModel};
 pub use ordered_float::NotNan;
 pub use receipts;
@@ -171,9 +174,9 @@ impl State {
         self.indexings.apply(|s| s.decay());
     }
 
-    /// Select random indexer, weighted by utility. Indexers with incomplete data or that do not
+    /// Select random indexers, weighted by utility. Indexers with incomplete data or that do not
     /// meet the minimum requirements will be excluded.
-    pub fn select_indexer(
+    pub fn select_indexers(
         &self,
         config: &UtilityConfig,
         deployment: &SubgraphDeploymentID,
@@ -182,124 +185,129 @@ impl State {
         indexers: &[Address],
         budget: GRT,
         freshness_requirements: &FreshnessRequirements,
-    ) -> Result<(Option<Selection>, Option<ScoringSample>), SelectionError> {
-        let mut scores = Vec::new();
-        let mut high_fee_count = 0;
-        let mut scoring_sample = WeightedSample::new();
-        for indexer in indexers {
-            let indexing = Indexing {
-                indexer: *indexer,
+        selection_limit: u8,
+    ) -> Result<(Vec<Selection>, Option<ScoringSample>), SelectionError> {
+        let indexing = |indexer: Address| -> Indexing {
+            Indexing {
+                indexer,
                 deployment: *deployment,
-            };
-            let result = self.score_indexer(
-                &indexing,
-                context,
-                latest_block,
-                &budget,
-                config,
-                freshness_requirements,
-            );
-            // TODO: these logs are currently required for data science. However, we would like to omit these in production and only use the sampled scoring logs.
-            match &result {
-                Ok(score) => tracing::info!(
-                    ?indexing.deployment,
-                    ?indexing.indexer,
-                    ?score.fee,
-                    ?score.slashable,
-                    %score.utility,
-                    %score.sybil,
-                    ?score.blocks_behind,
-                ),
-                Err(err) => tracing::info!(
-                    ?indexing.deployment,
-                    ?indexing.indexer,
-                    score_err = ?err,
-                ),
-            };
-            scoring_sample.add((indexing.indexer, result.clone()), 1.0);
-            match &result {
-                Err(err) => match err {
-                    &SelectionError::MissingNetworkParams => return Err(err.clone()),
-                    &SelectionError::BadIndexer(BadIndexerReason::FeeTooHigh) => {
-                        high_fee_count += 1;
+            }
+        };
+        let mut high_fee_count = 0;
+        let mut multi_selection = indexers
+            .iter()
+            .filter_map(|indexer| {
+                let indexing = indexing(*indexer);
+                let indexer_info = self.indexers.get_unobserved(indexer)?;
+                let state = self.indexings.get_unobserved(&indexing)?;
+                let fee =
+                    match state.fee(context, config.price_efficiency, &budget, selection_limit) {
+                        Ok(fee) => fee,
+                        Err(_) => {
+                            high_fee_count += 1;
+                            return None;
+                        }
+                    };
+                let factors = SelectionFactors::new(fee, &indexing, &indexer_info, &state).ok()?;
+                Some((indexer, factors))
+            })
+            .collect::<HashMap<&Address, SelectionFactors>>();
+
+        let mut selections = Vec::<Selection>::new();
+        let mut cost = GRT::zero();
+        let mut scoring_sample = WeightedSample::new();
+        for _ in 0..selection_limit {
+            let mut scores = Vec::<(&Address, IndexerScore)>::new();
+            for (indexer, factors) in &multi_selection {
+                let mut score_result = factors.score(
+                    config,
+                    &self.network_params,
+                    freshness_requirements,
+                    &budget,
+                    &cost,
+                    latest_block,
+                );
+                if let Some(special_indexers) = &self.special_indexers {
+                    if let Ok(score) = &mut score_result {
+                        if let Some(weight) = special_indexers.get(indexer) {
+                            score.utility *= weight;
+                        }
                     }
-                    _ => (),
+                }
+                tracing::trace!(?score_result);
+                if let Err(SelectionError::MissingNetworkParams) = &score_result {
+                    return Err(SelectionError::MissingNetworkParams);
+                }
+                scoring_sample.add((indexer.clone(), score_result.clone()), 1.0);
+                let score = match score_result {
+                    Ok(score) if score.utility > NotNan::zero() => score,
+                    _ => continue,
+                };
+                scores.push((indexer, score));
+            }
+            if scores.is_empty() {
+                break;
+            }
+
+            let max_utility = match scores.iter().map(|(_, score)| score.utility).max() {
+                Some(n) => n,
+                _ => break,
+            };
+            // Having a random utility cutoff that is weighted toward 1 normalized to the highest
+            // score makes it so that we define our selection based on an expected utility
+            // distribution, so that even if there are many bad indexers with lots of stake it may
+            // not adversely affect the result. This is important because an Indexer deployed on the
+            // other side of the world should not generally bring our expected utility down below
+            // the minimum requirements set forth by this equation.
+            let mut utility_cutoff = NotNan::<f64>::new(thread_rng().gen()).unwrap();
+            // Careful raising this value, it's really powerful. Near 0 and utility is ignored
+            // (only stake matters). Near 1 utility matters at ~ x^2 (depending on the distribution
+            // of stake). Above that and things are getting crazy and we're exploiting the utility
+            // strongly.
+            const UTILITY_PREFERENCE: f64 = 1.1;
+            utility_cutoff = max_utility * (1.0 - utility_cutoff.powf(UTILITY_PREFERENCE));
+            let mut selected = WeightedSample::new();
+            let scores = scores
+                .into_iter()
+                .filter(|(_, score)| score.utility >= utility_cutoff);
+            for (indexer, score) in scores {
+                let sybil = score.sybil.into();
+                selected.add((indexer, score), sybil);
+            }
+            let selection = match selected.take() {
+                Some((indexer, score)) => Selection {
+                    indexing: indexing(*indexer),
+                    score,
                 },
-                _ => (),
+                None => break,
             };
-            let score = match result {
-                Ok(score) if score.utility > NotNan::zero() => score,
-                _ => continue,
-            };
-            scores.push((indexing, score));
+
+            cost += selection.score.fee;
+            multi_selection = multi_selection
+                .drain()
+                .filter(|(indexer, _)| *indexer != &selection.indexing.indexer)
+                .filter(|(_, factors)| (factors.fee + cost) <= budget)
+                .filter_map(|(indexer, mut factors)| {
+                    let indexer_info = self.indexers.get_unobserved(indexer)?;
+                    let indexing_state = self.indexings.get_unobserved(&indexing(*indexer))?;
+                    factors.merge_selection(indexer_info, indexing_state).ok()?;
+                    Some((indexer, factors))
+                })
+                .collect();
+
+            selections.push(selection);
         }
-        let max_utility = match scores.iter().map(|(_, score)| score.utility).max() {
-            Some(n) => n,
-            _ if high_fee_count > 0 => return Err(SelectionError::FeesTooHigh(high_fee_count)),
-            _ => return Ok((None, None)),
-        };
-        // Having a random utility cutoff that is weighted toward 1 normalized
-        // to the highest score makes it so that we define our selection based
-        // on an expected utility distribution, so that even if there are many
-        // bad indexers with lots of stake it may not adversely affect the
-        // result. This is important because an Indexer deployed on the other
-        // side of the world should not generally bring our expected utility
-        // down below the minimum requirements set forth by this equation.
-        let mut utility_cutoff = NotNan::<f64>::new(thread_rng().gen()).unwrap();
-        // Careful raising this value, it's really powerful. Near 0 and utility
-        // is ignored (only stake matters). Near 1 utility matters at ~ x^2
-        // (depending on the distribution of stake). Above that and things are
-        // getting crazy and we're exploiting the utility strongly.
-        const UTILITY_PREFERENCE: f64 = 1.1;
-        utility_cutoff = max_utility * (1.0 - utility_cutoff.powf(UTILITY_PREFERENCE));
-        let mut selected = WeightedSample::new();
-        let scores = scores
-            .into_iter()
-            .filter(|(_, score)| score.utility >= utility_cutoff);
-        for (indexing, score) in scores {
-            let sybil = score.sybil.into();
-            selected.add((indexing, score), sybil);
+
+        if selections.is_empty() && (high_fee_count > 0) {
+            return Err(SelectionError::FeesTooHigh(high_fee_count));
         }
-        let (indexing, score) = match selected.take() {
-            Some(selection) => selection,
-            None => return Ok((None, None)),
-        };
-        // Technically the "algorithm" part ends here, but eventually we want to
-        // be able to go back with data already collected if a later step fails.
 
         let sample = scoring_sample
             .take()
-            .filter(|(address, _)| address != &indexing.indexer)
-            .map(|(address, result)| ScoringSample(address, result));
-        Ok((Some(Selection { indexing, score }), sample))
-    }
+            .filter(|(address, _)| selections.iter().all(|s| &s.indexing.indexer != *address))
+            .map(|(address, result)| ScoringSample(*address, result));
 
-    fn score_indexer(
-        &self,
-        indexing: &Indexing,
-        context: &mut Context<'_>,
-        latest_block: u64,
-        budget: &GRT,
-        config: &UtilityConfig,
-        freshness_requirements: &FreshnessRequirements,
-    ) -> Result<IndexerScore, SelectionError> {
-        let indexer_info = self
-            .indexers
-            .get_unobserved(&indexing.indexer)
-            .ok_or(BadIndexerReason::MissingIndexingStatus)?;
-        let indexing_state = self
-            .indexings
-            .get_unobserved(&indexing)
-            .ok_or(BadIndexerReason::MissingIndexingStatus)?;
-        let fee = indexing_state.fee(context, config.price_efficiency, &budget)?;
-        SelectionFactors::new(fee, indexing.indexer.clone(), indexer_info, indexing_state)?.score(
-            config,
-            &self.network_params,
-            freshness_requirements,
-            budget,
-            &GRT::zero(),
-            latest_block,
-        )
+        Ok((selections, sample))
     }
 }
 
