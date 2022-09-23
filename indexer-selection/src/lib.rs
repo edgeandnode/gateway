@@ -176,7 +176,8 @@ impl State {
 
     /// Select random indexers, weighted by utility. Indexers with incomplete data or that do not
     /// meet the minimum requirements will be excluded. Indexers will continue to be selected until
-    /// the `selection_limit` is reached, or the budget is exhausted.
+    /// the `selection_limit` is reached, the budget is exhausted, or no remaining indexers can
+    /// increase the overall utility of the selected set.
     pub fn select_indexers(
         &self,
         config: &UtilityConfig,
@@ -217,6 +218,7 @@ impl State {
         let mut selections = Vec::<Selection>::new();
         let mut cost = GRT::zero();
         let mut scoring_sample = WeightedSample::new();
+        let mut accumulated_utility = NotNan::zero();
         for selection_count in 0..selection_limit {
             let mut scores = Vec::<(&Address, IndexerScore)>::new();
             for (indexer, factors) in &selection_factors {
@@ -248,6 +250,13 @@ impl State {
                 };
                 scores.push((indexer, score));
             }
+            scores.retain(|(indexer, score)| {
+                if score.utility < accumulated_utility {
+                    selection_factors.remove(indexer);
+                    return false;
+                }
+                true
+            });
             if scores.is_empty() {
                 break;
             }
@@ -285,6 +294,7 @@ impl State {
                 None => break,
             };
 
+            accumulated_utility = selection.score.utility;
             cost += selection.score.fee;
             selection_factors = selection_factors
                 .drain()
