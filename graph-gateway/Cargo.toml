@@ -9,6 +9,7 @@ actix-http = "=3.0.0-beta.14"
 actix-web = "=4.0.0-beta.13"
 actix-router = "=0.5.0-beta.4"
 async-trait = "0.1"
+clap = { version = "3.2.22", features = ["derive", "env"] }
 futures = "0.3"
 futures-util = "0.3"
 graphql-parser = { git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df" }
@@ -30,8 +31,6 @@ serde = "1.0"
 serde_json = { version = "1.0", features = ["raw_value"] }
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
-structopt = "0.3"
-structopt-derive = "0.4"
 tiny-bip39 = "1.0"
 tracing = { version = "0.1", default-features = false, features = [
     "attributes",
