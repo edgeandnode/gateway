@@ -195,7 +195,7 @@ impl State {
             }
         };
         let mut high_fee_count = 0;
-        let mut multi_selection = indexers
+        let mut selection_factors = indexers
             .iter()
             .filter_map(|indexer| {
                 let indexing = indexing(*indexer);
@@ -217,9 +217,9 @@ impl State {
         let mut selections = Vec::<Selection>::new();
         let mut cost = GRT::zero();
         let mut scoring_sample = WeightedSample::new();
-        for _ in 0..selection_limit {
+        for selection_count in 0..selection_limit {
             let mut scores = Vec::<(&Address, IndexerScore)>::new();
-            for (indexer, factors) in &multi_selection {
+            for (indexer, factors) in &selection_factors {
                 let mut score_result = factors.score(
                     config,
                     &self.network_params,
@@ -239,7 +239,9 @@ impl State {
                 if let Err(SelectionError::MissingNetworkParams) = &score_result {
                     return Err(SelectionError::MissingNetworkParams);
                 }
-                scoring_sample.add((indexer.clone(), score_result.clone()), 1.0);
+                if selection_count == 0 {
+                    scoring_sample.add((indexer.clone(), score_result.clone()), 1.0);
+                }
                 let score = match score_result {
                     Ok(score) if score.utility > NotNan::zero() => score,
                     _ => continue,
@@ -284,7 +286,7 @@ impl State {
             };
 
             cost += selection.score.fee;
-            multi_selection = multi_selection
+            selection_factors = selection_factors
                 .drain()
                 .filter(|(indexer, _)| *indexer != &selection.indexing.indexer)
                 .filter(|(_, factors)| (factors.fee + cost) <= budget)
