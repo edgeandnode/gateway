@@ -43,6 +43,7 @@ use actix_web::{
     http::{header, StatusCode},
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
+use clap::Parser as _;
 use eventuals::EventualExt as _;
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
@@ -65,13 +66,12 @@ use std::{
     sync::Arc,
     time::SystemTime,
 };
-use structopt::StructOpt as _;
 use tokio::spawn;
 use url::Url;
 
 #[actix_web::main]
 async fn main() {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     init_tracing(opt.log_json);
     tracing::info!("Graph gateway starting...");
     tracing::debug!("{:#?}", opt);

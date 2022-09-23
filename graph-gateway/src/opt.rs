@@ -1,5 +1,7 @@
 use crate::chains::ethereum;
+use anyhow;
 use bip39;
+use clap::Parser;
 use hdwallet::{self, KeyChain as _};
 use indexer_selection::SecretKey;
 use ordered_float::NotNan;
@@ -7,40 +9,40 @@ use prelude::*;
 use rdkafka::config::ClientConfig as KafkaConfig;
 use semver::Version;
 use std::{collections::HashMap, error::Error, path::PathBuf};
-use structopt_derive::StructOpt;
 
 // TODO: Consider the security implications of passing mnemonics, passwords, etc. via environment variables or CLI arguments.
 
-#[derive(StructOpt, Debug)]
+#[derive(Debug, Parser)]
+#[clap()]
 pub struct Opt {
-    #[structopt(
+    #[clap(
         long = "--mnemonic",
         env = "MNEMONIC",
         help = "Ethereum wallet mnemonic"
     )]
     pub signer_key: SignerKey,
-    #[structopt(long, env, help = "IPFS endpoint with access to the subgraph files")]
+    #[clap(long, env, help = "IPFS endpoint with access to the subgraph files")]
     pub ipfs: URL,
-    #[structopt(long, env, help = "Fisherman endpoint")]
+    #[clap(long, env, help = "Fisherman endpoint")]
     pub fisherman: Option<URL>,
-    #[structopt(
+    #[clap(
         long,
         env,
         help = "Ethereum provider URLs, format: '<network>=<block-time>,<rest-url>(,<ws-url>)?;...'\ne.g. rinkeby=15,https://eth-rinkeby.alchemyapi.io/v2/<api-key>"
     )]
     pub ethereum_providers: EthereumProviders,
-    #[structopt(long, env, help = "Network subgraph URL")]
+    #[clap(long, env, help = "Network subgraph URL")]
     pub network_subgraph: URL,
-    #[structopt(long, env, help = "Network subgraph auth token")]
+    #[clap(long, env, help = "Network subgraph auth token")]
     pub network_subgraph_auth_token: String,
-    #[structopt(
+    #[clap(
         long,
         env,
         help = "MIP weights and addresses, format: '<weight>:<address>,...'\ne.g. 0.1:0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         default_value = "0.2:"
     )]
     pub mips: MIPs,
-    #[structopt(
+    #[clap(
         long,
         env,
         help = "API keys that won't be blocked for non-payment",
@@ -48,53 +50,53 @@ pub struct Opt {
         use_delimiter = true
     )]
     pub special_api_keys: Vec<String>,
-    #[structopt(long, env, parse(try_from_str), help = "Format log output as JSON")]
+    #[clap(long, env, parse(try_from_str), help = "Format log output as JSON")]
     pub log_json: bool,
-    #[structopt(long, env, default_value = "5")]
+    #[clap(long, env, default_value = "5")]
     pub indexer_selection_retry_limit: usize,
-    #[structopt(long, env, default_value = "3.1")]
+    #[clap(long, env, default_value = "3.1")]
     pub query_budget_scale: f64,
-    #[structopt(long, env, default_value = "0.595")]
+    #[clap(long, env, default_value = "0.595")]
     pub query_budget_discount: f64,
-    #[structopt(
+    #[clap(
         long,
         env,
         help = "The number of processes per Gateway location. This is used when approximating worldwide query volume."
     )]
     pub replica_count: u64,
-    #[structopt(
+    #[clap(
         long,
         env,
         help = "The number of geographic Gateway locations. This is used when approximating worldwide query volume."
     )]
     pub location_count: u64,
-    #[structopt(long, env, default_value = "6700")]
+    #[clap(long, env, default_value = "6700")]
     pub port: u16,
-    #[structopt(long, env, default_value = "7300")]
+    #[clap(long, env, default_value = "7300")]
     pub metrics_port: u16,
-    #[structopt(
+    #[clap(
         long = "--ip-rate-limit-window",
         env = "IP_RATE_LIMIT_WINDOW",
         help = "Duration of IP rate limiting window in seconds",
         default_value = "10"
     )]
     pub ip_rate_limit_window_secs: u8,
-    #[structopt(long, env, help = "IP rate limit per window", default_value = "250")]
+    #[clap(long, env, help = "IP rate limit per window", default_value = "250")]
     pub ip_rate_limit: u16,
-    #[structopt(
+    #[clap(
         help = "Duration of API rate limiting window in seconds",
         long = "--api-rate-limit-window",
         env = "API_RATE_LIMIT_WINDOW",
         default_value = "10"
     )]
     pub api_rate_limit_window_secs: u8,
-    #[structopt(long, env, help = "API rate limit per window", default_value = "1000")]
+    #[clap(long, env, help = "API rate limit per window", default_value = "1000")]
     pub api_rate_limit: u16,
-    #[structopt(long, env, help = "Minimum indexer version", default_value = "0.0.0")]
+    #[clap(long, env, help = "Minimum indexer version", default_value = "0.0.0")]
     pub min_indexer_version: Version,
-    #[structopt(long, env, help = "GeoIP database path")]
+    #[clap(long, env, help = "GeoIP database path")]
     pub geoip_database: Option<PathBuf>,
-    #[structopt(
+    #[clap(
         long,
         env,
         help = "GeoIP blocked countries (ISO 3166-1 alpha-2 codes)",
@@ -102,32 +104,32 @@ pub struct Opt {
         use_delimiter = true
     )]
     pub geoip_blocked_countries: Vec<String>,
-    #[structopt(long, env, help = "Subgraph studio admin url")]
+    #[clap(long, env, help = "Subgraph studio admin url")]
     pub studio_url: URL,
-    #[structopt(long, env, help = "Subgraph studio auth")]
+    #[clap(long, env, help = "Subgraph studio auth")]
     pub studio_auth: String,
-    #[structopt(
+    #[clap(
         long,
         env,
         help = "Respect the payment state of API keys (disable for testnets)",
         parse(try_from_str)
     )]
     pub api_key_payment_required: bool,
-    #[structopt(long, env, help = "Redpanda broker domains")]
+    #[clap(long, env, help = "Redpanda broker domains")]
     pub redpanda_brokers: String,
-    #[structopt(long, env, help = "Security protocol")]
+    #[clap(long, env, help = "Security protocol")]
     pub redpanda_security_protocol: Option<String>,
-    #[structopt(long, env, help = "SASL mechanism", default_value = "SCRAM-SHA-256")]
+    #[clap(long, env, help = "SASL mechanism", default_value = "SCRAM-SHA-256")]
     pub redpanda_sasl_mechanism: String,
-    #[structopt(long, env, help = "SASL user")]
+    #[clap(long, env, help = "SASL user")]
     pub redpanda_sasl_user: Option<String>,
-    #[structopt(long, env, help = "SASL password")]
+    #[clap(long, env, help = "SASL password")]
     pub redpanda_sasl_password: Option<String>,
-    #[structopt(long, env, help = "SSL ca location")]
+    #[clap(long, env, help = "SSL ca location")]
     pub redpanda_ssl_ca: Option<String>,
-    #[structopt(long, env, help = "SSL cert location")]
+    #[clap(long, env, help = "SSL cert location")]
     pub redpanda_ssl_cert: Option<String>,
-    #[structopt(long, env, help = "SSL key location")]
+    #[clap(long, env, help = "SSL key location")]
     pub redpanda_ssl_key: Option<String>,
 }
 
@@ -172,7 +174,7 @@ impl fmt::Debug for SignerKey {
 }
 
 impl FromStr for SignerKey {
-    type Err = Box<dyn Error>;
+    type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Wallet seed zeroized on drop
         let wallet_seed = bip39::Seed::new(
