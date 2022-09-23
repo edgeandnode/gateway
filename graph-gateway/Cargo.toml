@@ -23,9 +23,9 @@ maxminddb = "0.23"
 ordered-float = "3.0"
 parking_lot = "0.12.0"
 prelude = { path = "../prelude" }
-primitive-types = "0.8"
+primitive-types = "0.12"
 prometheus = { version = "0.13", default-features = false }
-secp256k1 = { version = "0.20", default-features = false }
+secp256k1 = { version = "0.24", default-features = false }
 semver = "1.0"
 serde = "1.0"
 serde_json = { version = "1.0", features = ["raw_value"] }
@@ -35,7 +35,7 @@ tiny-bip39 = "1.0"
 tracing = { version = "0.1", default-features = false, features = [
     "attributes",
 ] }
-trust-dns-resolver = { version = "0.21", features = ["dns-over-rustls"] }
+trust-dns-resolver = { version = "0.22", features = ["dns-over-rustls"] }
 url = "2.2"
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
 rdkafka = { version = "0.28", features = [
