@@ -281,7 +281,6 @@ impl State {
             let thresholds = Self::utility_thresholds(&selections);
             let adds_utility = |s: &Selection| -> bool {
                 (s.scores.economic_security.utility > thresholds.economic_security)
-                    || (s.scores.price_efficiency.utility > thresholds.price_efficiency)
                     || (s.scores.data_freshness.utility > thresholds.data_freshness)
                     || (s.scores.performance.utility > thresholds.performance)
                     || (s.scores.reputation.utility > thresholds.reputation)
@@ -426,9 +425,8 @@ impl State {
     }
 
     fn utility_thresholds(selections: &[Selection]) -> UtilityThresholds {
-        // Set the thresholds for retaining indexers to the next round based on
-        // their ability to add utility over the selected set. This takes the
-        // simple approach of
+        // Set the thresholds for retaining indexers to the next round based on their ability to add
+        // utility over the selected set.
         macro_rules! utility_threshold {
             ($n:ident) => {
                 selections
@@ -440,7 +438,6 @@ impl State {
         }
         UtilityThresholds {
             economic_security: *utility_threshold!(economic_security),
-            price_efficiency: *utility_threshold!(price_efficiency),
             data_freshness: *utility_threshold!(data_freshness),
             performance: *utility_threshold!(performance),
             reputation: *utility_threshold!(reputation),
@@ -451,7 +448,6 @@ impl State {
 #[derive(Default)]
 struct UtilityThresholds {
     economic_security: f64,
-    price_efficiency: f64,
     data_freshness: f64,
     performance: f64,
     reputation: f64,
