@@ -280,13 +280,13 @@ async fn run_simulation(
         let latest_block = blocks.last().unwrap().number;
         let (mut selections, _) = isa
             .select_indexers(
-                &utility_config,
                 &deployment,
+                &indexer_ids,
+                &utility_config,
+                &freshness_requirements,
                 &mut context,
                 latest_block,
-                &indexer_ids,
                 budget,
-                &freshness_requirements,
                 5,
             )
             .unwrap();
@@ -329,7 +329,7 @@ async fn run_simulation(
 
         for selection in selections {
             let index = *data.get(&selection.indexing.indexer).unwrap();
-            results[index] += selection.score.fee;
+            results[index] += selection.fee;
             let characteristics = tests.get(index).unwrap();
             let indexing = Indexing {
                 deployment,

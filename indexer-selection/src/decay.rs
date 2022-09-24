@@ -1,4 +1,4 @@
-use crate::{score::Merge, utility::*};
+use crate::utility::*;
 use prelude::*;
 
 // This could have been done more automatically by using a proc-macro, but this is simpler.
@@ -165,14 +165,6 @@ impl Decay for Duration {
 
     fn clear(&mut self) {
         *self = Duration::ZERO;
-    }
-}
-
-impl<T: Decay + Merge, const D: u16, const L: usize> Merge for DecayBufferUnconfigured<T, D, L> {
-    fn merge(&mut self, other: &Self) {
-        for i in 0..L {
-            self.frames[i].merge(&other.frames[i]);
-        }
     }
 }
 

@@ -13,7 +13,7 @@ use crate::{
 use futures::future::join_all;
 use indexer_selection::{
     self, actor::IndexerErrorObservation, Context, FreshnessRequirements, IndexerError,
-    IndexerPreferences, IndexerScore, ScoringSample, Selection, SelectionError, UnresolvedBlock,
+    IndexerPreferences, ScoringSample, Selection, SelectionError, UnresolvedBlock,
 };
 use indexer_selection::{actor::Update, Indexing, UtilityConfig};
 use lazy_static::lazy_static;
@@ -63,8 +63,7 @@ impl Query {
 
 #[derive(Clone, Debug)]
 pub struct IndexerAttempt {
-    pub score: IndexerScore,
-    pub indexer: Address,
+    pub selection: Selection,
     pub allocation: Address,
     pub query: Arc<String>,
     pub receipt: Receipt,
@@ -164,6 +163,7 @@ pub struct QueryResponse {
 pub enum QueryEngineError {
     NoIndexers,
     NoIndexerSelected,
+    BehindMinimumBlock(usize),
     FeesTooHigh(usize),
     MalformedQuery,
     BlockBeforeMin,
@@ -181,6 +181,7 @@ impl From<SelectionError> for QueryEngineError {
                 Self::NoIndexerSelected
             }
             SelectionError::MalformedQuery => Self::MalformedQuery,
+            SelectionError::BehindMinimumBlock(count) => Self::BehindMinimumBlock(count),
             SelectionError::FeesTooHigh(count) => Self::FeesTooHigh(count),
             SelectionError::MissingNetworkParams => Self::MissingNetworkParams,
         }
@@ -354,21 +355,21 @@ where
                 |hist| hist.start_timer(),
             );
             let (selections, scoring_sample) = self.isa.latest().select_indexers(
-                &utility_config,
                 &subgraph.deployment,
+                &deployment_indexers,
+                &utility_config,
+                &freshness_requirements,
                 &mut context,
                 latest_block.number,
-                &deployment_indexers,
                 budget,
-                &freshness_requirements,
                 1,
             )?;
             drop(selection_timer);
 
             if let Some(ScoringSample(indexer, result)) = scoring_sample {
                 match result {
-                    Ok(score) => {
-                        self.notify_isa_sample(&query, &indexer, &score, "ISA scoring sample")
+                    Ok(selection) => {
+                        self.notify_isa_sample(&query, &selection, "ISA scoring sample")
                     }
                     Err(err) => self.notify_isa_err(&query, &indexer, err, "ISA scoring sample"),
                 };
@@ -378,21 +379,16 @@ where
                 Some(selection) => selection,
                 None => return Err(NoIndexerSelected),
             };
-            if selection.score.fee > GRT::try_from(100u64).unwrap() {
-                tracing::error!(excessive_fee = %selection.score.fee);
+            if selection.fee > GRT::try_from(100u64).unwrap() {
+                tracing::error!(excessive_fee = %selection.fee);
                 return Err(QueryEngineError::ExcessiveFee);
             }
 
-            self.notify_isa_sample(
-                &query,
-                &selection.indexing.indexer,
-                &selection.score,
-                "Selected indexer score",
-            );
+            self.notify_isa_sample(&query, &selection, "Selected indexer score");
 
             // Select the latest block for the selected indexer. Also, skip 1 block for every 2
             // attempts where the indexer failed to resolve the block we consider to be latest.
-            let blocks_behind = selection.score.blocks_behind + (latest_unresolved / 2);
+            let blocks_behind = selection.blocks_behind + (latest_unresolved / 2);
             let latest_query_block = block_cache.latest(blocks_behind).await?;
             let deterministic_query =
                 make_query_deterministic(context, &block_requirements, &latest_query_block)
@@ -472,7 +468,7 @@ where
     ) -> Result<(), IndexerError> {
         let receipt = self
             .receipt_pools
-            .commit(&selection.indexing, selection.score.fee)
+            .commit(&selection.indexing, selection.fee)
             .await
             .map(Receipt)?;
 
@@ -490,8 +486,7 @@ where
         allocation.0.copy_from_slice(&receipt.0[0..20]);
 
         query.indexer_attempts.push(IndexerAttempt {
-            score: selection.score,
-            indexer: selection.indexing.indexer,
+            selection: selection.clone(),
             allocation,
             query: Arc::new(deterministic_query),
             receipt,
@@ -570,32 +565,26 @@ where
         Ok(())
     }
 
-    fn notify_isa_sample(
-        &self,
-        query: &Query,
-        indexer: &Address,
-        score: &IndexerScore,
-        message: &str,
-    ) {
+    fn notify_isa_sample(&self, query: &Query, selection: &Selection, message: &str) {
         self.kafka_client
-            .send(&ISAScoringSample::new(&query, &indexer, &score, message));
+            .send(&ISAScoringSample::new(&query, selection, message));
         // The following logs are required for data science.
         tracing::info!(
             ray_id = %query.ray_id,
             query_id = %query.id,
             deployment = %query.subgraph.as_ref().unwrap().deployment,
-            %indexer,
-            url = %score.url,
-            fee = %score.fee,
-            slashable = %score.slashable,
-            utility = *score.utility,
-            economic_security = score.utility_scores.economic_security,
-            price_efficiency = score.utility_scores.price_efficiency,
-            data_freshness = score.utility_scores.data_freshness,
-            performance = score.utility_scores.performance,
-            reputation = score.utility_scores.reputation,
-            sybil = *score.sybil,
-            blocks_behind = score.blocks_behind,
+            indexer = %selection.indexing.indexer,
+            url = %selection.url,
+            fee = %selection.fee,
+            slashable = %selection.slashable,
+            utility = *selection.utility,
+            economic_security = selection.scores.economic_security.utility,
+            price_efficiency = selection.scores.price_efficiency.utility,
+            data_freshness = selection.scores.data_freshness.utility,
+            performance = selection.scores.performance.utility,
+            reputation = selection.scores.reputation.utility,
+            sybil = *selection.sybil,
+            blocks_behind = selection.blocks_behind,
             message,
         );
     }

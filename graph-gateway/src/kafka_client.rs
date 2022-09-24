@@ -1,5 +1,5 @@
 use crate::query_engine::Query;
-use indexer_selection::{IndexerScore, SelectionError};
+use indexer_selection::{Selection, SelectionError};
 use prelude::*;
 use rdkafka::{
     config::ClientConfig,
@@ -98,7 +98,7 @@ impl ClientQueryResult {
         let fee = query
             .indexer_attempts
             .last()
-            .map(|attempt| attempt.score.fee.as_f64())
+            .map(|attempt| attempt.selection.fee.as_f64())
             .unwrap_or(0.0);
 
         Self {
@@ -146,23 +146,23 @@ pub struct ISAScoringSample {
 }
 
 impl ISAScoringSample {
-    pub fn new(query: &Query, indexer: &Address, score: &IndexerScore, message: &str) -> Self {
+    pub fn new(query: &Query, selection: &Selection, message: &str) -> Self {
         Self {
             ray_id: query.ray_id.clone(),
             timestamp: timestamp(),
             deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
-            address: indexer.to_string(),
-            fee: score.fee.to_string(),
-            slashable: score.slashable.to_string(),
-            utility: *score.utility,
-            economic_security: score.utility_scores.economic_security,
-            price_efficiency: score.utility_scores.price_efficiency,
-            data_freshness: score.utility_scores.data_freshness,
-            performance: score.utility_scores.performance,
-            reputation: score.utility_scores.reputation,
-            sybil: *score.sybil,
-            blocks_behind: score.blocks_behind,
-            url: score.url.to_string(),
+            address: selection.indexing.indexer.to_string(),
+            fee: selection.fee.to_string(),
+            slashable: selection.slashable.to_string(),
+            utility: *selection.utility,
+            economic_security: selection.scores.economic_security.utility,
+            price_efficiency: selection.scores.price_efficiency.utility,
+            data_freshness: selection.scores.data_freshness.utility,
+            performance: selection.scores.performance.utility,
+            reputation: selection.scores.reputation.utility,
+            sybil: *selection.sybil,
+            blocks_behind: selection.blocks_behind,
+            url: selection.url.to_string(),
             message: message.to_string(),
         }
     }
@@ -192,6 +192,7 @@ impl ISAScoringError {
             SelectionError::BadIndexer(reason) => (4, format!("{:?}", reason)),
             SelectionError::NoAllocation(indexing) => (5, format!("{:?}", indexing)),
             SelectionError::FeesTooHigh(count) => (6, count.to_string()),
+            SelectionError::BehindMinimumBlock(count) => (7, count.to_string()),
         };
         Self {
             ray_id: query.ray_id.clone(),

@@ -199,13 +199,13 @@ async fn main() -> anyhow::Result<()> {
         let latest_block = blocks.last().unwrap().number;
         let (selections, _) = isa
             .select_indexers(
-                &utility_config,
                 &deployment,
+                &indexers,
+                &utility_config,
+                &freshness_requirements,
                 &mut context,
                 latest_block,
-                &indexers,
                 budget,
-                &freshness_requirements,
                 5,
             )
             .unwrap();
@@ -225,12 +225,12 @@ async fn main() -> anyhow::Result<()> {
                 "simulation,{},{},{},{},{},{},{},{}",
                 line.timestamp,
                 selection.indexing.indexer,
-                selection.score.url,
+                selection.url,
                 success,
-                selection.score.fee,
-                selection.score.blocks_behind,
+                selection.fee,
+                selection.blocks_behind,
                 duration.as_millis(),
-                selection.score.utility,
+                selection.utility,
             );
         }
     }

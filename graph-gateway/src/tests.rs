@@ -547,13 +547,14 @@ impl Topology {
                 format!("expected indexer query error, got: {:#?}", attempt),
             );
         }
-        if !indexers.iter().any(|indexer| indexer.id == attempt.indexer) {
+        let indexer = &attempt.selection.indexing.indexer;
+        if !indexers.iter().any(|i| &i.id == indexer) {
             return Self::err_with(
                 trace,
-                format!("attempted indexer not available: {:?}", attempt.indexer),
+                format!("attempted indexer not available: {:?}", indexer),
             );
         }
-        if valid.iter().any(|indexer| indexer.id == attempt.indexer) {
+        if valid.iter().any(|i| &i.id == indexer) {
             return Self::err_with(
                 trace,
                 format!("expected invalid indexer attempt, got {:#?}", attempt),
@@ -579,7 +580,10 @@ impl Topology {
         if !response.payload.contains("success") {
             return Self::err_with(trace, format!("expected success, got {}", response.payload));
         }
-        if !valid.iter().any(|indexer| attempt.indexer == indexer.id) {
+        if !valid
+            .iter()
+            .any(|indexer| attempt.selection.indexing.indexer == indexer.id)
+        {
             return Self::err_with(trace, "response did not match any valid indexer");
         }
         Ok(())

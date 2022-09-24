@@ -60,7 +60,6 @@ impl IndexerInterface for IndexerClient {
         let receipt = hex::encode(receipt);
         let receipt = &receipt[0..(receipt.len() - 64)];
         let url = selection
-            .score
             .url
             .join(&format!(
                 "/subgraphs/id/{:?}",

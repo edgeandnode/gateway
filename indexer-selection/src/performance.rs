@@ -12,38 +12,13 @@
 // and then we get the count-weighted average of utilities.
 // This trades off precision for query-time work.
 
-use crate::{
-    decay::{Decay, DecayUtility},
-    score::Merge,
-};
+use crate::decay::{Decay, DecayUtility};
 use prelude::*;
 
 #[derive(Clone, Debug, Default)]
 pub struct Performance {
     latency: Vec<u32>,
     count: Vec<f64>,
-}
-
-impl Merge for Performance {
-    fn merge(&mut self, other: &Self) {
-        for (count, latency) in other.count.iter().zip(other.latency.iter()) {
-            let i = self.latency.partition_point(|x| x < latency);
-            match self.latency.get(i) {
-                None => {
-                    self.latency.push(*latency);
-                    self.count.push(*count);
-                }
-                Some(l) if l == latency => {
-                    self.latency[i] += latency;
-                    self.count[i] += count;
-                }
-                Some(_) => {
-                    self.latency.insert(i, *latency);
-                    self.count.insert(i, *count);
-                }
-            };
-        }
-    }
 }
 
 impl Decay for Performance {

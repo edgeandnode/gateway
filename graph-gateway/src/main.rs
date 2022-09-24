@@ -674,6 +674,12 @@ async fn handle_subgraph_query_inner(
                     query.indexer_attempts.len()
                 )
             }
+            QueryEngineError::BehindMinimumBlock(count) => {
+                format!(
+                    "No suitable indexer found, {} indexers behind requested block",
+                    count
+                )
+            }
             QueryEngineError::FeesTooHigh(count) => {
                 format!(
                     "No suitable indexer found, {} indexers requesting higher fees for this query",
@@ -743,12 +749,12 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
             api_key: query_result.api_key.clone(),
             deployment: query_result.deployment.clone(),
             ray_id: query_result.ray_id.clone(),
-            indexer: attempt.indexer.to_string(),
-            url: attempt.score.url.to_string(),
+            indexer: attempt.selection.indexing.indexer.to_string(),
+            url: attempt.selection.url.to_string(),
             allocation: attempt.allocation.to_string(),
-            fee: attempt.score.fee.as_f64(),
-            utility: *attempt.score.utility,
-            blocks_behind: attempt.score.blocks_behind,
+            fee: attempt.selection.fee.as_f64(),
+            utility: *attempt.selection.utility,
+            blocks_behind: attempt.selection.blocks_behind,
             indexer_errors: attempt.indexer_errors.clone(),
             response_time_ms: attempt.duration.as_millis() as u32,
             status: match &attempt.result {
@@ -798,12 +804,12 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
             api_key = %api_key,
             %deployment,
             attempt_index,
-            indexer = %attempt.indexer,
-            url = %attempt.score.url,
+            indexer = %attempt.selection.indexing.indexer,
+            url = %attempt.selection.url,
             allocation = %attempt.allocation,
-            fee = %attempt.score.fee,
-            utility = *attempt.score.utility,
-            blocks_behind = attempt.score.blocks_behind,
+            fee = %attempt.selection.fee,
+            utility = *attempt.selection.utility,
+            blocks_behind = attempt.selection.blocks_behind,
             indexer_errors = %attempt.indexer_errors,
             response_time_ms = attempt.duration.as_millis() as u32,
             %status,
