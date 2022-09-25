@@ -17,7 +17,7 @@ use num_traits::identities::Zero as _;
 pub use ordered_float::NotNan;
 use prelude::{epoch_cache::EpochCache, weighted_sample::WeightedSample, *};
 use price_efficiency::price_efficiency;
-use rand::{prelude::SmallRng, thread_rng, Rng as _, SeedableRng as _};
+use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 pub use receipts;
 use receipts::BorrowFail;
 pub use secp256k1::SecretKey;
@@ -242,7 +242,7 @@ impl State {
         }
 
         let mut selections = Vec::new();
-        let mut rng = SmallRng::from_rng(thread_rng()).unwrap();
+        let mut rng = SmallRng::from_entropy();
         let mut cost = GRT::zero();
         for _ in 0..selection_limit {
             let max_utility = match scores.iter().map(|score| score.utility).max() {

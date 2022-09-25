@@ -172,88 +172,24 @@ impl Decay for Duration {
 mod tests {
     use super::*;
     use crate::reputation::Reputation;
-    use plotters::prelude::*;
-    use prelude::test_utils::create_dir;
+    use prelude::test_utils::create_test_output;
     use rand::{rngs::SmallRng, Rng as _, SeedableRng as _};
-    use std::collections::HashMap;
+    use std::{collections::HashMap, io::Write as _};
 
     /// Success rates, in units of 1e-4
     const SUCCESS_RATES: [u32; 7] = [0000, 4000, 6000, 8000, 9000, 9900, 9999];
 
-    struct ResponseConfig<E> {
-        title: &'static str,
-        event_description: &'static str,
-        event_values: [E; 6],
-    }
-
-    struct ResponsePoint<E> {
-        event_value: E,
-        success_rate: f64,
-        t_m: u64,
-        utility: f64,
-    }
-
-    fn generate_response_plots<E: Eq + ToString>(
-        config: &ResponseConfig<E>,
-        points: &[ResponsePoint<E>],
-    ) {
-        create_dir("test-outputs");
-        let file_path = format!("test-outputs/{}.svg", config.title);
-        let root = SVGBackend::new(&file_path, (1600, 800)).into_drawing_area();
-        let plot_areas = root.split_evenly((3, 2));
-        for (plot_area, event_value) in plot_areas.into_iter().zip(&config.event_values) {
-            let mut plot = plotters::prelude::ChartBuilder::on(&plot_area)
-                .margin(5)
-                .x_label_area_size(35)
-                .y_label_area_size(35)
-                .caption(
-                    format!("{} {}", event_value.to_string(), config.event_description),
-                    ("sans-serif", 18),
-                )
-                .build_cartesian_2d(0.0..(4092.0 * 2.0), 0.0..1.0)
-                .unwrap();
-            plot.configure_mesh()
-                .x_desc("t (minute)")
-                .y_desc("utility")
-                .draw()
-                .unwrap();
-            for (i, success_rate) in SUCCESS_RATES.iter().enumerate().rev() {
-                let success_rate = *success_rate as f64 * 1e-4;
-                let color = Palette99::pick(i);
-                let data = LineSeries::new(
-                    points
-                        .iter()
-                        .filter(|point| &point.event_value == event_value)
-                        .filter(|point| point.success_rate == success_rate)
-                        .map(|point| (point.t_m as f64, point.utility)),
-                    &color,
-                );
-                plot.draw_series(data)
-                    .unwrap()
-                    .label(format!("{:.4}", success_rate))
-                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &color));
-            }
-            plot.configure_series_labels()
-                .background_style(&WHITE.mix(0.8))
-                .border_style(&BLACK)
-                .draw()
-                .unwrap();
-        }
-    }
-
     #[test]
     #[ignore = "Writes output to disk"]
-    fn reputation_response() {
-        let config = ResponseConfig {
-            title: "reputation-outage-response",
-            event_description: "minute outage",
-            event_values: [0, 5, 60, 5 * 60, 15 * 60, 120 * 60],
-        };
+    fn reputation_outage_response() {
+        let out = create_test_output("reputation-outage-response.csv").unwrap();
+        writeln!(&out, "outage_duration_m,success_rate,t_m,utility").unwrap();
+
+        let outage_durations_m = [0, 5, 60, 5 * 60, 15 * 60, 120 * 60];
         let query_volume_hz = 10;
         let outage_start_s = 60 * 4092;
         let mut rand = SmallRng::from_entropy();
-        let mut data = Vec::<ResponsePoint<u64>>::new();
-        for outage_duration_m in config.event_values {
+        for outage_duration_m in outage_durations_m {
             let mut reputations = SUCCESS_RATES
                 .iter()
                 .map(|success_rate| (*success_rate, DecayBuffer::default()))
@@ -277,34 +213,35 @@ mod tests {
                     }
                     // Sample every minute.
                     if (t_s % 60) == 0 {
-                        data.push(ResponsePoint {
-                            event_value: outage_duration_m,
+                        let utility = reputation
+                            .expected_utility(UtilityParameters::one(1.0))
+                            .utility;
+                        writeln!(
+                            &out,
+                            "{},{},{},{}",
+                            outage_duration_m,
                             success_rate,
-                            t_m: (t_s / 60),
-                            utility: reputation
-                                .expected_utility(UtilityParameters::one(1.0))
-                                .utility,
-                        });
+                            t_s / 60,
+                            utility
+                        )
+                        .unwrap();
                     }
                 }
             }
         }
-        generate_response_plots(&config, &data);
     }
 
     #[test]
     #[ignore = "Writes output to disk"]
-    fn penalty_response() {
-        let config = ResponseConfig {
-            title: "reputation-penalty-response",
-            event_description: "penalty",
-            event_values: [0, 40, 80, 120, 140, 160],
-        };
+    fn reputation_penalty_response() {
+        let out = create_test_output("reputation-penalty-response.csv").unwrap();
+        writeln!(&out, "penalty,success_rate,t_m,utility").unwrap();
+
+        let penalties = [0, 40, 80, 120, 140, 160];
         let query_volume_hz = 10;
         let penalty_start_s = 60 * 4092;
         let mut rand = SmallRng::from_entropy();
-        let mut data = Vec::<ResponsePoint<u8>>::new();
-        for penalty in config.event_values {
+        for penalty in penalties {
             let mut reputations = SUCCESS_RATES
                 .iter()
                 .map(|success_rate| (*success_rate, DecayBuffer::default()))
@@ -329,18 +266,21 @@ mod tests {
                     }
                     // Sample every minute.
                     if (t_s % 60) == 0 {
-                        data.push(ResponsePoint {
-                            event_value: penalty,
+                        let utility = reputation
+                            .expected_utility(UtilityParameters::one(1.0))
+                            .utility;
+                        writeln!(
+                            &out,
+                            "{},{},{},{}",
+                            penalty,
                             success_rate,
-                            t_m: (t_s / 60),
-                            utility: reputation
-                                .expected_utility(UtilityParameters::one(1.0))
-                                .utility,
-                        });
+                            t_s / 60,
+                            utility
+                        )
+                        .unwrap();
                     }
                 }
             }
         }
-        generate_response_plots(&config, &data);
     }
 }

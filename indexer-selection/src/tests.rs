@@ -3,13 +3,9 @@ use crate::{
     test_utils::{default_cost_model, gen_blocks},
     *,
 };
-use plotters::{
-    prelude::{DrawingBackend, *},
-    style,
-};
 use prelude::{test_utils::*, *};
 use rand::{thread_rng, Rng as _};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, io::Write as _, sync::Arc};
 
 #[derive(Clone)]
 struct IndexerCharacteristics {
@@ -23,12 +19,10 @@ struct IndexerCharacteristics {
     special_weight: Option<f64>,
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 #[ignore = "Writes output to disk"]
-async fn weights() {
-    init_test_tracing();
-
-    let tests = [
+async fn simulation() {
+    let indexers = [
         IndexerCharacteristics {
             label: "Overpriced",
             stake: 500000u64.try_into().unwrap(),
@@ -158,65 +152,39 @@ async fn weights() {
             .take(columns.len())
             .collect::<String>()
     );
-    for test in &tests {
+    for indexer in &indexers {
         println!(
             "| {} | {} GRT | {} GRT | {} | {} USD | {} ms | {}% | {:?} |",
-            test.label,
-            test.stake,
-            test.allocation,
-            test.blocks_behind,
-            test.price,
-            test.latency_ms,
-            test.reliability * 100.0,
-            test.special_weight,
+            indexer.label,
+            indexer.stake,
+            indexer.allocation,
+            indexer.blocks_behind,
+            indexer.price,
+            indexer.latency_ms,
+            indexer.reliability * 100.0,
+            indexer.special_weight,
         );
     }
 
-    use futures::{stream::FuturesOrdered, StreamExt as _};
-    let results = vec![
-        (0.0, 0.0, 0.0, 0.0),
-        (1.0, 0.0, 0.0, 0.0),
-        (0.0, 1.0, 0.0, 0.0),
-        (0.0, 0.0, 1.0, 0.0),
-        (0.0, 0.0, 0.0, 1.0),
-    ]
-    .into_iter()
-    .map(|cfg| {
-        let tests = tests.clone();
-        async move {
-            let config = UtilityConfig::from_preferences(&IndexerPreferences {
-                economic_security: cfg.0,
-                performance: cfg.1,
-                data_freshness: cfg.2,
-                price_efficiency: cfg.3,
-            });
-            run_simulation(&tests, &config).await
-        }
-    })
-    .collect::<FuturesOrdered<_>>()
-    .collect::<Vec<_>>()
-    .await;
-    let data = vec![
-        ("economic_security 0.0", results[0].clone()),
-        ("economic_security 1.0", results[1].clone()),
-        ("performance 0.0", results[0].clone()),
-        ("performance 1.0", results[2].clone()),
-        ("data_freshness 0.0", results[0].clone()),
-        ("data_freshness 1.0", results[3].clone()),
-        ("price_efficiency 0.0", results[0].clone()),
-        ("price_efficiency 1.0", results[4].clone()),
-    ];
-    let labels = tests
-        .iter()
-        .map(|data| data.label)
-        .collect::<Vec<&'static str>>();
-    visualize_outcomes(data, 2, &labels);
+    let config = UtilityConfig::from_preferences(&IndexerPreferences {
+        economic_security: 0.0,
+        performance: 0.0,
+        data_freshness: 0.0,
+        price_efficiency: 0.0,
+    });
+    run_simulation(&indexers, &config).await
 }
 
-async fn run_simulation(
-    tests: &[IndexerCharacteristics],
-    utility_config: &UtilityConfig,
-) -> Vec<f64> {
+async fn run_simulation(indexers: &[IndexerCharacteristics], utility_config: &UtilityConfig) {
+    #[derive(Default)]
+    struct IndexerResult {
+        total_selections: u64,
+        total_fees: GRT,
+    }
+
+    let out = create_test_output("simulation.csv").unwrap();
+    writeln!(&out, "indexer,fees,selections").unwrap();
+
     let mut isa = State::default();
     isa.network_params.slashing_percentage = "0.1".parse().ok();
     isa.network_params.usd_to_grt_conversion = 1u64.try_into().ok();
@@ -227,7 +195,7 @@ async fn run_simulation(
 
     let mut indexer_ids = Vec::new();
     let mut special_indexers = HashMap::<Address, NotNan<f64>>::new();
-    for data in tests.iter() {
+    for data in indexers {
         let indexing = Indexing {
             indexer: bytes_from_id(indexer_ids.len()).into(),
             deployment,
@@ -269,7 +237,10 @@ async fn run_simulation(
     let mut total_latency_ms = 0;
     let mut total_blocks_behind = 0;
     let mut total_indexers_selected = 0;
-    let mut results = tests.iter().map(|_| GRT::zero()).collect::<Vec<GRT>>();
+    let mut results = indexers
+        .iter()
+        .map(|_| IndexerResult::default())
+        .collect::<Vec<IndexerResult>>();
     for i in 0..COUNT {
         let budget: GRT = "0.0001".parse().unwrap();
         let mut context = Context::new("{ a }", "").unwrap();
@@ -305,15 +276,11 @@ async fn run_simulation(
                 (indexer, i)
             })
             .collect::<HashMap<Address, usize>>();
-        selections.sort_by(|a, b| {
-            let a = tests[*data.get(&a.indexing.indexer).unwrap()].latency_ms;
-            let b = tests[*data.get(&b.indexing.indexer).unwrap()].latency_ms;
-            a.cmp(&b)
-        });
+        selections.sort_by_key(|s| indexers[*data.get(&s.indexing.indexer).unwrap()].latency_ms);
         let responding_indexer = selections
             .iter()
             .filter_map(|s| {
-                let characteristics = &tests[*data.get(&s.indexing.indexer).unwrap()];
+                let characteristics = &indexers[*data.get(&s.indexing.indexer).unwrap()];
                 if characteristics.reliability > thread_rng().gen() {
                     Some(characteristics)
                 } else {
@@ -329,8 +296,9 @@ async fn run_simulation(
 
         for selection in selections {
             let index = *data.get(&selection.indexing.indexer).unwrap();
-            results[index] += selection.fee;
-            let characteristics = tests.get(index).unwrap();
+            results[index].total_selections += 1;
+            results[index].total_fees += selection.fee;
+            let characteristics = indexers.get(index).unwrap();
             let indexing = Indexing {
                 deployment,
                 indexer: selection.indexing.indexer,
@@ -344,78 +312,24 @@ async fn run_simulation(
         }
     }
 
-    let total_fees = results.iter().fold(GRT::zero(), |sum, fees| sum + *fees);
+    for (result, indexer) in results.iter().zip(indexers) {
+        writeln!(
+            &out,
+            "{},{},{}",
+            indexer.label, result.total_fees, result.total_selections
+        )
+        .unwrap();
+    }
+
+    let total_fees = results
+        .iter()
+        .fold(GRT::zero(), |sum, r| sum + r.total_fees);
+    println!("{:?}", utility_config);
     println!(
-        "{:?}, fees: {}, avg. latency: {}ms, avg. blocks behind: {}, avg. indexers selected: {}",
-        utility_config,
+        "total fees: {:.6}, avg. latency: {} ms, avg. blocks behind: {}, avg. indexers selected: {}",
         total_fees,
         total_latency_ms / COUNT as u64,
         total_blocks_behind / COUNT as u64,
         total_indexers_selected / COUNT as u64,
     );
-    results
-        .iter()
-        .map(|fees| (*fees / total_fees).as_f64())
-        .collect::<Vec<f64>>()
-}
-
-fn visualize_outcomes(data: Vec<(&str, Vec<f64>)>, columns: usize, labels: &[&'static str]) {
-    create_dir("test-outputs");
-    let output_file = "test-outputs/isa-weights.png";
-
-    let mut root = BitMapBackend::new(output_file, (2100, 480));
-    let text_style = TextStyle::from(("sans-serif", 28.0).into_font());
-    // Fill background
-    let (width, height) = root.get_size();
-    root.draw_rect((0, 0), (width as i32, height as i32), &WHITE, true)
-        .unwrap();
-    // Add legend
-    {
-        let x = 1750;
-        let y = 10;
-        for (i, label) in labels.iter().enumerate().map(|(i, l)| (i as i32, l)) {
-            let style = style::Palette99::pick(i as usize).to_rgba();
-            root.draw_text(label, &text_style, (x + 20, y + 40 * i))
-                .unwrap();
-            let color_pos = ((x, y + 40 * i), (x + 15, y + 40 * i + 15));
-            root.draw_rect(color_pos.0, color_pos.1, &style, true)
-                .unwrap();
-            root.draw_rect(color_pos.0, color_pos.1, &BLACK, false)
-                .unwrap();
-        }
-    }
-    // Add bars
-    for (i, (label, data)) in data.iter().enumerate().map(|(i, d)| (i as i32, d)) {
-        let x = 440 * (i / columns as i32);
-        let y = 150 * (i % columns as i32);
-        draw_bar(&mut root, (x + 10, y + 50), (x + 400, y + 150), &data);
-        root.draw_text(&label, &text_style, (x + 20, y + 16))
-            .unwrap();
-    }
-    root.present().unwrap();
-}
-
-fn draw_bar<B: DrawingBackend>(
-    root: &mut B,
-    upper_left: (i32, i32),
-    bottom_right: (i32, i32),
-    data: &[f64],
-) {
-    let len = (bottom_right.0 - upper_left.0) as f64;
-    let mut start = upper_left.0;
-    for (i, fraction) in data.iter().enumerate() {
-        let style = style::Palette99::pick(i).to_rgba();
-        let end = start + (len * fraction) as i32;
-        root.draw_rect((start, upper_left.1), (end, bottom_right.1), &style, true)
-            .unwrap();
-        root.draw_rect((start, upper_left.1), (end, bottom_right.1), &BLACK, false)
-            .unwrap();
-        start = end;
-    }
-    // Pad rounding errors
-    root.draw_rect((start, upper_left.1), bottom_right, &BLACK, true)
-        .unwrap();
-    // Draw outline
-    root.draw_rect(upper_left, bottom_right, &BLACK, false)
-        .unwrap();
 }
