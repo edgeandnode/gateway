@@ -2,52 +2,39 @@
 # cargo run --bin sim -- input.txt | python tools/isa-outcomes.py
 
 import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import sys
 
-window = '30min'
-
+output = sys.argv[1] if len(sys.argv) > 1 else ''
 data = pd.read_csv(sys.stdin)
-data['indexer'] = data[['indexer', 'url']].agg(lambda x: f"{x[0]} ({x[1]})", axis = 1)
 
-colors = px.colors.qualitative.D3
-colors = {indexer: colors[i % len(colors)] for (i, indexer) in enumerate(data['indexer'].unique())}
+labels = sorted(set(data['label']))
 
-labeled = {label: data[data['label'] == label].copy() for label in data['label'].unique()}
-fig = make_subplots(
-    rows = len(labeled),
-    cols = 1,
-    subplot_titles = list(labeled.keys()),
-    shared_xaxes = True,
-    vertical_spacing = 0.05,
-)
+indexers = list(set(data['indexer']))
+indexers.sort(key=lambda i: data[(data['indexer'] == i) & (data['label'] == labels[0])]['label'].count())
 
-for (i, (label, data)) in enumerate(labeled.items()):
-    data['timestamp'] = pd.to_datetime(data['timestamp'])
-    data.index = data['timestamp']
-    data['count'] = data['timestamp'].apply(lambda _: 1)
-    data.drop(columns = ['timestamp', 'label', 'url'], inplace = True)
+matplotlib.rcParams['font.family'] = 'monospace'
+fig, axes = plt.subplots(len(labels), 2, figsize=(12, 8), sharex='col', sharey=True, constrained_layout=True)
 
-    indexers = list(data.groupby('indexer')['count'].sum().sort_values().index)
-    for indexer in list(indexers):
-        indexer_data = data[data['indexer'] == indexer]
-        indexer_data = indexer_data['count'].resample(window).sum()
-        total = data['count'].resample(window).sum()
-        fig.add_trace(
-            go.Scatter(
-                x = indexer_data.index,
-                y = indexer_data / total,
-                stackgroup = 'one',
-                name = indexer,
-                legendgroup = indexer,
-                showlegend = i == 0,
-                line = dict(color = colors[indexer]),
-            ),
-            row = i + 1,
-            col = 1,
-        )
+for (row, label) in enumerate(labels):
+    d = data[data['label'] == label]
+    print(d)
 
-fig.show()
+    selections = d.groupby(['indexer'])['label'].count().reset_index().sort_values(by=['indexer'], key=lambda i: i.apply(indexers.index))
+    axes[row, 0].barh(selections['indexer'], selections['label'])
+    axes[row, 0].invert_yaxis()
+
+    selections = d.groupby(['indexer'])['fee'].sum().reset_index().sort_values(by=['indexer'], key=lambda i: i.apply(indexers.index))
+    axes[row, 1].barh(selections['indexer'], selections['fee'])
+    axes[row, 1].invert_yaxis()
+
+axes[-1, 0].set_xlabel('total selections')
+axes[-1, 1].set_xlabel('total fees (GRT)')
+
+if output == '':
+    plt.show()
+else:
+    print('saving to', output)
+    plt.savefig(output)

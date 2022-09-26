@@ -39,13 +39,12 @@ async fn main() -> anyhow::Result<()> {
     }
     let deployment = deployments.first().cloned().unwrap();
 
-    println!("label,timestamp,indexer,url,success,fee,blocks_behind,response_time_ms,utility");
+    println!("label,t_ms,indexer,success,fee,blocks_behind,response_time_ms,utility");
     for line in &log_lines {
         println!(
-            "example,{},{},{},{},{},{},{},{}",
-            line.timestamp,
+            "example,{},{},{},{},{},{},{}",
+            line.timestamp.timestamp_millis(),
             line.indexer,
-            line.url,
             line.success,
             line.fee,
             line.blocks_behind,
@@ -206,7 +205,7 @@ async fn main() -> anyhow::Result<()> {
                 &mut context,
                 latest_block,
                 budget,
-                5,
+                1,
             )
             .unwrap();
         for selection in selections {
@@ -222,10 +221,9 @@ async fn main() -> anyhow::Result<()> {
                 isa.observe_failed_query(&selection.indexing, duration, false);
             }
             println!(
-                "simulation,{},{},{},{},{},{},{},{}",
-                line.timestamp,
+                "simulation,{},{},{},{},{},{},{}",
+                line.timestamp.timestamp_millis(),
                 selection.indexing.indexer,
-                selection.url,
                 success,
                 selection.fee,
                 selection.blocks_behind,
