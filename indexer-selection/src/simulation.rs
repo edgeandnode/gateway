@@ -4,6 +4,7 @@ use crate::{
 };
 use anyhow::Result;
 use prelude::{test_utils::bytes_from_id, *};
+use rand::prelude::SmallRng;
 use std::sync::Arc;
 
 pub struct IndexerCharacteristics {

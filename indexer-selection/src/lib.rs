@@ -18,7 +18,7 @@ use num_traits::identities::Zero as _;
 pub use ordered_float::NotNan;
 use prelude::{epoch_cache::EpochCache, weighted_sample::WeightedSample, *};
 use price_efficiency::price_efficiency;
-use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
+use rand::{prelude::StdRng, Rng as _, SeedableRng as _};
 pub use receipts;
 use receipts::BorrowFail;
 pub use secp256k1::SecretKey;
@@ -203,7 +203,7 @@ impl State {
         selection_limit: u8,
     ) -> Result<(Vec<Selection>, Option<ScoringSample>), SelectionError> {
         let mut scores = Vec::new();
-        let mut sampler = WeightedSample::new();
+        let mut scoring_sampler = WeightedSample::new();
         let mut behind_min_block_count = 0;
         let mut fee_too_high_count = 0;
         for indexer in indexers {
@@ -220,7 +220,7 @@ impl State {
                 selection_limit,
                 indexing,
             );
-            sampler.add((indexer, result.clone()), 1.0);
+            scoring_sampler.add((indexer, result.clone()), 1.0);
             match result {
                 Ok(score) => scores.push(score),
                 Err(SelectionError::MissingNetworkParams) => {
@@ -243,8 +243,7 @@ impl State {
         }
 
         let mut selections = Vec::new();
-        let mut rng = SmallRng::from_entropy();
-        let mut cost = GRT::zero();
+        let mut rng = StdRng::from_entropy();
         for _ in 0..selection_limit {
             let max_utility = match scores.iter().map(|score| score.utility).max() {
                 Some(n) => n,
@@ -256,6 +255,7 @@ impl State {
             // not adversely affect the result. This is important because an Indexer deployed on the
             // other side of the world should not generally bring our expected utility down below
             // the minimum requirements set forth by this equation.
+            // TODO: Ideally as there are more indexers, we increase QoS.
             let mut utility_cutoff = NotNan::<f64>::new(rng.gen()).unwrap();
             // Careful raising this value, it's really powerful. Near 0 and utility is ignored
             // (only stake matters). Near 1 utility matters at ~ x^2 (depending on the distribution
@@ -263,34 +263,25 @@ impl State {
             // strongly.
             const UTILITY_PREFERENCE: f64 = 1.1;
             utility_cutoff = max_utility * (1.0 - utility_cutoff.powf(UTILITY_PREFERENCE));
-            let mut sampler = WeightedSample::new();
+            let mut selection_sampler = WeightedSample::new();
             for (i, score) in scores
                 .iter()
                 .filter(|score| score.utility >= utility_cutoff)
                 .enumerate()
             {
-                sampler.add(i, *score.sybil);
+                selection_sampler.add(i, *score.sybil);
             }
-            match sampler.take() {
+            match selection_sampler.take() {
                 Some(i) if scores[i].utility > NotNan::zero() => {
                     selections.push(scores.swap_remove(i))
                 }
                 _ => break,
             };
 
-            cost += selections.last().unwrap().fee;
-            let thresholds = Self::utility_thresholds(&selections);
-            let adds_utility = |s: &Selection| -> bool {
-                (s.scores.economic_security.utility > thresholds.economic_security)
-                    || (s.scores.data_freshness.utility > thresholds.data_freshness)
-                    || (s.scores.performance.utility > thresholds.performance)
-                    || (s.scores.reputation.utility > thresholds.reputation)
-            };
-            scores
-                .retain(|selection| ((cost + selection.fee) <= budget) && adds_utility(selection));
+            Self::filter_indexers(&selections, &mut scores, &budget);
         }
 
-        let sample = sampler
+        let sample = scoring_sampler
             .take()
             .filter(|(address, _)| selections.iter().all(|s| &s.indexing.indexer != *address))
             .map(|(address, result)| ScoringSample(*address, result));
@@ -425,33 +416,34 @@ impl State {
         NotNan::new(sybil).map_err(|_| BadIndexerReason::NaN)
     }
 
-    fn utility_thresholds(selections: &[Selection]) -> UtilityThresholds {
-        // Set the thresholds for retaining indexers to the next round based on their ability to add
-        // utility over the selected set.
-        macro_rules! utility_threshold {
-            ($n:ident) => {
-                selections
-                    .iter()
-                    .map(|s| NotNan::new(s.scores.$n.utility).unwrap())
-                    .max()
-                    .unwrap()
-            };
-        }
-        UtilityThresholds {
-            economic_security: *utility_threshold!(economic_security),
-            data_freshness: *utility_threshold!(data_freshness),
-            performance: *utility_threshold!(performance),
-            reputation: *utility_threshold!(reputation),
-        }
-    }
-}
+    fn filter_indexers(selections: &[Selection], scores: &mut Vec<Selection>, budget: &GRT) {
+        let factor = |f: fn(&UtilityScores) -> &SelectionFactor| {
+            selections
+                .iter()
+                .map(move |s| NotNan::new(f(&s.scores).utility).unwrap())
+        };
 
-#[derive(Default)]
-struct UtilityThresholds {
-    economic_security: f64,
-    data_freshness: f64,
-    performance: f64,
-    reputation: f64,
+        let cost = selections.iter().fold(GRT::zero(), |sum, s| sum + s.fee);
+
+        // Economic security, performance, and reputation utilities always increase as more indexers
+        // are added. We avoid spending addional GRT to add indexers that don't raise any of these
+        // utilities.
+        let economic_security = *factor(|s| &s.economic_security).max().unwrap();
+        let performance = *factor(|s| &s.performance).max().unwrap();
+        let reputation = *factor(|s| &s.reputation).max().unwrap();
+        let adds_utility = |s: &Selection| -> bool {
+            (s.scores.economic_security.utility > economic_security)
+                || (s.scores.performance.utility > performance)
+                || (s.scores.reputation.utility > reputation)
+        };
+
+        // For now we use the same block height for the queries we send to each selected indexer.
+        // Otherwise we would need to
+        let freshness = *factor(|s| &s.data_freshness).min().unwrap();
+        let maintains_freshness = |s: &Selection| s.scores.data_freshness.utility >= freshness;
+
+        scores.retain(|s| ((cost + s.fee) <= *budget) && adds_utility(s) && maintains_freshness(s));
+    }
 }
 
 // https://www.desmos.com/calculator/cwgj4ne5ow

@@ -3,6 +3,15 @@ use cost_model::{CostError, CostModel};
 use prelude::*;
 use std::convert::TryFrom;
 
+// TODO: We need to rethink both of the following functions.
+// - We have been treating price as having relatively low importance to prioritize network health
+//   over cost to dApp developers. The utility curve incentivises indexers to charge fees above 50%
+//   of the query budget. With multi-selection, this prevents more than one indexer being selected,
+//   driving down QoS for the client query.
+// - The simplifying assumption that queries are proportional to utility was never true. But it's
+//   especially untrue with multi-selection, since indexers with low prices & high utilities in a
+//   single factor may be selected far more often then they were previously.
+
 pub fn indexer_fee(
     cost_model: &Option<Ptr<CostModel>>,
     context: &mut Context<'_>,
@@ -150,8 +159,6 @@ pub fn price_efficiency(fee: &GRT, weight: f64, max_budget: &GRT) -> SelectionFa
     // * It seems that assuming mostly rational Indexers and a medium sized pool,
     //   the Consumer may expect to pay ~55-75% of the maximum budget.
 
-    // Treat price as having relatively low importance to prioritize network health over cost to
-    // dApp developers.
     SelectionFactor { weight, utility }
 }
 
