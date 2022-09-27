@@ -4,11 +4,13 @@ use bip39;
 use clap::Parser;
 use hdwallet::{self, KeyChain as _};
 use indexer_selection::SecretKey;
-use ordered_float::NotNan;
 use prelude::*;
 use rdkafka::config::ClientConfig as KafkaConfig;
 use semver::Version;
-use std::{collections::HashMap, error::Error, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 // TODO: Consider the security implications of passing mnemonics, passwords, etc. via environment variables or CLI arguments.
 
@@ -38,18 +40,13 @@ pub struct Opt {
     #[clap(
         long,
         env,
-        help = "MIP weights and addresses, format: '<weight>:<address>,...'\ne.g. 0.1:0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-        default_value = "0.2:"
-    )]
-    pub mips: MIPs,
-    #[clap(
-        long,
-        env,
         help = "API keys that won't be blocked for non-payment",
         default_value = "",
         use_delimiter = true
     )]
     pub special_api_keys: Vec<String>,
+    #[clap(long, env, default_value = "")]
+    pub restricted_deployments: RestrictedDeployments,
     #[clap(long, env, parse(try_from_str), help = "Format log output as JSON")]
     pub log_json: bool,
     #[clap(long, env, default_value = "5")]
@@ -199,58 +196,50 @@ impl FromStr for SignerKey {
 pub struct EthereumProviders(pub Vec<ethereum::Provider>);
 
 impl FromStr for EthereumProviders {
-    type Err = String;
+    type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let err_usage = "networks syntax: <network>=<block-time>,<rest-url>;...";
+        let err_usage = "networks syntax: <network>=<block-time>,<rpc-url>;...";
         let providers = s.split(";").collect::<Vec<&str>>();
         if providers.is_empty() {
-            return Err(err_usage.into());
+            return Err(err_usage);
         }
         providers
             .into_iter()
-            .map(|provider| -> Result<ethereum::Provider, Box<dyn Error>> {
+            .map(|provider| -> Option<ethereum::Provider> {
                 let kv = provider.splitn(2, "=").collect::<Vec<&str>>();
-                let params = kv
-                    .get(1)
-                    .ok_or("Expected params, found none")?
-                    .split(",")
-                    .collect::<Vec<&str>>();
-                let block_time = params.get(0).unwrap_or(&"").parse::<u64>()?;
-                let rpc = params.get(1).unwrap_or(&"").parse::<URL>()?;
-                Ok(ethereum::Provider {
-                    network: kv[0].to_string(),
-                    block_time: Duration::from_secs(block_time),
-                    rpc,
+                let (block_time, rpc) = kv.get(1)?.split_once(',')?;
+                Some(ethereum::Provider {
+                    network: kv.get(0)?.to_string(),
+                    block_time: Duration::from_secs(block_time.parse::<u64>().ok()?),
+                    rpc: rpc.parse::<URL>().ok()?,
                 })
             })
-            .collect::<Result<Vec<ethereum::Provider>, Box<dyn Error>>>()
-            .map(|providers| EthereumProviders(providers))
-            .map_err(|err| format!("{}\n{}", err_usage, err).into())
+            .collect::<Option<Vec<ethereum::Provider>>>()
+            .map(EthereumProviders)
+            .ok_or(err_usage)
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MIPs(pub HashMap<Address, NotNan<f64>>);
+#[derive(Clone, Debug)]
+pub struct RestrictedDeployments(pub HashMap<SubgraphDeploymentID, HashSet<Address>>);
 
-impl FromStr for MIPs {
-    type Err = String;
+impl FromStr for RestrictedDeployments {
+    type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let fields: Vec<&str> = s.split(":").collect();
-        if fields.len() != 2 {
-            return Err(format!("Expected <weight>:<address>..., found {:?}", s));
-        }
-        let weight = fields[0]
-            .parse::<NotNan<f64>>()
-            .map_err(|_| format!("Expected <weight> (f64), found {:?}", fields[0]))?;
-        let addresses = fields[1]
-            .split(",")
-            .filter(|s| *s != "")
-            .map(|s| s.parse::<Address>().map_err(|_| s))
-            .collect::<Result<Vec<Address>, &str>>()
-            .map_err(|s| format!("Expected <address>, found {:?}", s))?;
-
-        Ok(MIPs(
-            addresses.into_iter().map(|addr| (addr, weight)).collect(),
-        ))
+        let err_usage = "restricted_deployments syntax: <deployment>=<indexer>+;...";
+        let entries = s
+            .split(";")
+            .map(|deployment| {
+                let (deployment, indexers) = deployment.split_once('=')?;
+                let deployment = deployment.parse::<SubgraphDeploymentID>().ok()?;
+                let indexers = indexers
+                    .split(',')
+                    .map(|i| i.parse::<Address>().ok())
+                    .collect::<Option<HashSet<Address>>>()?;
+                Some((deployment, indexers))
+            })
+            .collect::<Option<HashMap<SubgraphDeploymentID, HashSet<Address>>>>()
+            .ok_or(err_usage)?;
+        Ok(RestrictedDeployments(entries))
     }
 }
