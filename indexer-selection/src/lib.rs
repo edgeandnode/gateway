@@ -7,8 +7,6 @@ mod price_efficiency;
 mod reputation;
 pub mod simulation;
 pub mod test_utils;
-#[cfg(test)]
-mod tests;
 mod utility;
 
 pub use crate::indexing::{BlockStatus, IndexingStatus};
