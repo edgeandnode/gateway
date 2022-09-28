@@ -39,8 +39,9 @@ impl<const P: u8> str::FromStr for UDecimal<P> {
     type Err = ParseStrError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use ParseStrError::*;
-        let ascii_digit = |c: char| -> bool { ('0'..'9').contains(&c) };
-        if !s.chars().any(ascii_digit) {
+        // We require at least one ASCII digit. Otherwise `U256::from_dec_str` will return 0 for
+        // some inputs we consider invalid.
+        if !s.chars().any(|c: char| -> bool { ('0'..'9').contains(&c) }) {
             return Err(InvalidInput);
         }
         let (int, frac) = s.split_at(s.chars().position(|c| c == '.').unwrap_or(s.len()));
@@ -274,6 +275,8 @@ mod test {
             ("?", None),
             (".", None),
             ("1.1.1", None),
+            ("10.10?1", None),
+            ("1?0.01", None),
             ("0", Some(("0", 0))),
             ("0.0", Some(("0", 0))),
             (".0", Some(("0", 0))),
