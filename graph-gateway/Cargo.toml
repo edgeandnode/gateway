@@ -20,7 +20,6 @@ indexer-selection = { path = "../indexer-selection" }
 itertools = "0.10"
 lazy_static = "1.4"
 maxminddb = "0.23"
-ordered-float = "3.0"
 parking_lot = "0.12.0"
 prelude = { path = "../prelude" }
 primitive-types = "0.12"

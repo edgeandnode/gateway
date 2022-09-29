@@ -270,8 +270,6 @@ async fn run_simulation(
         }
     }
 
-    isa.special_indexers = Some(Arc::new(special_indexers));
-
     const COUNT: usize = 86400;
     const QPS: u64 = 2000;
     let mut total_latency_ms = 0;

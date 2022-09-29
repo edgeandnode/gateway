@@ -20,7 +20,10 @@ use rand::{thread_rng, Rng as _};
 pub use receipts;
 use receipts::BorrowFail;
 pub use secp256k1::SecretKey;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
@@ -139,7 +142,8 @@ pub struct State {
     pub network_params: NetworkParameters,
     indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
     indexings: EpochCache<Indexing, SelectionFactors, 2>,
-    pub special_indexers: Option<Arc<HashMap<Address, NotNan<f64>>>>,
+    // Restricted subgraphs only allow listed indexers, and ignore their stake.
+    pub restricted_deployments: Arc<HashMap<SubgraphDeploymentID, HashSet<Address>>>,
 }
 
 #[derive(Debug)]
@@ -204,6 +208,16 @@ impl State {
         let mut scores = Vec::new();
         let mut high_fee_count = 0;
         let mut scoring_sample = WeightedSample::new();
+
+        let mut restricted_indexers = Vec::<Address>::new();
+        let (indexers, restricted) =
+            if let Some(allowed) = self.restricted_deployments.get(deployment) {
+                restricted_indexers.extend(indexers.iter().filter(|i| allowed.contains(i)));
+                (restricted_indexers.as_ref(), true)
+            } else {
+                (indexers, false)
+            };
+
         for indexer in indexers {
             let indexing = Indexing {
                 indexer: *indexer,
@@ -216,6 +230,7 @@ impl State {
                 budget,
                 config,
                 freshness_requirements,
+                restricted,
             );
             // TODO: these logs are currently required for data science. However, we would like to omit these in production and only use the sampled scoring logs.
             match &result {
@@ -300,16 +315,21 @@ impl State {
         budget: GRT,
         config: &UtilityConfig,
         freshness_requirements: &FreshnessRequirements,
+        restricted: bool,
     ) -> Result<IndexerScore, SelectionError> {
         let mut aggregator = UtilityAggregator::new();
         let indexer = self
             .indexers
             .get_unobserved(&indexing.indexer)
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
-        let economic_security = self
+
+        let mut economic_security = self
             .network_params
             .economic_security_utility(indexer.stake, config.economic_security)
             .ok_or(SelectionError::MissingNetworkParams)?;
+        if restricted {
+            economic_security.utility = SelectionFactor::one(1.0);
+        }
         aggregator.add(economic_security.utility);
 
         let selection_factors = self
@@ -353,15 +373,7 @@ impl State {
         // delegating more and then getting more queries is kind of a self-fulfilling
         // prophesy. What balances this, is that any amount delegated is most productive
         // when delegated proportionally to each Indexer's utility for that subgraph.
-        let mut utility = aggregator.crunch();
-
-        // Some indexers require an additional weight applied to their utility. For example,
-        // backstop indexers may have a reduced utility.
-        utility *= self
-            .special_indexers
-            .as_ref()
-            .and_then(|map| map.get(&indexing.indexer).map(|w| **w))
-            .unwrap_or(1.0);
+        let utility = aggregator.crunch();
 
         Ok(IndexerScore {
             url: indexer.url.clone(),

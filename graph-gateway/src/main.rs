@@ -85,13 +85,10 @@ async fn main() {
     };
 
     let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
-    let special_indexers = if opt.mips.0.len() > 0 {
-        Some(Arc::new(opt.mips.0))
-    } else {
-        None
-    };
-    let _ = isa_writer
-        .update(|indexers| indexers.special_indexers = special_indexers.clone())
+
+    let restricted_deployments = Arc::new(opt.restricted_deployments.0);
+    isa_writer
+        .update(|indexers| indexers.restricted_deployments = restricted_deployments.clone())
         .await;
 
     // Start the actor to manage updates
