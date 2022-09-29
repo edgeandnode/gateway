@@ -210,14 +210,13 @@ impl State {
         let mut scoring_sample = WeightedSample::new();
 
         let mut restricted_indexers = Vec::<Address>::new();
-        if let Some(allowed) = self.restricted_deployments.get(deployment) {
-            restricted_indexers.extend(indexers.iter().filter(|i| allowed.contains(i)));
-        }
-        let (indexers, restricted) = if restricted_indexers.is_empty() {
-            (indexers, false)
-        } else {
-            (restricted_indexers.as_ref(), true)
-        };
+        let (indexers, restricted) =
+            if let Some(allowed) = self.restricted_deployments.get(deployment) {
+                restricted_indexers.extend(indexers.iter().filter(|i| allowed.contains(i)));
+                (restricted_indexers.as_ref(), true)
+            } else {
+                (indexers, false)
+            };
 
         for indexer in indexers {
             let indexing = Indexing {

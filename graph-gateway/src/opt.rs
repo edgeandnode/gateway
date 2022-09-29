@@ -30,7 +30,7 @@ pub struct Opt {
     #[clap(
         long,
         env,
-        help = "Ethereum provider URLs, format: '<network>=<block-time>,<rest-url>(,<ws-url>)?;...'\ne.g. rinkeby=15,https://eth-rinkeby.alchemyapi.io/v2/<api-key>"
+        help = "Ethereum provider URLs, format: '<network>=<block-time>,<rpc-url>;...'\ne.g. rinkeby=15,https://eth-rinkeby.alchemyapi.io/v2/<api-key>"
     )]
     pub ethereum_providers: EthereumProviders,
     #[clap(long, env, help = "Network subgraph URL")]
@@ -226,14 +226,14 @@ pub struct RestrictedDeployments(pub HashMap<SubgraphDeploymentID, HashSet<Addre
 impl FromStr for RestrictedDeployments {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let err_usage = "restricted_deployments syntax: <deployment>=<indexer>+;...";
+        let err_usage = "restricted_deployments syntax: <deployment>=<indexer>(,<indexer>)*;...";
         let entries = s
-            .split(";")
+            .split_terminator(";")
             .map(|deployment| {
                 let (deployment, indexers) = deployment.split_once('=')?;
                 let deployment = deployment.parse::<SubgraphDeploymentID>().ok()?;
                 let indexers = indexers
-                    .split(',')
+                    .split_terminator(',')
                     .map(|i| i.parse::<Address>().ok())
                     .collect::<Option<HashSet<Address>>>()?;
                 Some((deployment, indexers))

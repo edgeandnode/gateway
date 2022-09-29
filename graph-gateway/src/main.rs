@@ -87,7 +87,7 @@ async fn main() {
     let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
 
     let restricted_deployments = Arc::new(opt.restricted_deployments.0);
-    let _ = isa_writer
+    isa_writer
         .update(|indexers| indexers.restricted_deployments = restricted_deployments.clone())
         .await;
 
