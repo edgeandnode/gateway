@@ -23,6 +23,8 @@ for (row, label) in enumerate(labels):
     axes[row, 1].barh(d['indexer'], d['fees'])
     axes[row, 1].invert_yaxis()
 
+    axes[row, 0].set_title(label)
+
 axes[-1, 0].set_xlabel('total selections')
 axes[-1, 1].set_xlabel('total fees (GRT)')
 
