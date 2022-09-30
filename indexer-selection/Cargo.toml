@@ -8,31 +8,16 @@ name = "sim"
 path = "bin/sim.rs"
 
 [dependencies]
-chrono = "0.4"
 cost-model = { git = "ssh://git@github.com/graphprotocol/agora.git", rev = "v0.1.14" }
-futures = "0.3"
-hex = "0.4"
 itertools = "0.10"
 lazy_static = "1.4"
 num-traits = "0.2"
 ordered-float = "3.0"
 prelude = { path = "../prelude" }
-primitive-types = "0.12"
 prometheus = { version = "0.13", default-features = false }
-rand = "0.8"
 receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "89a821c" }
 secp256k1 = { version = "0.24", default-features = false }
-serde = "1.0"
-serde_json = { version = "1.0", features = ["raw_value"] }
 siphasher = "0.3"
 
 [dev-dependencies]
-core-foundation = "0.9.3"
 eventuals = { version = "0.6.7", features = ["trace"] }
-plotters = { version = "0.3", features = [
-    "bitmap_encoder",
-    "bitmap_gif",
-    "line_series",
-    "svg_backend",
-] }
-rand = { version = "0.8", features = ["small_rng"] }

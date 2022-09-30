@@ -11,20 +11,22 @@ pub mod weighted_sample;
 pub use crate::{bytes::*, decimal::*};
 pub use anyhow;
 pub use eventuals::{self, Eventual, EventualWriter, Ptr};
+pub use rand;
 pub use reqwest;
-use serde::Deserialize;
-use siphasher::sip::SipHasher24;
 pub use std::{cmp::Ordering, fmt, str::FromStr};
-use std::{
-    hash::{Hash, Hasher as _},
-    ops::Deref,
-};
 pub use tokio::{
     self,
     sync::{mpsc, oneshot},
     time::{Duration, Instant},
 };
 pub use tracing::{self, Instrument};
+
+use serde::Deserialize;
+use siphasher::sip::SipHasher24;
+use std::{
+    hash::{Hash, Hasher as _},
+    ops::Deref,
+};
 use tracing_subscriber::{self, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub fn init_tracing(json: bool) {
