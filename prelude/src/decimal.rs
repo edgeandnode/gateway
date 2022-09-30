@@ -161,6 +161,12 @@ impl<const P: u8> ops::SubAssign for UDecimal<P> {
     }
 }
 
+impl<const P: u8> iter::Sum for UDecimal<P> {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Self::zero(), |sum, x| sum + x)
+    }
+}
+
 #[allow(dead_code)]
 impl<const P: u8> UDecimal<P> {
     pub fn zero() -> Self {

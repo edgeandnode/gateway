@@ -1,84 +1,101 @@
 pub mod actor;
 pub mod decay;
 mod economic_security;
+mod indexing;
 mod performance;
 mod price_efficiency;
-mod reputation;
-mod selection_factors;
+mod reliability;
+mod score;
 pub mod simulation;
 pub mod test_utils;
 mod utility;
 
-use crate::economic_security::*;
-pub use crate::selection_factors::{BlockStatus, IndexingStatus, SelectionFactors};
+pub use crate::{
+    economic_security::NetworkParameters,
+    indexing::{BlockStatus, IndexingState, IndexingStatus},
+    utility::ConcaveUtilityParameters,
+};
 pub use cost_model::{self, CostModel};
-use num_traits::identities::Zero as _;
 pub use ordered_float::NotNan;
-use prelude::{epoch_cache::EpochCache, weighted_sample::WeightedSample, *};
-use rand::{thread_rng, Rng as _};
 pub use receipts;
-use receipts::BorrowFail;
 pub use secp256k1::SecretKey;
+
+use crate::{
+    price_efficiency::indexer_fee,
+    receipts::BorrowFail,
+    score::{select_indexers, SelectionFactors},
+};
+use prelude::{epoch_cache::EpochCache, *};
+use rand::{prelude::SmallRng, SeedableRng as _};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
-use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
 
 #[derive(Clone, Debug)]
 pub struct Selection {
     pub indexing: Indexing,
-    pub score: IndexerScore,
+    pub url: URL,
+    pub price: GRT,
+    pub blocks_behind: u64,
 }
 
-pub struct ScoringSample(pub Address, pub Result<IndexerScore, SelectionError>);
-
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SelectionError {
+    BadInput(InputError),
+    BadIndexer(IndexerError),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InputError {
     MalformedQuery,
     MissingNetworkParams,
-    BadIndexer(BadIndexerReason),
-    NoAllocation(Indexing),
-    FeesTooHigh(usize),
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum BadIndexerReason {
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub enum IndexerError {
+    NoStatus,
+    NoAllocation,
     BehindMinimumBlock,
-    MissingIndexingStatus,
     QueryNotCosted,
     FeeTooHigh,
+    Excluded,
     NaN,
 }
 
-impl From<BadIndexerReason> for SelectionError {
-    fn from(err: BadIndexerReason) -> Self {
+impl From<InputError> for SelectionError {
+    fn from(err: InputError) -> Self {
+        Self::BadInput(err)
+    }
+}
+
+impl From<IndexerError> for SelectionError {
+    fn from(err: IndexerError) -> Self {
         Self::BadIndexer(err)
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum IndexerError {
-    NoAttestation,
-    MissingAllocation,
-    UnattestableError,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndexerErrorObservation {
     Timeout,
-    UnexpectedPayload,
-    UnresolvedBlock,
-    Other(String),
+    IndexingBehind {
+        latest_query_block: u64,
+        latest_block: u64,
+    },
+    Other,
 }
 
 impl From<BorrowFail> for IndexerError {
     fn from(from: BorrowFail) -> Self {
         match from {
-            BorrowFail::NoAllocation => Self::MissingAllocation,
+            BorrowFail::NoAllocation => Self::NoAllocation,
         }
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum UnresolvedBlock {
     WithHash(Bytes32),
     WithNumber(u64),
@@ -99,14 +116,6 @@ pub struct Indexing {
     pub deployment: SubgraphDeploymentID,
 }
 
-#[derive(Clone, Debug)]
-pub struct UtilityConfig {
-    pub economic_security: UtilityParameters,
-    pub performance: UtilityParameters,
-    pub data_freshness: UtilityParameters,
-    pub price_efficiency: f64,
-}
-
 #[derive(Default, Debug, Eq, PartialEq)]
 pub struct FreshnessRequirements {
     /// If specified, the subgraph must have indexed up to at least this number.
@@ -116,31 +125,67 @@ pub struct FreshnessRequirements {
     pub has_latest: bool,
 }
 
-#[derive(Clone, Debug)]
-pub struct IndexerScore {
-    pub url: URL,
-    pub fee: GRT,
-    pub slashable: USD,
-    pub utility: NotNan<f64>,
-    pub utility_scores: UtilityScores,
-    pub sybil: NotNan<f64>,
-    pub blocks_behind: u64,
+pub struct IndexerErrors<'a>(pub BTreeMap<IndexerError, BTreeSet<&'a Address>>);
+
+impl<'a> IndexerErrors<'a> {
+    fn add(&mut self, err: IndexerError, indexer: &'a Address) {
+        self.0.entry(err).or_default().insert(indexer);
+    }
 }
 
-#[derive(Clone, Debug)]
-pub struct UtilityScores {
-    pub economic_security: f64,
-    pub price_efficiency: f64,
-    pub data_freshness: f64,
-    pub performance: f64,
-    pub reputation: f64,
+#[derive(Debug)]
+pub struct UtilityParameters {
+    pub budget: GRT,
+    pub freshness_requirements: FreshnessRequirements,
+    pub performance: ConcaveUtilityParameters,
+    pub data_freshness: ConcaveUtilityParameters,
+    pub economic_security: ConcaveUtilityParameters,
+    pub price_efficiency_weight: f64,
+}
+
+impl UtilityParameters {
+    pub fn new(
+        budget: GRT,
+        freshness_requirements: FreshnessRequirements,
+        performance: f64,
+        data_freshness: f64,
+        economic_security: f64,
+        price_efficiency: f64,
+    ) -> Self {
+        fn interp(lo: f64, hi: f64, preference: f64) -> f64 {
+            if !(0.0..=1.0).contains(&preference) {
+                return lo;
+            }
+            lo + ((hi - lo) * preference)
+        }
+        Self {
+            budget,
+            freshness_requirements,
+            // https://www.desmos.com/calculator/hegcczzalf
+            performance: ConcaveUtilityParameters {
+                a: interp(1.1, 1.2, performance),
+                weight: interp(1.0, 1.5, performance),
+            },
+            // https://www.desmos.com/calculator/kwgsyriihk
+            data_freshness: ConcaveUtilityParameters {
+                a: interp(5.0, 3.0, data_freshness),
+                weight: interp(3.0, 4.5, data_freshness),
+            },
+            // https://www.desmos.com/calculator/g7t53e70lf
+            economic_security: ConcaveUtilityParameters {
+                a: interp(8e-4, 4e-4, economic_security),
+                weight: interp(1.0, 1.5, economic_security),
+            },
+            price_efficiency_weight: interp(0.5, 1.0, price_efficiency),
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct State {
     pub network_params: NetworkParameters,
     indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
-    indexings: EpochCache<Indexing, SelectionFactors, 2>,
+    indexings: EpochCache<Indexing, IndexingState, 2>,
     // Restricted subgraphs only allow listed indexers, and ignore their stake.
     pub restricted_deployments: Arc<HashMap<SubgraphDeploymentID, HashSet<Address>>>,
 }
@@ -153,38 +198,26 @@ pub struct IndexerInfo {
 
 impl State {
     pub fn insert_indexing(&mut self, indexing: Indexing, status: IndexingStatus) {
-        let selection_factors = self
+        let state = self
             .indexings
-            .get_or_insert(indexing, |_| SelectionFactors::default());
-        selection_factors.set_status(status);
+            .get_or_insert(indexing, |_| IndexingState::default());
+        state.set_status(status);
     }
 
-    pub fn observe_successful_query(&mut self, indexing: &Indexing, duration: Duration) {
-        if let Some(selection_factors) = self.indexings.get_mut(indexing) {
-            selection_factors.observe_successful_query(duration);
-        }
-    }
-
-    pub fn observe_failed_query(&mut self, indexing: &Indexing, duration: Duration, timeout: bool) {
-        if let Some(selection_factors) = self.indexings.get_mut(indexing) {
-            selection_factors.observe_failed_query(duration, timeout);
-        };
-    }
-
-    pub fn observe_indexing_behind(
+    pub fn observe_query(
         &mut self,
         indexing: &Indexing,
-        latest_query_block: u64,
-        latest_block: u64,
+        duration: Duration,
+        result: Result<(), IndexerErrorObservation>,
     ) {
-        if let Some(selection_factors) = self.indexings.get_mut(indexing) {
-            selection_factors.observe_indexing_behind(latest_query_block, latest_block);
+        if let Some(state) = self.indexings.get_mut(indexing) {
+            state.observe_query(duration, result);
         }
     }
 
     pub fn penalize(&mut self, indexing: &Indexing, weight: u8) {
-        if let Some(selection_factors) = self.indexings.get_mut(indexing) {
-            selection_factors.penalize(weight);
+        if let Some(state) = self.indexings.get_mut(indexing) {
+            state.penalize(weight);
         }
     }
 
@@ -192,323 +225,110 @@ impl State {
         self.indexings.apply(|sf| sf.decay());
     }
 
-    /// Select random indexer, weighted by utility. Indexers with incomplete data or that do not
-    /// meet the minimum requirements will be excluded.
-    pub fn select_indexers(
-        &self,
-        config: &UtilityConfig,
+    pub fn select_indexers<'s, 'a>(
+        &'s self,
         deployment: &SubgraphDeploymentID,
+        indexers: &'a [Address],
+        params: &UtilityParameters,
         context: &mut Context<'_>,
-        latest_block: u64,
-        indexers: &[Address],
-        budget: GRT,
-        freshness_requirements: &FreshnessRequirements,
-    ) -> Result<(Vec<Selection>, Option<ScoringSample>), SelectionError> {
-        let mut scores = Vec::new();
-        let mut high_fee_count = 0;
-        let mut scoring_sample = WeightedSample::new();
-
-        let mut restricted_indexers = Vec::<Address>::new();
-        let (indexers, restricted) =
-            if let Some(allowed) = self.restricted_deployments.get(deployment) {
-                restricted_indexers.extend(indexers.iter().filter(|i| allowed.contains(i)));
-                (restricted_indexers.as_ref(), true)
-            } else {
-                (indexers, false)
-            };
-
+        selection_limit: u8,
+    ) -> Result<(Vec<Selection>, IndexerErrors<'a>), InputError> {
+        let mut errors = IndexerErrors(BTreeMap::new());
+        let mut available = Vec::<SelectionFactors<'s>>::new();
         for indexer in indexers {
+            if let Some(allowed) = self.restricted_deployments.get(deployment) {
+                if !allowed.contains(indexer) {
+                    errors.add(IndexerError::Excluded, indexer);
+                    continue;
+                }
+            }
             let indexing = Indexing {
                 indexer: *indexer,
                 deployment: *deployment,
             };
-            let result = self.score_indexer(
-                &indexing,
-                context,
-                latest_block,
-                budget,
-                config,
-                freshness_requirements,
-                restricted,
-            );
-            // TODO: these logs are currently required for data science. However, we would like to omit these in production and only use the sampled scoring logs.
-            match &result {
-                Ok(score) => tracing::info!(
-                    ?indexing.deployment,
-                    ?indexing.indexer,
-                    ?score.fee,
-                    ?score.slashable,
-                    %score.utility,
-                    %score.sybil,
-                    ?score.blocks_behind,
-                ),
-                Err(err) => tracing::info!(
-                    ?indexing.deployment,
-                    ?indexing.indexer,
-                    score_err = ?err,
-                ),
+            match self.selection_factors(indexing, params, context, selection_limit) {
+                Ok(factors) => available.push(factors),
+                Err(SelectionError::BadIndexer(err)) => errors.add(err, indexer),
+                Err(SelectionError::BadInput(err)) => return Err(err),
             };
-            scoring_sample.add((indexing.indexer, result.clone()), 1.0);
-            match &result {
-                Err(err) => match err {
-                    &SelectionError::MissingNetworkParams => return Err(err.clone()),
-                    &SelectionError::BadIndexer(BadIndexerReason::FeeTooHigh) => {
-                        high_fee_count += 1;
-                    }
-                    _ => (),
-                },
-                _ => (),
-            };
-            let score = match result {
-                Ok(score) if score.utility > NotNan::zero() => score,
-                _ => continue,
-            };
-            scores.push((indexing, score));
         }
-        let max_utility = match scores.iter().map(|(_, score)| score.utility).max() {
-            Some(n) => n,
-            _ if high_fee_count > 0 => return Err(SelectionError::FeesTooHigh(high_fee_count)),
-            _ => return Ok((vec![], None)),
-        };
-        // Having a random utility cutoff that is weighted toward 1 normalized
-        // to the highest score makes it so that we define our selection based
-        // on an expected utility distribution, so that even if there are many
-        // bad indexers with lots of stake it may not adversely affect the
-        // result. This is important because an Indexer deployed on the other
-        // side of the world should not generally bring our expected utility
-        // down below the minimum requirements set forth by this equation.
-        let mut utility_cutoff = NotNan::<f64>::new(thread_rng().gen()).unwrap();
-        // Careful raising this value, it's really powerful. Near 0 and utility
-        // is ignored (only stake matters). Near 1 utility matters at ~ x^2
-        // (depending on the distribution of stake). Above that and things are
-        // getting crazy and we're exploiting the utility strongly.
-        const UTILITY_PREFERENCE: f64 = 1.1;
-        utility_cutoff = max_utility * (1.0 - utility_cutoff.powf(UTILITY_PREFERENCE));
-        let mut selected = WeightedSample::new();
-        let scores = scores
-            .into_iter()
-            .filter(|(_, score)| score.utility >= utility_cutoff);
-        for (indexing, score) in scores {
-            let sybil = score.sybil.into();
-            selected.add((indexing, score), sybil);
-        }
-        let (indexing, score) = match selected.take() {
-            Some(selection) => selection,
-            None => return Ok((vec![], None)),
-        };
-        // Technically the "algorithm" part ends here, but eventually we want to
-        // be able to go back with data already collected if a later step fails.
 
-        let sample = scoring_sample
-            .take()
-            .filter(|(address, _)| address != &indexing.indexer)
-            .map(|(address, result)| ScoringSample(address, result));
-        Ok((vec![Selection { indexing, score }], sample))
+        let mut rng = SmallRng::from_entropy();
+        let mut selections = select_indexers(&mut rng, params, &available);
+        selections.truncate(selection_limit as usize);
+        Ok((selections, errors))
     }
 
-    fn score_indexer(
-        &self,
-        indexing: &Indexing,
+    fn selection_factors<'s>(
+        &'s self,
+        indexing: Indexing,
+        params: &UtilityParameters,
         context: &mut Context<'_>,
-        latest_block: u64,
-        budget: GRT,
-        config: &UtilityConfig,
-        freshness_requirements: &FreshnessRequirements,
-        restricted: bool,
-    ) -> Result<IndexerScore, SelectionError> {
-        let mut aggregator = UtilityAggregator::new();
-        let indexer = self
+        selection_limit: u8,
+    ) -> Result<SelectionFactors<'s>, SelectionError> {
+        let info = self
             .indexers
             .get_unobserved(&indexing.indexer)
-            .ok_or(BadIndexerReason::MissingIndexingStatus)?;
-
-        let mut economic_security = self
-            .network_params
-            .economic_security_utility(indexer.stake, config.economic_security)
-            .ok_or(SelectionError::MissingNetworkParams)?;
-        if restricted {
-            economic_security.utility = SelectionFactor::one(1.0);
-        }
-        aggregator.add(economic_security.utility);
-
-        let selection_factors = self
+            .ok_or(IndexerError::NoStatus)?;
+        let state = self
             .indexings
             .get_unobserved(&indexing)
-            .ok_or(BadIndexerReason::MissingIndexingStatus)?;
-
-        let blocks_behind = selection_factors.blocks_behind()?;
-
-        let (fee, price_efficiency) =
-            selection_factors.get_price(context, config.price_efficiency, &budget)?;
-        aggregator.add(price_efficiency);
-
-        let indexer_allocation = selection_factors.total_allocation();
-        if indexer_allocation == GRT::zero() {
-            return Err(SelectionError::NoAllocation(indexing.clone()));
-        }
-
-        let performance = selection_factors.expected_performance_utility(config.performance);
-        aggregator.add(performance);
-
-        let reputation = selection_factors.expected_reputation_utility(UtilityParameters {
-            a: 3.0,
-            weight: 1.0,
-        });
-        aggregator.add(reputation);
-
-        let data_freshness = selection_factors.expected_freshness_utility(
-            freshness_requirements,
-            config.data_freshness,
-            latest_block,
+            .ok_or(IndexerError::NoStatus)?;
+        let status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
+        let slashable_stake = self
+            .network_params
+            .slashable_usd(info.stake)
+            .ok_or(InputError::MissingNetworkParams)?;
+        let price = indexer_fee(
+            &state.status.cost_model,
+            context,
+            params.price_efficiency_weight,
+            &params.budget,
+            selection_limit,
         )?;
-        aggregator.add(data_freshness);
-
-        // It's not immediately obvious why this mult works. We want to consider the amount
-        // staked over the total amount staked of all Indexers in the running. But, we don't
-        // know the total stake. If we did, it would be dividing all of these by that
-        // constant. Dividing all weights by a constant has no effect on the selection
-        // algorithm. Interestingly, delegating to an indexer just about guarantees that the
-        // indexer will receive more queries if they met the minimum criteria above. So,
-        // delegating more and then getting more queries is kind of a self-fulfilling
-        // prophesy. What balances this, is that any amount delegated is most productive
-        // when delegated proportionally to each Indexer's utility for that subgraph.
-        let utility = aggregator.crunch();
-
-        Ok(IndexerScore {
-            url: indexer.url.clone(),
-            fee,
-            slashable: economic_security.slashable_usd,
-            utility: NotNan::new(utility).map_err(|_| BadIndexerReason::NaN)?,
-            utility_scores: UtilityScores {
-                economic_security: economic_security.utility.utility,
-                price_efficiency: price_efficiency.utility,
-                data_freshness: data_freshness.utility,
-                performance: performance.utility,
-                reputation: reputation.utility,
-            },
-            sybil: Self::sybil(indexer_allocation)?,
-            blocks_behind,
+        Ok(SelectionFactors {
+            indexing,
+            url: info.url.clone(),
+            reliability: &state.reliability,
+            perf_success: &state.perf_success,
+            perf_failure: &state.perf_failure,
+            blocks_behind: status.blocks_behind,
+            slashable_stake,
+            price,
+            last_use: state.last_use,
+            sybil: sybil(&state.total_allocation())?,
         })
     }
-
-    /// Sybil protection
-    fn sybil(indexer_allocation: GRT) -> Result<NotNan<f64>, BadIndexerReason> {
-        let identity = indexer_allocation.as_f64();
-
-        // There is a GIP out there which would allow for allocations with 0 GRT stake.
-        // For example, MIPS. We don't want for those to never be selected. Furthermore,
-        // we can account for the cost of an allocation which would contribute to sybil.
-        const BONUS: f64 = 1000.0;
-
-        // Don't flatten so quickly, since numbers are large
-        const SLOPE: f64 = 100.0;
-
-        // To optimize for sybil protection, we want to just mult the utility by the identity
-        // weight. But this may run into some economic problems. Consider the following scenario:
-        //
-        // Two indexers: A, and B have utilities of 45% and 55%, respectively. They are equally
-        // delegated at 50% of the total delegation pool, each. Because their delegation is
-        // equal, they receive query fees proportional to their utility. A delegator notices that
-        // part of their delegation would be more efficiently allocated if they move it to the
-        // indexer with higher utility so that delegation reflects query volume. So, now they have
-        // utilities of 45% and 55%, and delegation of 45% and 55%. Because these are multiplied,
-        // the new selection is 40% and 60%. But, the delegations are 45% and 55%. So… a delegator
-        // notices that their delegation is inefficiently allocated and move their delegation to the
-        // more selected indexer. Now, delegation is 40% 60%, but utility stayed at 45% and 55%… and
-        // the new selections are 35% and 65%… and so the cycle continues. The gap continues to
-        // widen until all delegation is moved to the marginally better Indexer. This is the kind of
-        // winner-take-all scenario we are trying to avoid. In the absence of cold hard math and
-        // reasoning, going to try using log magics.
-        let sybil = (((identity + BONUS) / SLOPE) + 1.0).log(std::f64::consts::E);
-        NotNan::new(sybil).map_err(|_| BadIndexerReason::NaN)
-    }
 }
 
-// https://www.desmos.com/calculator/cwgj4ne5ow
-const UTILITY_CONFIGS_ECONOMIC_SECURITY: (UtilityParameters, UtilityParameters) = (
-    UtilityParameters {
-        a: 0.0008,
-        weight: 1.0,
-    },
-    UtilityParameters {
-        a: 0.0004,
-        weight: 1.5,
-    },
-);
-// https://www.desmos.com/calculator/w6pxajuuve
-const UTILITY_CONFIGS_PERFORMANCE: (UtilityParameters, UtilityParameters) = (
-    UtilityParameters {
-        a: 1.1,
-        weight: 1.0,
-    },
-    UtilityParameters {
-        a: 1.2,
-        weight: 1.5,
-    },
-);
-// https://www.desmos.com/calculator/uvt9txau4n
-const UTILITY_CONFIGS_DATA_FRESHNESS: (UtilityParameters, UtilityParameters) = (
-    UtilityParameters {
-        a: 5.0,
-        weight: 3.0,
-    },
-    UtilityParameters {
-        a: 3.0,
-        weight: 4.0,
-    },
-);
-// Don't over or under value "getting a good deal"
-// Note: This is only a weight.
-const UTILITY_CONFIGS_PRICE_EFFICIENCY: (f64, f64) = (0.5, 1.0);
+/// Sybil protection
+fn sybil(indexer_allocation: &GRT) -> Result<NotNan<f64>, IndexerError> {
+    let identity = indexer_allocation.as_f64();
 
-impl UtilityConfig {
-    pub fn from_preferences(preferences: &IndexerPreferences) -> Self {
-        fn interp(a: f64, b: f64, x: f64) -> f64 {
-            a + ((b - a) * x)
-        }
-        fn interp_utility(
-            bounds: (UtilityParameters, UtilityParameters),
-            x: f64,
-        ) -> UtilityParameters {
-            UtilityParameters {
-                a: interp(bounds.0.a, bounds.1.a, x),
-                weight: interp(bounds.0.weight, bounds.1.weight, x),
-            }
-        }
-        Self {
-            economic_security: interp_utility(
-                UTILITY_CONFIGS_ECONOMIC_SECURITY,
-                preferences.economic_security,
-            ),
-            performance: interp_utility(UTILITY_CONFIGS_PERFORMANCE, preferences.performance),
-            data_freshness: interp_utility(
-                UTILITY_CONFIGS_DATA_FRESHNESS,
-                preferences.data_freshness,
-            ),
-            price_efficiency: interp(
-                UTILITY_CONFIGS_PRICE_EFFICIENCY.0,
-                UTILITY_CONFIGS_PRICE_EFFICIENCY.1,
-                preferences.price_efficiency,
-            ),
-        }
-    }
-}
+    // There is a GIP out there which would allow for allocations with 0 GRT stake.
+    // For example, MIPS. We don't want for those to never be selected. Furthermore,
+    // we can account for the cost of an allocation which would contribute to sybil.
+    const BONUS: f64 = 1000.0;
 
-impl Default for UtilityConfig {
-    fn default() -> Self {
-        Self {
-            economic_security: UTILITY_CONFIGS_ECONOMIC_SECURITY.0,
-            performance: UTILITY_CONFIGS_PERFORMANCE.0,
-            data_freshness: UTILITY_CONFIGS_DATA_FRESHNESS.0,
-            price_efficiency: UTILITY_CONFIGS_PRICE_EFFICIENCY.0,
-        }
-    }
-}
+    // Don't flatten so quickly, since numbers are large
+    const SLOPE: f64 = 100.0;
 
-#[derive(Clone, Debug, Default)]
-pub struct IndexerPreferences {
-    pub economic_security: f64,
-    pub performance: f64,
-    pub data_freshness: f64,
-    pub price_efficiency: f64,
+    // To optimize for sybil protection, we want to just mult the utility by the identity
+    // weight. But this may run into some economic problems. Consider the following scenario:
+    //
+    // Two indexers: A, and B have utilities of 45% and 55%, respectively. They are equally
+    // delegated at 50% of the total delegation pool, each. Because their delegation is
+    // equal, they receive query fees proportional to their utility. A delegator notices that
+    // part of their delegation would be more efficiently allocated if they move it to the
+    // indexer with higher utility so that delegation reflects query volume. So, now they have
+    // utilities of 45% and 55%, and delegation of 45% and 55%. Because these are multiplied,
+    // the new selection is 40% and 60%. But, the delegations are 45% and 55%. So… a delegator
+    // notices that their delegation is inefficiently allocated and move their delegation to the
+    // more selected indexer. Now, delegation is 40% 60%, but utility stayed at 45% and 55%… and
+    // the new selections are 35% and 65%… and so the cycle continues. The gap continues to
+    // widen until all delegation is moved to the marginally better Indexer. This is the kind of
+    // winner-take-all scenario we are trying to avoid. In the absence of cold hard math and
+    // reasoning, going to try using log magics.
+    let sybil = (((identity + BONUS) / SLOPE) + 1.0).log(std::f64::consts::E);
+    NotNan::new(sybil).map_err(|_| IndexerError::NaN)
 }

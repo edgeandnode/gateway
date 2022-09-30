@@ -3,9 +3,12 @@ use crate::{
     *,
 };
 use anyhow::Result;
-use prelude::{test_utils::bytes_from_id, *};
 use rand::{prelude::SmallRng, SeedableRng as _};
 use rand_distr::Normal;
+use prelude::{
+    test_utils::{bytes_from_id, init_test_tracing},
+    *,
+};
 use std::sync::Arc;
 
 pub struct IndexerCharacteristics {
@@ -31,14 +34,17 @@ pub struct Results {
 
 pub async fn simulate(
     characteristics: &[IndexerCharacteristics],
-    config: &UtilityConfig,
+    params: &UtilityParameters,
     queries_per_second: u64,
-    budget: GRT,
-    _selection_limit: u8,
+    selection_limit: u8,
 ) -> Result<Results> {
+    init_test_tracing();
+
     let deployment = SubgraphDeploymentID(bytes_from_id(1));
-    let mut results = Results::default();
-    results.client_queries = 10_000;
+    let mut results = simulation::Results {
+        client_queries: 1000,
+        ..Default::default()
+    };
 
     let mut isa = State::default();
     isa.network_params.slashing_percentage = "0.1".parse().ok();
@@ -99,22 +105,14 @@ pub async fn simulate(
         }
 
         let mut context = Context::new("{ a }", "").unwrap();
-        let freshness_requirements = FreshnessRequirements {
-            minimum_block: None,
-            has_latest: true,
-        };
-        let latest_block = blocks.last().unwrap().number;
         let t0 = Instant::now();
         let (mut selections, _) = isa
             .select_indexers(
-                config,
                 &deployment,
-                &mut context,
-                latest_block,
                 &indexers,
-                budget,
-                &freshness_requirements,
-                // selection_limit,
+                params,
+                &mut context,
+                selection_limit,
             )
             .unwrap();
         results.avg_selection_seconds += Instant::now().duration_since(t0).as_secs_f64();
@@ -143,11 +141,11 @@ pub async fn simulate(
                 deployment,
             };
             let duration = Duration::from_millis(characteristics.latency_ms);
-            if ok {
-                isa.observe_successful_query(&indexing, duration);
-            } else {
-                isa.observe_failed_query(&indexing, duration, false);
-            }
+            let result = match ok {
+                true => Ok(()),
+                false => Err(IndexerErrorObservation::Other),
+            };
+            isa.observe_query(&indexing, duration, result);
         }
     }
 

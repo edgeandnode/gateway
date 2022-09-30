@@ -1,14 +1,24 @@
-use crate::{utility::SelectionFactor, BadIndexerReason, Context, SelectionError};
+use crate::{utility::UtilityFactor, Context, IndexerError, InputError, SelectionError};
 use cost_model::{CostError, CostModel};
 use prelude::*;
 use std::convert::TryFrom;
 
-pub fn get_price(
+// TODO: We need to rethink both of the following functions.
+// - We have been treating price as having relatively low importance to prioritize network health
+//   over cost to dApp developers. The utility curve incentivises indexers to charge fees above 50%
+//   of the query budget. With multi-selection, this prevents more than one indexer being selected,
+//   driving down QoS for the client query.
+// - The simplifying assumption that queries are proportional to utility was never true. But it's
+//   especially untrue with multi-selection, since indexers with low prices & high utilities in a
+//   single factor may be selected far more often then they were previously.
+
+pub fn indexer_fee(
     cost_model: &Option<Ptr<CostModel>>,
     context: &mut Context<'_>,
     weight: f64,
-    max_budget: &GRT,
-) -> Result<(USD, SelectionFactor), SelectionError> {
+    budget: &GRT,
+    max_indexers: u8,
+) -> Result<GRT, SelectionError> {
     let mut fee = match cost_model
         .as_ref()
         .map(|model| model.cost_with_context(context))
@@ -16,10 +26,10 @@ pub fn get_price(
         None => GRT::zero(),
         Some(Ok(fee)) => fee.to_string().parse::<GRTWei>().unwrap().shift(),
         Some(Err(CostError::CostModelFail | CostError::QueryNotCosted)) => {
-            return Err(BadIndexerReason::QueryNotCosted)?;
+            return Err(IndexerError::QueryNotCosted.into());
         }
         Some(Err(CostError::QueryNotSupported | CostError::QueryInvalid)) => {
-            return Err(SelectionError::MalformedQuery);
+            return Err(InputError::MalformedQuery.into());
         }
         Some(Err(CostError::FailedToParseQuery | CostError::FailedToParseVariables)) => {
             unreachable!("Model did not parse, but failed in doing so.")
@@ -27,20 +37,19 @@ pub fn get_price(
     };
 
     // Anything overpriced is refused.
-    if fee > *max_budget {
-        return Err(BadIndexerReason::FeeTooHigh.into());
+    if fee > *budget {
+        return Err(IndexerError::FeeTooHigh.into());
     }
 
-    // Set the minimum fee to a value which is lower than the
-    // revenue maximizing price. This is sort of a hack because
-    // indexers can't be bothered to optimize their cost models.
-    // We avoid query fees going too low, but also make it so that
-    // indexers can maximize their revenue by raising their prices
-    // to reward those who are putting more effort in than "default => 0.0000001;"
+    // Set the minimum fee to a value which is lower than the revenue maximizing price. This is sort
+    // of a hack because indexers can't be bothered to optimize their cost models. We avoid query
+    // fees going too low, but also make it so that indexers can maximize their revenue by raising
+    // their prices to reward those who are putting more effort in than "default => 0.0000001;"
     //
     // This is somewhat hard, so we'll make some assumptions:
-    // First assumption: queries are proportional to utility. This is wrong,
-    // but it would simplify our revenue function to queries * utility
+    // First assumption: queries are proportional to utility. This is wrong, but it would simplify
+    // our revenue function to queries * utility.
+    //
     // Given:
     //   s = (-1.0 + 5.0f64.sqrt()) / 2.0
     //   x = queries
@@ -49,19 +58,19 @@ pub fn get_price(
     //   u = utility = ((1.0 / (p + s)) - s) ^ w
     // Then the derivative of x * u is:
     //   ((1 / (p + s) - s)^w - (w*p / (((p + s)^2) * ((1/(p+s)) - s)^(1.0-w))
-    // And, given a w, we want to solve for p such that the derivative is 0.
-    // This gives us the lower bound for the revenue maximizing price.
+    //
+    // And, given a w, we want to solve for p such that the derivative is 0. This gives us the lower
+    // bound for the revenue maximizing price.
     //
     // Solving gives us the following:
     // https://www.desmos.com/calculator/of533qsdla
     //
-    // I think this approximation is of a lower bound is reasonable
-    // (better not to overestimate and hurt the indexer's revenue)
-    // Solving for the correct revenue-maximizing value is complex and recursive (since the revenue
-    // maximizing price depends on the utility of all other indexers which itself depends
-    // on their revenue maximizing price... ad infinitum)
+    // I think this approximation is of a lower bound is reasonable (better not to overestimate and
+    // hurt the indexer's revenue). Solving for the correct revenue-maximizing value is complex and
+    // recursive (since the revenue maximizing price depends on the utility of all other indexers
+    // which itself depends on their revenue maximizing price... ad infinitum).
     //
-    // Solve the equation (1/(x+n))-n for n to intersect axis at desired places
+    // Solve the equation (1/(x+n))-n for s to intersect axis at desired places
     let s = (-1.0 + 5.0f64.sqrt()) / 2.0;
     let w = weight;
     let min_rate = ((4.0 * s.powi(2) * w + w.powi(2) - 2.0 * w + 1.0).sqrt() - 2.0 * s.powi(2) - w
@@ -69,15 +78,17 @@ pub fn get_price(
         / (2.0 * s);
 
     let min_rate = GRT::try_from(min_rate).unwrap();
-    let min_optimal_fee = *max_budget * min_rate;
+    let min_optimal_fee = (*budget / GRT::try_from(max_indexers).unwrap()) * min_rate;
     // If their fee is less than the min optimal, lerp between them so that
     // indexers are rewarded for being closer.
     if fee < min_optimal_fee {
         fee = (min_optimal_fee + fee) * GRT::try_from(0.75).unwrap();
     }
 
-    //
+    Ok(fee)
+}
 
+pub fn price_efficiency(fee: &GRT, weight: f64, budget: &GRT) -> UtilityFactor {
     // I went over a bunch of options and am not happy with any of them.
     // Also this is hard to summarize but I'll take a shot.
     // It may help before explaining what this code does to understand
@@ -94,7 +105,7 @@ pub fn get_price(
     // Another consideration is what shape we want the curve to be. At first
     // I thought a straight line would make sense - this would express that
     // the utility of money is linear (eg: 2x money is 2x the utility) and
-    // we are measuring the amount saved. (eg: if you pay 25% of max_budget
+    // we are measuring the amount saved. (eg: if you pay 25% of budget
     // you would retain 75% money and if you pay no price you would retain 100% money and
     // the value of the money is linear. This works out.
     // But..
@@ -116,9 +127,11 @@ pub fn get_price(
     // to have it be separate like this.
 
     let one_wei: GRT = GRTWei::try_from(1u64).unwrap().shift();
-    let scaled_fee = fee / max_budget.saturating_add(one_wei);
+    let scaled_fee = *fee / budget.saturating_add(one_wei);
+    let s = (-1.0 + 5.0f64.sqrt()) / 2.0;
     let mut utility = (1.0 / (scaled_fee.as_f64() + s)) - s;
-    // Set minimum utility, since small negative utility can result from loss of precision when the fee approaches the budget.
+    // Set minimum utility, since small negative utility can result from loss of precision when the
+    // fee approaches the budget.
     utility = utility.max(1e-18);
 
     // Did some math too see what the optimal price (as a proportion of budget) should
@@ -146,10 +159,7 @@ pub fn get_price(
     // * It seems that assuming mostly rational Indexers and a medium sized pool,
     //   the Consumer may expect to pay ~55-75% of the maximum budget.
 
-    // Treat price as having relatively low importance to
-    // prioritize network health over cost to dApp developers.
-    let savings_utility = SelectionFactor { weight, utility };
-    Ok((fee, savings_utility))
+    UtilityFactor { weight, utility }
 }
 
 #[cfg(test)]
@@ -159,20 +169,17 @@ mod test {
     use prelude::test_utils::BASIC_QUERY;
 
     #[tokio::test]
-    async fn price_efficiency() {
+    async fn test() {
         let cost_model = Some(Ptr::new(default_cost_model("0.01".parse().unwrap())));
         eventuals::idle().await;
         let mut context = Context::new(BASIC_QUERY, "").unwrap();
         // Expected values based on https://www.desmos.com/calculator/kxd4kpjxi5
         let tests = [(0.01, 0.0), (0.02, 0.27304), (0.1, 0.50615), (1.0, 0.55769)];
+        let weight = 0.5;
         for (budget, expected_utility) in tests {
-            let (fee, utility) = get_price(
-                &cost_model,
-                &mut context,
-                0.5,
-                &budget.to_string().parse::<GRT>().unwrap(),
-            )
-            .unwrap();
+            let budget = budget.to_string().parse::<GRT>().unwrap();
+            let fee = indexer_fee(&cost_model, &mut context, weight, &budget, 1).unwrap();
+            let utility = price_efficiency(&fee, weight, &budget);
             let utility = utility.utility.powf(utility.weight);
             println!("fee: {}, {:?}", fee, utility);
             assert!(fee >= "0.01".parse::<GRT>().unwrap());

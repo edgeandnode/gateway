@@ -6,7 +6,6 @@ pub mod double_buffer;
 pub mod epoch_cache;
 pub mod graphql;
 pub mod test_utils;
-pub mod weighted_sample;
 
 pub use crate::{bytes::*, decimal::*};
 pub use anyhow;

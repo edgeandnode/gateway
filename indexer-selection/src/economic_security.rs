@@ -1,10 +1,4 @@
-use crate::utility::{concave_utility, SelectionFactor, UtilityParameters};
 use prelude::*;
-
-pub struct EconomicSecurity {
-    pub slashable_usd: USD,
-    pub utility: SelectionFactor,
-}
 
 #[derive(Default)]
 pub struct NetworkParameters {
@@ -23,29 +17,17 @@ impl NetworkParameters {
         Some(grt / conversion_rate)
     }
 
-    pub fn economic_security_utility(
-        &self,
-        indexer_stake: GRT,
-        utility_parameters: UtilityParameters,
-    ) -> Option<EconomicSecurity> {
+    pub fn slashable_usd(&self, indexer_stake: GRT) -> Option<USD> {
         let slashing_percentage = self.slashing_percentage?;
         let slashable_grt = indexer_stake * slashing_percentage.change_precision();
-        let slashable_usd = self.grt_to_usd(slashable_grt)?;
-        let utility = concave_utility(slashable_usd.as_f64(), utility_parameters.a);
-        Some(EconomicSecurity {
-            slashable_usd,
-            utility: SelectionFactor {
-                utility,
-                weight: utility_parameters.weight,
-            },
-        })
+        self.grt_to_usd(slashable_grt)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::*;
+    use crate::{test_utils::*, utility::ConcaveUtilityParameters};
 
     #[test]
     fn two_usd_to_grt() {
@@ -146,13 +128,9 @@ mod tests {
             usd_to_grt_conversion: usd_to_grt.try_into().ok(),
             slashing_percentage: slashing_percentage.to_string().parse().ok(),
         };
-        let security = params
-            .economic_security_utility(stake.try_into().unwrap(), UtilityParameters::one(u_a))
-            .unwrap();
-        assert_eq!(
-            security.slashable_usd,
-            expected_slashable.try_into().unwrap()
-        );
-        assert_within(security.utility.utility, expected_utility, 0.01);
+        let slashable = params.slashable_usd(stake.try_into().unwrap()).unwrap();
+        let utility = ConcaveUtilityParameters::one(u_a).concave_utility(slashable.as_f64());
+        assert_eq!(slashable, expected_slashable.try_into().unwrap());
+        assert_within(utility.utility, expected_utility, 0.01);
     }
 }
