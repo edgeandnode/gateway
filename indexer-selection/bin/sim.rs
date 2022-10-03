@@ -30,10 +30,10 @@ async fn main() -> Result<()> {
     let config = UtilityConfig::default();
     let budget = "0.001".parse().unwrap();
 
-    println!("label,indexer,selections,fees");
+    println!("label,indexer,detail,selections,fees");
     eprintln!("| selection limit | total fees (GRT) | avg. latency (ms) | avg. blocks behind | avg. indexers selected |");
     eprintln!("| --- | --- | --- | --- | --- |");
-    for selection_limit in [1, 3, 5] {
+    for selection_limit in [1, 3] {
         let results = simulate(&characteristics, &config, 100, budget, selection_limit).await?;
 
         let total_fees = results
@@ -58,10 +58,20 @@ async fn main() -> Result<()> {
             let fees = selections
                 .iter()
                 .fold(GRT::zero(), |sum, s| sum + s.score.fee);
+            let detail = format!(
+                "fee={:.4} behind={:02} latency={:04} success={:.3} alloc={:1.0e} stake={:1.0e}",
+                indexer.fee.as_f64(),
+                indexer.blocks_behind,
+                indexer.latency_ms,
+                indexer.success_rate,
+                indexer.allocation.as_f64(),
+                indexer.stake.as_f64(),
+            );
             println!(
-                "slection_limit={},{},{},{}",
+                "selection_limit={},{},{},{},{}",
                 selection_limit,
                 indexer.address,
+                detail,
                 selections.len(),
                 fees
             );
