@@ -1,9 +1,8 @@
 use crate::{
     price_automation::VolumeEstimator,
-    query_engine::{APIKey, QueryStatus},
+    query_engine::{APIKey, IndexerPreferences, QueryStatus},
 };
 use eventuals::{self, EventualExt as _};
-use indexer_selection::IndexerPreferences;
 use prelude::*;
 use reqwest;
 use serde::Deserialize;

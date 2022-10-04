@@ -85,9 +85,7 @@ pub fn apply_state_update(state: &mut State, update: &Update) {
         }
         Update::Indexers(indexers) => {
             for (indexer, indexer_update) in indexers {
-                state
-                    .indexers
-                    .insert(indexer.clone(), indexer_update.info.clone());
+                state.indexers.insert(*indexer, indexer_update.info.clone());
                 for (deployment, status) in &indexer_update.indexings {
                     let indexing = Indexing {
                         indexer: *indexer,
