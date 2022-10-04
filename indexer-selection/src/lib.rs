@@ -176,7 +176,7 @@ impl UtilityParameters {
                 a: interp(8e-4, 4e-4, economic_security),
                 weight: interp(1.0, 1.5, economic_security),
             },
-            price_efficiency_weight: interp(0.5, 1.0, price_efficiency),
+            price_efficiency_weight: interp(1.0, 2.0, price_efficiency),
         }
     }
 }
