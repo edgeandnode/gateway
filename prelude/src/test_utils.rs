@@ -1,7 +1,9 @@
 use crate::*;
+use anyhow::Result;
 use std::{
-    fs,
+    fs::{self, File},
     io::{self, Cursor, Write as _},
+    path::PathBuf,
     sync::Once,
 };
 
@@ -19,10 +21,13 @@ pub fn init_test_tracing() {
     ONCE.call_once(|| init_tracing(false))
 }
 
-pub fn create_dir(path: &str) {
-    match fs::create_dir(path) {
+pub fn create_test_output(path: &str) -> Result<File> {
+    let dir = PathBuf::try_from("test-outputs").unwrap();
+    match fs::create_dir(&dir) {
         Ok(()) => (),
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
-        Err(err) => panic!("{}", err),
+        Err(err) => anyhow::bail!(err),
     };
+    let path = dir.join(path);
+    Ok(File::create(path)?)
 }

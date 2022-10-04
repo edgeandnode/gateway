@@ -9,7 +9,7 @@ bs58 = "0.4"
 eventuals = "0.6.7"
 hex = "0.4"
 primitive-types = "0.12"
-rand = "0.8"
+rand = { version = "0.8", features = ["small_rng"] }
 reqwest = { version = "0.11", default-features = false, features = [
     "json",
     "rustls-tls-native-roots",
@@ -34,6 +34,3 @@ tracing-subscriber = { version = "0.3", features = [
     "parking_lot",
     "json",
 ] }
-
-[dev-dependencies]
-rand = { version = "0.8", features = ["small_rng"] }

@@ -5,9 +5,8 @@ mod performance;
 mod price_efficiency;
 mod reputation;
 mod selection_factors;
+pub mod simulation;
 pub mod test_utils;
-#[cfg(test)]
-mod tests;
 mod utility;
 
 use crate::economic_security::*;
@@ -28,7 +27,7 @@ use utility::*;
 
 pub type Context<'c> = cost_model::Context<'c, &'c str>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Selection {
     pub indexing: Indexing,
     pub score: IndexerScore,
@@ -195,7 +194,7 @@ impl State {
 
     /// Select random indexer, weighted by utility. Indexers with incomplete data or that do not
     /// meet the minimum requirements will be excluded.
-    pub fn select_indexer(
+    pub fn select_indexers(
         &self,
         config: &UtilityConfig,
         deployment: &SubgraphDeploymentID,
@@ -204,7 +203,7 @@ impl State {
         indexers: &[Address],
         budget: GRT,
         freshness_requirements: &FreshnessRequirements,
-    ) -> Result<(Option<Selection>, Option<ScoringSample>), SelectionError> {
+    ) -> Result<(Vec<Selection>, Option<ScoringSample>), SelectionError> {
         let mut scores = Vec::new();
         let mut high_fee_count = 0;
         let mut scoring_sample = WeightedSample::new();
@@ -269,7 +268,7 @@ impl State {
         let max_utility = match scores.iter().map(|(_, score)| score.utility).max() {
             Some(n) => n,
             _ if high_fee_count > 0 => return Err(SelectionError::FeesTooHigh(high_fee_count)),
-            _ => return Ok((None, None)),
+            _ => return Ok((vec![], None)),
         };
         // Having a random utility cutoff that is weighted toward 1 normalized
         // to the highest score makes it so that we define our selection based
@@ -295,7 +294,7 @@ impl State {
         }
         let (indexing, score) = match selected.take() {
             Some(selection) => selection,
-            None => return Ok((None, None)),
+            None => return Ok((vec![], None)),
         };
         // Technically the "algorithm" part ends here, but eventually we want to
         // be able to go back with data already collected if a later step fails.
@@ -304,7 +303,7 @@ impl State {
             .take()
             .filter(|(address, _)| address != &indexing.indexer)
             .map(|(address, result)| ScoringSample(address, result));
-        Ok((Some(Selection { indexing, score }), sample))
+        Ok((vec![Selection { indexing, score }], sample))
     }
 
     fn score_indexer(

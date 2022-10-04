@@ -353,7 +353,7 @@ where
                 &[&deployment_id],
                 |hist| hist.start_timer(),
             );
-            let (selection, scoring_sample) = self.isa.latest().select_indexer(
+            let (selections, scoring_sample) = self.isa.latest().select_indexers(
                 &utility_config,
                 &subgraph.deployment,
                 &mut context,
@@ -373,7 +373,7 @@ where
                 };
             }
 
-            let selection = match selection {
+            let selection = match selections.into_iter().next() {
                 Some(selection) => selection,
                 None => return Err(NoIndexerSelected),
             };

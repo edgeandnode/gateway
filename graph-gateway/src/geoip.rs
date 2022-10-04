@@ -1,4 +1,5 @@
 use maxminddb::{geoip2, MaxMindDBError, Reader};
+use prelude::*;
 use std::{net::IpAddr, path::Path};
 
 pub struct GeoIP {

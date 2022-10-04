@@ -1,10 +1,11 @@
-use rand::{thread_rng, Rng as _};
+use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 
 /// Selects a random item from a stream of items with a weight
 #[derive(Debug)]
 pub struct WeightedSample<T> {
     item: Option<T>,
     weight_sum: f64,
+    rng: SmallRng,
 }
 
 impl<T> WeightedSample<T> {
@@ -12,6 +13,7 @@ impl<T> WeightedSample<T> {
         Self {
             weight_sum: 0.0,
             item: None,
+            rng: SmallRng::from_entropy(),
         }
     }
 
@@ -20,7 +22,7 @@ impl<T> WeightedSample<T> {
         // https://en.wikipedia.org/wiki/Reservoir_sampling#Weighted_random_sampling
         self.weight_sum += weight;
         let p = weight / self.weight_sum;
-        let j = thread_rng().gen::<f64>();
+        let j = self.rng.gen::<f64>();
         if j <= p {
             self.item = Some(item);
         }
