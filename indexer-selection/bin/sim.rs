@@ -31,8 +31,8 @@ async fn main() -> Result<()> {
     let budget = "0.001".parse().unwrap();
 
     println!("label,indexer,detail,selections,fees");
-    eprintln!("| selection limit | total fees (GRT) | avg. latency (ms) | avg. blocks behind | avg. indexers selected |");
-    eprintln!("| --- | --- | --- | --- | --- |");
+    eprintln!("| selection limit | total fees (GRT) | avg. latency (ms) | avg. blocks behind | avg. indexers selected | avg. selection time (ms) |");
+    eprintln!("| --- | --- | --- | --- | --- | --- |");
     for selection_limit in [1, 3] {
         let results = simulate(&characteristics, &config, 100, budget, selection_limit).await?;
 
@@ -41,12 +41,13 @@ async fn main() -> Result<()> {
             .iter()
             .fold(GRT::zero(), |sum, s| sum + s.score.fee);
         eprintln!(
-            "| {} | {:.6} | {:.0} | {:.2} | {:.2} |",
+            "| {} | {:.6} | {:.0} | {:.2} | {:.2} | {:.2} |",
             selection_limit,
             total_fees,
             results.avg_latency,
             results.avg_blocks_behind,
             results.selections.len() as f64 / results.client_queries as f64,
+            results.avg_selection_seconds * 1e3,
         );
 
         for indexer in &characteristics {

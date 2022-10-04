@@ -25,6 +25,7 @@ pub struct Results {
     pub avg_latency: f64,
     pub avg_blocks_behind: f64,
     pub avg_indexers_selected: f64,
+    pub avg_selection_seconds: f64,
 }
 
 pub async fn simulate(
@@ -102,6 +103,7 @@ pub async fn simulate(
             has_latest: true,
         };
         let latest_block = blocks.last().unwrap().number;
+        let t0 = Instant::now();
         let (mut selections, _) = isa
             .select_indexers(
                 config,
@@ -114,6 +116,7 @@ pub async fn simulate(
                 // selection_limit,
             )
             .unwrap();
+        results.avg_selection_seconds += Instant::now().duration_since(t0).as_secs_f64();
 
         selections.sort_by_key(|s| characteristics.get(&s.indexing.indexer).unwrap().latency_ms);
         let responses = selections
@@ -150,6 +153,7 @@ pub async fn simulate(
     results.avg_latency /= results.client_queries as f64;
     results.avg_blocks_behind /= results.client_queries as f64;
     results.avg_indexers_selected /= results.client_queries as f64;
+    results.avg_selection_seconds /= results.client_queries as f64;
 
     Ok(results)
 }
