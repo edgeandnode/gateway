@@ -37,7 +37,7 @@ pub async fn simulate(
 ) -> Result<Results> {
     let deployment = SubgraphDeploymentID(bytes_from_id(1));
     let mut results = Results::default();
-    results.client_queries = 1000;
+    results.client_queries = 10_000;
 
     let mut isa = State::default();
     isa.network_params.slashing_percentage = "0.1".parse().ok();

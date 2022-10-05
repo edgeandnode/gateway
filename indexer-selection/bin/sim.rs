@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
         .collect::<Vec<IndexerCharacteristics>>();
 
     let config = UtilityConfig::default();
-    let budget = "0.001".parse().unwrap();
+    let budget = "0.01".parse().unwrap();
 
     println!("label,indexer,detail,selections,fees");
     eprintln!("| selection limit | total fees (GRT) | avg. latency (ms) | avg. blocks behind | avg. indexers selected | avg. selection time (ms) |");
