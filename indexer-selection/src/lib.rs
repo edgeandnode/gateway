@@ -57,6 +57,7 @@ pub enum InputError {
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum IndexerError {
     NoStatus,
+    NoStake,
     NoAllocation,
     BehindMinimumBlock,
     QueryNotCosted,
@@ -282,6 +283,9 @@ impl State {
             .get_unobserved(&indexing)
             .ok_or(IndexerError::NoStatus)?;
         let status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
+        if info.stake == GRT::zero() {
+            return Err(IndexerError::NoStake.into());
+        }
         let slashable_stake = self
             .network_params
             .slashable_usd(info.stake)
@@ -293,6 +297,10 @@ impl State {
             &params.budget,
             selection_limit,
         )?;
+        let allocation = state.total_allocation();
+        if allocation == GRT::zero() {
+            return Err(IndexerError::NoAllocation.into());
+        }
         Ok(SelectionFactors {
             indexing,
             url: info.url.clone(),
@@ -303,7 +311,7 @@ impl State {
             slashable_stake,
             price,
             last_use: state.last_use,
-            sybil: sybil(&state.total_allocation())?,
+            sybil: sybil(&allocation)?,
         })
     }
 }

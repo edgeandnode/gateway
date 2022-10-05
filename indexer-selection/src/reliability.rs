@@ -31,7 +31,7 @@ impl Sample for Reliability {
     fn sample(&self, rng: &mut impl Rng) -> Self::Value {
         let s = self.successful_queries.max(1.0);
         let mut p = s / (s + self.failed_queries);
-        p *= 1.1_f64.powf(-self.penalty).recip();
+        p *= 1.1_f64.powf(-self.penalty);
         rng.gen_bool(p)
     }
 }

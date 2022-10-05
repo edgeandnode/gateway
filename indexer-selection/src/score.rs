@@ -152,7 +152,7 @@ impl MetaIndexer<'_> {
                 blocks_behind_max = blocks_behind_max.max(factors.blocks_behind);
             }
         }
-        let slashable_avg = slashable_total / slashable_count.min(1).try_into().unwrap();
+        let slashable_avg = slashable_total / slashable_count.max(1).try_into().unwrap();
         let cost = self.price();
         let min_last_use = self.0.iter().map(|f| f.last_use).min().unwrap();
         weighted_product_model([

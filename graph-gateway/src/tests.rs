@@ -12,8 +12,7 @@ use async_trait::async_trait;
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
     test_utils::{default_cost_model, test_allocation_id, TEST_KEY},
-    BlockStatus, IndexerError, IndexerInfo, Indexing, IndexingStatus, SecretKey, Selection,
-    UnresolvedBlock,
+    BlockStatus, IndexerInfo, Indexing, IndexingStatus, SecretKey, Selection, UnresolvedBlock,
 };
 use prelude::{
     buffer_queue::{self, QueueWriter},
@@ -524,14 +523,16 @@ impl Topology {
             );
         }
 
-        let high_fee_count = indexers
-            .iter()
-            .filter(|indexer| indexer.fee > TokenAmount::Enough)
-            .count();
-        if high_fee_count > 0 {
-            return Self::expect_err(trace, result, QueryEngineError::FeesTooHigh(high_fee_count));
+        if indexers.is_empty() {
+            Self::expect_err(trace, result, NoIndexerSelected)?;
         }
-        Self::expect_err(trace, result, NoIndexerSelected)
+        match result {
+            Err(QueryEngineError::IndexerSelectionErrors(_)) => Ok(()),
+            _ => Self::err_with(
+                trace,
+                format!("expected IndexerSelectionErrors(_), got {:?}", result),
+            ),
+        }
     }
 
     fn check_failed_attempt(
@@ -547,13 +548,14 @@ impl Topology {
                 format!("expected indexer query error, got: {:#?}", attempt),
             );
         }
-        if !indexers.iter().any(|indexer| indexer.id == attempt.indexer) {
+        let indexer = attempt.selection.indexing.indexer;
+        if !indexers.iter().any(|i| i.id == indexer) {
             return Self::err_with(
                 trace,
-                format!("attempted indexer not available: {:?}", attempt.indexer),
+                format!("attempted indexer not available: {:?}", indexer),
             );
         }
-        if valid.iter().any(|indexer| indexer.id == attempt.indexer) {
+        if valid.iter().any(|i| i.id == indexer) {
             return Self::err_with(
                 trace,
                 format!("expected invalid indexer attempt, got {:#?}", attempt),
@@ -579,7 +581,8 @@ impl Topology {
         if !response.payload.contains("success") {
             return Self::err_with(trace, format!("expected success, got {}", response.payload));
         }
-        if !valid.iter().any(|indexer| attempt.indexer == indexer.id) {
+        let indexer = attempt.selection.indexing.indexer;
+        if !valid.iter().any(|i| i.id == indexer) {
             return Self::err_with(trace, "response did not match any valid indexer");
         }
         Ok(())

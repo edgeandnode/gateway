@@ -152,6 +152,7 @@ impl ISAScoringError {
             IndexerSelectionError::BehindMinimumBlock => 8,
             IndexerSelectionError::Excluded => 9,
             IndexerSelectionError::NaN => 10,
+            IndexerSelectionError::NoStake => 11,
         };
         Self {
             ray_id: query.ray_id.clone(),

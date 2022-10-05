@@ -22,7 +22,7 @@ use primitive_types::U256;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
@@ -388,7 +388,8 @@ where
                         .0
                         .iter()
                         .map(|(k, v)| (k, v.len()))
-                        .filter(|(_, l)| *l > 0);
+                        .filter(|(_, l)| *l > 0)
+                        .collect::<BTreeMap<&IndexerSelectionError, usize>>();
                     return Err(IndexerSelectionErrors(format!("{:?}", errors)));
                 }
             };
