@@ -42,7 +42,7 @@ pub async fn simulate(
 
     let deployment = SubgraphDeploymentID(bytes_from_id(1));
     let mut results = simulation::Results {
-        client_queries: 1000,
+        client_queries: 10_000,
         ..Default::default()
     };
 
