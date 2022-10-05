@@ -80,7 +80,10 @@ pub fn select_indexers<'s>(
             Err(err) => unreachable!("{}", err),
         };
         while (meta_indexer.price() > params.budget) && !meta_indexer.0.is_empty() {
-            meta_indexer.0.pop();
+            // The order of indexers from `choose_multiple_weighted` is unspecified and may not be
+            // shuffled. So we should remove a random entry.
+            let index = rng.gen_range(0..meta_indexer.0.len());
+            meta_indexer.0.remove(index);
         }
         if meta_indexer.0.is_empty() {
             continue;
