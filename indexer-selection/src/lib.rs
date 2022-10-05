@@ -253,7 +253,14 @@ impl State {
             };
         }
 
+        // We use a small-state PRNG (xoroshiro256++) here instead of StdRng (ChaCha12).
+        // `select_indexers` does not require the protections provided by a CSPRNG. The Xoroshiro++
+        // algorithm provides high statistical quality while reducing the runtime of selection
+        // consumed by generating ranom numbers from 4% to 2% at the time of writing.
+        //
+        // See also: https://docs.rs/rand/latest/rand/rngs/struct.SmallRng.html
         let mut rng = SmallRng::from_entropy();
+
         let mut selections = select_indexers(&mut rng, params, &available);
         selections.truncate(selection_limit as usize);
         Ok((selections, errors))
