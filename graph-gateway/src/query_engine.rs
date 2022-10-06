@@ -322,9 +322,10 @@ where
             .ok_or(MissingExchangeRate)?;
         query.budget = Some(budget);
 
-        let utility_params = UtilityParameters::new(
+        let mut utility_params = UtilityParameters::new(
             budget,
             freshness_requirements,
+            0,
             api_key.indexer_preferences.performance,
             api_key.indexer_preferences.data_freshness,
             api_key.indexer_preferences.economic_security,
@@ -341,6 +342,7 @@ where
                 .value_immediate()
                 .ok_or(UnresolvedBlock::WithNumber(0))?;
             tracing::debug!(?latest_block);
+            utility_params.latest_block = latest_block.number;
 
             // Since we modify the context in-place, we need to reset the context to the state of
             // the original client query. This to avoid the following scenario:

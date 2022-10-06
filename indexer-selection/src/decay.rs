@@ -1,5 +1,5 @@
-use crate::score::Sample;
-use prelude::{rand::prelude::SliceRandom as _, *};
+use crate::score::ExpectedValue;
+use prelude::*;
 
 // This could have been done more automatically by using a proc-macro, but this is simpler.
 #[macro_export]
@@ -36,7 +36,7 @@ pub trait Decay {
     fn clear(&mut self);
 }
 
-pub trait SampleWeight {
+pub trait FrameWeight {
     fn weight(&self) -> f64;
 }
 
@@ -59,16 +59,16 @@ where
     }
 }
 
-impl<T, const D: u16, const L: usize> Sample for DecayBufferUnconfigured<T, D, L>
+impl<T, const D: u16, const L: usize> ExpectedValue for DecayBufferUnconfigured<T, D, L>
 where
-    T: Sample + SampleWeight,
+    T: ExpectedValue + FrameWeight,
 {
-    type Value = T::Value;
-    fn sample(&self, rng: &mut impl rand::Rng) -> Self::Value {
+    fn expected_value(&self) -> f64 {
         self.frames
-            .choose_weighted(rng, |f| f.weight() + 1.0)
-            .unwrap()
-            .sample(rng)
+            .iter()
+            .map(|f| f.expected_value() * f.weight())
+            .sum::<f64>()
+            / self.frames.iter().map(|f| f.weight()).sum::<f64>().max(1.0)
     }
 }
 

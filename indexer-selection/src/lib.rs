@@ -18,6 +18,7 @@ pub use crate::{
 pub use cost_model::{self, CostModel};
 pub use ordered_float::NotNan;
 pub use receipts;
+use score::ExpectedValue;
 pub use secp256k1::SecretKey;
 
 use crate::{
@@ -138,6 +139,7 @@ impl<'a> IndexerErrors<'a> {
 pub struct UtilityParameters {
     pub budget: GRT,
     pub freshness_requirements: FreshnessRequirements,
+    pub latest_block: u64,
     pub performance: ConcaveUtilityParameters,
     pub data_freshness: ConcaveUtilityParameters,
     pub economic_security: ConcaveUtilityParameters,
@@ -148,6 +150,7 @@ impl UtilityParameters {
     pub fn new(
         budget: GRT,
         freshness_requirements: FreshnessRequirements,
+        latest_block: u64,
         performance: f64,
         data_freshness: f64,
         economic_security: f64,
@@ -162,6 +165,7 @@ impl UtilityParameters {
         Self {
             budget,
             freshness_requirements,
+            latest_block,
             // https://www.desmos.com/calculator/hegcczzalf
             performance: ConcaveUtilityParameters {
                 a: interp(1.1, 1.2, performance),
@@ -226,8 +230,8 @@ impl State {
         self.indexings.apply(|sf| sf.decay());
     }
 
-    pub fn select_indexers<'s, 'a>(
-        &'s self,
+    pub fn select_indexers<'a>(
+        &self,
         deployment: &SubgraphDeploymentID,
         indexers: &'a [Address],
         params: &UtilityParameters,
@@ -235,7 +239,7 @@ impl State {
         selection_limit: u8,
     ) -> Result<(Vec<Selection>, IndexerErrors<'a>), InputError> {
         let mut errors = IndexerErrors(BTreeMap::new());
-        let mut available = Vec::<SelectionFactors<'s>>::new();
+        let mut available = Vec::<SelectionFactors>::new();
         for indexer in indexers {
             if let Some(allowed) = self.restricted_deployments.get(deployment) {
                 if !allowed.contains(indexer) {
@@ -267,13 +271,13 @@ impl State {
         Ok((selections, errors))
     }
 
-    fn selection_factors<'s>(
-        &'s self,
+    fn selection_factors(
+        &self,
         indexing: Indexing,
         params: &UtilityParameters,
         context: &mut Context<'_>,
         selection_limit: u8,
-    ) -> Result<SelectionFactors<'s>, SelectionError> {
+    ) -> Result<SelectionFactors, SelectionError> {
         let info = self
             .indexers
             .get_unobserved(&indexing.indexer)
@@ -282,14 +286,23 @@ impl State {
             .indexings
             .get_unobserved(&indexing)
             .ok_or(IndexerError::NoStatus)?;
+
         let status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
+        if let Some(min_block) = params.freshness_requirements.minimum_block {
+            let block = params.latest_block.saturating_sub(status.blocks_behind);
+            if block < min_block {
+                return Err(IndexerError::BehindMinimumBlock.into());
+            }
+        }
+
         if info.stake == GRT::zero() {
             return Err(IndexerError::NoStake.into());
         }
-        let slashable_stake = self
+        let slashable = self
             .network_params
             .slashable_usd(info.stake)
             .ok_or(InputError::MissingNetworkParams)?;
+
         let price = indexer_fee(
             &state.status.cost_model,
             context,
@@ -297,18 +310,20 @@ impl State {
             &params.budget,
             selection_limit,
         )?;
+
         let allocation = state.total_allocation();
         if allocation == GRT::zero() {
             return Err(IndexerError::NoAllocation.into());
         }
+
         Ok(SelectionFactors {
             indexing,
             url: info.url.clone(),
-            reliability: &state.reliability,
-            perf_success: &state.perf_success,
-            perf_failure: &state.perf_failure,
+            reliability: state.reliability.expected_value(),
+            perf_success: state.perf_success.expected_value(),
+            perf_failure: state.perf_failure.expected_value(),
             blocks_behind: status.blocks_behind,
-            slashable_stake,
+            slashable_usd: slashable.as_f64(),
             price,
             last_use: state.last_use,
             sybil: sybil(&allocation)?,

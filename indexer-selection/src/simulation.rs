@@ -1,7 +1,4 @@
-use crate::{
-    test_utils::{default_cost_model, gen_blocks},
-    *,
-};
+use crate::{test_utils::default_cost_model, *};
 use anyhow::Result;
 use prelude::{
     test_utils::{bytes_from_id, init_test_tracing},
@@ -50,13 +47,6 @@ pub async fn simulate(
     isa.network_params.slashing_percentage = "0.1".parse().ok();
     isa.network_params.usd_to_grt_conversion = "0.1".parse().ok();
 
-    let blocks = {
-        let max_blocks_behind = characteristics.iter().map(|c| c.blocks_behind).max();
-        let last_block = max_blocks_behind.unwrap() + 100;
-        gen_blocks(&(0..last_block).into_iter().collect::<Vec<u64>>())
-    };
-    let latest_block = blocks.last().unwrap();
-
     for characteristics in characteristics {
         let indexing = Indexing {
             indexer: characteristics.address,
@@ -80,8 +70,8 @@ pub async fn simulate(
                 allocations,
                 cost_model: Some(Ptr::new(default_cost_model(characteristics.fee))),
                 block: Some(BlockStatus {
-                    reported_number: latest_block
-                        .number
+                    reported_number: params
+                        .latest_block
                         .saturating_sub(characteristics.blocks_behind),
                     blocks_behind: characteristics.blocks_behind,
                     behind_reported_block: false,
@@ -117,7 +107,8 @@ pub async fn simulate(
             .unwrap();
         results.avg_selection_seconds += Instant::now().duration_since(t0).as_secs_f64();
 
-        selections.sort_by_key(|s| characteristics.get(&s.indexing.indexer).unwrap().latency_ms);
+        selections
+            .sort_unstable_by_key(|s| characteristics.get(&s.indexing.indexer).unwrap().latency_ms);
         let responses = selections
             .iter()
             .map(|s| {

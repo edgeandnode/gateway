@@ -1,11 +1,8 @@
 use crate::{
-    decay::{Decay, SampleWeight},
-    score::Sample,
+    decay::{Decay, FrameWeight},
+    score::ExpectedValue,
 };
-use prelude::{
-    rand::{seq::index::sample_weighted, Rng},
-    *,
-};
+use prelude::*;
 
 /// Histogram of response times
 #[derive(Clone, Debug, Default)]
@@ -33,18 +30,18 @@ impl Performance {
     }
 }
 
-impl Sample for Performance {
-    type Value = u32;
-    fn sample(&self, rng: &mut impl Rng) -> Self::Value {
-        if self.count.is_empty() {
-            return 0;
-        }
-        let sample = sample_weighted(rng, self.count.len(), |i| self.count[i], 1).unwrap();
-        self.latency[sample.index(0)]
+impl ExpectedValue for Performance {
+    fn expected_value(&self) -> f64 {
+        self.latency
+            .iter()
+            .zip(&self.count)
+            .map(|(&l, &c)| l as f64 * c)
+            .sum::<f64>()
+            / self.count.iter().sum::<f64>().max(1.0)
     }
 }
 
-impl SampleWeight for Performance {
+impl FrameWeight for Performance {
     fn weight(&self) -> f64 {
         self.count.iter().sum()
     }

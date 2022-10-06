@@ -1,5 +1,7 @@
 use anyhow::Result;
-use indexer_selection::{simulation::*, FreshnessRequirements, Selection, UtilityParameters};
+use indexer_selection::{
+    simulation::*, test_utils::gen_blocks, FreshnessRequirements, Selection, UtilityParameters,
+};
 use prelude::*;
 use std::io::{stdin, BufRead as _};
 
@@ -32,7 +34,21 @@ async fn main() -> Result<()> {
         minimum_block: None,
         has_latest: true,
     };
-    let params = UtilityParameters::new(budget, freshness_requirements, 0.0, 0.0, 0.0, 0.0);
+    let blocks = {
+        let max_blocks_behind = characteristics.iter().map(|c| c.blocks_behind).max();
+        let last_block = max_blocks_behind.unwrap() + 100;
+        gen_blocks(&(0..last_block).into_iter().collect::<Vec<u64>>())
+    };
+    let latest_block = blocks.last().unwrap().number;
+    let params = UtilityParameters::new(
+        budget,
+        freshness_requirements,
+        latest_block,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    );
 
     println!("label,indexer,detail,selections,fees");
     eprintln!("| selection limit | total fees (GRT) | avg. latency (ms) | avg. blocks behind | avg. indexers selected | avg. selection time (ms) |");

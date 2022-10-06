@@ -1,9 +1,8 @@
 use crate::{
-    decay::{Decay, SampleWeight},
+    decay::{Decay, FrameWeight},
     impl_struct_decay,
-    score::Sample,
+    score::ExpectedValue,
 };
-use prelude::rand::Rng;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Reliability {
@@ -26,17 +25,15 @@ impl Reliability {
     }
 }
 
-impl Sample for Reliability {
-    type Value = bool;
-    fn sample(&self, rng: &mut impl Rng) -> Self::Value {
+impl ExpectedValue for Reliability {
+    fn expected_value(&self) -> f64 {
         let s = self.successful_queries.max(1.0);
-        let mut p = s / (s + self.failed_queries);
-        p *= 1.1_f64.powf(-self.penalty);
-        rng.gen_bool(p)
+        let p = s / (s + self.failed_queries);
+        p * 1.1_f64.powf(-self.penalty)
     }
 }
 
-impl SampleWeight for Reliability {
+impl FrameWeight for Reliability {
     fn weight(&self) -> f64 {
         self.successful_queries + self.failed_queries
     }

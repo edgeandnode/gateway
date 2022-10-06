@@ -1,10 +1,5 @@
-use std::time::SystemTime;
-
 use crate::{
-    decay::DecayBuffer,
-    performance::Performance,
     price_efficiency::price_efficiency,
-    reliability::Reliability,
     utility::{weighted_product_model, UtilityFactor},
     ConcaveUtilityParameters, Indexing, Selection, UtilityParameters,
 };
@@ -14,16 +9,16 @@ use prelude::{
     rand::{prelude::SliceRandom as _, Rng},
     *,
 };
+use std::time::SystemTime;
 
-#[derive(Clone)]
-pub struct SelectionFactors<'s> {
+pub struct SelectionFactors {
     pub indexing: Indexing,
     pub url: URL,
-    pub reliability: &'s DecayBuffer<Reliability>,
-    pub perf_success: &'s DecayBuffer<Performance>,
-    pub perf_failure: &'s DecayBuffer<Performance>,
+    pub reliability: f64,
+    pub perf_success: f64,
+    pub perf_failure: f64,
     pub blocks_behind: u64,
-    pub slashable_stake: USD,
+    pub slashable_usd: f64,
     pub price: GRT,
     pub last_use: SystemTime,
     pub sybil: NotNan<f64>,
@@ -32,7 +27,7 @@ pub struct SelectionFactors<'s> {
 const SELECTION_LIMIT: usize = 3;
 
 /// A subset of available indexers, with combined utility
-struct MetaIndexer<'s>(pub ArrayVec<&'s SelectionFactors<'s>, SELECTION_LIMIT>);
+struct MetaIndexer<'s>(pub ArrayVec<&'s SelectionFactors, SELECTION_LIMIT>);
 
 impl MetaIndexer<'_> {
     fn selections(self) -> Vec<Selection> {
@@ -48,15 +43,14 @@ impl MetaIndexer<'_> {
     }
 }
 
-pub trait Sample {
-    type Value;
-    fn sample(&self, rng: &mut impl Rng) -> Self::Value;
+pub trait ExpectedValue {
+    fn expected_value(&self) -> f64;
 }
 
 pub fn select_indexers<'s>(
     rng: &mut impl Rng,
     params: &UtilityParameters,
-    factors: &'s [SelectionFactors<'s>],
+    factors: &'s [SelectionFactors],
 ) -> Vec<Selection> {
     if factors.is_empty() {
         return vec![];
@@ -70,6 +64,10 @@ pub fn select_indexers<'s>(
     }
     .min(meta_indexers.capacity());
     // Sample indexer subsets, discarding likely duplicates.
+    //
+    // We must use a suitable indexer, if one exists. Indexers are filtered out when calculating
+    // selection factors if they are over budget or don't meet freshness requirements. So they won't
+    // pollute the set we're selecting from.
     for _ in 0..(sample_limit + 2) {
         if meta_indexers.len() == sample_limit {
             break;
@@ -100,7 +98,7 @@ pub fn select_indexers<'s>(
 
     let scores = meta_indexers
         .iter()
-        .filter_map(|m| NotNan::try_from(m.score(rng, params)).ok())
+        .filter_map(|m| NotNan::try_from(m.score(params)).ok())
         .collect::<ArrayVec<NotNan<f64>, 20>>();
     let max_score = scores.iter().copied().max().unwrap();
     meta_indexers
@@ -127,43 +125,64 @@ impl MetaIndexer<'_> {
         mask
     }
 
-    fn score(&self, rng: &mut impl Rng, params: &UtilityParameters) -> f64 {
-        let mut success_min_ms = u32::MAX;
-        let mut failure_max_ms: u32 = 0;
-        let mut slashable_total = USD::zero();
-        let mut slashable_count: u32 = 0;
-        let mut blocks_behind_max: u64 = 0;
-        for _ in 0..16 {
-            let mut selected = (u32::MAX, None);
-            for factors in &self.0 {
-                if !factors.reliability.sample(rng) {
-                    failure_max_ms = failure_max_ms.max(factors.perf_failure.sample(rng));
-                    continue;
-                }
-                let success_ms = factors.perf_success.sample(rng);
-                if success_ms < selected.0 {
-                    selected = (success_ms, Some(factors));
-                    success_min_ms = success_min_ms.min(success_ms);
-                }
-            }
-            if let (_, Some(factors)) = selected {
-                slashable_total = slashable_total.saturating_add(factors.slashable_stake);
-                slashable_count += 1;
-                blocks_behind_max = blocks_behind_max.max(factors.blocks_behind);
-            }
+    fn score(&self, params: &UtilityParameters) -> f64 {
+        if self.0.is_empty() {
+            return 0.0;
         }
-        let slashable_avg = slashable_total / slashable_count.max(1).try_into().unwrap();
+
+        type V<T> = ArrayVec<T, SELECTION_LIMIT>;
+
+        let mut reliability: V<f64> = self.0.iter().map(|f| f.reliability).collect();
+        let mut perf_success: V<f64> = self.0.iter().map(|f| f.perf_success).collect();
+        let mut perf_failure: V<f64> = self.0.iter().map(|f| f.perf_failure).collect();
+        let mut slashable_usd: V<f64> = self.0.iter().map(|f| f.slashable_usd).collect();
+        let mut blocks_behind: V<f64> = self.0.iter().map(|f| f.blocks_behind as f64).collect();
+
+        let mut order = (0..perf_success.len()).collect::<V<usize>>();
+        order.sort_unstable_by_key(|i| NotNan::try_from(perf_success[*i]).unwrap());
+        macro_rules! sort_by_perf_success {
+            ($v:ident) => {
+                for i in 0..$v.len() {
+                    $v.swap(i, order[i]);
+                }
+            };
+        }
+        sort_by_perf_success!(reliability);
+        sort_by_perf_success!(perf_success);
+        sort_by_perf_success!(perf_failure);
+        sort_by_perf_success!(slashable_usd);
+        sort_by_perf_success!(blocks_behind);
+
+        // BQN: pf ← ×`1-r
+        let pf = reliability
+            .iter()
+            .map(|r| 1.0 - r)
+            .scan(1.0, |s, x| {
+                *s *= x;
+                Some(*s)
+            })
+            .collect::<ArrayVec<f64, SELECTION_LIMIT>>();
+        // BQN: ps ← r×1»pf
+        let ps = std::iter::once(&1.0)
+            .chain(&pf)
+            .take(SELECTION_LIMIT)
+            .zip(&reliability)
+            .map(|(p, r)| p * r)
+            .collect::<ArrayVec<f64, SELECTION_LIMIT>>();
+        let expected_value = |v: &V<f64>| -> f64 { v.iter().zip(&ps).map(|(a, &b)| a * b).sum() };
+
+        let perf_success = expected_value(&perf_success);
+        let perf_failure = perf_failure.iter().zip(pf).map(|(a, b)| a * b).sum::<f64>();
+        let slashable_usd = expected_value(&slashable_usd);
+        let blocks_behind = expected_value(&blocks_behind);
+
         let cost = self.price();
         let min_last_use = self.0.iter().map(|f| f.last_use).min().unwrap();
         weighted_product_model([
-            params.performance.performance_utility(success_min_ms),
-            params.performance.performance_utility(failure_max_ms),
-            params
-                .economic_security
-                .concave_utility(slashable_avg.as_f64()),
-            params
-                .data_freshness
-                .concave_utility(blocks_behind_max as f64),
+            params.performance.performance_utility(perf_success as u32),
+            params.performance.performance_utility(perf_failure as u32),
+            params.economic_security.concave_utility(slashable_usd),
+            params.data_freshness.concave_utility(blocks_behind),
             price_efficiency(&cost, params.price_efficiency_weight, &params.budget),
             confidence(min_last_use),
         ])
