@@ -5,6 +5,7 @@ use crate::{
 use anyhow::Result;
 use prelude::{test_utils::bytes_from_id, *};
 use rand::{prelude::SmallRng, SeedableRng as _};
+use rand_distr::Normal;
 use std::sync::Arc;
 
 pub struct IndexerCharacteristics {
@@ -130,8 +131,9 @@ pub async fn simulate(
         results.avg_indexers_selected += selections.len() as f64;
         if let Some((characteristics, _)) = responding_indexer {
             results.success_rate += 1.0;
-            results.avg_latency += characteristics.latency_ms as f64;
             results.avg_blocks_behind += characteristics.blocks_behind as f64;
+            let latency_distr = Normal::new(characteristics.latency_ms as f64, 50.0).unwrap();
+            results.avg_latency += rng.sample(latency_distr).max(0.0);
         }
 
         results.selections.extend_from_slice(&selections);

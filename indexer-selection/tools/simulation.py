@@ -15,7 +15,7 @@ data['sort_order'] = data.apply(
 data = data.sort_values(by='sort_order')
 
 matplotlib.rcParams['font.family'] = 'monospace'
-fig, axes = plt.subplots(len(labels), 2, figsize=(12, 8), sharex='col', sharey=True, constrained_layout=True)
+fig, axes = plt.subplots(len(labels), 2, figsize=(16, 12), sharex='col', sharey=True, constrained_layout=True)
 
 for (row, label) in enumerate(labels):
     d = data[data.label == label]
