@@ -3,12 +3,12 @@ use crate::{
     *,
 };
 use anyhow::Result;
-use rand::{prelude::SmallRng, SeedableRng as _};
-use rand_distr::Normal;
 use prelude::{
     test_utils::{bytes_from_id, init_test_tracing},
     *,
 };
+use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
+use rand_distr::Normal;
 use std::sync::Arc;
 
 pub struct IndexerCharacteristics {
