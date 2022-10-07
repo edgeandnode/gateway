@@ -136,7 +136,6 @@ impl MetaIndexer<'_> {
         let mut perf_success: V<f64> = self.0.iter().map(|f| f.perf_success).collect();
         let mut perf_failure: V<f64> = self.0.iter().map(|f| f.perf_failure).collect();
         let mut slashable_usd: V<f64> = self.0.iter().map(|f| f.slashable_usd).collect();
-        let mut blocks_behind: V<f64> = self.0.iter().map(|f| f.blocks_behind as f64).collect();
 
         let mut order = (0..perf_success.len()).collect::<V<usize>>();
         order.sort_unstable_by_key(|i| NotNan::try_from(perf_success[*i]).unwrap());
@@ -151,7 +150,6 @@ impl MetaIndexer<'_> {
         sort_by_perf_success!(perf_success);
         sort_by_perf_success!(perf_failure);
         sort_by_perf_success!(slashable_usd);
-        sort_by_perf_success!(blocks_behind);
 
         // BQN: pf ← ×`1-r
         let pf = reliability
@@ -174,15 +172,17 @@ impl MetaIndexer<'_> {
         let perf_success = expected_value(&perf_success);
         let perf_failure = perf_failure.iter().zip(pf).map(|(a, b)| a * b).sum::<f64>();
         let slashable_usd = expected_value(&slashable_usd);
-        let blocks_behind = expected_value(&blocks_behind);
 
         let cost = self.price();
+        // We use the max value of blocks behind to account for the possibility of incorrect
+        // indexing statuses.
+        let blocks_behind = self.0.iter().map(|f| f.blocks_behind).max().unwrap();
         let min_last_use = self.0.iter().map(|f| f.last_use).min().unwrap();
         weighted_product_model([
             params.performance.performance_utility(perf_success as u32),
             params.performance.performance_utility(perf_failure as u32),
             params.economic_security.concave_utility(slashable_usd),
-            params.data_freshness.concave_utility(blocks_behind),
+            params.data_freshness.concave_utility(blocks_behind as f64),
             price_efficiency(&cost, params.price_efficiency_weight, &params.budget),
             confidence(min_last_use),
         ])
