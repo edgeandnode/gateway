@@ -58,9 +58,12 @@ pub fn select_indexers<'s>(
 
     let mut meta_indexers = ArrayVec::<MetaIndexer<'s>, 20>::new();
     let mut masks = ArrayVec::<[u8; 20], 20>::new();
+    // Calculate a sample limit using a "good enough" approximation of the binomial coefficient of
+    // `(factors.len(), SELECTION_LIMIT)` (AKA "n choose k").
     let sample_limit = match factors.len() {
-        n if n < (SELECTION_LIMIT * SELECTION_LIMIT) => n,
-        n => n * 2,
+        n if n <= SELECTION_LIMIT => 1,
+        n if n == (SELECTION_LIMIT + 1) => n,
+        n => (n - SELECTION_LIMIT) * 2,
     }
     .min(meta_indexers.capacity());
     // Sample indexer subsets, discarding likely duplicates.
@@ -68,7 +71,7 @@ pub fn select_indexers<'s>(
     // We must use a suitable indexer, if one exists. Indexers are filtered out when calculating
     // selection factors if they are over budget or don't meet freshness requirements. So they won't
     // pollute the set we're selecting from.
-    for _ in 0..(sample_limit + 2) {
+    for _ in 0..sample_limit {
         if meta_indexers.len() == sample_limit {
             break;
         }
