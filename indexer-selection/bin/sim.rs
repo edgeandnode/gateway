@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
         let total_cost = results
             .selections
             .iter()
-            .fold(GRT::zero(), |sum, s| sum + s.price);
+            .fold(GRT::zero(), |sum, s| sum + s.fee);
         eprintln!(
             "| {} | {:.6} | {:.0} | {:.2} | {:.2} | {:.2} |",
             selection_limit,
@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
                 indexer.address,
                 detail,
                 selections.len(),
-                selections.iter().fold(GRT::zero(), |sum, s| sum + s.price),
+                selections.iter().fold(GRT::zero(), |sum, s| sum + s.fee),
             );
         }
     }

@@ -39,7 +39,7 @@ pub type Context<'c> = cost_model::Context<'c, &'c str>;
 pub struct Selection {
     pub indexing: Indexing,
     pub url: URL,
-    pub price: GRT,
+    pub fee: GRT,
     pub blocks_behind: u64,
 }
 
@@ -303,7 +303,7 @@ impl State {
             .slashable_usd(info.stake)
             .ok_or(InputError::MissingNetworkParams)?;
 
-        let price = indexer_fee(
+        let fee = indexer_fee(
             &state.status.cost_model,
             context,
             params.price_efficiency_weight,
@@ -324,7 +324,7 @@ impl State {
             perf_failure: state.perf_failure.expected_value(),
             blocks_behind: status.blocks_behind,
             slashable_usd: slashable.as_f64(),
-            price,
+            fee,
             last_use: state.last_use,
             sybil: sybil(&allocation)?,
         })

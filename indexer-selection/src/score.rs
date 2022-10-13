@@ -19,7 +19,7 @@ pub struct SelectionFactors {
     pub perf_failure: f64,
     pub blocks_behind: u64,
     pub slashable_usd: f64,
-    pub price: GRT,
+    pub fee: GRT,
     pub last_use: SystemTime,
     pub sybil: NotNan<f64>,
 }
@@ -36,7 +36,7 @@ impl MetaIndexer<'_> {
             .map(|f| Selection {
                 indexing: f.indexing,
                 url: f.url.clone(),
-                price: f.price,
+                fee: f.fee,
                 blocks_behind: f.blocks_behind,
             })
             .collect()
@@ -80,7 +80,7 @@ pub fn select_indexers<'s>(
             Ok(chosen) => MetaIndexer(chosen.collect()),
             Err(err) => unreachable!("{}", err),
         };
-        while (meta_indexer.price() > params.budget) && !meta_indexer.0.is_empty() {
+        while (meta_indexer.fee() > params.budget) && !meta_indexer.0.is_empty() {
             // The order of indexers from `choose_multiple_weighted` is unspecified and may not be
             // shuffled. So we should remove a random entry.
             let index = rng.gen_range(0..meta_indexer.0.len());
@@ -114,8 +114,8 @@ pub fn select_indexers<'s>(
 }
 
 impl MetaIndexer<'_> {
-    fn price(&self) -> GRT {
-        self.0.iter().map(|f| f.price).sum()
+    fn fee(&self) -> GRT {
+        self.0.iter().map(|f| f.fee).sum()
     }
 
     fn mask(&self) -> [u8; 20] {
@@ -176,7 +176,7 @@ impl MetaIndexer<'_> {
         let perf_failure = perf_failure.iter().zip(pf).map(|(a, b)| a * b).sum::<f64>();
         let slashable_usd = expected_value(&slashable_usd);
 
-        let cost = self.price();
+        let cost = self.fee();
         // We use the max value of blocks behind to account for the possibility of incorrect
         // indexing statuses.
         let blocks_behind = self.0.iter().map(|f| f.blocks_behind).max().unwrap();

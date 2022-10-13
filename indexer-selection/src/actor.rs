@@ -103,17 +103,6 @@ pub fn apply_state_update(state: &mut State, update: &Update) {
             result,
         } => {
             state.observe_query(indexing, *duration, *result);
-            // Ok(()) => ,
-            // Err(error) => {
-            //     state.observe_failed_query(indexing, *duration, error.is_timeout());
-            //     if let IndexerErrorObservation::IndexingBehind {
-            //         latest_query_block,
-            //         latest_block,
-            //     } = error
-            //     {
-            //         state.observe_indexing_behind(indexing, *latest_query_block, *latest_block);
-            //     }
-            // }
         }
         Update::Penalty { indexing, weight } => state.penalize(indexing, *weight),
     }

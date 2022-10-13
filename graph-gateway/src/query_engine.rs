@@ -395,8 +395,8 @@ where
                     return Err(IndexerSelectionErrors(format!("{:?}", errors)));
                 }
             };
-            if selection.price > GRT::try_from(100u64).unwrap() {
-                tracing::error!(excessive_fee = %selection.price);
+            if selection.fee > GRT::try_from(100u64).unwrap() {
+                tracing::error!(excessive_fee = %selection.fee);
                 return Err(QueryEngineError::ExcessiveFee);
             }
 
@@ -482,7 +482,7 @@ where
     ) -> Result<(), IndexerError> {
         let receipt = self
             .receipt_pools
-            .commit(&selection.indexing, selection.price)
+            .commit(&selection.indexing, selection.fee)
             .await
             .map(Receipt)
             .map_err(|_| IndexerError::NoAllocation)?;

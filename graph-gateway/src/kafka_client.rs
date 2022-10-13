@@ -97,7 +97,7 @@ impl ClientQueryResult {
         let fee = query
             .indexer_attempts
             .last()
-            .map(|attempt| attempt.selection.price.as_f64())
+            .map(|attempt| attempt.selection.fee.as_f64())
             .unwrap_or(0.0);
 
         Self {
