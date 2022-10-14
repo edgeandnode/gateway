@@ -28,19 +28,7 @@ const SELECTION_LIMIT: usize = 3;
 /// A subset of available indexers, with combined utility
 struct MetaIndexer<'s>(pub ArrayVec<&'s SelectionFactors, SELECTION_LIMIT>);
 
-impl MetaIndexer<'_> {
-    fn selections(self) -> Vec<Selection> {
-        self.0
-            .into_iter()
-            .map(|f| Selection {
-                indexing: f.indexing,
-                url: f.url.clone(),
-                fee: f.fee,
-                blocks_behind: f.blocks_behind,
-            })
-            .collect()
-    }
-}
+type V<T> = ArrayVec<T, SELECTION_LIMIT>;
 
 pub trait ExpectedValue {
     fn expected_value(&self) -> f64;
@@ -54,8 +42,13 @@ pub fn select_indexers<'s>(
     if factors.is_empty() {
         return vec![];
     }
-
-    let mut meta_indexers = ArrayVec::<MetaIndexer<'s>, 20>::new();
+    // Sample indexer subsets, discarding likely duplicates, retaining the highest scoring subset
+    // of available indexers.
+    //
+    // We must use a suitable indexer, if one exists. Indexers are filtered out when calculating
+    // selection factors if they are over budget or don't meet freshness requirements. So they won't
+    // pollute the set we're selecting from.
+    let mut selections = (ArrayVec::new(), 0.0);
     let mut masks = ArrayVec::<[u8; 20], 20>::new();
     // Calculate a sample limit using a "good enough" approximation of the binomial coefficient of
     // `(factors.len(), SELECTION_LIMIT)` (AKA "n choose k").
@@ -64,52 +57,45 @@ pub fn select_indexers<'s>(
         n if n == (SELECTION_LIMIT + 1) => n,
         n => (n - SELECTION_LIMIT) * 2,
     }
-    .min(meta_indexers.capacity());
-    // Sample indexer subsets, discarding likely duplicates.
-    //
-    // We must use a suitable indexer, if one exists. Indexers are filtered out when calculating
-    // selection factors if they are over budget or don't meet freshness requirements. So they won't
-    // pollute the set we're selecting from.
+    .min(masks.capacity());
     for _ in 0..sample_limit {
-        if meta_indexers.len() == sample_limit {
-            break;
-        }
-        let chosen = factors.choose_multiple_weighted(rng, SELECTION_LIMIT, |f| f.sybil);
-        let mut meta_indexer = match chosen {
-            Ok(chosen) => MetaIndexer(chosen.collect()),
-            Err(err) => unreachable!("{}", err),
-        };
+        let mut meta_indexer = MetaIndexer(
+            factors
+                .choose_multiple_weighted(rng, SELECTION_LIMIT, |f| f.sybil)
+                .unwrap()
+                .collect(),
+        );
         while (meta_indexer.fee() > params.budget) && !meta_indexer.0.is_empty() {
             // The order of indexers from `choose_multiple_weighted` is unspecified and may not be
             // shuffled. So we should remove a random entry.
             let index = rng.gen_range(0..meta_indexer.0.len());
             meta_indexer.0.remove(index);
         }
-        if meta_indexer.0.is_empty() {
+        // Don't bother scoring if we've already tried the same subset of indexers.
+        let mask = meta_indexer.mask();
+        if masks.iter().any(|m| m == &mask) {
             continue;
         }
-        let mask = meta_indexer.mask();
-        if masks.iter().all(|m| m != &mask) {
-            meta_indexers.push(meta_indexer);
-            masks.push(mask);
+        masks.push(mask);
+        let score = meta_indexer.score(params);
+        tracing::trace!(
+            indexers = ?meta_indexer.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
+            score,
+        );
+        if score > selections.1 {
+            selections = (meta_indexer.0, score);
         }
     }
-    if meta_indexers.is_empty() {
-        return vec![];
-    }
-
-    let scores = meta_indexers
-        .iter()
-        .filter_map(|m| NotNan::try_from(m.score(params)).ok())
-        .collect::<ArrayVec<NotNan<f64>, 20>>();
-    let max_score = scores.iter().copied().max().unwrap();
-    meta_indexers
-        .into_iter()
-        .zip(scores)
-        .find(|(_, s)| *s == max_score)
-        .unwrap()
+    selections
         .0
-        .selections()
+        .into_iter()
+        .map(|f| Selection {
+            indexing: f.indexing,
+            url: f.url.clone(),
+            fee: f.fee,
+            blocks_behind: f.blocks_behind,
+        })
+        .collect()
 }
 
 impl MetaIndexer<'_> {
@@ -132,7 +118,16 @@ impl MetaIndexer<'_> {
             return 0.0;
         }
 
-        type V<T> = ArrayVec<T, SELECTION_LIMIT>;
+        // Expected values calculated based on the following BQN (https://tinyurl.com/3vmpdcza):
+        // # indexer success latencies
+        // l ← ⟨50, 20, 100⟩
+        // # indexer reliabilities
+        // r ← ⟨0.99, 0.5, 0.8⟩
+        // # sort both vectors by success latency
+        // Sort ← (⍋l)⊏⊢ ⋄ r ↩ Sort r ⋄ l ↩ Sort l
+        // ps ← r×1»×`1-r # ⟨ 0.5 0.495 0.004 ⟩
+        // ExpectedValue ← +´ps×⊢
+        // ExpectedValue l # 35.15
 
         let mut reliability: V<f64> = self.0.iter().map(|f| f.reliability).collect();
         let mut perf_success: V<f64> = self.0.iter().map(|f| f.perf_success).collect();
@@ -159,26 +154,24 @@ impl MetaIndexer<'_> {
                 *s *= x;
                 Some(*s)
             })
-            .collect::<ArrayVec<f64, SELECTION_LIMIT>>();
+            .collect::<V<f64>>();
         // BQN: ps ← r×1»pf
         let ps = std::iter::once(&1.0)
             .chain(&pf)
             .take(SELECTION_LIMIT)
             .zip(&reliability)
             .map(|(p, r)| p * r)
-            .collect::<ArrayVec<f64, SELECTION_LIMIT>>();
+            .collect::<V<f64>>();
         let expected_value = |v: &V<f64>| -> f64 { v.iter().zip(&ps).map(|(a, &b)| a * b).sum() };
-
         let perf_success = expected_value(&perf_success);
         let slashable_usd = expected_value(&slashable_usd);
 
-        let perf_failure = self
+        let perf_failure = *self
             .0
             .iter()
             .map(|f| NotNan::try_from(f.perf_failure).unwrap())
             .max()
             .unwrap();
-
         let cost = self.fee();
         // We use the max value of blocks behind to account for the possibility of incorrect
         // indexing statuses.
@@ -186,7 +179,7 @@ impl MetaIndexer<'_> {
         let min_last_use = self.0.iter().map(|f| f.last_use).max().unwrap();
         weighted_product_model([
             params.performance.performance_utility(perf_success as u32),
-            params.performance.performance_utility(*perf_failure as u32),
+            params.performance.performance_utility(perf_failure as u32),
             params.economic_security.concave_utility(slashable_usd),
             params.data_freshness.concave_utility(blocks_behind as f64),
             price_efficiency(&cost, params.price_efficiency_weight, &params.budget),
@@ -200,7 +193,7 @@ impl MetaIndexer<'_> {
 fn exploration(last_use: Option<Instant>) -> UtilityFactor {
     let secs_since_use = last_use
         .map(|t| Instant::now().duration_since(t))
-        .unwrap_or(Duration::ZERO)
+        .unwrap_or(Duration::from_secs(60))
         .as_secs_f64();
     UtilityFactor::one((secs_since_use + 6.0).log(6.0))
 }

@@ -66,7 +66,7 @@ where
     fn expected_value(&self) -> f64 {
         self.frames
             .iter()
-            .map(|f| f.expected_value() * f.weight())
+            .map(|f| f.expected_value() * (f.weight() + 1.0))
             .sum::<f64>()
             / self.frames.iter().map(|f| f.weight()).sum::<f64>().max(1.0)
     }
