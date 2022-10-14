@@ -3,26 +3,15 @@ use crate::{
     CostModel, IndexerErrorObservation, SelectionError,
 };
 use prelude::*;
-use std::{collections::HashMap, sync::Arc, time::SystemTime};
+use std::{collections::HashMap, sync::Arc};
 
+#[derive(Default)]
 pub struct IndexingState {
     pub status: IndexingStatus,
     pub reliability: DecayBuffer<Reliability>,
     pub perf_success: DecayBuffer<Performance>,
     pub perf_failure: DecayBuffer<Performance>,
-    pub last_use: SystemTime,
-}
-
-impl Default for IndexingState {
-    fn default() -> Self {
-        Self {
-            status: IndexingStatus::default(),
-            reliability: DecayBuffer::default(),
-            perf_success: DecayBuffer::default(),
-            perf_failure: DecayBuffer::default(),
-            last_use: SystemTime::UNIX_EPOCH,
-        }
-    }
+    pub last_use: Option<Instant>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -54,6 +43,8 @@ impl IndexingState {
         duration: Duration,
         result: Result<(), IndexerErrorObservation>,
     ) {
+        let t = Instant::now() - duration;
+        self.last_use = Some(self.last_use.map(|t0| t0.max(t)).unwrap_or(t));
         self.reliability.current_mut().observe(result.is_ok());
         match result {
             Ok(()) => self.perf_success.current_mut().observe(duration),

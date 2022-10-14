@@ -1,7 +1,7 @@
 use crate::{
     price_efficiency::price_efficiency,
     utility::{weighted_product_model, UtilityFactor},
-    ConcaveUtilityParameters, Indexing, Selection, UtilityParameters,
+    Indexing, Selection, UtilityParameters,
 };
 use arrayvec::ArrayVec;
 use ordered_float::NotNan;
@@ -9,7 +9,6 @@ use prelude::{
     rand::{prelude::SliceRandom as _, Rng},
     *,
 };
-use std::time::SystemTime;
 
 pub struct SelectionFactors {
     pub indexing: Indexing,
@@ -20,7 +19,7 @@ pub struct SelectionFactors {
     pub blocks_behind: u64,
     pub slashable_usd: f64,
     pub fee: GRT,
-    pub last_use: SystemTime,
+    pub last_use: Option<Instant>,
     pub sybil: NotNan<f64>,
 }
 
@@ -137,7 +136,6 @@ impl MetaIndexer<'_> {
 
         let mut reliability: V<f64> = self.0.iter().map(|f| f.reliability).collect();
         let mut perf_success: V<f64> = self.0.iter().map(|f| f.perf_success).collect();
-        let mut perf_failure: V<f64> = self.0.iter().map(|f| f.perf_failure).collect();
         let mut slashable_usd: V<f64> = self.0.iter().map(|f| f.slashable_usd).collect();
 
         let mut order = (0..perf_success.len()).collect::<V<usize>>();
@@ -151,7 +149,6 @@ impl MetaIndexer<'_> {
         }
         sort_by_perf_success!(reliability);
         sort_by_perf_success!(perf_success);
-        sort_by_perf_success!(perf_failure);
         sort_by_perf_success!(slashable_usd);
 
         // BQN: pf ← ×`1-r
@@ -173,34 +170,37 @@ impl MetaIndexer<'_> {
         let expected_value = |v: &V<f64>| -> f64 { v.iter().zip(&ps).map(|(a, &b)| a * b).sum() };
 
         let perf_success = expected_value(&perf_success);
-        let perf_failure = perf_failure.iter().zip(pf).map(|(a, b)| a * b).sum::<f64>();
         let slashable_usd = expected_value(&slashable_usd);
+
+        let perf_failure = self
+            .0
+            .iter()
+            .map(|f| NotNan::try_from(f.perf_failure).unwrap())
+            .max()
+            .unwrap();
 
         let cost = self.fee();
         // We use the max value of blocks behind to account for the possibility of incorrect
         // indexing statuses.
         let blocks_behind = self.0.iter().map(|f| f.blocks_behind).max().unwrap();
-        let min_last_use = self.0.iter().map(|f| f.last_use).min().unwrap();
+        let min_last_use = self.0.iter().map(|f| f.last_use).max().unwrap();
         weighted_product_model([
             params.performance.performance_utility(perf_success as u32),
-            params.performance.performance_utility(perf_failure as u32),
+            params.performance.performance_utility(*perf_failure as u32),
             params.economic_security.concave_utility(slashable_usd),
             params.data_freshness.concave_utility(blocks_behind as f64),
             price_efficiency(&cost, params.price_efficiency_weight, &params.budget),
-            confidence(min_last_use),
+            exploration(min_last_use),
         ])
     }
 }
 
-/// https://www.desmos.com/calculator/pok5u8v2g8
-fn confidence(last_use: SystemTime) -> UtilityFactor {
-    let params = ConcaveUtilityParameters {
-        a: 0.1,
-        weight: 0.1,
-    };
-    let secs_since_use = SystemTime::now()
-        .duration_since(last_use)
+/// Increase utility of indexers as their last use increases.
+/// https://www.desmos.com/calculator/qcxa0tbigg
+fn exploration(last_use: Option<Instant>) -> UtilityFactor {
+    let secs_since_use = last_use
+        .map(|t| Instant::now().duration_since(t))
         .unwrap_or(Duration::ZERO)
         .as_secs_f64();
-    params.concave_utility(secs_since_use + 1.0)
+    UtilityFactor::one((secs_since_use + 6.0).log(6.0))
 }
