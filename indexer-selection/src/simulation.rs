@@ -100,8 +100,8 @@ pub async fn simulate(
         }
 
         let mut context = Context::new("{ a }", "").unwrap();
-        let freshness_requirements = FreshnessRequirements {
-            minimum_block: None,
+        let freshness_requirements = BlockRequirements {
+            range: None,
             has_latest: true,
         };
         let latest_block = blocks.last().unwrap().number;

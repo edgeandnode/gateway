@@ -12,7 +12,7 @@ use crate::{
 };
 use futures::future::join_all;
 use indexer_selection::{
-    self, actor::IndexerErrorObservation, Context, FreshnessRequirements, IndexerError,
+    self, actor::IndexerErrorObservation, BlockRequirements, Context, IndexerError,
     IndexerPreferences, IndexerScore, ScoringSample, Selection, SelectionError, UnresolvedBlock,
 };
 use indexer_selection::{actor::Update, Indexing, UtilityConfig};
@@ -263,7 +263,7 @@ where
             .ok_or_else(|| NetworkNotSupported(subgraph.network.clone()))?;
 
         let block_constraints = block_constraints(&context).ok_or(MalformedQuery)?;
-        let block_requirements = join_all(
+        let resolved_blocks = join_all(
             block_constraints
                 .iter()
                 .filter_map(|constraint| constraint.clone().into_unresolved())
@@ -272,9 +272,10 @@ where
         .await
         .into_iter()
         .collect::<Result<BTreeSet<BlockPointer>, UnresolvedBlock>>()?;
-
-        let freshness_requirements = FreshnessRequirements {
-            minimum_block: block_requirements.iter().map(|b| b.number).max(),
+        let min_block = resolved_blocks.iter().map(|b| b.number).min();
+        let max_block = resolved_blocks.iter().map(|b| b.number).max();
+        let block_requirements = BlockRequirements {
+            range: min_block.map(|min| (min, max_block.unwrap())),
             has_latest: block_constraints.iter().any(|c| match c {
                 BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
                 BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
@@ -282,10 +283,9 @@ where
         };
 
         // Reject queries for blocks before minimum start block of subgraph manifest.
-        match freshness_requirements.minimum_block {
-            Some(min_block) if min_block < subgraph.min_block => return Err(BlockBeforeMin),
-            _ => (),
-        };
+        if matches!(min_block, Some(min_block) if min_block < subgraph.min_block) {
+            return Err(BlockBeforeMin);
+        }
 
         let query_count = context.operations.len().max(1) as u64;
         let api_key = query.api_key.as_ref().unwrap();
@@ -360,7 +360,7 @@ where
                 latest_block.number,
                 &deployment_indexers,
                 budget,
-                &freshness_requirements,
+                &block_requirements,
             )?;
             drop(selection_timer);
 
@@ -394,7 +394,7 @@ where
             let blocks_behind = selection.score.blocks_behind + (latest_unresolved / 2);
             let latest_query_block = block_cache.latest(blocks_behind).await?;
             let deterministic_query =
-                make_query_deterministic(context, &block_requirements, &latest_query_block)
+                make_query_deterministic(context, &resolved_blocks, &latest_query_block)
                     .ok_or(MalformedQuery)?;
 
             let indexing = selection.indexing;
