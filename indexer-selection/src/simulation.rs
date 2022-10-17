@@ -79,6 +79,7 @@ pub async fn simulate(
                         .saturating_sub(characteristics.blocks_behind),
                     blocks_behind: characteristics.blocks_behind,
                     behind_reported_block: false,
+                    min_block: None,
                 }),
             },
         );
@@ -99,8 +100,8 @@ pub async fn simulate(
         }
 
         let mut context = Context::new("{ a }", "").unwrap();
-        let freshness_requirements = FreshnessRequirements {
-            minimum_block: None,
+        let freshness_requirements = BlockRequirements {
+            range: None,
             has_latest: true,
         };
         let latest_block = blocks.last().unwrap().number;

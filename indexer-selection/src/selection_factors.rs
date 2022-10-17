@@ -1,6 +1,6 @@
 use crate::{
     decay::DecayBuffer, performance::*, price_efficiency::*, reputation::*, utility::*,
-    BadIndexerReason, Context, FreshnessRequirements, SelectionError,
+    BadIndexerReason, BlockRequirements, Context, SelectionError,
 };
 use cost_model::CostModel;
 use prelude::*;
@@ -30,6 +30,7 @@ pub struct BlockStatus {
     pub reported_number: u64,
     pub blocks_behind: u64,
     pub behind_reported_block: bool,
+    pub min_block: Option<u64>,
 }
 
 impl SelectionFactors {
@@ -104,7 +105,7 @@ impl SelectionFactors {
 
     pub fn expected_freshness_utility(
         &self,
-        requirements: &FreshnessRequirements,
+        requirements: &BlockRequirements,
         utility_parameters: UtilityParameters,
         latest_block: u64,
     ) -> Result<SelectionFactor, SelectionError> {
@@ -114,11 +115,8 @@ impl SelectionFactors {
             .as_ref()
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
         // Check that the indexer has synced at least up to any minimum block required.
-        if let Some(minimum) = requirements.minimum_block {
-            let indexer_latest = latest_block.saturating_sub(status.blocks_behind);
-            if indexer_latest < minimum {
-                return Err(BadIndexerReason::BehindMinimumBlock.into());
-            }
+        if !self.meets_requirements(requirements, latest_block) {
+            return Err(BadIndexerReason::MissingRequiredBlock.into());
         }
         // Add utility if the latest block is requested. Otherwise, data freshness is not a utility,
         // but a binary of minimum block. Note that it can be both.
@@ -132,6 +130,20 @@ impl SelectionFactors {
             utility,
             weight: utility_parameters.weight,
         })
+    }
+
+    fn meets_requirements(&self, requirements: &BlockRequirements, latest_block: u64) -> bool {
+        let status = match self.status.block.as_ref() {
+            Some(status) => status,
+            None => return false,
+        };
+        let (min, max) = match requirements.range {
+            Some(range) => range,
+            None => return true,
+        };
+        let min_block = status.min_block.unwrap_or(0);
+        let expected_block_status = latest_block.saturating_sub(status.blocks_behind);
+        (min_block <= min) && (max <= expected_block_status)
     }
 
     pub fn total_allocation(&self) -> GRT {

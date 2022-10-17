@@ -46,7 +46,7 @@ pub enum SelectionError {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum BadIndexerReason {
-    BehindMinimumBlock,
+    MissingRequiredBlock,
     MissingIndexingStatus,
     QueryNotCosted,
     FeeTooHigh,
@@ -108,9 +108,9 @@ pub struct UtilityConfig {
 }
 
 #[derive(Default, Debug, Eq, PartialEq)]
-pub struct FreshnessRequirements {
-    /// If specified, the subgraph must have indexed up to at least this number.
-    pub minimum_block: Option<u64>,
+pub struct BlockRequirements {
+    /// Range of blocks specified in the query
+    pub range: Option<(u64, u64)>,
     /// If true, the query has an unspecified block which means the query benefits from syncing as
     /// far in the future as possible.
     pub has_latest: bool,
@@ -202,7 +202,7 @@ impl State {
         latest_block: u64,
         indexers: &[Address],
         budget: GRT,
-        freshness_requirements: &FreshnessRequirements,
+        requirements: &BlockRequirements,
     ) -> Result<(Vec<Selection>, Option<ScoringSample>), SelectionError> {
         let mut scores = Vec::new();
         let mut high_fee_count = 0;
@@ -228,7 +228,7 @@ impl State {
                 latest_block,
                 budget,
                 config,
-                freshness_requirements,
+                requirements,
                 restricted,
             );
             // TODO: these logs are currently required for data science. However, we would like to omit these in production and only use the sampled scoring logs.
@@ -313,7 +313,7 @@ impl State {
         latest_block: u64,
         budget: GRT,
         config: &UtilityConfig,
-        freshness_requirements: &FreshnessRequirements,
+        requirements: &BlockRequirements,
         restricted: bool,
     ) -> Result<IndexerScore, SelectionError> {
         let mut aggregator = UtilityAggregator::new();
@@ -357,7 +357,7 @@ impl State {
         aggregator.add(reputation);
 
         let data_freshness = selection_factors.expected_freshness_utility(
-            freshness_requirements,
+            requirements,
             config.data_freshness,
             latest_block,
         )?;
