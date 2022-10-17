@@ -20,6 +20,7 @@ pub struct Data {
 pub struct IndexingStatus {
     pub network: String,
     pub block: BlockPointer,
+    pub min_block: Option<u64>,
     pub cost_model: Option<Ptr<CostModel>>,
 }
 
@@ -186,6 +187,7 @@ impl Actor {
                 chains {
                     network
                     latestBlock { number hash }
+                    earliestBlock { number hash }
                 }
             }
         }"# });
@@ -248,6 +250,10 @@ impl Actor {
                         number: block_status.number.parse().ok()?,
                         hash: block_status.hash.clone(),
                     },
+                    min_block: chain
+                        .earliest_block
+                        .as_ref()
+                        .and_then(|b| b.number.parse::<u64>().ok()),
                     cost_model,
                 };
                 Some((indexing, status))
@@ -295,6 +301,7 @@ struct IndexingStatusResponse {
 struct ChainStatus {
     network: String,
     latest_block: Option<BlockStatus>,
+    earliest_block: Option<BlockStatus>,
 }
 
 #[derive(Deserialize)]
