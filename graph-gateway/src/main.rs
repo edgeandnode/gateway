@@ -179,7 +179,7 @@ async fn main() {
         .deployment_indexers
         .clone()
         .map(|deployments| async move { deployments.keys().cloned().collect() });
-    let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 5);
+    let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 50);
     let subgraph_info = manifest_client::create(
         ipfs_client,
         network_subgraph_data.subgraph_deployments.clone(),
@@ -222,6 +222,7 @@ async fn main() {
         network_subgraph_auth_token: opt.network_subgraph_auth_token,
     };
     let ready_data = ReadyData {
+        start_time: Instant::now(),
         block_caches,
         allocations: network_subgraph_data.allocations,
     };
@@ -429,11 +430,14 @@ async fn handle_metrics() -> HttpResponse {
 
 #[derive(Clone)]
 struct ReadyData {
+    start_time: Instant,
     block_caches: Arc<HashMap<String, BlockCache>>,
     allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
 }
 
 async fn handle_ready(data: web::Data<ReadyData>) -> HttpResponse {
+    // Wait for 30 seconds since startup for subgraph manifests to load.
+    let timer_ready = data.start_time.elapsed() > Duration::from_secs(30);
     let block_caches_ready = data
         .block_caches
         .iter()
@@ -444,7 +448,7 @@ async fn handle_ready(data: web::Data<ReadyData>) -> HttpResponse {
         .map(|map| map.len())
         .unwrap_or(0)
         > 0;
-    if block_caches_ready && allocations_ready {
+    if timer_ready && block_caches_ready && allocations_ready {
         HttpResponseBuilder::new(StatusCode::OK).body("Ready")
     } else {
         // Respond with 425 Too Early
