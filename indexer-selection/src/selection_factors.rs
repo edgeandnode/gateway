@@ -30,6 +30,7 @@ pub struct BlockStatus {
     pub reported_number: u64,
     pub blocks_behind: u64,
     pub behind_reported_block: bool,
+    pub min_block: Option<u64>,
 }
 
 impl SelectionFactors {
@@ -80,6 +81,10 @@ impl SelectionFactors {
         self.reputation.decay();
     }
 
+    pub fn min_block(&self) -> Option<u64> {
+        self.status.block.as_ref().and_then(|b| b.min_block)
+    }
+
     pub fn blocks_behind(&self) -> Result<u64, BadIndexerReason> {
         self.status
             .block
@@ -117,7 +122,7 @@ impl SelectionFactors {
         if let Some(minimum) = requirements.minimum_block {
             let indexer_latest = latest_block.saturating_sub(status.blocks_behind);
             if indexer_latest < minimum {
-                return Err(BadIndexerReason::BehindMinimumBlock.into());
+                return Err(BadIndexerReason::MissingMinimumBlock.into());
             }
         }
         // Add utility if the latest block is requested. Otherwise, data freshness is not a utility,

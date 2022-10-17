@@ -46,7 +46,7 @@ pub enum SelectionError {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum BadIndexerReason {
-    BehindMinimumBlock,
+    MissingMinimumBlock,
     MissingIndexingStatus,
     QueryNotCosted,
     FeeTooHigh,
@@ -335,6 +335,16 @@ impl State {
             .indexings
             .get_unobserved(&indexing)
             .ok_or(BadIndexerReason::MissingIndexingStatus)?;
+
+        match (
+            freshness_requirements.minimum_block,
+            selection_factors.min_block(),
+        ) {
+            (Some(required), Some(min_block)) if min_block > required => {
+                return Err(BadIndexerReason::MissingMinimumBlock.into())
+            }
+            _ => (),
+        };
 
         let blocks_behind = selection_factors.blocks_behind()?;
 
