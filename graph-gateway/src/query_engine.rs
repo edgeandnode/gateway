@@ -325,6 +325,7 @@ where
         let mut utility_params = UtilityParameters::new(
             budget,
             freshness_requirements,
+            // 170cbcf3-db7f-404a-be13-2022d9142677
             0,
             api_key.indexer_preferences.performance,
             api_key.indexer_preferences.data_freshness,
@@ -342,6 +343,7 @@ where
                 .value_immediate()
                 .ok_or(UnresolvedBlock::WithNumber(0))?;
             tracing::debug!(?latest_block);
+            // 170cbcf3-db7f-404a-be13-2022d9142677
             utility_params.latest_block = latest_block.number;
 
             // Since we modify the context in-place, we need to reset the context to the state of

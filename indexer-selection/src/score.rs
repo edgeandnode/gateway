@@ -34,8 +34,8 @@ pub trait ExpectedValue {
     fn expected_value(&self) -> f64;
 }
 
-pub fn select_indexers<'s>(
-    rng: &mut impl Rng,
+pub fn select_indexers<'s, R: Rng>(
+    rng: &mut R,
     params: &UtilityParameters,
     factors: &'s [SelectionFactors],
 ) -> Vec<Selection> {

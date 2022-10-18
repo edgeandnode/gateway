@@ -27,7 +27,7 @@ impl Reliability {
 
 impl ExpectedValue for Reliability {
     fn expected_value(&self) -> f64 {
-        let s = self.successful_queries.max(1.0);
+        let s = self.successful_queries + 0.1;
         let p = s / (s + self.failed_queries);
         p * 1.1_f64.powf(-self.penalty)
     }

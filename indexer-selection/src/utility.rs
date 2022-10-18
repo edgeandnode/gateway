@@ -7,7 +7,6 @@ pub struct ConcaveUtilityParameters {
 }
 
 impl ConcaveUtilityParameters {
-    #[cfg(test)]
     pub fn one(a: f64) -> Self {
         Self { a, weight: 1.0 }
     }
@@ -26,6 +25,7 @@ impl ConcaveUtilityParameters {
         }
     }
 
+    // 170cbcf3-db7f-404a-be13-2022d9142677
     pub fn performance_utility(&self, latency_ms: u32) -> UtilityFactor {
         let sigmoid = |x: u32| 1.0 + E.powf(((x as f64).powf(self.a) - 400.0) / 300.0);
         UtilityFactor {
@@ -84,53 +84,4 @@ pub fn weighted_product_model(factors: impl IntoIterator<Item = UtilityFactor>) 
         .fold(1.0, |aggregate, UtilityFactor { utility, weight }| {
             aggregate * utility.powf(weight)
         })
-}
-
-#[cfg(test)]
-mod tests {
-    //! None of these tests are prescriptive, they are just here to describe the behavior that
-    //! currently is. If the algorithm changes, it is fine to change the results.
-
-    use super::*;
-    fn test(expect: f64, utils: &[(f64, f64)]) {
-        let utility = weighted_product_model(
-            utils
-                .iter()
-                .map(|&(utility, weight)| UtilityFactor { utility, weight }),
-        );
-        assert_eq!(expect, utility);
-    }
-
-    #[test]
-    fn any_0_is_very_bad() {
-        // Any utility of 0 must result in a final value of 0.
-        test(0.0, &[(1.0, 1.0), (1.0, 1.0), (1.0, 1.0), (0.0, 1.0)]);
-    }
-
-    #[test]
-    fn one_very_poor() {
-        // Nearly the same as above, but one dropped down to 0.2
-        // This should drastically affect the result.
-        test(
-            0.0620107539156828,
-            &[(0.2, 0.9), (0.5, 0.8), (0.5, 1.0), (0.9, 0.8), (1.0, 1.0)],
-        );
-    }
-
-    #[test]
-    fn poor_with_low_weight() {
-        // Same as above, but this time with low weight for the poor factor.
-        test(
-            0.2247206668370446,
-            &[(0.2, 0.1), (0.5, 0.8), (0.5, 1.0), (0.9, 0.8), (1.0, 1.0)],
-        );
-    }
-
-    #[test]
-    fn pretty_good() {
-        test(
-            0.5232600000000001,
-            &[(0.9, 1.0), (0.95, 1.0), (0.8, 1.0), (0.9, 1.0), (0.85, 1.0)],
-        );
-    }
 }

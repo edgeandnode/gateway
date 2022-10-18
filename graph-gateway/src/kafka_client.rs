@@ -144,7 +144,7 @@ impl ISAScoringError {
         message: &str,
     ) -> Self {
         let error_code = match &err {
-            // 1-3 skipped on purpose
+            // 1-3 skipped on purpose, for consistency with prior versions
             IndexerSelectionError::NoStatus => 4,
             IndexerSelectionError::NoAllocation => 5,
             IndexerSelectionError::FeeTooHigh => 6,
