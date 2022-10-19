@@ -72,7 +72,7 @@ impl IndexingState {
             None => return,
         };
         if (latest_query_block <= status.reported_number) && !status.behind_reported_block {
-            self.reliability.current_mut().penalize(100);
+            self.reliability.current_mut().penalize(130);
             // Only apply this harsh penaly once, until the reported status is updated.
             status.behind_reported_block = true;
         }

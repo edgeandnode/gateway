@@ -21,15 +21,18 @@ impl Reliability {
     }
 
     pub fn penalize(&mut self, p: u8) {
-        self.penalty = (self.penalty + p as f64).max(100.0);
+        self.penalty = self.penalty + p as f64;
     }
 }
 
 impl ExpectedValue for Reliability {
+    // https://www.desmos.com/calculator/gspottbqp7
     fn expected_value(&self) -> f64 {
-        let s = self.successful_queries + 0.1;
-        let p = s / (s + self.failed_queries);
-        p * 1.1_f64.powf(-self.penalty)
+        let successful_queries = self.successful_queries + 0.1;
+        let total_queries = successful_queries + self.failed_queries;
+        let p_success = successful_queries / total_queries;
+        let p_penalty = self.penalty / total_queries;
+        p_success / (p_penalty + 1.0)
     }
 }
 
