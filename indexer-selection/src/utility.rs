@@ -24,15 +24,6 @@ impl ConcaveUtilityParameters {
             weight: self.weight,
         }
     }
-
-    // 170cbcf3-db7f-404a-be13-2022d9142677
-    pub fn performance_utility(&self, latency_ms: u32) -> UtilityFactor {
-        let sigmoid = |x: u32| 1.0 + E.powf(((x as f64).powf(self.a) - 400.0) / 300.0);
-        UtilityFactor {
-            utility: sigmoid(0) / sigmoid(latency_ms),
-            weight: self.weight,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -76,7 +67,7 @@ impl UtilityFactor {
 /// allow a weighted multiply was just that before budget was a factor of the other utilities and
 /// this doesn't make sense if there is no scale for utilities (eg: adding another utility to
 /// consider shouldn't make the budget go down). With geometric mean that wasn't a problem, but now
-/// it would be so price utility has been refactored accordingly and the results are much better
+/// it would be so fee utility has been refactored accordingly and the results are much better
 /// overall.
 pub fn weighted_product_model(factors: impl IntoIterator<Item = UtilityFactor>) -> f64 {
     factors

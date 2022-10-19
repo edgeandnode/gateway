@@ -21,7 +21,7 @@ impl Reliability {
     }
 
     pub fn penalize(&mut self, p: u8) {
-        self.penalty = self.penalty + p as f64;
+        self.penalty += p as f64;
     }
 }
 

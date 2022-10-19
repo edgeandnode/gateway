@@ -1,9 +1,9 @@
 pub mod actor;
 pub mod decay;
 mod economic_security;
+mod fee;
 mod indexing;
 mod performance;
-mod price_efficiency;
 mod reliability;
 mod score;
 pub mod simulation;
@@ -22,7 +22,7 @@ use score::ExpectedValue;
 pub use secp256k1::SecretKey;
 
 use crate::{
-    price_efficiency::indexer_fee,
+    fee::indexer_fee,
     receipts::BorrowFail,
     score::{select_indexers, SelectionFactors},
 };
@@ -143,7 +143,7 @@ pub struct UtilityParameters {
     pub performance: ConcaveUtilityParameters,
     pub data_freshness: ConcaveUtilityParameters,
     pub economic_security: ConcaveUtilityParameters,
-    pub price_efficiency_weight: f64,
+    pub fee_weight: f64,
 }
 
 impl UtilityParameters {
@@ -154,7 +154,7 @@ impl UtilityParameters {
         performance: f64,
         data_freshness: f64,
         economic_security: f64,
-        price_efficiency: f64,
+        fee_weight: f64,
     ) -> Self {
         fn interp(lo: f64, hi: f64, preference: f64) -> f64 {
             if !(0.0..=1.0).contains(&preference) {
@@ -182,7 +182,7 @@ impl UtilityParameters {
                 a: interp(8e-4, 4e-4, economic_security),
                 weight: interp(1.0, 1.5, economic_security),
             },
-            price_efficiency_weight: interp(1.0, 2.0, price_efficiency),
+            fee_weight: interp(1.0, 2.0, fee_weight),
         }
     }
 }
@@ -307,7 +307,7 @@ impl State {
         let fee = indexer_fee(
             &state.status.cost_model,
             context,
-            params.price_efficiency_weight,
+            params.fee_weight,
             &params.budget,
             selection_limit,
         )?;

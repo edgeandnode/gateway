@@ -1,6 +1,6 @@
 use crate::{
-    decay::DecayBuffer, performance::*, price_efficiency::indexer_fee, reliability::*, Context,
-    CostModel, IndexerErrorObservation, SelectionError,
+    decay::DecayBuffer, fee::indexer_fee, performance::*, reliability::*, Context, CostModel,
+    IndexerErrorObservation, SelectionError,
 };
 use prelude::*;
 use std::{collections::HashMap, sync::Arc};

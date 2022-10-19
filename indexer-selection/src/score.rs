@@ -1,5 +1,6 @@
 use crate::{
-    price_efficiency::price_efficiency,
+    fee::fee_utility,
+    performance::performance_utility,
     utility::{weighted_product_model, UtilityFactor},
     Indexing, Selection, UtilityParameters,
 };
@@ -172,17 +173,16 @@ impl MetaIndexer<'_> {
             .map(|f| NotNan::try_from(f.perf_failure).unwrap())
             .max()
             .unwrap();
-        let cost = self.fee();
         // We use the max value of blocks behind to account for the possibility of incorrect
         // indexing statuses.
         let blocks_behind = self.0.iter().map(|f| f.blocks_behind).max().unwrap();
         let min_last_use = self.0.iter().map(|f| f.last_use).max().unwrap();
         weighted_product_model([
-            params.performance.performance_utility(perf_success as u32),
-            params.performance.performance_utility(perf_failure as u32),
+            performance_utility(params.performance, perf_success as u32),
+            performance_utility(params.performance, perf_failure as u32),
             params.economic_security.concave_utility(slashable_usd),
             params.data_freshness.concave_utility(blocks_behind as f64),
-            price_efficiency(&cost, params.price_efficiency_weight, &params.budget),
+            fee_utility(params.fee_weight, &self.fee(), &params.budget),
             exploration(min_last_use),
         ])
     }
