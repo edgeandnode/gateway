@@ -66,6 +66,10 @@ const S: f64 = 0.6180339887498949;
 
 /// https://www.desmos.com/calculator/wnffyb9edh
 pub fn fee_utility(weight: f64, fee: &GRT, budget: &GRT) -> UtilityFactor {
+    // Any fee over budget has zero utility.
+    if *fee > *budget {
+        return UtilityFactor::one(0.0);
+    }
     let one_wei: GRT = GRTWei::try_from(1u64).unwrap().shift();
     let scaled_fee = *fee / budget.saturating_add(one_wei);
     let mut utility = (scaled_fee.as_f64() + S).recip() - S;
