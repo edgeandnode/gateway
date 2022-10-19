@@ -8,6 +8,7 @@ use crate::{
 use prelude::*;
 use std::f64::consts::E;
 
+// https://www.desmos.com/calculator/hegcczzalf
 // 170cbcf3-db7f-404a-be13-2022d9142677
 pub fn performance_utility(params: ConcaveUtilityParameters, latency_ms: u32) -> UtilityFactor {
     let sigmoid = |x: u32| 1.0 + E.powf(((x as f64).powf(params.a) - 400.0) / 300.0);

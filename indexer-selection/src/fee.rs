@@ -65,6 +65,7 @@ const S: f64 = 0.6180339887498949;
 ///   the Consumer may expect to pay ~55-75% of the maximum budget.
 
 /// https://www.desmos.com/calculator/wnffyb9edh
+/// 3534cc5a-f562-48ce-ac7a-88737c80698b
 pub fn fee_utility(weight: f64, fee: &GRT, budget: &GRT) -> UtilityFactor {
     // Any fee over budget has zero utility.
     if *fee > *budget {
