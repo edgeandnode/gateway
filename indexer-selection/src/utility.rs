@@ -20,7 +20,7 @@ impl ConcaveUtilityParameters {
     /// Returns: 0.0 <= u < 1.0
     pub fn concave_utility(&self, x: f64) -> UtilityFactor {
         UtilityFactor {
-            utility: 1.0 - E.powf(-1.0 * self.a * x),
+            utility: 1.0 - E.powf(-self.a * x),
             weight: self.weight,
         }
     }

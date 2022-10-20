@@ -171,7 +171,7 @@ impl UtilityParameters {
                 a: interp(1.1, 1.2, performance),
                 weight: interp(1.0, 1.5, performance),
             },
-            // https://www.desmos.com/calculator/kwgsyriihk
+            // 9f6c6cb0-0e49-4bc4-848e-22a1599af45b
             data_freshness: ConcaveUtilityParameters {
                 a: interp(5.0, 3.0, data_freshness),
                 weight: interp(3.0, 4.5, data_freshness),

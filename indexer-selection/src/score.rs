@@ -2,7 +2,7 @@ use crate::{
     fee::fee_utility,
     performance::performance_utility,
     utility::{weighted_product_model, UtilityFactor},
-    Indexing, Selection, UtilityParameters,
+    BlockRequirements, ConcaveUtilityParameters, Indexing, Selection, UtilityParameters,
 };
 use arrayvec::ArrayVec;
 use ordered_float::NotNan;
@@ -181,10 +181,29 @@ impl MetaIndexer<'_> {
             performance_utility(params.performance, perf_success as u32),
             performance_utility(params.performance, perf_failure as u32),
             params.economic_security.concave_utility(slashable_usd),
-            params.data_freshness.concave_utility(blocks_behind as f64),
+            data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
             fee_utility(params.fee_weight, &self.fee(), &params.budget),
             exploration(min_last_use),
         ])
+    }
+}
+
+/// https://www.desmos.com/calculator/kwgsyriihk
+/// 9f6c6cb0-0e49-4bc4-848e-22a1599af45b
+fn data_freshness_utility(
+    params: ConcaveUtilityParameters,
+    requirements: &BlockRequirements,
+    blocks_behind: u64,
+) -> UtilityFactor {
+    // Add utility if the latest block is requested. Otherwise, data freshness is not a utility,
+    // but a binary of minimum block. Note that it can be both.
+    if !requirements.has_latest || (blocks_behind == 0) {
+        UtilityFactor {
+            utility: 1.0,
+            weight: params.weight,
+        }
+    } else {
+        params.concave_utility(1.0 / blocks_behind as f64)
     }
 }
 
