@@ -1,5 +1,5 @@
 use crate::{
-    decay::DecayBuffer, fee::indexer_fee, performance::*, reliability::*, Context, CostModel,
+    decay::ISADecayBuffer, fee::indexer_fee, performance::*, reliability::*, Context, CostModel,
     IndexerErrorObservation, SelectionError,
 };
 use prelude::*;
@@ -8,9 +8,9 @@ use std::{collections::HashMap, sync::Arc};
 #[derive(Default)]
 pub struct IndexingState {
     pub status: IndexingStatus,
-    pub reliability: DecayBuffer<Reliability>,
-    pub perf_success: DecayBuffer<Performance>,
-    pub perf_failure: DecayBuffer<Performance>,
+    pub reliability: ISADecayBuffer<Reliability>,
+    pub perf_success: ISADecayBuffer<Performance>,
+    pub perf_failure: ISADecayBuffer<Performance>,
     pub last_use: Option<Instant>,
 }
 
@@ -87,9 +87,16 @@ impl IndexingState {
     }
 
     pub fn decay(&mut self) {
-        self.reliability.decay();
-        self.perf_success.decay();
-        self.perf_failure.decay();
+        let Self {
+            status: _,
+            last_use: _,
+            perf_success,
+            reliability,
+            perf_failure,
+        } = self;
+        reliability.decay();
+        perf_success.decay();
+        perf_failure.decay();
     }
 
     pub fn total_allocation(&self) -> GRT {

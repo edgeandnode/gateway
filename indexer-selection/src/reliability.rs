@@ -1,14 +1,14 @@
 use crate::{
-    decay::{Decay, FrameWeight},
+    decay::{Decay, ISADecayBuffer},
     impl_struct_decay,
     score::ExpectedValue,
 };
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Reliability {
-    pub successful_queries: f64,
-    pub failed_queries: f64,
-    pub penalty: f64,
+    successful_queries: f64,
+    failed_queries: f64,
+    penalties: f64,
 }
 
 impl Reliability {
@@ -21,29 +21,23 @@ impl Reliability {
     }
 
     pub fn penalize(&mut self, p: u8) {
-        self.penalty += p as f64;
+        self.penalties += p as f64;
     }
 }
 
-impl ExpectedValue for Reliability {
+impl ExpectedValue for ISADecayBuffer<Reliability> {
     // https://www.desmos.com/calculator/gspottbqp7
     fn expected_value(&self) -> f64 {
-        let successful_queries = self.successful_queries + 0.1;
-        let total_queries = successful_queries + self.failed_queries;
+        let successful_queries = self.map(|r| r.successful_queries).sum::<f64>() + 0.1;
+        let total_queries = successful_queries + self.map(|r| r.failed_queries).sum::<f64>();
         let p_success = successful_queries / total_queries;
-        let p_penalty = self.penalty / total_queries;
+        let p_penalty = self.map(|r| r.penalties).sum::<f64>() / total_queries;
         p_success / (p_penalty + 1.0)
-    }
-}
-
-impl FrameWeight for Reliability {
-    fn weight(&self) -> f64 {
-        self.successful_queries + self.failed_queries
     }
 }
 
 impl_struct_decay!(Reliability {
     successful_queries,
     failed_queries,
-    penalty
+    penalties
 });

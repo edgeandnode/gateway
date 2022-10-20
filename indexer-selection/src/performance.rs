@@ -1,5 +1,5 @@
 use crate::{
-    decay::{Decay, FrameWeight},
+    decay::{Decay, ISADecayBuffer},
     impl_struct_decay,
     score::ExpectedValue,
     utility::UtilityFactor,
@@ -24,25 +24,21 @@ pub struct Performance {
     count: f64,
 }
 
-impl_struct_decay!(Performance {
-    total_latency_ms,
-    count
-});
-
 impl Performance {
     pub fn observe(&mut self, duration: Duration) {
         self.total_latency_ms += duration.as_millis() as f64;
     }
 }
 
-impl ExpectedValue for Performance {
+impl ExpectedValue for ISADecayBuffer<Performance> {
     fn expected_value(&self) -> f64 {
-        (self.total_latency_ms + 0.1) / self.count.max(1.0)
+        let total_latency_ms = self.map(|p| p.total_latency_ms).sum::<f64>();
+        let total_count = self.map(|p| p.count).sum::<f64>();
+        (total_latency_ms + 0.1) / total_count.max(1.0)
     }
 }
 
-impl FrameWeight for Performance {
-    fn weight(&self) -> f64 {
-        self.count
-    }
-}
+impl_struct_decay!(Performance {
+    total_latency_ms,
+    count
+});
