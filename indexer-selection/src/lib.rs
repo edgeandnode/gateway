@@ -60,7 +60,7 @@ pub enum IndexerError {
     NoStatus,
     NoStake,
     NoAllocation,
-    BehindMinimumBlock,
+    MissingRequiredBlock,
     QueryNotCosted,
     FeeTooHigh,
     Excluded,
@@ -119,9 +119,9 @@ pub struct Indexing {
 }
 
 #[derive(Default, Debug, Eq, PartialEq)]
-pub struct FreshnessRequirements {
-    /// If specified, the subgraph must have indexed up to at least this number.
-    pub minimum_block: Option<u64>,
+pub struct BlockRequirements {
+    /// Range of blocks specified in the query
+    pub range: Option<(u64, u64)>,
     /// If true, the query has an unspecified block which means the query benefits from syncing as
     /// far in the future as possible.
     pub has_latest: bool,
@@ -138,7 +138,7 @@ impl<'a> IndexerErrors<'a> {
 #[derive(Debug)]
 pub struct UtilityParameters {
     pub budget: GRT,
-    pub freshness_requirements: FreshnessRequirements,
+    pub requirements: BlockRequirements,
     pub latest_block: u64,
     pub performance: ConcaveUtilityParameters,
     pub data_freshness: ConcaveUtilityParameters,
@@ -149,7 +149,7 @@ pub struct UtilityParameters {
 impl UtilityParameters {
     pub fn new(
         budget: GRT,
-        freshness_requirements: FreshnessRequirements,
+        requirements: BlockRequirements,
         latest_block: u64,
         performance: f64,
         data_freshness: f64,
@@ -164,7 +164,7 @@ impl UtilityParameters {
         }
         Self {
             budget,
-            freshness_requirements,
+            requirements,
             latest_block,
             // 170cbcf3-db7f-404a-be13-2022d9142677
             performance: ConcaveUtilityParameters {
@@ -289,11 +289,8 @@ impl State {
             .ok_or(IndexerError::NoStatus)?;
 
         let status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
-        if let Some(min_block) = params.freshness_requirements.minimum_block {
-            let block = params.latest_block.saturating_sub(status.blocks_behind);
-            if block < min_block {
-                return Err(IndexerError::BehindMinimumBlock.into());
-            }
+        if !status.meets_requirements(&params.requirements, params.latest_block) {
+            return Err(IndexerError::MissingRequiredBlock.into());
         }
 
         if info.stake == GRT::zero() {

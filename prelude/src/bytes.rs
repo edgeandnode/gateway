@@ -35,11 +35,19 @@ macro_rules! bytes_wrapper {
     ($vis:vis, $id:ident, $len:expr, "HexStr") => {
         bytes_wrapper!($vis, $id, $len);
         impl FromStr for $id {
-            type Err = hex::FromHexError;
+            type Err = anyhow::Error;
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                let mut bytes = [0u8; $len];
+                use std::io::Write as _;
+
                 let offset = if s.starts_with("0x") {2} else {0};
-                hex::decode_to_slice(&s[offset..], &mut bytes)?;
+                anyhow::ensure!(s[offset..].len() <= $len * 2, "input too long");
+                let s = &s[offset..];
+
+                let mut input = std::io::Cursor::new(['0' as u8; $len * 2]);
+                input.set_position(($len * 2) - s.len() as u64);
+                input.write_all(s.as_bytes())?;
+                let mut bytes = [0u8; $len];
+                hex::decode_to_slice(&input.into_inner(), &mut bytes)?;
                 Ok(Self(bytes))
             }
         }
@@ -172,9 +180,19 @@ impl fmt::Display for InvalidIPFSHash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::bytes_from_id;
+    use rand::{thread_rng, Rng as _};
 
-    #[tokio::test]
-    async fn subgraph_id_encoding() {
+    #[test]
+    fn parse_0_fill() {
+        for n in [0, 42, 0xefbeadde, thread_rng().gen()] {
+            let bytes = bytes_from_id(n);
+            assert_eq!(&hex::encode(&bytes).parse::<Bytes32>().unwrap().0, &bytes);
+        }
+    }
+
+    #[test]
+    fn subgraph_id_encoding() {
         let bytes = hex::decode("67486e65165b1474898247760a4b852d70d95782c6325960e5b6b4fd82fed1bd")
             .unwrap();
         let v1 = "0xdeadbeef678b513255cea949017921c8c9f6ef82-1";
@@ -190,8 +208,8 @@ mod tests {
         assert_eq!(id1, id2);
     }
 
-    #[tokio::test]
-    async fn subgraph_deployment_id_encoding() {
+    #[test]
+    fn subgraph_deployment_id_encoding() {
         let ipfs_hash = "QmWmyoMoctfbAaiEs2G46gpeUmhqFRDW6KWo64y5r581Vz";
         let mut bytes = [0u8; 32];
         bytes.clone_from_slice(

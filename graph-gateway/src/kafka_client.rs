@@ -149,7 +149,7 @@ impl ISAScoringError {
             IndexerSelectionError::NoAllocation => 5,
             IndexerSelectionError::FeeTooHigh => 6,
             IndexerSelectionError::QueryNotCosted => 7,
-            IndexerSelectionError::BehindMinimumBlock => 8,
+            IndexerSelectionError::MissingRequiredBlock => 8,
             IndexerSelectionError::Excluded => 9,
             IndexerSelectionError::NaN => 10,
             IndexerSelectionError::NoStake => 11,

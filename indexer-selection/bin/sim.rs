@@ -1,6 +1,6 @@
 use anyhow::Result;
 use indexer_selection::{
-    simulation::*, test_utils::gen_blocks, FreshnessRequirements, Selection, UtilityParameters,
+    simulation::*, test_utils::gen_blocks, BlockRequirements, Selection, UtilityParameters,
 };
 use prelude::*;
 use std::io::{stdin, BufRead as _};
@@ -30,8 +30,8 @@ async fn main() -> Result<()> {
         .collect::<Vec<IndexerCharacteristics>>();
 
     let budget = "0.01".parse().unwrap();
-    let freshness_requirements = FreshnessRequirements {
-        minimum_block: None,
+    let freshness_requirements = BlockRequirements {
+        range: None,
         has_latest: true,
     };
     let blocks = {

@@ -1,6 +1,6 @@
 use crate::{
-    decay::ISADecayBuffer, fee::indexer_fee, performance::*, reliability::*, Context, CostModel,
-    IndexerErrorObservation, SelectionError,
+    decay::ISADecayBuffer, fee::indexer_fee, performance::*, reliability::*, BlockRequirements,
+    Context, CostModel, IndexerErrorObservation, SelectionError,
 };
 use prelude::*;
 use std::{collections::HashMap, sync::Arc};
@@ -31,6 +31,19 @@ pub struct BlockStatus {
     pub reported_number: u64,
     pub blocks_behind: u64,
     pub behind_reported_block: bool,
+    pub min_block: Option<u64>,
+}
+
+impl BlockStatus {
+    pub fn meets_requirements(&self, requirements: &BlockRequirements, latest_block: u64) -> bool {
+        let (min, max) = match requirements.range {
+            Some(range) => range,
+            None => return true,
+        };
+        let min_block = self.min_block.unwrap_or(0);
+        let expected_block_status = latest_block.saturating_sub(self.blocks_behind);
+        (min_block <= min) && (max <= expected_block_status)
+    }
 }
 
 impl IndexingState {

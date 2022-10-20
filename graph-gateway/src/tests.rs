@@ -1,4 +1,5 @@
 use crate::{
+    block_constraints::{block_constraints, BlockConstraint},
     chains::{self, test::Provider, BlockCache},
     fisherman_client::*,
     indexer_client::*,
@@ -12,19 +13,18 @@ use async_trait::async_trait;
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
     test_utils::{default_cost_model, test_allocation_id, TEST_KEY},
-    BlockStatus, IndexerInfo, Indexing, IndexingStatus, SecretKey, Selection, UnresolvedBlock,
+    BlockStatus, Context, IndexerInfo, Indexing, IndexingStatus, SecretKey, Selection,
+    UnresolvedBlock,
 };
 use prelude::{
     buffer_queue::{self, QueueWriter},
     decimal, double_buffer,
+    rand::thread_rng,
     test_utils::*,
     *,
 };
 use rand::{
-    distributions,
-    rngs::{OsRng, SmallRng},
-    seq::SliceRandom,
-    Rng, RngCore as _, SeedableRng,
+    distributions, rngs::SmallRng, seq::SliceRandom as _, Rng as _, RngCore as _, SeedableRng as _,
 };
 use serde_json::json;
 use std::{
@@ -114,17 +114,18 @@ struct IndexerTopology {
     staked_grt: TokenAmount,
     allocated_grt: TokenAmount,
     blocks_behind: usize,
+    min_block: Option<u64>,
     fee: TokenAmount,
     indexer_err: bool,
     challenge_outcome: ChallengeOutcome,
 }
 
 impl IndexerTopology {
-    fn block(&self, blocks: usize) -> usize {
+    fn block(&self, blocks: usize) -> u64 {
         if blocks == 0 {
             return 0;
         }
-        blocks - self.blocks_behind(blocks) - 1
+        (blocks - self.blocks_behind(blocks) - 1) as u64
     }
 
     fn blocks_behind(&self, blocks: usize) -> usize {
@@ -184,7 +185,16 @@ impl Topology {
             .choose(&mut self.rng)
             .unwrap()
             .clone();
-        let query_body = if self.flip_coin(32) { "?" } else { BASIC_QUERY };
+        let network = self.networks.get(&deployment.network).unwrap();
+        let query_body = if self.rng.gen_bool(0.01) {
+            "?".to_string()
+        } else {
+            let constraints = match (self.rng.gen_bool(0.1), network.blocks.choose(&mut self.rng)) {
+                (true, Some(block)) => format!("(block:{{number:{}}})", block.number),
+                _ => "".to_string(),
+            };
+            format!("{{ entities{} {{ id }} }}", constraints)
+        };
         let mut query = Query::new("".into(), query_body.into(), None);
         query.api_key = Some(Arc::new(APIKey::default()));
         query.subgraph = Some(Ptr::new(SubgraphInfo {
@@ -202,7 +212,7 @@ impl Topology {
             name: self.gen_str(log_2(*self.config.networks.end()).max(1)),
             blocks: Vec::new(),
         };
-        let block_count = self.gen_len(self.config.blocks.clone(), 32);
+        let block_count = self.gen_len(self.config.blocks.clone());
         for i in 0..block_count {
             network.blocks.push(self.gen_block(i as u64));
         }
@@ -214,7 +224,7 @@ impl Topology {
             id: self.gen_bytes().into(),
             deployments: Vec::new(),
         };
-        for _ in 0..self.gen_len(self.config.deployments.clone(), 32) {
+        for _ in 0..self.gen_len(self.config.deployments.clone()) {
             subgraph.deployments.push(self.gen_deployment());
         }
         subgraph
@@ -234,7 +244,7 @@ impl Topology {
             indexings: Vec::new(),
         };
         let indexers = self.indexers.keys().cloned().collect::<Vec<Address>>();
-        for _ in 0..self.gen_len(self.config.indexings.clone(), 32) {
+        for _ in 0..self.gen_len(self.config.indexings.clone()) {
             match indexers.choose(&mut self.rng) {
                 None => break,
                 Some(id) if deployment.indexings.contains(id) => continue,
@@ -245,13 +255,20 @@ impl Topology {
     }
 
     fn gen_indexer(&mut self) -> IndexerTopology {
+        let block_range = 0..=*self.config.blocks.end();
+        let min_block = if self.rng.gen_bool(0.1) {
+            Some(self.rng.gen_range(block_range.clone()) as u64)
+        } else {
+            None
+        };
         IndexerTopology {
             id: self.gen_bytes().into(),
             staked_grt: self.gen_amount(),
             allocated_grt: self.gen_amount(),
-            blocks_behind: self.rng.gen_range(0..=*self.config.blocks.end()),
+            blocks_behind: self.rng.gen_range(block_range),
+            min_block,
             fee: self.gen_amount(),
-            indexer_err: self.flip_coin(16),
+            indexer_err: self.rng.gen_bool(0.01),
             challenge_outcome: self.gen_challenge_outcome(),
         }
     }
@@ -272,7 +289,7 @@ impl Topology {
     }
 
     fn gen_challenge_outcome(&mut self) -> ChallengeOutcome {
-        if self.flip_coin(16) {
+        if self.rng.gen_bool(0.1) {
             *[
                 ChallengeOutcome::FailedToProvideAttestation,
                 ChallengeOutcome::DisagreeWithTrustedIndexer,
@@ -304,19 +321,14 @@ impl Topology {
         bytes
     }
 
-    #[inline]
-    fn flip_coin(&mut self, fraction: u64) -> bool {
-        (self.rng.next_u64() % fraction) == 0
-    }
-
     /// Generate a length in the given range that should only be zero a small fraction of the time.
     /// This is done to ensure that generated test cases have a reasonable probability to have
     /// input components necessary to execute a complete query, while also covering the zero cases.
-    fn gen_len(&mut self, range: RangeInclusive<usize>, zero_fraction: u64) -> usize {
+    fn gen_len(&mut self, range: RangeInclusive<usize>) -> usize {
         if range.end() == &0 {
             return 0;
         }
-        if range.contains(&0) && self.flip_coin(zero_fraction) {
+        if range.contains(&0) && self.rng.gen_bool(0.05) {
             return 0;
         } else {
             loop {
@@ -383,9 +395,10 @@ impl Topology {
                             )])),
                             cost_model: cost_model.clone(),
                             block: Some(BlockStatus {
-                                reported_number: indexer.block(network.blocks.len()) as u64,
-                                blocks_behind: indexer.blocks_behind as u64,
+                                reported_number: indexer.block(network.blocks.len()),
+                                blocks_behind: indexer.blocks_behind(network.blocks.len()) as u64,
                                 behind_reported_block: false,
+                                min_block: indexer.min_block,
                             }),
                         };
                         Some((deployment.id, update))
@@ -428,6 +441,8 @@ impl Topology {
         query: &Query,
         result: Result<(), QueryEngineError>,
     ) -> Result<(), Vec<String>> {
+        use QueryEngineError::*;
+
         let mut trace = Vec::new();
         trace.push(format!("result: {:?}", result));
         trace.push(format!("{:#?}", query));
@@ -444,8 +459,31 @@ impl Topology {
             .map(|id| self.indexers.get(id).unwrap())
             .collect::<Vec<&IndexerTopology>>();
 
+        if indexers.is_empty() {
+            return Self::expect_err(&mut trace, &result, NoIndexers);
+        }
+
+        let context = match Context::new(&query.query, "") {
+            Ok(context) => context,
+            Err(_) => return Self::expect_err(&mut trace, &result, MalformedQuery),
+        };
+        let required_block = match block_constraints(&context).unwrap().into_iter().next() {
+            None | Some(BlockConstraint::Unconstrained) => None,
+            Some(BlockConstraint::Number(n)) => Some(n),
+            Some(constraint) => unreachable!("unexpected constraint: {:?}", constraint),
+        };
+
+        let blocks = &self.networks.get(&subgraph.network).unwrap().blocks;
+        if blocks.is_empty() {
+            return Self::expect_err(
+                &mut trace,
+                &result,
+                MissingBlock(UnresolvedBlock::WithNumber(0)),
+            );
+        }
+
         // Valid indexers have the following properties:
-        fn valid_indexer(indexer: &IndexerTopology) -> bool {
+        let valid_indexer = |indexer: &IndexerTopology| -> bool {
             // no failure to indexing the subgraph
             !indexer.indexer_err
             // more than zero stake
@@ -454,7 +492,11 @@ impl Topology {
             && (indexer.allocated_grt > TokenAmount::Zero)
             // fee <= budget
             && (indexer.fee <= TokenAmount::Enough)
-        }
+            // valid minimum block
+            && required_block.and_then(|required| Some(indexer.min_block? <= required)).unwrap_or(true)
+            // indexed required block
+            && required_block.map(|required| indexer.block(blocks.len()) >= required).unwrap_or(true)
+        };
         let valid = indexers
             .iter()
             .cloned()
@@ -463,8 +505,22 @@ impl Topology {
         trace.push(format!("valid indexers: {:#?}", valid));
 
         if query.indexer_attempts.is_empty() {
-            return self
-                .check_no_attempts(&mut trace, query, &result, &subgraph, &indexers, &valid);
+            if !valid.is_empty() {
+                return Self::err_with(
+                    &mut trace,
+                    format!("expected no valid indexer, got {}", valid.len()),
+                );
+            }
+            if matches!(
+                result,
+                Err(NoIndexerSelected) | Err(IndexerSelectionErrors(_))
+            ) {
+                return Ok(());
+            }
+            return Self::err_with(
+                &mut trace,
+                format!("expected no valid indexers, got {:?}", result),
+            );
         }
 
         let mut failed_attempts = query.indexer_attempts.clone();
@@ -487,51 +543,6 @@ impl Topology {
         match success_check {
             Some(result) => result,
             None => Ok(()),
-        }
-    }
-
-    fn check_no_attempts(
-        &self,
-        trace: &mut Vec<String>,
-        query: &Query,
-        result: &Result<(), QueryEngineError>,
-        subgraph: &SubgraphInfo,
-        indexers: &[&IndexerTopology],
-        valid: &[&IndexerTopology],
-    ) -> Result<(), Vec<String>> {
-        use QueryEngineError::*;
-        if indexers.is_empty() {
-            return Self::expect_err(trace, result, NoIndexers);
-        }
-        if query.query.as_ref() == "?" {
-            return Self::expect_err(trace, result, MalformedQuery);
-        }
-        if self
-            .networks
-            .get(&subgraph.network)
-            .unwrap()
-            .blocks
-            .is_empty()
-        {
-            return Self::expect_err(trace, result, MissingBlock(UnresolvedBlock::WithNumber(0)));
-        }
-
-        if !valid.is_empty() {
-            return Self::err_with(
-                trace,
-                format!("expected no valid indexer, got {}", valid.len()),
-            );
-        }
-
-        if indexers.is_empty() {
-            Self::expect_err(trace, result, NoIndexerSelected)?;
-        }
-        match result {
-            Err(QueryEngineError::IndexerSelectionErrors(_)) => Ok(()),
-            _ => Self::err_with(
-                trace,
-                format!("expected IndexerSelectionErrors(_), got {:?}", result),
-            ),
         }
     }
 
@@ -634,7 +645,7 @@ impl IndexerInterface for TopologyIndexer {
         let matcher = Regex::new(r#"block: \{hash: \\"0x([[:xdigit:]]+)\\"}"#).unwrap();
         for capture in matcher.captures_iter(&query) {
             let hash = capture.get(1).unwrap().as_str().parse::<Bytes32>().unwrap();
-            let number = blocks.iter().position(|block| block.hash == hash).unwrap();
+            let number = blocks.iter().position(|block| block.hash == hash).unwrap() as u64;
             if number > indexer.block(blocks.len()) {
                 return Err(IndexerError::Other(json!({
                     "errors": vec![json!({
@@ -704,7 +715,7 @@ async fn query_engine() {
     let seed = env::vars()
         .find(|(k, _)| k == "TEST_SEED")
         .and_then(|(_, v)| v.parse::<u64>().ok())
-        .unwrap_or(OsRng.next_u64());
+        .unwrap_or(thread_rng().next_u64());
     tracing::info!(%seed);
     let rng = SmallRng::seed_from_u64(seed);
     for _ in 0..10 {
