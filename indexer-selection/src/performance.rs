@@ -27,6 +27,7 @@ pub struct Performance {
 impl Performance {
     pub fn observe(&mut self, duration: Duration) {
         self.total_latency_ms += duration.as_millis() as f64;
+        self.count += 1.0;
     }
 }
 
