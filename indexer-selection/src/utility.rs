@@ -73,6 +73,7 @@ pub fn weighted_product_model(factors: impl IntoIterator<Item = UtilityFactor>) 
     factors
         .into_iter()
         .fold(1.0, |aggregate, UtilityFactor { utility, weight }| {
+            debug_assert!(utility >= 0.0);
             aggregate * utility.powf(weight)
         })
 }

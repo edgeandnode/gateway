@@ -5,13 +5,24 @@ use crate::{
 use prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
-#[derive(Default)]
 pub struct IndexingState {
     pub status: IndexingStatus,
     pub reliability: ISADecayBuffer<Reliability>,
     pub perf_success: ISADecayBuffer<Performance>,
     pub perf_failure: ISADecayBuffer<Performance>,
-    pub last_use: Option<Instant>,
+    pub last_use: Instant,
+}
+
+impl Default for IndexingState {
+    fn default() -> Self {
+        Self {
+            status: IndexingStatus::default(),
+            reliability: ISADecayBuffer::default(),
+            perf_success: ISADecayBuffer::default(),
+            perf_failure: ISADecayBuffer::default(),
+            last_use: Instant::now() - Duration::from_secs(60),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -56,8 +67,7 @@ impl IndexingState {
         duration: Duration,
         result: Result<(), IndexerErrorObservation>,
     ) {
-        let t = Instant::now() - duration;
-        self.last_use = Some(self.last_use.map(|t0| t0.max(t)).unwrap_or(t));
+        self.last_use = self.last_use.max(Instant::now() - duration);
         self.reliability.current_mut().observe(result.is_ok());
         match result {
             Ok(()) => self.perf_success.current_mut().observe(duration),

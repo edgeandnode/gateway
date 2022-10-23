@@ -12,13 +12,15 @@ use std::convert::TryFrom;
 //   especially untrue with multi-selection, since indexers with low fees & high utilities in a
 //   single factor may be selected far more often then they were previously.
 
+/// (5_f64.sqrt() - 1.0) / 2.0
 const S: f64 = 0.6180339887498949;
 
 /// Constraints for the utility function `u(fee)`:
 ///   - u(0) = 1, u(budget + 1 GRTWei) = 0, and u is continuous within this input range. We want to
 ///     avoid a discontinuity at the budget where a 1 GRTWei difference in the fee suddenly sends
 ///     the utility to 0.
-///   - Range of [0,1] (the expected range of the utility combining function)
+///   - monotonically decreasing with a range of [0,1] (the expected range of the utility combining
+///     function)
 ///
 /// Another consideration is what shape we want the curve to be. At first, is seems a straight line
 /// would make sense - this would express that the utility of money is linear (eg: 2x money is 2x
@@ -112,11 +114,13 @@ pub fn indexer_fee(
         Some(Err(CostError::CostModelFail | CostError::QueryNotCosted)) => {
             return Err(IndexerError::QueryNotCosted.into());
         }
-        Some(Err(CostError::QueryNotSupported | CostError::QueryInvalid)) => {
+        Some(Err(
+            CostError::QueryNotSupported
+            | CostError::QueryInvalid
+            | CostError::FailedToParseQuery
+            | CostError::FailedToParseVariables,
+        )) => {
             return Err(InputError::MalformedQuery.into());
-        }
-        Some(Err(CostError::FailedToParseQuery | CostError::FailedToParseVariables)) => {
-            unreachable!("Model did not parse, but failed in doing so.")
         }
     };
 
@@ -154,7 +158,6 @@ mod test {
             let fee = indexer_fee(&cost_model, &mut context, weight, &budget, 1).unwrap();
             let utility = fee_utility(weight, &fee, &budget);
             let utility = utility.utility.powf(utility.weight);
-            println!("fee: {}, {:?}", fee, utility);
             assert!(fee >= "0.01".parse::<GRT>().unwrap());
             assert_within(utility, expected_utility, 0.0001);
         }

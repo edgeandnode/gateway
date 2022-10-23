@@ -20,7 +20,7 @@ pub struct SelectionFactors {
     pub blocks_behind: u64,
     pub slashable_usd: f64,
     pub fee: GRT,
-    pub last_use: Option<Instant>,
+    pub last_use: Instant,
     pub sybil: NotNan<f64>,
 }
 
@@ -177,9 +177,12 @@ impl MetaIndexer<'_> {
         // indexing statuses.
         let blocks_behind = self.0.iter().map(|f| f.blocks_behind).max().unwrap();
         let min_last_use = self.0.iter().map(|f| f.last_use).max().unwrap();
+        let p_success = ps.iter().sum::<f64>();
+        debug_assert!(0.0 <= p_success && p_success <= 1.0);
         weighted_product_model([
-            performance_utility(params.performance, perf_success as u32),
-            performance_utility(params.performance, perf_failure as u32),
+            reliability_utility(p_success),
+            performance_utility(params.performance, p_success, perf_success as u32),
+            performance_utility(params.performance, 1.0 - p_success, perf_failure as u32),
             params.economic_security.concave_utility(slashable_usd),
             data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
             fee_utility(params.fee_weight, &self.fee(), &params.budget),
@@ -188,7 +191,12 @@ impl MetaIndexer<'_> {
     }
 }
 
-/// https://www.desmos.com/calculator/kwgsyriihk
+/// https://www.desmos.com/calculator/plpijnbvhu
+fn reliability_utility(p_success: f64) -> UtilityFactor {
+    UtilityFactor::one(p_success.powi(7))
+}
+
+/// https://www.desmos.com/calculator/kcp4e9zink
 /// 9f6c6cb0-0e49-4bc4-848e-22a1599af45b
 fn data_freshness_utility(
     params: ConcaveUtilityParameters,
@@ -208,11 +216,8 @@ fn data_freshness_utility(
 }
 
 /// Increase utility of indexers as their last use increases.
-/// https://www.desmos.com/calculator/qcxa0tbigg
-fn exploration(last_use: Option<Instant>) -> UtilityFactor {
-    let secs_since_use = last_use
-        .map(|t| Instant::now().duration_since(t))
-        .unwrap_or(Duration::from_secs(60))
-        .as_secs_f64();
+/// https://www.desmos.com/calculator/5uayhxd9jp
+fn exploration(last_use: Instant) -> UtilityFactor {
+    let secs_since_use = Instant::now().duration_since(last_use).as_secs_f64();
     UtilityFactor::one((secs_since_use + 6.0).log(6.0))
 }

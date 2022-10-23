@@ -2,7 +2,7 @@ use prelude::*;
 
 /// DecayBuffer accounts for data sets over increasing time frames. Currently, these time frames are
 /// in intervals of L consecutive powers of 4. e.g. [1, 4, 16, 64] if L = 4. Data is collected in
-/// real-time into the current frame (index 0). Each execution of `decay` ditributes its value
+/// real-time into the current frame (index 0). Each execution of `decay` distributes its value
 /// across the remaining frames and then clears the current frame. The amount of information lost
 /// is determined by `D`, using the function `1 / (1 + 0.01 * D * i)` where i is the frame index.
 /// Higher values of `D` increase the rate of information decay as value if moved to larger frames,
