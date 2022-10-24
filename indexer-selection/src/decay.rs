@@ -1,7 +1,7 @@
 use prelude::*;
 
 /// DecayBuffer accounts for data sets over increasing time frames. Currently, these time frames are
-/// in intervals of L consecutive powers of 4. e.g. [1, 4, 16, 64] if L = 4. Data is collected in
+/// in intervals of F consecutive powers of 4. e.g. [1, 4, 16, 64] if F = 4. Data is collected in
 /// real-time into the current frame (index 0). Each execution of `decay` distributes its value
 /// across the remaining frames and then clears the current frame. The amount of information lost
 /// is determined by `D`, using the function `1 / (1 + 0.01 * D * i)` where i is the frame index.
@@ -12,13 +12,13 @@ use prelude::*;
 /// https://www.desmos.com/calculator/g1jpunuro5
 /// 717f8434-6759-4888-85c3-1e1e77057e50
 #[derive(Clone, Debug)]
-pub struct DecayBuffer<T, const L: usize, const D: u16> {
-    frames: [T; L],
+pub struct DecayBuffer<T, const F: usize, const D: u16> {
+    frames: [T; F],
 }
 
 fn decay<const D: u16>(mut f: f64, i: u8, value: f64) -> f64 {
-    f *= 1.0 - 4.0_f64.powi(-(i as i32));
-    f + (value / (1.0 + D as f64 * 0.01 * i as f64))
+    f *= 1.0 - 4_f64.powi(-(i as i32));
+    f + value / (1.0 + 0.01 * (D as u64 * i as u64) as f64)
 }
 
 pub trait Decay {
@@ -29,9 +29,9 @@ pub trait Decay {
 pub type ISADecayBuffer<T> = DecayBuffer<T, 7, 100>;
 pub type FastDecayBuffer<T> = DecayBuffer<T, 6, 10000>;
 
-impl<T, const L: usize, const D: u16> Default for DecayBuffer<T, L, D>
+impl<T, const F: usize, const D: u16> Default for DecayBuffer<T, F, D>
 where
-    [T; L]: Default,
+    [T; F]: Default,
 {
     fn default() -> Self {
         Self {
@@ -40,7 +40,7 @@ where
     }
 }
 
-impl<T, const L: usize, const D: u16> DecayBuffer<T, L, D>
+impl<T, const F: usize, const D: u16> DecayBuffer<T, F, D>
 where
     Self: Default,
 {
@@ -49,7 +49,7 @@ where
     }
 }
 
-impl<T, const L: usize, const D: u16> DecayBuffer<T, L, D> {
+impl<T, const F: usize, const D: u16> DecayBuffer<T, F, D> {
     pub fn current_mut(&mut self) -> &mut T {
         &mut self.frames[0]
     }
@@ -58,15 +58,12 @@ impl<T, const L: usize, const D: u16> DecayBuffer<T, L, D> {
         &self.frames
     }
 
-    pub fn map<'a, F, I>(&'a self, f: F) -> impl Iterator<Item = I> + 'a
-    where
-        F: FnMut(&T) -> I + 'a,
-    {
+    pub fn map<'a, I>(&'a self, f: impl FnMut(&T) -> I + 'a) -> impl Iterator<Item = I> + 'a {
         self.frames.iter().map(f)
     }
 }
 
-impl<T, const L: usize, const D: u16> DecayBuffer<T, L, D>
+impl<T, const F: usize, const D: u16> DecayBuffer<T, F, D>
 where
     T: Decay,
 {
@@ -127,4 +124,66 @@ macro_rules! impl_struct_decay {
             }
         }
     };
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test() {
+        property_check::<4, 0>();
+        property_check::<4, 1>();
+        property_check::<4, 10>();
+        property_check::<4, 100>();
+        property_check::<4, 1000>();
+    }
+
+    fn property_check<const F: usize, const D: u16>()
+    where
+        [f64; F]: Default,
+    {
+        let expected = (1..F)
+            .map(|i| 4_f64.powi(i as i32) / (1.0 + 0.01 * (D as u64 * i as u64) as f64))
+            .collect::<Vec<f64>>();
+        println!("{}", show(&expected));
+
+        let mut buf = DecayBuffer::<f64, F, D>::default();
+        let mut prev_err = (1..F).map(|_| 1.0).collect::<Vec<f64>>();
+        while prev_err.iter().any(|e| *e > 0.001) {
+            *buf.current_mut() = 1.0;
+            buf.decay();
+
+            let f = &buf.frames()[1..];
+            let new_err = f
+                .iter()
+                .zip(&expected)
+                .map(|(a, b)| (b - a).abs() / b)
+                .collect::<Vec<f64>>();
+
+            println!(
+                "F={F},D={D}: sum={:.2} err={:.2e} f={}",
+                f.iter().sum::<f64>(),
+                new_err.iter().sum::<f64>(),
+                show(&f),
+            );
+
+            // approaches expected vector when given unit value (1)
+            assert!(f.iter().zip(&expected).all(|(a, b)| a <= b));
+            assert!(f.iter().sum::<f64>() <= expected.iter().sum::<f64>());
+            assert!(new_err.iter().zip(&prev_err).all(|(a, b)| a <= b));
+
+            prev_err = new_err;
+        }
+    }
+
+    fn show(v: &[f64]) -> String {
+        format!(
+            "[{}]",
+            v.iter()
+                .map(|f| format!("{f:.2e}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    }
 }
