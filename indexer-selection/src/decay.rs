@@ -87,15 +87,15 @@ where
     T: Decay + Default,
 {
     pub fn decay(&mut self) {
+        // BQN: (1-1e¯3×d)×((1-4⋆-↕f)×⊢)+(«4⋆-↕f)×⊢
         // LLVM should be capable of constant folding & unrolling this loop nicely.
+        // https://rust.godbolt.org/z/K13dj78Ge
         for i in (1..self.frames.len()).rev() {
-            let w = 4_u64.pow(i as u32) as f64;
-            let w1 = 4_u64.pow((i - 1) as u32) as f64;
-            let retain = 1.0 - w.recip();
-            let take = w1.recip();
+            let retain = 1.0 - 4_f64.powi(-(i as i32));
+            let take = 4_f64.powi(-(i as i32 - 1));
             let decay = 1.0 - 1e-3 * D as f64;
             let (cur, prev) = self.frames[..=i].split_last_mut().unwrap();
-            cur.decay(&prev.last().unwrap(), retain * decay, take * decay);
+            cur.decay(prev.last().unwrap(), retain * decay, take * decay);
         }
         self.frames[0] = T::default();
     }
@@ -150,6 +150,7 @@ mod test {
         }
 
         fn decay(&mut self) {
+            // BQN: »(1-d×1e¯3)×⊢
             for x in &mut self.0 {
                 *x *= 1.0 - 1e-3 * D as f64;
             }
