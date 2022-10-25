@@ -1,39 +1,58 @@
 use prelude::*;
 
-/// DecayBuffer accounts for data sets over increasing time frames. Currently, these time frames are
-/// in intervals of F consecutive powers of 4. e.g. [1, 4, 16, 64] if F = 4. Data is collected in
-/// real-time into the current frame (index 0). Each execution of `decay` distributes its value
-/// across the remaining frames and then clears the current frame. The amount of information lost
-/// is determined by `D`, using the function `1 / (1 + 0.01 * D * i)` where i is the frame index.
-/// Higher values of `D` increase the rate of information decay as value if moved to larger frames,
-/// which also lowers the "weight" of those observations when averaging the expected values across
-/// the frames.
+/// DecayBuffer approximates a histogram of data points over time to inform a prediction. Data
+/// points are collected in the first (current) bin. Each call to `decay` rotates the bins to the
+/// right and resets the current bin. The information stored in each bin is decayed away at a rate
+/// of `1 - (0.001 * D)` per decay cycle (https://www.desmos.com/calculator/7kfwwvtkc1).
 ///
-/// https://www.desmos.com/calculator/g1jpunuro5
-/// 717f8434-6759-4888-85c3-1e1e77057e50
+/// We'll consider query count for this example:
+///     e.g. [c_0, c_1, c_2, ..., c_5461] where c_i is the count time T-i.
+/// Imagine we get a query roughly once per decay, we could see something like:
+///     [1, 0, 2, 0, 0, 1, ..., 2]
+/// As a cycle passes, we shift the data down because T-0 is now T-1 and T-500 is now T-501. So
+/// shifting gives us this:
+///     [0, 1, 0, 2, 0, 0, ..., 2, 2]
+/// (The final 1 disappeared into the first member of the ellipsis, and the 2 popped out from the
+/// last member of the ellipsis)
+///
+/// There is no actual decay yet in the above description. Note though that if we shift multiple
+/// times the sum should be the same for a while.
+///     e.g. [1, 0, 0, ...] -> [0, 1, 0, ...] -> [0, 0, 1, ...]
+/// The sum of all frames here is 1 until the 1 drops off the end.
+///
+/// The purpose of the decay is to weigh more recent data exponentially more than old data. If the
+/// decay per frame is 1% then we would get approximately this:
+///     [1, 0, 0, ...] -> [0, .99, 0, ...] -> [0, 0, .98]
+/// (This looks linear, but is exponential I've just rounded the numbers).
+///
+/// Note that every time we call decay, the sum of all values decreases.
+///
+/// We consider the accuracy of timestamp of recent data is more important than the accuracy of
+/// timestamp of old data. For example, it's useful to know if a failed request happened 2 seconds
+/// ago vs 12 seconds ago. But less useful to know whether it happened 1002 vs 1012 seconds ago even
+/// though that's the same duration. So for the approximation of our histogram, we use time frames
+/// with intervals of F consecutive powers of 4.
+///     e.g. [1, 4, 16, 64] if F = 4
+
 #[derive(Clone, Debug)]
 pub struct DecayBuffer<T, const F: usize, const D: u16> {
     frames: [T; F],
 }
 
-fn decay<const D: u16>(mut f: f64, i: u8, value: f64) -> f64 {
-    f *= 1.0 - 4_f64.powi(-(i as i32));
-    f + value / (1.0 + 0.01 * (D as u64 * i as u64) as f64)
-}
-
 pub trait Decay {
-    fn decay<const D: u16>(&mut self, i: u8, value: &Self);
-    fn clear(&mut self);
+    fn decay(&mut self, prev: &Self, retain: f64, take: f64);
 }
 
-pub type ISADecayBuffer<T> = DecayBuffer<T, 7, 100>;
-pub type FastDecayBuffer<T> = DecayBuffer<T, 6, 10000>;
+pub type ISADecayBuffer<T> = DecayBuffer<T, 7, 4>;
+pub type FastDecayBuffer<T> = DecayBuffer<T, 6, 5>;
 
 impl<T, const F: usize, const D: u16> Default for DecayBuffer<T, F, D>
 where
     [T; F]: Default,
 {
     fn default() -> Self {
+        debug_assert!(F > 0);
+        debug_assert!(D < 1000);
         Self {
             frames: Default::default(),
         }
@@ -65,37 +84,34 @@ impl<T, const F: usize, const D: u16> DecayBuffer<T, F, D> {
 
 impl<T, const F: usize, const D: u16> DecayBuffer<T, F, D>
 where
-    T: Decay,
+    T: Decay + Default,
 {
     pub fn decay(&mut self) {
-        let (head, rest) = match self.frames.split_first_mut() {
-            Some(split) => split,
-            None => return,
-        };
-        for (i, frame) in rest.into_iter().enumerate() {
-            frame.decay::<D>(i as u8 + 1, head);
+        // LLVM should be capable of constant folding & unrolling this loop nicely.
+        for i in (1..self.frames.len()).rev() {
+            let w = 4_u64.pow(i as u32) as f64;
+            let w1 = 4_u64.pow((i - 1) as u32) as f64;
+            let retain = 1.0 - w.recip();
+            let take = w1.recip();
+            let decay = 1.0 - 1e-3 * D as f64;
+            let (cur, prev) = self.frames[..=i].split_last_mut().unwrap();
+            cur.decay(&prev.last().unwrap(), retain * decay, take * decay);
         }
-        head.clear();
+        self.frames[0] = T::default();
     }
 }
 
 impl Decay for f64 {
-    fn decay<const D: u16>(&mut self, i: u8, value: &Self) {
-        *self = decay::<D>(*self, i, *value);
-    }
-
-    fn clear(&mut self) {
-        *self = 0.0;
+    fn decay(&mut self, prev: &Self, retain: f64, take: f64) {
+        *self = (*self * retain) + (prev * take);
     }
 }
 
 impl Decay for Duration {
-    fn decay<const D: u16>(&mut self, i: u8, value: &Self) {
-        *self = Duration::from_secs_f64(decay::<D>(self.as_secs_f64(), i, value.as_secs_f64()));
-    }
-
-    fn clear(&mut self) {
-        *self = Duration::ZERO;
+    fn decay(&mut self, prev: &Self, retain: f64, take: f64) {
+        let mut v = self.as_secs_f64();
+        v.decay(&prev.as_secs_f64(), retain, take);
+        *self = Duration::from_secs_f64(v);
     }
 }
 
@@ -104,22 +120,15 @@ impl Decay for Duration {
 macro_rules! impl_struct_decay {
     ($name:ty {$($field:ident),*}) => {
         impl Decay for $name {
-            fn decay<const D: u16>(&mut self, i: u8, value: &Self) {
-                $(
-                    self.$field.decay::<D>(i, &value.$field);
-                )*
-            }
-
-            fn clear(&mut self) {
-                // Doing a destructure ensures that we don't miss any fields,
-                // should they be added in the future. I tried it and the compiler
-                // even gives you a nice error message...
+            fn decay(&mut self, prev: &Self, retain: f64, take: f64) {
+                // Doing a destructure ensures that we don't miss any fields, should they be added
+                // in the future. I tried it and the compiler even gives you a nice error message:
                 //
-                // missing structure fields:
-                //    -{name}
-                let Self { $($field),* } = self;
+                //   missing structure fields:
+                //     -{name}
+                let Self { $($field: _),* } = self;
                 $(
-                    $field.clear();
+                    self.$field.decay(&prev.$field, retain, take);
                 )*
             }
         }
@@ -129,51 +138,71 @@ macro_rules! impl_struct_decay {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::test_utils::assert_within;
+    use arrayvec::ArrayVec;
+    use std::iter;
+
+    struct Model<const F: usize, const D: u16>(Vec<f64>);
+
+    impl<const F: usize, const D: u16> Model<F, D> {
+        fn new() -> Self {
+            Self((0..F).flat_map(|i| iter::repeat(0.0).take(w(i))).collect())
+        }
+
+        fn decay(&mut self) {
+            for x in &mut self.0 {
+                *x *= 1.0 - 1e-3 * D as f64;
+            }
+            self.0.rotate_right(1);
+            self.0[0] = 0.0;
+        }
+
+        fn frames(&self) -> ArrayVec<f64, F> {
+            (0..F)
+                .scan(0, |i, f| {
+                    let offset = *i;
+                    let len = w(f);
+                    *i += len;
+                    Some(self.0[offset..][..len].iter().sum::<f64>())
+                })
+                .collect()
+        }
+    }
+
+    fn w(i: usize) -> usize {
+        4_u64.pow(i as u32) as usize
+    }
 
     #[test]
     fn test() {
-        property_check::<4, 0>();
-        property_check::<4, 1>();
-        property_check::<4, 10>();
-        property_check::<4, 100>();
-        property_check::<4, 1000>();
+        model_check::<7, 0>();
+        model_check::<7, 1>();
+        model_check::<7, 5>();
+        model_check::<7, 10>();
     }
 
-    fn property_check<const F: usize, const D: u16>()
+    fn model_check<const F: usize, const D: u16>()
     where
         [f64; F]: Default,
     {
-        let expected = (1..F)
-            .map(|i| 4_f64.powi(i as i32) / (1.0 + 0.01 * (D as u64 * i as u64) as f64))
-            .collect::<Vec<f64>>();
-        println!("{}", show(&expected));
-
+        let mut model = Model::<F, D>::new();
         let mut buf = DecayBuffer::<f64, F, D>::default();
-        let mut prev_err = (1..F).map(|_| 1.0).collect::<Vec<f64>>();
-        while prev_err.iter().any(|e| *e > 0.001) {
+
+        for _ in 0..1000 {
+            model.0[0] = 1.0;
+            model.decay();
             *buf.current_mut() = 1.0;
             buf.decay();
 
-            let f = &buf.frames()[1..];
-            let new_err = f
-                .iter()
-                .zip(&expected)
-                .map(|(a, b)| (b - a).abs() / b)
-                .collect::<Vec<f64>>();
+            let value = buf.frames().iter().sum::<f64>();
+            let expected = model.frames().iter().sum::<f64>();
 
-            println!(
-                "F={F},D={D}: sum={:.2} err={:.2e} f={}",
-                f.iter().sum::<f64>(),
-                new_err.iter().sum::<f64>(),
-                show(&f),
-            );
+            println!("---",);
+            println!("{:.2e} {}", expected, show(&model.frames()));
+            println!("{:.2e} {}", value, show(&buf.frames()));
+            println!("{}", (value - expected) / expected);
 
-            // approaches expected vector when given unit value (1)
-            assert!(f.iter().zip(&expected).all(|(a, b)| a <= b));
-            assert!(f.iter().sum::<f64>() <= expected.iter().sum::<f64>());
-            assert!(new_err.iter().zip(&prev_err).all(|(a, b)| a <= b));
-
-            prev_err = new_err;
+            assert_within(value, expected, 0.013 * expected);
         }
     }
 
