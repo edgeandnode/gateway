@@ -177,16 +177,22 @@ impl MetaIndexer<'_> {
         // indexing statuses.
         let blocks_behind = self.0.iter().map(|f| f.blocks_behind).max().unwrap();
         let min_last_use = self.0.iter().map(|f| f.last_use).max().unwrap();
+        let t_exploration = Instant::now().duration_since(min_last_use);
         let p_success = ps.iter().sum::<f64>();
-        debug_assert!(0.0 <= p_success && p_success <= 1.0);
+        debug_assert!((0.0..=1.0).contains(&p_success));
         weighted_product_model([
-            reliability_utility(p_success),
-            performance_utility(params.performance, p_success, perf_success as u32),
-            performance_utility(params.performance, 1.0 - p_success, perf_failure as u32),
+            exploration_weight(reliability_utility(p_success), t_exploration),
+            exploration_weight(
+                performance_utility(params.performance, p_success, perf_success as u32),
+                t_exploration,
+            ),
+            exploration_weight(
+                performance_utility(params.performance, 1.0 - p_success, perf_failure as u32),
+                t_exploration,
+            ),
             params.economic_security.concave_utility(slashable_usd),
             data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
             fee_utility(params.fee_weight, &self.fee(), &params.budget),
-            exploration(min_last_use),
         ])
     }
 }
@@ -215,9 +221,13 @@ fn data_freshness_utility(
     }
 }
 
-/// Increase utility of indexers as their last use increases.
-/// https://www.desmos.com/calculator/5uayhxd9jp
-fn exploration(last_use: Instant) -> UtilityFactor {
-    let secs_since_use = Instant::now().duration_since(last_use).as_secs_f64();
-    UtilityFactor::one((secs_since_use + 6.0).log(6.0))
+/// Increase utility factor weight of indexers as their time since last use increases.
+/// https://www.desmos.com/calculator/rh9uxyg5yn
+fn exploration_weight(factor: UtilityFactor, t: Duration) -> UtilityFactor {
+    // b=8 Results in approximately double weight at 60 seconds since last use.
+    let b = 8.0;
+    UtilityFactor {
+        weight: factor.weight * ((t.as_secs_f64() + b).log(b) - 1.0),
+        utility: factor.utility,
+    }
 }
