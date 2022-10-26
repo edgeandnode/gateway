@@ -43,6 +43,7 @@ use actix_web::{
     http::{header, StatusCode},
     web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
 };
+use anyhow::{self, anyhow};
 use clap::Parser as _;
 use eventuals::EventualExt as _;
 use indexer_selection::{
@@ -63,6 +64,8 @@ use serde_json::{json, value::RawValue};
 use simple_rate_limiter::RateLimiter;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
+    fs::read_to_string,
+    path::Path,
     sync::Arc,
     time::SystemTime,
 };
@@ -86,10 +89,14 @@ async fn main() {
 
     let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
 
-    let restricted_deployments = Arc::new(opt.restricted_deployments.0);
-    isa_writer
-        .update(|indexers| indexers.restricted_deployments = restricted_deployments.clone())
-        .await;
+    if let Some(path) = &opt.restricted_deployments {
+        let restricted_deployments =
+            load_restricted_deployments(path).expect("Failed to load restricted deployments");
+        tracing::debug!(?restricted_deployments);
+        isa_writer
+            .update(|indexers| indexers.restricted_deployments = restricted_deployments.clone())
+            .await;
+    }
 
     // Start the actor to manage updates
     let (update_writer, update_reader) = buffer_queue::pair();
@@ -314,6 +321,23 @@ async fn main() {
     .run()
     .await
     .expect("Failed to start server");
+}
+
+fn load_restricted_deployments(
+    path: &Path,
+) -> anyhow::Result<Arc<HashMap<SubgraphDeploymentID, HashSet<Address>>>> {
+    read_to_string(path)?
+        .split('\n')
+        .filter(|l| l.trim_end() != "")
+        .map(|line| {
+            let mut csv = line.split_terminator(',');
+            let deployment = csv.next()?.parse().ok()?;
+            let indexers = csv.map(|i| i.parse().ok()).collect::<Option<_>>()?;
+            Some((deployment, indexers))
+        })
+        .collect::<Option<_>>()
+        .map(Arc::new)
+        .ok_or(anyhow!("malformed payload"))
 }
 
 fn update_from_eventual<V, F>(eventual: Eventual<V>, writer: QueueWriter<Update>, f: F)

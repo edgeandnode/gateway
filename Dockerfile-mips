@@ -1,0 +1,7 @@
+FROM edgeandnode/graph-gateway
+
+COPY restricted-deployments.csv /opt/restricted-deployments.csv
+ENV RESTRICTED_DEPLOYMENTS=/opt/restricted-deployments.csv
+
+WORKDIR /opt/gateway
+ENTRYPOINT [ "target/release/graph-gateway" ]
