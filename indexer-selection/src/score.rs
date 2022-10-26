@@ -227,7 +227,7 @@ fn exploration_weight(factor: UtilityFactor, t: Duration) -> UtilityFactor {
     // b=8 Results in approximately double weight at 60 seconds since last use.
     let b = 8.0;
     UtilityFactor {
-        weight: factor.weight * ((t.as_secs_f64() + b).log(b) - 1.0),
+        weight: factor.weight + ((t.as_secs_f64() + b).log(b) - 1.0),
         utility: factor.utility,
     }
 }
