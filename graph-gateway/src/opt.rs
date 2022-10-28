@@ -7,10 +7,7 @@ use indexer_selection::SecretKey;
 use prelude::*;
 use rdkafka::config::ClientConfig as KafkaConfig;
 use semver::Version;
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 // TODO: Consider the security implications of passing mnemonics, passwords, etc. via environment variables or CLI arguments.
 
@@ -45,8 +42,8 @@ pub struct Opt {
         use_delimiter = true
     )]
     pub special_api_keys: Vec<String>,
-    #[clap(long, env, default_value = "")]
-    pub restricted_deployments: RestrictedDeployments,
+    #[clap(long, env)]
+    pub restricted_deployments: Option<PathBuf>,
     #[clap(long, env, parse(try_from_str), help = "Format log output as JSON")]
     pub log_json: bool,
     #[clap(long, env, default_value = "5")]
@@ -217,29 +214,5 @@ impl FromStr for EthereumProviders {
             .collect::<Option<Vec<ethereum::Provider>>>()
             .map(EthereumProviders)
             .ok_or(err_usage)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct RestrictedDeployments(pub HashMap<SubgraphDeploymentID, HashSet<Address>>);
-
-impl FromStr for RestrictedDeployments {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let err_usage = "restricted_deployments syntax: <deployment>=<indexer>(,<indexer>)*;...";
-        let entries = s
-            .split_terminator(";")
-            .map(|deployment| {
-                let (deployment, indexers) = deployment.split_once('=')?;
-                let deployment = deployment.parse::<SubgraphDeploymentID>().ok()?;
-                let indexers = indexers
-                    .split_terminator(',')
-                    .map(|i| i.parse::<Address>().ok())
-                    .collect::<Option<HashSet<Address>>>()?;
-                Some((deployment, indexers))
-            })
-            .collect::<Option<HashMap<SubgraphDeploymentID, HashSet<Address>>>>()
-            .ok_or(err_usage)?;
-        Ok(RestrictedDeployments(entries))
     }
 }
