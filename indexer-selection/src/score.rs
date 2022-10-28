@@ -177,19 +177,17 @@ impl MetaIndexer<'_> {
         // indexing statuses.
         let blocks_behind = self.0.iter().map(|f| f.blocks_behind).max().unwrap();
         let min_last_use = self.0.iter().map(|f| f.last_use).max().unwrap();
-        let t_exploration = Instant::now().duration_since(min_last_use);
+
+        let exploration = exploration_weight(Instant::now().duration_since(min_last_use));
         let p_success = ps.iter().sum::<f64>();
         debug_assert!((0.0..=1.0).contains(&p_success));
+
         weighted_product_model([
-            exploration_weight(reliability_utility(p_success), t_exploration),
-            exploration_weight(
-                performance_utility(params.performance, p_success, perf_success as u32),
-                t_exploration,
-            ),
-            exploration_weight(
-                performance_utility(params.performance, 1.0 - p_success, perf_failure as u32),
-                t_exploration,
-            ),
+            reliability_utility(p_success).mul_weight(exploration),
+            performance_utility(params.performance, perf_success as u32)
+                .mul_weight(exploration * p_success),
+            performance_utility(params.performance, perf_failure as u32)
+                .mul_weight(exploration * (1.0 - p_success)),
             params.economic_security.concave_utility(slashable_usd),
             data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
             fee_utility(params.fee_weight, &self.fee(), &params.budget),
@@ -222,11 +220,8 @@ fn data_freshness_utility(
 }
 
 /// Decrease utility factor weight of indexers as their time since last use increases.
+/// Results in approximately 50% weight at t=30 and 5% weight at t=120.
 /// https://www.desmos.com/calculator/rfrvhptrzc
-fn exploration_weight(factor: UtilityFactor, t: Duration) -> UtilityFactor {
-    // Results in approximately 50% weight at t=30 and 5% weight at t=120.
-    UtilityFactor {
-        weight: factor.weight * 0.1_f64.powf(0.01 * t.as_secs_f64()),
-        utility: factor.utility,
-    }
+fn exploration_weight(t: Duration) -> f64 {
+    0.1_f64.powf(0.01 * t.as_secs_f64())
 }

@@ -40,6 +40,11 @@ impl UtilityFactor {
             weight: 1.0,
         }
     }
+
+    pub fn mul_weight(mut self, factor: f64) -> Self {
+        self.weight *= factor;
+        self
+    }
 }
 
 /// One outcome we want is that any utility approaching 0 should seriously disadvantage the result.

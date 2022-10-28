@@ -10,15 +10,11 @@ use std::f64::consts::E;
 
 // https://www.desmos.com/calculator/y2t5704v6a
 // 170cbcf3-db7f-404a-be13-2022d9142677
-pub fn performance_utility(
-    params: ConcaveUtilityParameters,
-    probability: f64,
-    latency_ms: u32,
-) -> UtilityFactor {
+pub fn performance_utility(params: ConcaveUtilityParameters, latency_ms: u32) -> UtilityFactor {
     let sigmoid = |x: u32| 1.0 + E.powf(((x as f64).powf(params.a) - 400.0) / 300.0);
     UtilityFactor {
         utility: sigmoid(0) / sigmoid(latency_ms),
-        weight: params.weight * probability,
+        weight: params.weight,
     }
 }
 
