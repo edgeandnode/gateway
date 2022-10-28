@@ -221,13 +221,12 @@ fn data_freshness_utility(
     }
 }
 
-/// Increase utility factor weight of indexers as their time since last use increases.
-/// https://www.desmos.com/calculator/rh9uxyg5yn
+/// Decrease utility factor weight of indexers as their time since last use increases.
+/// https://www.desmos.com/calculator/rfrvhptrzc
 fn exploration_weight(factor: UtilityFactor, t: Duration) -> UtilityFactor {
-    // b=8 Results in approximately double weight at 60 seconds since last use.
-    let b = 8.0;
+    // Results in approximately 50% weight at t=30 and 5% weight at t=120.
     UtilityFactor {
-        weight: factor.weight + ((t.as_secs_f64() + b).log(b) - 1.0),
+        weight: factor.weight * 0.1_f64.powf(0.01 * t.as_secs_f64()),
         utility: factor.utility,
     }
 }
