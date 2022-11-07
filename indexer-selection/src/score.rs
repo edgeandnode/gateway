@@ -220,8 +220,8 @@ fn data_freshness_utility(
 }
 
 /// Decrease utility factor weight of indexers as their time since last use increases.
-/// Results in approximately 50% weight at t=30 and 5% weight at t=120.
-/// https://www.desmos.com/calculator/rfrvhptrzc
+/// Results in approximately 50% weight at t=60 and 10% weight at t=200.
+/// https://www.desmos.com/calculator/j2s3d4tem8
 fn exploration_weight(t: Duration) -> f64 {
-    0.1_f64.powf(0.01 * t.as_secs_f64())
+    0.1_f64.powf(0.005 * t.as_secs_f64())
 }
