@@ -1,94 +1,65 @@
-use crate::utility::*;
 use prelude::*;
 
-// This could have been done more automatically by using a proc-macro, but this is simpler.
-#[macro_export]
-macro_rules! impl_struct_decay {
-    ($name:ty {$($field:ident),*}) => {
-        impl Decay for $name {
-            fn shift(&mut self, mut next: Option<&mut Self>, fraction: f64, keep: f64) {
-                $(
-                    self.$field.shift(
-                        next.as_deref_mut().map(|n| &mut n.$field),
-                        fraction,
-                        keep,
-                    );
-                )*
-            }
+/// DecayBuffer approximates a histogram of data points over time to inform a prediction. Data
+/// points are collected in the first (current) bin. Each call to `decay` rotates the bins to the
+/// right and resets the current bin. The information stored in each bin is decayed away at a rate
+/// of `1 - (0.001 * D)` per decay cycle (https://www.desmos.com/calculator/7kfwwvtkc1).
+///
+/// We'll consider query count for this example:
+///     e.g. [c_0, c_1, c_2, ..., c_5461] where c_i is the count time T-i.
+/// Imagine we get a query roughly once per decay, we could see something like:
+///     [1, 0, 2, 0, 0, 1, ..., 2]
+/// As a cycle passes, we shift the data down because T-0 is now T-1 and T-500 is now T-501. So
+/// shifting gives us this:
+///     [0, 1, 0, 2, 0, 0, ..., 2, 2]
+/// (The final 1 disappeared into the first member of the ellipsis, and the 2 popped out from the
+/// last member of the ellipsis)
+///
+/// There is no actual decay yet in the above description. Note though that if we shift multiple
+/// times the sum should be the same for a while.
+///     e.g. [1, 0, 0, ...] -> [0, 1, 0, ...] -> [0, 0, 1, ...]
+/// The sum of all frames here is 1 until the 1 drops off the end.
+///
+/// The purpose of the decay is to weigh more recent data exponentially more than old data. If the
+/// decay per frame is 1% then we would get approximately this:
+///     [1, 0, 0, ...] -> [0, .99, 0, ...] -> [0, 0, .98]
+/// (This looks linear, but is exponential I've just rounded the numbers).
+///
+/// Note that every time we call decay, the sum of all values decreases.
+///
+/// We consider the accuracy of timestamp of recent data is more important than the accuracy of
+/// timestamp of old data. For example, it's useful to know if a failed request happened 2 seconds
+/// ago vs 12 seconds ago. But less useful to know whether it happened 1002 vs 1012 seconds ago even
+/// though that's the same duration. So for the approximation of our histogram, we use time frames
+/// with intervals of F consecutive powers of 4.
+///     e.g. [1, 4, 16, 64] if F = 4
 
-            fn clear(&mut self) {
-                // Doing a destructure ensures that we don't miss any fields,
-                // should they be added in the future. I tried it and the compiler
-                // even gives you a nice error message...
-                //
-                // missing structure fields:
-                //    -{name}
-                let Self { $($field),* } = self;
-
-                $(
-                    $field.clear();
-                )*
-            }
-        }
-    };
+#[derive(Clone, Debug)]
+pub struct DecayBuffer<T, const F: usize, const D: u16> {
+    frames: [T; F],
 }
 
 pub trait Decay {
-    fn shift(&mut self, next: Option<&mut Self>, fraction: f64, keep: f64);
-    fn clear(&mut self);
+    fn decay(&mut self, prev: &Self, retain: f64, take: f64);
 }
 
-pub trait DecayUtility {
-    fn count(&self) -> f64;
-    fn expected_utility(&self, u_a: f64) -> f64;
-}
+pub type ISADecayBuffer<T> = DecayBuffer<T, 7, 4>;
+pub type FastDecayBuffer<T> = DecayBuffer<T, 6, 5>;
 
-/// The DecayBuffer accounts for selection factors over various time-frames. Currently, these time
-/// frames are LEN consecutive powers of 4 intervals, i.e. [1m, 4m, 16m, ... 4096m] if LEN is 7 and
-/// `decay` is called once every minute.
-#[derive(Clone, Debug)]
-pub struct DecayBufferUnconfigured<T, const LOSS_POINTS: u16, const LEN: usize> {
-    frames: [T; LEN],
-}
-
-impl<T, const D: u16, const L: usize> Default for DecayBufferUnconfigured<T, D, L>
+impl<T, const F: usize, const D: u16> Default for DecayBuffer<T, F, D>
 where
-    [T; L]: Default,
+    [T; F]: Default,
 {
     fn default() -> Self {
+        debug_assert!(F > 0);
+        debug_assert!(D < 1000);
         Self {
             frames: Default::default(),
         }
     }
 }
 
-pub type DecayBuffer<T> = DecayBufferUnconfigured<T, 5, 7>;
-pub type FastDecayBuffer<T> = DecayBufferUnconfigured<T, 10, 6>;
-
-impl<T: DecayUtility, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L> {
-    pub fn expected_utility(&self, utility_parameters: UtilityParameters) -> SelectionFactor {
-        let mut aggregator = UtilityAggregator::new();
-        for (i, frame) in self.frames.iter().enumerate() {
-            // 1/10 query per minute = 85% confident.
-            let confidence = concave_utility(frame.count() * 10.0 / 4.0_f64.powf(i as f64), 0.19);
-
-            // Buckets decrease in relevance rapidly, making
-            // the most recent buckets contribute the most to the
-            // final result.
-            let importance = 1.0 / (1.0 + (i as f64));
-
-            aggregator.add(SelectionFactor {
-                utility: frame.expected_utility(utility_parameters.a),
-                weight: confidence * importance * utility_parameters.weight,
-            });
-        }
-
-        let agg_utility = aggregator.crunch();
-        SelectionFactor::one(agg_utility)
-    }
-}
-
-impl<T, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L>
+impl<T, const F: usize, const D: u16> DecayBuffer<T, F, D>
 where
     Self: Default,
 {
@@ -97,7 +68,7 @@ where
     }
 }
 
-impl<T, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L> {
+impl<T, const F: usize, const D: u16> DecayBuffer<T, F, D> {
     pub fn current_mut(&mut self) -> &mut T {
         &mut self.frames[0]
     }
@@ -105,183 +76,144 @@ impl<T, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L> {
     pub fn frames(&self) -> &[T] {
         &self.frames
     }
+
+    pub fn map<'a, I>(&'a self, f: impl FnMut(&T) -> I + 'a) -> impl Iterator<Item = I> + 'a {
+        self.frames.iter().map(f)
+    }
 }
 
-impl<T: Decay, const D: u16, const L: usize> DecayBufferUnconfigured<T, D, L> {
-    /*
-    The idea here is to pretend that we have a whole bunch of buckets of the minimum window size (1 min each)
-    A whole 8191 of them! Queries contribute to the bucket they belong, and each time we decay each bucket shifts down
-    and retains 99.5% of the information in the bucket.
-
-    The above would be bad for performance, so we achieve almost the same result by creating "frames"
-    of increasing size, each of which can hold many buckets. When we decay we do the same operation as above,
-    assuming that each bucket within a frame holds the average value of all buckets within that frame. This results in some "smearing"
-    of the data, but reduces the size of our array from 8191 to just 7 (assuming a LEN of 7) at the expense of
-    slight complexity and loss of accuracy.
-    */
+impl<T, const F: usize, const D: u16> DecayBuffer<T, F, D>
+where
+    T: Decay + Default,
+{
     pub fn decay(&mut self) {
-        for i in (0..L).rev() {
-            // Select buckets [i], [i+]
-            let (l, r) = self.frames.split_at_mut(i + 1);
-            let (this, next) = (l.last_mut().unwrap(), r.get_mut(0));
-
-            // Decay rate of 0.1% per smallest bucket resolution per point.
-            // That is, each time we shift decay 0.1% * points per non-aggregated bucket
-            // and aggregate the results into frames.
-            let retain = 1.0 - ((D as f64) * 0.001f64);
-            let retain = retain.powf(4_f64.powf(i as f64));
-
-            // Shift one bucket, aggregating the results.
-            this.shift(next, 0.25_f64.powf(i as f64), retain);
+        // BQN: (1-1e¯3×d)×((1-4⋆-↕f)×⊢)+(«4⋆-↕f)×⊢
+        // LLVM should be capable of constant folding & unrolling this loop nicely.
+        // https://rust.godbolt.org/z/K13dj78Ge
+        for i in (1..self.frames.len()).rev() {
+            let retain = 1.0 - 4_f64.powi(-(i as i32));
+            let take = 4_f64.powi(-(i as i32 - 1));
+            let decay = 1.0 - 1e-3 * D as f64;
+            let (cur, prev) = self.frames[..=i].split_last_mut().unwrap();
+            cur.decay(prev.last().unwrap(), retain * decay, take * decay);
         }
+        self.frames[0] = T::default();
     }
 }
 
 impl Decay for f64 {
-    fn shift(&mut self, next: Option<&mut Self>, fraction: f64, retain: f64) {
-        // Remove some amount of value from this frame
-        let take = *self * fraction;
-        *self -= take;
-        if let Some(next) = next {
-            // And add that value to the next frame, destroying some of the value
-            // as we go to forget over time.
-            *next += take * retain;
-        }
-    }
-
-    fn clear(&mut self) {
-        *self = 0.0;
+    fn decay(&mut self, prev: &Self, retain: f64, take: f64) {
+        *self = (*self * retain) + (prev * take);
     }
 }
 
 impl Decay for Duration {
-    fn shift(&mut self, next: Option<&mut Self>, fraction: f64, keep: f64) {
-        let secs = self.as_secs_f64();
-        let take = secs * fraction;
-        *self = Duration::from_secs_f64(secs - take);
-        if let Some(next) = next {
-            *next += Duration::from_secs_f64(take * keep);
-        }
-    }
-
-    fn clear(&mut self) {
-        *self = Duration::ZERO;
+    fn decay(&mut self, prev: &Self, retain: f64, take: f64) {
+        let mut v = self.as_secs_f64();
+        v.decay(&prev.as_secs_f64(), retain, take);
+        *self = Duration::from_secs_f64(v);
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::reputation::Reputation;
-    use prelude::test_utils::create_test_output;
-    use rand::{rngs::SmallRng, Rng as _, SeedableRng as _};
-    use std::{collections::HashMap, io::Write as _};
-
-    /// Success rates, in units of 1e-4
-    const SUCCESS_RATES: [u32; 7] = [0000, 4000, 6000, 8000, 9000, 9900, 9999];
-
-    #[test]
-    #[ignore = "Writes output to disk"]
-    fn reputation_outage_response() {
-        let out = create_test_output("reputation-outage-response.csv").unwrap();
-        writeln!(&out, "outage_duration_m,success_rate,t_m,utility").unwrap();
-
-        let outage_durations_m = [0, 5, 60, 5 * 60, 15 * 60, 120 * 60];
-        let query_volume_hz = 10;
-        let outage_start_s = 60 * 4092;
-        let mut rand = SmallRng::from_entropy();
-        for outage_duration_m in outage_durations_m {
-            let mut reputations = SUCCESS_RATES
-                .iter()
-                .map(|success_rate| (*success_rate, DecayBuffer::default()))
-                .collect::<HashMap<u32, DecayBuffer<Reputation>>>();
-            let outage_end = outage_start_s + (60 * outage_duration_m);
-            for t_s in 0u64..(outage_start_s * 2) {
-                let outage = (t_s >= outage_start_s) && (t_s < outage_end);
-                for success_rate in SUCCESS_RATES {
-                    let reputation = reputations.get_mut(&success_rate).unwrap();
-                    let success_rate = success_rate as f64 * 1e-4;
-                    for _ in 0..query_volume_hz {
-                        if !outage && rand.gen_bool(success_rate) {
-                            reputation.current_mut().add_successful_query();
-                        } else {
-                            reputation.current_mut().add_failed_query();
-                        }
-                    }
-                    // Decay every minute.
-                    if (t_s % 60) == 0 {
-                        reputation.decay();
-                    }
-                    // Sample every minute.
-                    if (t_s % 60) == 0 {
-                        let utility = reputation
-                            .expected_utility(UtilityParameters::one(1.0))
-                            .utility;
-                        writeln!(
-                            &out,
-                            "{},{},{},{}",
-                            outage_duration_m,
-                            success_rate,
-                            t_s / 60,
-                            utility
-                        )
-                        .unwrap();
-                    }
-                }
+// This could have been done more automatically by using a proc-macro, but this is simpler.
+#[macro_export]
+macro_rules! impl_struct_decay {
+    ($name:ty {$($field:ident),*}) => {
+        impl Decay for $name {
+            fn decay(&mut self, prev: &Self, retain: f64, take: f64) {
+                // Doing a destructure ensures that we don't miss any fields, should they be added
+                // in the future. I tried it and the compiler even gives you a nice error message:
+                //
+                //   missing structure fields:
+                //     -{name}
+                let Self { $($field: _),* } = self;
+                $(
+                    self.$field.decay(&prev.$field, retain, take);
+                )*
             }
+        }
+    };
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_utils::assert_within;
+    use arrayvec::ArrayVec;
+    use std::iter;
+
+    struct Model<const F: usize, const D: u16>(Vec<f64>);
+
+    impl<const F: usize, const D: u16> Model<F, D> {
+        fn new() -> Self {
+            Self((0..F).flat_map(|i| iter::repeat(0.0).take(w(i))).collect())
+        }
+
+        fn decay(&mut self) {
+            // BQN: »(1-d×1e¯3)×⊢
+            for x in &mut self.0 {
+                *x *= 1.0 - 1e-3 * D as f64;
+            }
+            self.0.rotate_right(1);
+            self.0[0] = 0.0;
+        }
+
+        fn frames(&self) -> ArrayVec<f64, F> {
+            (0..F)
+                .scan(0, |i, f| {
+                    let offset = *i;
+                    let len = w(f);
+                    *i += len;
+                    Some(self.0[offset..][..len].iter().sum::<f64>())
+                })
+                .collect()
         }
     }
 
-    #[test]
-    #[ignore = "Writes output to disk"]
-    fn reputation_penalty_response() {
-        let out = create_test_output("reputation-penalty-response.csv").unwrap();
-        writeln!(&out, "penalty,success_rate,t_m,utility").unwrap();
+    fn w(i: usize) -> usize {
+        4_u64.pow(i as u32) as usize
+    }
 
-        let penalties = [0, 40, 80, 120, 140, 160];
-        let query_volume_hz = 10;
-        let penalty_start_s = 60 * 4092;
-        let mut rand = SmallRng::from_entropy();
-        for penalty in penalties {
-            let mut reputations = SUCCESS_RATES
-                .iter()
-                .map(|success_rate| (*success_rate, DecayBuffer::default()))
-                .collect::<HashMap<u32, DecayBuffer<Reputation>>>();
-            for t_s in 0u64..(penalty_start_s * 2) {
-                for success_rate in SUCCESS_RATES {
-                    let reputation = reputations.get_mut(&success_rate).unwrap();
-                    let success_rate = success_rate as f64 * 1e-4;
-                    for _ in 0..query_volume_hz {
-                        if rand.gen_bool(success_rate) {
-                            reputation.current_mut().add_successful_query();
-                        } else {
-                            reputation.current_mut().add_failed_query();
-                        }
-                    }
-                    if t_s == penalty_start_s {
-                        reputation.current_mut().penalize(penalty);
-                    }
-                    // Decay every minute.
-                    if (t_s % 60) == 0 {
-                        reputation.decay();
-                    }
-                    // Sample every minute.
-                    if (t_s % 60) == 0 {
-                        let utility = reputation
-                            .expected_utility(UtilityParameters::one(1.0))
-                            .utility;
-                        writeln!(
-                            &out,
-                            "{},{},{},{}",
-                            penalty,
-                            success_rate,
-                            t_s / 60,
-                            utility
-                        )
-                        .unwrap();
-                    }
-                }
-            }
+    #[test]
+    fn test() {
+        model_check::<7, 0>();
+        model_check::<7, 1>();
+        model_check::<7, 5>();
+        model_check::<7, 10>();
+    }
+
+    fn model_check<const F: usize, const D: u16>()
+    where
+        [f64; F]: Default,
+    {
+        let mut model = Model::<F, D>::new();
+        let mut buf = DecayBuffer::<f64, F, D>::default();
+
+        for _ in 0..1000 {
+            model.0[0] = 1.0;
+            model.decay();
+            *buf.current_mut() = 1.0;
+            buf.decay();
+
+            let value = buf.frames().iter().sum::<f64>();
+            let expected = model.frames().iter().sum::<f64>();
+
+            println!("---",);
+            println!("{:.2e} {}", expected, show(&model.frames()));
+            println!("{:.2e} {}", value, show(&buf.frames()));
+            println!("{}", (value - expected) / expected);
+
+            assert_within(value, expected, 0.013 * expected);
         }
+    }
+
+    fn show(v: &[f64]) -> String {
+        format!(
+            "[{}]",
+            v.iter()
+                .map(|f| format!("{f:.2e}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
     }
 }

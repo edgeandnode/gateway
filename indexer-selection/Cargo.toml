@@ -8,6 +8,7 @@ name = "sim"
 path = "bin/sim.rs"
 
 [dependencies]
+arrayvec = "0.7"
 cost-model = { git = "ssh://git@github.com/graphprotocol/agora.git", rev = "v0.1.14" }
 itertools = "0.10"
 lazy_static = "1.4"

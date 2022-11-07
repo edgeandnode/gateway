@@ -1147,6 +1147,7 @@ dependencies = [
 name = "indexer-selection"
 version = "0.0.1"
 dependencies = [
+ "arrayvec 0.7.2",
  "cost-model",
  "eventuals",
  "itertools",

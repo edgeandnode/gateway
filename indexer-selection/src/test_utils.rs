@@ -3,11 +3,10 @@ use prelude::{test_utils::bytes_from_id, *};
 use siphasher::sip::SipHasher24;
 use std::hash::{Hash as _, Hasher as _};
 
-pub const TEST_KEY: &'static str =
-    "244226452948404D635166546A576E5A7234753778217A25432A462D4A614E64";
+pub const TEST_KEY: &str = "244226452948404D635166546A576E5A7234753778217A25432A462D4A614E64";
 
-pub fn default_cost_model(price: GRT) -> CostModel {
-    CostModel::compile(format!("default => {};", price), "".into()).unwrap()
+pub fn default_cost_model(fee: GRT) -> CostModel {
+    CostModel::compile(format!("default => {};", fee), "").unwrap()
 }
 
 #[track_caller]
@@ -37,5 +36,5 @@ pub fn test_allocation_id(indexer: &Address, deployment: &SubgraphDeploymentID) 
     let mut hasher = SipHasher24::default();
     indexer.hash(&mut hasher);
     deployment.hash(&mut hasher);
-    Address(bytes_from_id(hasher.finish() as usize).into())
+    Address(bytes_from_id(hasher.finish() as usize))
 }

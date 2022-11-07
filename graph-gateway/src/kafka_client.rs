@@ -1,5 +1,5 @@
 use crate::query_engine::Query;
-use indexer_selection::{IndexerScore, SelectionError};
+use indexer_selection::IndexerError as IndexerSelectionError;
 use prelude::*;
 use rdkafka::{
     config::ClientConfig,
@@ -70,7 +70,6 @@ pub struct IndexerAttempt {
     pub url: String,
     pub allocation: String,
     pub fee: f64,
-    pub utility: f64,
     pub blocks_behind: u64,
     pub indexer_errors: String,
     pub response_time_ms: u32,
@@ -98,7 +97,7 @@ impl ClientQueryResult {
         let fee = query
             .indexer_attempts
             .last()
-            .map(|attempt| attempt.score.fee.as_f64())
+            .map(|attempt| attempt.selection.fee.as_f64())
             .unwrap_or(0.0);
 
         Self {
@@ -126,53 +125,6 @@ impl Msg for ClientQueryResult {
 }
 
 #[derive(Serialize)]
-pub struct ISAScoringSample {
-    pub ray_id: String,
-    pub timestamp: u64,
-    pub deployment: String,
-    pub address: String,
-    pub fee: String,
-    pub slashable: String,
-    pub utility: f64,
-    pub economic_security: f64,
-    pub price_efficiency: f64,
-    pub data_freshness: f64,
-    pub performance: f64,
-    pub reputation: f64,
-    pub sybil: f64,
-    pub blocks_behind: u64,
-    pub url: String,
-    pub message: String,
-}
-
-impl ISAScoringSample {
-    pub fn new(query: &Query, indexer: &Address, score: &IndexerScore, message: &str) -> Self {
-        Self {
-            ray_id: query.ray_id.clone(),
-            timestamp: timestamp(),
-            deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
-            address: indexer.to_string(),
-            fee: score.fee.to_string(),
-            slashable: score.slashable.to_string(),
-            utility: *score.utility,
-            economic_security: score.utility_scores.economic_security,
-            price_efficiency: score.utility_scores.price_efficiency,
-            data_freshness: score.utility_scores.data_freshness,
-            performance: score.utility_scores.performance,
-            reputation: score.utility_scores.reputation,
-            sybil: *score.sybil,
-            blocks_behind: score.blocks_behind,
-            url: score.url.to_string(),
-            message: message.to_string(),
-        }
-    }
-}
-
-impl Msg for ISAScoringSample {
-    const TOPIC: &'static str = "gateway_isa_samples";
-}
-
-#[derive(Serialize)]
 pub struct ISAScoringError {
     pub ray_id: String,
     pub timestamp: u64,
@@ -185,13 +137,22 @@ pub struct ISAScoringError {
 }
 
 impl ISAScoringError {
-    pub fn new(query: &Query, indexer: &Address, err: &SelectionError, message: &str) -> Self {
-        let (error_code, error_data) = match &err {
-            SelectionError::MalformedQuery => (1, "".into()),
-            SelectionError::MissingNetworkParams => (2, "".into()),
-            SelectionError::BadIndexer(reason) => (4, format!("{:?}", reason)),
-            SelectionError::NoAllocation(indexing) => (5, format!("{:?}", indexing)),
-            SelectionError::FeesTooHigh(count) => (6, count.to_string()),
+    pub fn new(
+        query: &Query,
+        indexer: &Address,
+        err: &IndexerSelectionError,
+        message: &str,
+    ) -> Self {
+        let error_code = match &err {
+            // 1-3 skipped on purpose, for consistency with prior versions
+            IndexerSelectionError::NoStatus => 4,
+            IndexerSelectionError::NoAllocation => 5,
+            IndexerSelectionError::FeeTooHigh => 6,
+            IndexerSelectionError::QueryNotCosted => 7,
+            IndexerSelectionError::MissingRequiredBlock => 8,
+            IndexerSelectionError::Excluded => 9,
+            IndexerSelectionError::NaN => 10,
+            IndexerSelectionError::NoStake => 11,
         };
         Self {
             ray_id: query.ray_id.clone(),
@@ -200,7 +161,7 @@ impl ISAScoringError {
             indexer: indexer.to_string(),
             error: format!("{:?}", err),
             error_code,
-            error_data,
+            error_data: "".into(), // TODO: remove
             message: message.to_string(),
         }
     }

@@ -1,5 +1,7 @@
 use anyhow::Result;
-use indexer_selection::{simulation::*, Selection, UtilityConfig};
+use indexer_selection::{
+    simulation::*, test_utils::gen_blocks, BlockRequirements, Selection, UtilityParameters,
+};
 use prelude::*;
 use std::io::{stdin, BufRead as _};
 
@@ -11,7 +13,7 @@ async fn main() -> Result<()> {
         .lines()
         .filter_map(|line| {
             let line = line.unwrap();
-            if &line == header {
+            if line == header {
                 return None;
             }
             let fields = line.split(',').collect::<Vec<&str>>();
@@ -27,23 +29,41 @@ async fn main() -> Result<()> {
         })
         .collect::<Vec<IndexerCharacteristics>>();
 
-    let config = UtilityConfig::default();
     let budget = "0.01".parse().unwrap();
+    let freshness_requirements = BlockRequirements {
+        range: None,
+        has_latest: true,
+    };
+    let blocks = {
+        let max_blocks_behind = characteristics.iter().map(|c| c.blocks_behind).max();
+        let last_block = max_blocks_behind.unwrap() + 100;
+        gen_blocks(&(0..last_block).into_iter().collect::<Vec<u64>>())
+    };
+    let latest_block = blocks.last().unwrap().number;
+    let params = UtilityParameters::new(
+        budget,
+        freshness_requirements,
+        latest_block,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    );
 
     println!("label,indexer,detail,selections,fees");
     eprintln!("| selection limit | total fees (GRT) | avg. latency (ms) | avg. blocks behind | avg. indexers selected | avg. selection time (ms) |");
     eprintln!("| --- | --- | --- | --- | --- | --- |");
     for selection_limit in [1, 3] {
-        let results = simulate(&characteristics, &config, 100, budget, selection_limit).await?;
+        let results = simulate(&characteristics, &params, 100, selection_limit).await?;
 
-        let total_fees = results
+        let total_cost = results
             .selections
             .iter()
-            .fold(GRT::zero(), |sum, s| sum + s.score.fee);
+            .fold(GRT::zero(), |sum, s| sum + s.fee);
         eprintln!(
             "| {} | {:.6} | {:.0} | {:.2} | {:.2} | {:.2} |",
             selection_limit,
-            total_fees,
+            total_cost,
             results.avg_latency,
             results.avg_blocks_behind,
             results.selections.len() as f64 / results.client_queries as f64,
@@ -56,9 +76,6 @@ async fn main() -> Result<()> {
                 .iter()
                 .filter(|s| s.indexing.indexer == indexer.address)
                 .collect::<Vec<&Selection>>();
-            let fees = selections
-                .iter()
-                .fold(GRT::zero(), |sum, s| sum + s.score.fee);
             let detail = format!(
                 "fee={:.4} behind={:02} latency={:04} success={:.3} alloc={:1.0e} stake={:1.0e}",
                 indexer.fee.as_f64(),
@@ -74,7 +91,7 @@ async fn main() -> Result<()> {
                 indexer.address,
                 detail,
                 selections.len(),
-                fees
+                selections.iter().fold(GRT::zero(), |sum, s| sum + s.fee),
             );
         }
     }

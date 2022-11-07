@@ -3,7 +3,7 @@ use crate::{
     chains::*,
     fisherman_client::*,
     indexer_client::*,
-    kafka_client::{ISAScoringError, ISAScoringSample, KafkaInterface},
+    kafka_client::{ISAScoringError, KafkaInterface},
     manifest_client::SubgraphInfo,
     metrics::*,
     price_automation::*,
@@ -12,17 +12,17 @@ use crate::{
 };
 use futures::future::join_all;
 use indexer_selection::{
-    self, actor::IndexerErrorObservation, BlockRequirements, Context, IndexerError,
-    IndexerPreferences, IndexerScore, ScoringSample, Selection, SelectionError, UnresolvedBlock,
+    self, BlockRequirements, Context, IndexerError as IndexerSelectionError,
+    IndexerErrorObservation, InputError, Selection, UnresolvedBlock, UtilityParameters,
 };
-use indexer_selection::{actor::Update, Indexing, UtilityConfig};
+use indexer_selection::{actor::Update, Indexing};
 use lazy_static::lazy_static;
 use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, graphql::Response, *};
 use primitive_types::U256;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
@@ -63,8 +63,7 @@ impl Query {
 
 #[derive(Clone, Debug)]
 pub struct IndexerAttempt {
-    pub score: IndexerScore,
-    pub indexer: Address,
+    pub selection: Selection,
     pub allocation: Address,
     pub query: Arc<String>,
     pub receipt: Receipt,
@@ -93,7 +92,7 @@ impl IndexerAttempt {
             Err(IndexerError::Timeout) => (0x3, 0x0),
             Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
             Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
-            Err(IndexerError::MissingAllocation) => (0x7, 0x0),
+            Err(IndexerError::NoAllocation) => (0x7, 0x0),
             // prefix 0x6, followed by a 28-bit hash of the error message
             Err(IndexerError::Other(msg)) => (0x6, sip24_hash(&msg) as u32),
         };
@@ -153,6 +152,15 @@ pub enum QueryStatus {
     ServiceShutoff,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct IndexerPreferences {
+    pub freshness_requirements: f64,
+    pub performance: f64,
+    pub data_freshness: f64,
+    pub economic_security: f64,
+    pub price_efficiency: f64,
+}
+
 #[derive(Debug)]
 pub struct QueryResponse {
     pub selection: Selection,
@@ -164,7 +172,7 @@ pub struct QueryResponse {
 pub enum QueryEngineError {
     NoIndexers,
     NoIndexerSelected,
-    FeesTooHigh(usize),
+    IndexerSelectionErrors(String),
     MalformedQuery,
     BlockBeforeMin,
     NetworkNotSupported(String),
@@ -174,15 +182,11 @@ pub enum QueryEngineError {
     ExcessiveFee,
 }
 
-impl From<SelectionError> for QueryEngineError {
-    fn from(from: SelectionError) -> Self {
+impl From<InputError> for QueryEngineError {
+    fn from(from: InputError) -> Self {
         match from {
-            SelectionError::BadIndexer(_) | SelectionError::NoAllocation(_) => {
-                Self::NoIndexerSelected
-            }
-            SelectionError::MalformedQuery => Self::MalformedQuery,
-            SelectionError::FeesTooHigh(count) => Self::FeesTooHigh(count),
-            SelectionError::MissingNetworkParams => Self::MissingNetworkParams,
+            InputError::MalformedQuery => Self::MalformedQuery,
+            InputError::MissingNetworkParams => Self::MissingNetworkParams,
         }
     }
 }
@@ -318,7 +322,16 @@ where
             .ok_or(MissingExchangeRate)?;
         query.budget = Some(budget);
 
-        let utility_config = UtilityConfig::from_preferences(&api_key.indexer_preferences);
+        let mut utility_params = UtilityParameters::new(
+            budget,
+            block_requirements,
+            // 170cbcf3-db7f-404a-be13-2022d9142677
+            0,
+            api_key.indexer_preferences.performance,
+            api_key.indexer_preferences.data_freshness,
+            api_key.indexer_preferences.economic_security,
+            api_key.indexer_preferences.price_efficiency,
+        );
 
         // Used to track how many times an indexer failed to resolve a block. This may indicate that
         // our latest block has been uncled.
@@ -330,6 +343,8 @@ where
                 .value_immediate()
                 .ok_or(UnresolvedBlock::WithNumber(0))?;
             tracing::debug!(?latest_block);
+            // 170cbcf3-db7f-404a-be13-2022d9142677
+            utility_params.latest_block = latest_block.number;
 
             // Since we modify the context in-place, we need to reset the context to the state of
             // the original client query. This to avoid the following scenario:
@@ -353,45 +368,43 @@ where
                 &[&deployment_id],
                 |hist| hist.start_timer(),
             );
-            let (selections, scoring_sample) = self.isa.latest().select_indexers(
-                &utility_config,
+            let (selections, indexer_errors) = self.isa.latest().select_indexers(
                 &subgraph.deployment,
-                &mut context,
-                latest_block.number,
                 &deployment_indexers,
-                budget,
-                &block_requirements,
+                &utility_params,
+                &mut context,
+                1,
             )?;
             drop(selection_timer);
 
-            if let Some(ScoringSample(indexer, result)) = scoring_sample {
-                match result {
-                    Ok(score) => {
-                        self.notify_isa_sample(&query, &indexer, &score, "ISA scoring sample")
-                    }
-                    Err(err) => self.notify_isa_err(&query, &indexer, err, "ISA scoring sample"),
-                };
+            tracing::debug!(indexer_errors = ?indexer_errors.0);
+            for (err, indexers) in &indexer_errors.0 {
+                for indexer in indexers {
+                    self.notify_isa_err(&query, indexer, err, "ISA scoring sample");
+                }
             }
 
             let selection = match selections.into_iter().next() {
                 Some(selection) => selection,
-                None => return Err(NoIndexerSelected),
+                None if indexer_errors.0.is_empty() => return Err(NoIndexerSelected),
+                None => {
+                    let errors = indexer_errors
+                        .0
+                        .iter()
+                        .map(|(k, v)| (k, v.len()))
+                        .filter(|(_, l)| *l > 0)
+                        .collect::<BTreeMap<&IndexerSelectionError, usize>>();
+                    return Err(IndexerSelectionErrors(format!("{:?}", errors)));
+                }
             };
-            if selection.score.fee > GRT::try_from(100u64).unwrap() {
-                tracing::error!(excessive_fee = %selection.score.fee);
+            if selection.fee > GRT::try_from(100u64).unwrap() {
+                tracing::error!(excessive_fee = %selection.fee);
                 return Err(QueryEngineError::ExcessiveFee);
             }
 
-            self.notify_isa_sample(
-                &query,
-                &selection.indexing.indexer,
-                &selection.score,
-                "Selected indexer score",
-            );
-
             // Select the latest block for the selected indexer. Also, skip 1 block for every 2
             // attempts where the indexer failed to resolve the block we consider to be latest.
-            let blocks_behind = selection.score.blocks_behind + (latest_unresolved / 2);
+            let blocks_behind = selection.blocks_behind + (latest_unresolved / 2);
             let latest_query_block = block_cache.latest(blocks_behind).await?;
             let deterministic_query =
                 make_query_deterministic(context, &resolved_blocks, &latest_query_block)
@@ -471,9 +484,10 @@ where
     ) -> Result<(), IndexerError> {
         let receipt = self
             .receipt_pools
-            .commit(&selection.indexing, selection.score.fee)
+            .commit(&selection.indexing, selection.fee)
             .await
-            .map(Receipt)?;
+            .map(Receipt)
+            .map_err(|_| IndexerError::NoAllocation)?;
 
         let t0 = Instant::now();
         let result = self
@@ -489,8 +503,7 @@ where
         allocation.0.copy_from_slice(&receipt.0[0..20]);
 
         query.indexer_attempts.push(IndexerAttempt {
-            score: selection.score,
-            indexer: selection.indexing.indexer,
+            selection: selection.clone(),
             allocation,
             query: Arc::new(deterministic_query),
             receipt,
@@ -569,39 +582,15 @@ where
         Ok(())
     }
 
-    fn notify_isa_sample(
+    fn notify_isa_err(
         &self,
         query: &Query,
         indexer: &Address,
-        score: &IndexerScore,
+        err: &IndexerSelectionError,
         message: &str,
     ) {
         self.kafka_client
-            .send(&ISAScoringSample::new(&query, &indexer, &score, message));
-        // The following logs are required for data science.
-        tracing::info!(
-            ray_id = %query.ray_id,
-            query_id = %query.id,
-            deployment = %query.subgraph.as_ref().unwrap().deployment,
-            %indexer,
-            url = %score.url,
-            fee = %score.fee,
-            slashable = %score.slashable,
-            utility = *score.utility,
-            economic_security = score.utility_scores.economic_security,
-            price_efficiency = score.utility_scores.price_efficiency,
-            data_freshness = score.utility_scores.data_freshness,
-            performance = score.utility_scores.performance,
-            reputation = score.utility_scores.reputation,
-            sybil = *score.sybil,
-            blocks_behind = score.blocks_behind,
-            message,
-        );
-    }
-
-    fn notify_isa_err(&self, query: &Query, indexer: &Address, err: SelectionError, message: &str) {
-        self.kafka_client
-            .send(&ISAScoringError::new(&query, &indexer, &err, message));
+            .send(&ISAScoringError::new(&query, &indexer, err, message));
         // The following logs are required for data science.
         tracing::info!(
             ray_id = %query.ray_id.clone(),

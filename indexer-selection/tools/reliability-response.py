@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 
-def plot_reputation_response(name, key, unit):
-    data = pd.read_csv(f'test-outputs/reputation-{name}-response.csv')
+def plot_reliability_response(name, key, unit):
+    data = pd.read_csv(f'test-outputs/reliability-{name}-response.csv')
     print(data)
 
     fig, axes = plt.subplots(3, 2, sharex=True, sharey=True, figsize=(12, 8), constrained_layout=True)
@@ -27,8 +27,8 @@ def plot_reputation_response(name, key, unit):
         if row == 2: p.set_xlabel('t (minute)')
         if row == 2 and col == 1: p.legend(success_rates, title='Success Rate')
 
-    fig.suptitle(f'Reputation {name.title()} Response', fontsize=16)
-    plt.savefig(f'test-outputs/reputation-{name}-response.svg')
+    fig.suptitle(f'reliability {name.title()} Response', fontsize=16)
+    plt.savefig(f'test-outputs/reliability-{name}-response.svg')
 
-plot_reputation_response('outage', 'outage_duration_m', ' minute')
-plot_reputation_response('penalty', 'penalty', '')
+plot_reliability_response('outage', 'outage_duration_m', ' minute')
+plot_reliability_response('penalty', 'penalty', '')

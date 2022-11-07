@@ -1,10 +1,10 @@
-use crate::{
-    test_utils::{default_cost_model, gen_blocks},
+use crate::{test_utils::default_cost_model, *};
+use anyhow::Result;
+use prelude::{
+    test_utils::{bytes_from_id, init_test_tracing},
     *,
 };
-use anyhow::Result;
-use prelude::{test_utils::bytes_from_id, *};
-use rand::{prelude::SmallRng, SeedableRng as _};
+use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 use rand_distr::Normal;
 use std::sync::Arc;
 
@@ -31,25 +31,21 @@ pub struct Results {
 
 pub async fn simulate(
     characteristics: &[IndexerCharacteristics],
-    config: &UtilityConfig,
+    params: &UtilityParameters,
     queries_per_second: u64,
-    budget: GRT,
-    _selection_limit: u8,
+    selection_limit: u8,
 ) -> Result<Results> {
+    init_test_tracing();
+
     let deployment = SubgraphDeploymentID(bytes_from_id(1));
-    let mut results = Results::default();
-    results.client_queries = 10_000;
+    let mut results = simulation::Results {
+        client_queries: 10_000,
+        ..Default::default()
+    };
 
     let mut isa = State::default();
     isa.network_params.slashing_percentage = "0.1".parse().ok();
     isa.network_params.usd_to_grt_conversion = "0.1".parse().ok();
-
-    let blocks = {
-        let max_blocks_behind = characteristics.iter().map(|c| c.blocks_behind).max();
-        let last_block = max_blocks_behind.unwrap() + 100;
-        gen_blocks(&(0..last_block).into_iter().collect::<Vec<u64>>())
-    };
-    let latest_block = blocks.last().unwrap();
 
     for characteristics in characteristics {
         let indexing = Indexing {
@@ -74,8 +70,8 @@ pub async fn simulate(
                 allocations,
                 cost_model: Some(Ptr::new(default_cost_model(characteristics.fee))),
                 block: Some(BlockStatus {
-                    reported_number: latest_block
-                        .number
+                    reported_number: params
+                        .latest_block
                         .saturating_sub(characteristics.blocks_behind),
                     blocks_behind: characteristics.blocks_behind,
                     behind_reported_block: false,
@@ -100,27 +96,20 @@ pub async fn simulate(
         }
 
         let mut context = Context::new("{ a }", "").unwrap();
-        let freshness_requirements = BlockRequirements {
-            range: None,
-            has_latest: true,
-        };
-        let latest_block = blocks.last().unwrap().number;
         let t0 = Instant::now();
         let (mut selections, _) = isa
             .select_indexers(
-                config,
                 &deployment,
-                &mut context,
-                latest_block,
                 &indexers,
-                budget,
-                &freshness_requirements,
-                // selection_limit,
+                params,
+                &mut context,
+                selection_limit,
             )
             .unwrap();
         results.avg_selection_seconds += Instant::now().duration_since(t0).as_secs_f64();
 
-        selections.sort_by_key(|s| characteristics.get(&s.indexing.indexer).unwrap().latency_ms);
+        selections
+            .sort_unstable_by_key(|s| characteristics.get(&s.indexing.indexer).unwrap().latency_ms);
         let responses = selections
             .iter()
             .map(|s| {
@@ -144,11 +133,11 @@ pub async fn simulate(
                 deployment,
             };
             let duration = Duration::from_millis(characteristics.latency_ms);
-            if ok {
-                isa.observe_successful_query(&indexing, duration);
-            } else {
-                isa.observe_failed_query(&indexing, duration, false);
-            }
+            let result = match ok {
+                true => Ok(()),
+                false => Err(IndexerErrorObservation::Other),
+            };
+            isa.observe_query(&indexing, duration, result);
         }
     }
 

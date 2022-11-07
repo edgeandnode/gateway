@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use hex;
-use indexer_selection::{IndexerError, Selection};
+use indexer_selection::Selection;
 use prelude::*;
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,17 @@ pub struct IndexerResponse {
     pub status: u16,
     pub payload: String,
     pub attestation: Option<Attestation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum IndexerError {
+    NoAllocation,
+    NoAttestation,
+    UnattestableError,
+    Timeout,
+    UnexpectedPayload,
+    UnresolvedBlock,
+    Other(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,7 +71,6 @@ impl IndexerInterface for IndexerClient {
         let receipt = hex::encode(receipt);
         let receipt = &receipt[0..(receipt.len() - 64)];
         let url = selection
-            .score
             .url
             .join(&format!(
                 "/subgraphs/id/{:?}",

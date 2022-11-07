@@ -1,4 +1,4 @@
-use crate::{IndexerInfo, Indexing, IndexingStatus, State};
+use crate::{IndexerErrorObservation, IndexerInfo, Indexing, IndexingStatus, State};
 use lazy_static::lazy_static;
 use prelude::*;
 use prelude::{
@@ -32,25 +32,6 @@ pub enum Update {
 pub struct IndexerUpdate {
     pub info: Arc<IndexerInfo>,
     pub indexings: HashMap<SubgraphDeploymentID, IndexingStatus>,
-}
-
-#[derive(Debug)]
-pub enum IndexerErrorObservation {
-    Timeout,
-    IndexingBehind {
-        latest_query_block: u64,
-        latest_block: u64,
-    },
-    Other,
-}
-
-impl IndexerErrorObservation {
-    fn is_timeout(&self) -> bool {
-        match self {
-            Self::Timeout => true,
-            _ => false,
-        }
-    }
 }
 
 pub async fn process_updates(
@@ -104,9 +85,7 @@ pub fn apply_state_update(state: &mut State, update: &Update) {
         }
         Update::Indexers(indexers) => {
             for (indexer, indexer_update) in indexers {
-                state
-                    .indexers
-                    .insert(indexer.clone(), indexer_update.info.clone());
+                state.indexers.insert(*indexer, indexer_update.info.clone());
                 for (deployment, status) in &indexer_update.indexings {
                     let indexing = Indexing {
                         indexer: *indexer,
@@ -122,19 +101,9 @@ pub fn apply_state_update(state: &mut State, update: &Update) {
             indexing,
             duration,
             result,
-        } => match result {
-            Ok(()) => state.observe_successful_query(indexing, *duration),
-            Err(error) => {
-                state.observe_failed_query(indexing, *duration, error.is_timeout());
-                if let IndexerErrorObservation::IndexingBehind {
-                    latest_query_block,
-                    latest_block,
-                } = error
-                {
-                    state.observe_indexing_behind(indexing, *latest_query_block, *latest_block);
-                }
-            }
-        },
+        } => {
+            state.observe_query(indexing, *duration, *result);
+        }
         Update::Penalty { indexing, weight } => state.penalize(indexing, *weight),
     }
 }
