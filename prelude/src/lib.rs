@@ -20,6 +20,9 @@ pub use tokio::{
 };
 pub use tracing::{self, Instrument};
 
+#[global_allocator]
+static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
+
 use serde::Deserialize;
 use siphasher::sip::SipHasher24;
 use std::{
