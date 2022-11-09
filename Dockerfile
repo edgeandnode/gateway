@@ -1,10 +1,12 @@
-FROM rust:1.64-bullseye AS build
+FROM rust:1.65-bullseye AS build
 
 ARG GH_USER
 ARG GH_TOKEN
 
 RUN apt-get update && apt-get install -y \
   build-essential \
+  clang \
+  cmake \
   git \
   librdkafka-dev \
   libsasl2-dev\
@@ -21,6 +23,7 @@ RUN npm install -g git-credential-env \
   && git config --global --add url.https://github.com/.insteadOf git@github.com: \
   && mkdir ~/.cargo && echo "[net]\ngit-fetch-with-cli = true" > ~/.cargo/config.toml
 
+ENV CC=clang CXX=clang++
 RUN cargo build --release --bin graph-gateway
 
 FROM debian:bullseye-slim
