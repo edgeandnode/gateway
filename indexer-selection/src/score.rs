@@ -119,16 +119,20 @@ impl MetaIndexer<'_> {
             return 0.0;
         }
 
-        // Expected values calculated based on the following BQN (https://tinyurl.com/3vmpdcza):
+        // Expected values calculated based on the following BQN:
         // # indexer success latencies
         // l ← ⟨50, 20, 100⟩
         // # indexer reliabilities
         // r ← ⟨0.99, 0.5, 0.8⟩
         // # sort both vectors by success latency
         // Sort ← (⍋l)⊏⊢ ⋄ r ↩ Sort r ⋄ l ↩ Sort l
-        // ps ← r×1»×`1-r # ⟨ 0.5 0.495 0.004 ⟩
+        // pf ← ×`1-r  # ⟨ 0.5 0.005 0.001 ⟩
+        // ps ← r×1»pf # ⟨ 0.5 0.495 0.004 ⟩
         // ExpectedValue ← +´ps×⊢
-        // ExpectedValue l # 35.15
+        // # Calculate the expected value for latency under inversion. Since performance utility
+        // # has an inverse relationship with utility. We want the values to be pulled toward
+        // # infility as reliability decreases.
+        // ExpectedValue⌾÷ l # 28.62
 
         let mut reliability: V<f64> = self.0.iter().map(|f| f.reliability).collect();
         let mut perf_success: V<f64> = self.0.iter().map(|f| f.perf_success).collect();
@@ -163,16 +167,23 @@ impl MetaIndexer<'_> {
             .zip(&reliability)
             .map(|(p, r)| p * r)
             .collect::<V<f64>>();
-        let expected_value = |v: &V<f64>| -> f64 { v.iter().zip(&ps).map(|(a, &b)| a * b).sum() };
-        let perf_success = expected_value(&perf_success);
-        let slashable_usd = expected_value(&slashable_usd);
-
+        // BQN: (+´ps×⊢)s
+        let slashable_usd = slashable_usd.iter().zip(&ps).map(|(a, &b)| a * b).sum();
+        // BQN: (+´ps×⊢)⌾÷l
+        let perf_success = perf_success
+            .iter()
+            .zip(&ps)
+            .map(|(a, &b)| a.recip() * b)
+            .sum::<f64>()
+            .recip();
+        // BQN: ⌈´f
         let perf_failure = *self
             .0
             .iter()
             .map(|f| NotNan::try_from(f.perf_failure).unwrap())
             .max()
             .unwrap();
+
         // We use the max value of blocks behind to account for the possibility of incorrect
         // indexing statuses.
         let blocks_behind = self.0.iter().map(|f| f.blocks_behind).max().unwrap();
