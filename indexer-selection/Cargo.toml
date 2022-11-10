@@ -14,6 +14,7 @@ itertools = "0.10"
 lazy_static = "1.4"
 num-traits = "0.2"
 ordered-float = "3.0"
+permutation = "0.4"
 prelude = { path = "../prelude" }
 prometheus = { version = "0.13", default-features = false }
 rand_distr = "0.4"
