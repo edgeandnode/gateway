@@ -138,18 +138,11 @@ impl MetaIndexer<'_> {
         let mut perf_success: V<f64> = self.0.iter().map(|f| f.perf_success).collect();
         let mut slashable_usd: V<f64> = self.0.iter().map(|f| f.slashable_usd).collect();
 
-        let mut order = (0..perf_success.len()).collect::<V<usize>>();
-        order.sort_unstable_by_key(|i| NotNan::try_from(perf_success[*i]).unwrap());
-        macro_rules! sort_by_perf_success {
-            ($v:ident) => {
-                for i in 0..$v.len() {
-                    $v.swap(i, order[i]);
-                }
-            };
-        }
-        sort_by_perf_success!(reliability);
-        sort_by_perf_success!(perf_success);
-        sort_by_perf_success!(slashable_usd);
+        let mut permutation =
+            permutation::sort_unstable_by_key(&perf_success, |n| NotNan::try_from(*n).unwrap());
+        permutation.apply_slice_in_place(&mut reliability);
+        permutation.apply_slice_in_place(&mut perf_success);
+        permutation.apply_slice_in_place(&mut slashable_usd);
 
         // BQN: pf ← ×`1-r
         let pf = reliability
