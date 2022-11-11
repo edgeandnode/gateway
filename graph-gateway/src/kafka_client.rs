@@ -34,7 +34,7 @@ impl KafkaInterface for KafkaClient {
         let record = BaseRecord::<'_, (), [u8]>::to(M::TOPIC).payload(&payload);
         match self.producer.send(record) {
             Ok(()) => (),
-            Err((kafka_producer_err, _)) => tracing::error!(%kafka_producer_err),
+            Err((kafka_producer_err, _)) => tracing::error!(%kafka_producer_err, topic=%M::TOPIC),
         };
     }
 }
