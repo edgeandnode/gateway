@@ -3,7 +3,6 @@ use crate::{
     chains::{self, test::Provider, BlockCache},
     fisherman_client::*,
     indexer_client::*,
-    kafka_client::{self, KafkaInterface},
     manifest_client::SubgraphInfo,
     price_automation::QueryBudgetFactors,
     query_engine::*,
@@ -511,10 +510,7 @@ impl Topology {
                     format!("expected no valid indexer, got {}", valid.len()),
                 );
             }
-            if matches!(
-                result,
-                Err(NoIndexerSelected) | Err(IndexerSelectionErrors(_))
-            ) {
+            if matches!(result, Err(NoIndexerSelected)) {
                 return Ok(());
             }
             return Self::err_with(
@@ -669,12 +665,6 @@ impl IndexerInterface for TopologyIndexer {
     }
 }
 
-struct DummyKafka;
-
-impl KafkaInterface for DummyKafka {
-    fn send<M: kafka_client::Msg>(&self, _: &M) {}
-}
-
 #[derive(Clone)]
 struct TopologyFisherman {
     topology: Arc<Mutex<Topology>>,
@@ -751,7 +741,6 @@ async fn query_engine() {
             indexer_client: TopologyIndexer {
                 topology: topology.clone(),
             },
-            kafka_client: Arc::new(DummyKafka),
             fisherman_client: Some(Arc::new(TopologyFisherman {
                 topology: topology.clone(),
             })),

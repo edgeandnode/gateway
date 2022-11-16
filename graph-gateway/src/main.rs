@@ -27,7 +27,7 @@ use crate::{
     indexer_client::IndexerClient,
     indexer_status::IndexingStatus,
     ipfs_client::*,
-    kafka_client::{ClientQueryResult, IndexerAttempt, KafkaClient, KafkaInterface as _},
+    kafka_client::{ClientQueryResult, ISAScoringError, IndexerAttempt, KafkaClient},
     manifest_client::*,
     metrics::*,
     opt::*,
@@ -48,7 +48,7 @@ use clap::Parser as _;
 use eventuals::EventualExt as _;
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
-    BlockStatus, IndexerInfo, Indexing,
+    BlockStatus, IndexerError as IndexerSelectionError, IndexerInfo, Indexing,
 };
 use network_subgraph::AllocationInfo;
 use prelude::{
@@ -63,7 +63,7 @@ use serde::Deserialize;
 use serde_json::{json, value::RawValue};
 use simple_rate_limiter::RateLimiter;
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
     fs::read_to_string,
     path::Path,
     sync::Arc,
@@ -636,7 +636,6 @@ async fn handle_subgraph_query_inner(
     let query_engine = QueryEngine {
         config: data.config.clone(),
         indexer_client: data.indexer_client.clone(),
-        kafka_client: data.kafka_client.clone(),
         fisherman_client: data.fisherman_client.clone(),
         deployment_indexers: data.deployment_indexers.clone(),
         block_caches: data.block_caches.clone(),
@@ -695,13 +694,21 @@ async fn handle_subgraph_query_inner(
             QueryEngineError::MalformedQuery => "Invalid query".into(),
             QueryEngineError::NoIndexers => "No indexers found for subgraph deployment".into(),
             QueryEngineError::NoIndexerSelected => {
+                let detail = if query.isa_errors.is_empty() {
+                    format!("{} indexers attempted", query.indexer_attempts.len())
+                } else {
+                    let isa_errors = query
+                        .isa_errors
+                        .iter()
+                        .map(|(k, v)| (k, v.len()))
+                        .filter(|(_, l)| *l > 0)
+                        .collect::<BTreeMap<&IndexerSelectionError, usize>>();
+                    format!("Indexer selection errors: {:?}", isa_errors)
+                };
                 format!(
-                    "No suitable indexer found for subgraph deployment, {} indexers attempted",
-                    query.indexer_attempts.len()
+                    "No suitable indexer found for subgraph deployment. {}",
+                    detail
                 )
-            }
-            QueryEngineError::IndexerSelectionErrors(detail) => {
-                format!("No suitable indexer found. {}", detail)
             }
             QueryEngineError::BlockBeforeMin => {
                 "Requested block before minimum `startBlock` of subgraph manifest".into()
@@ -758,6 +765,21 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
     let ts = timestamp();
     let query_result = ClientQueryResult::new(&query, result.clone(), ts);
     kafka_client.send(&query_result);
+
+    for (err, indexers) in &query.isa_errors {
+        let message = "ISA scoring sample";
+        for indexer in indexers {
+            kafka_client.send(&ISAScoringError::new(&query, &indexer, err, message));
+            tracing::info!(
+                ray_id = %query.ray_id.clone(),
+                query_id = %query.id,
+                deployment = %query.subgraph.as_ref().unwrap().deployment,
+                %indexer,
+                scoring_err = ?err,
+                message,
+            );
+        }
+    }
 
     let indexer_attempts = query
         .indexer_attempts

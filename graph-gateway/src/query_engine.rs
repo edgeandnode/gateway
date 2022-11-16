@@ -3,7 +3,6 @@ use crate::{
     chains::*,
     fisherman_client::*,
     indexer_client::*,
-    kafka_client::{ISAScoringError, KafkaInterface},
     manifest_client::SubgraphInfo,
     metrics::*,
     price_automation::*,
@@ -43,6 +42,7 @@ pub struct Query {
     pub subgraph: Option<Ptr<SubgraphInfo>>,
     pub budget: Option<GRT>,
     pub indexer_attempts: Vec<IndexerAttempt>,
+    pub isa_errors: BTreeMap<IndexerSelectionError, BTreeSet<Address>>,
 }
 
 impl Query {
@@ -57,6 +57,7 @@ impl Query {
             subgraph: None,
             budget: None,
             indexer_attempts: Vec::new(),
+            isa_errors: BTreeMap::new(),
         }
     }
 }
@@ -172,7 +173,6 @@ pub struct QueryResponse {
 pub enum QueryEngineError {
     NoIndexers,
     NoIndexerSelected,
-    IndexerSelectionErrors(String),
     MalformedQuery,
     BlockBeforeMin,
     NetworkNotSupported(String),
@@ -203,15 +203,13 @@ pub struct Config {
     pub budget_factors: QueryBudgetFactors,
 }
 
-pub struct QueryEngine<I, K, F>
+pub struct QueryEngine<I, F>
 where
     I: IndexerInterface + Clone + Send,
-    K: KafkaInterface + Send,
     F: FishermanInterface + Clone + Send,
 {
     pub config: Config,
     pub indexer_client: I,
-    pub kafka_client: Arc<K>,
     pub fisherman_client: Option<Arc<F>>,
     pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     pub block_caches: Arc<HashMap<String, BlockCache>>,
@@ -220,10 +218,9 @@ where
     pub observations: QueueWriter<Update>,
 }
 
-impl<I, K, F> QueryEngine<I, K, F>
+impl<I, F> QueryEngine<I, F>
 where
     I: IndexerInterface + Clone + Send + 'static,
-    K: KafkaInterface + Send,
     F: FishermanInterface + Clone + Send + Sync + 'static,
 {
     pub async fn execute_query(&self, query: &mut Query) -> Result<(), QueryEngineError> {
@@ -378,24 +375,16 @@ where
             drop(selection_timer);
 
             tracing::debug!(indexer_errors = ?indexer_errors.0);
-            for (err, indexers) in &indexer_errors.0 {
-                for indexer in indexers {
-                    self.notify_isa_err(&query, indexer, err, "ISA scoring sample");
-                }
-            }
+            query.isa_errors.extend(
+                indexer_errors
+                    .0
+                    .into_iter()
+                    .map(|(k, v)| (k, v.into_iter().copied().collect())),
+            );
 
             let selection = match selections.into_iter().next() {
                 Some(selection) => selection,
-                None if indexer_errors.0.is_empty() => return Err(NoIndexerSelected),
-                None => {
-                    let errors = indexer_errors
-                        .0
-                        .iter()
-                        .map(|(k, v)| (k, v.len()))
-                        .filter(|(_, l)| *l > 0)
-                        .collect::<BTreeMap<&IndexerSelectionError, usize>>();
-                    return Err(IndexerSelectionErrors(format!("{:?}", errors)));
-                }
+                None => return Err(NoIndexerSelected),
             };
             if selection.fee > GRT::try_from(100u64).unwrap() {
                 tracing::error!(excessive_fee = %selection.fee);
@@ -580,26 +569,6 @@ where
         }
 
         Ok(())
-    }
-
-    fn notify_isa_err(
-        &self,
-        query: &Query,
-        indexer: &Address,
-        err: &IndexerSelectionError,
-        message: &str,
-    ) {
-        self.kafka_client
-            .send(&ISAScoringError::new(&query, &indexer, err, message));
-        // The following logs are required for data science.
-        tracing::info!(
-            ray_id = %query.ray_id.clone(),
-            query_id = %query.id,
-            deployment = %query.subgraph.as_ref().unwrap().deployment,
-            %indexer,
-            scoring_err = ?err,
-            message,
-        );
     }
 
     fn challenge_indexer_response(
