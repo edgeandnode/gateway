@@ -79,10 +79,17 @@ pub fn select_indexers<'s, R: Rng>(
         }
         masks.push(mask);
         let score = meta_indexer.score(params);
-        tracing::trace!(
-            indexers = ?meta_indexer.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
-            score,
-        );
+        if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(
+                indexers = ?meta_indexer.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
+                score,
+            );
+        } else if rng.gen_bool(0.01) {
+            tracing::debug!(
+                indexers = ?meta_indexer.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
+                score,
+            );
+        }
         if score > selections.1 {
             selections = (meta_indexer.0, score);
         }
