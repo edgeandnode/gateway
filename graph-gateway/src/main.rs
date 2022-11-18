@@ -46,7 +46,7 @@ use clap::Parser as _;
 use eventuals::EventualExt as _;
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
-    BlockStatus, IndexerError as IndexerSelectionError, IndexerInfo, Indexing,
+    BlockStatus, IndexerError as IndexerSelectionError, IndexerInfo, Indexing, SELECTION_LIMIT,
 };
 use network_subgraph::AllocationInfo;
 use prelude::{

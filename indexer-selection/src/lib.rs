@@ -21,7 +21,6 @@ pub use crate::{
 pub use cost_model::{self, CostModel};
 pub use ordered_float::NotNan;
 pub use receipts;
-use score::ExpectedValue;
 pub use secp256k1::SecretKey;
 
 use crate::{
@@ -31,6 +30,7 @@ use crate::{
 };
 use prelude::{epoch_cache::EpochCache, *};
 use rand::{prelude::SmallRng, SeedableRng as _};
+use score::ExpectedValue;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
