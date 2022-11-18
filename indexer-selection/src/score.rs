@@ -39,6 +39,7 @@ pub fn select_indexers<'s, R: Rng>(
     rng: &mut R,
     params: &UtilityParameters,
     factors: &'s [SelectionFactors],
+    selection_limit: u8,
 ) -> Vec<Selection> {
     if factors.is_empty() {
         return vec![];
@@ -49,20 +50,21 @@ pub fn select_indexers<'s, R: Rng>(
     // We must use a suitable indexer, if one exists. Indexers are filtered out when calculating
     // selection factors if they are over budget or don't meet freshness requirements. So they won't
     // pollute the set we're selecting from.
+    let selection_limit = SELECTION_LIMIT.min(selection_limit as usize);
     let mut selections = (ArrayVec::new(), 0.0);
     let mut masks = ArrayVec::<[u8; 20], 20>::new();
     // Calculate a sample limit using a "good enough" approximation of the binomial coefficient of
     // `(factors.len(), SELECTION_LIMIT)` (AKA "n choose k").
     let sample_limit = match factors.len() {
-        n if n <= SELECTION_LIMIT => 1,
-        n if n == (SELECTION_LIMIT + 1) => n,
-        n => (n - SELECTION_LIMIT) * 2,
+        n if n <= selection_limit => 1,
+        n if n == (selection_limit + 1) => n,
+        n => (n - selection_limit) * 2,
     }
     .min(masks.capacity());
     for _ in 0..sample_limit {
         let mut meta_indexer = MetaIndexer(
             factors
-                .choose_multiple_weighted(rng, SELECTION_LIMIT, |f| f.sybil)
+                .choose_multiple_weighted(rng, selection_limit, |f| f.sybil)
                 .unwrap()
                 .collect(),
         );
@@ -84,7 +86,7 @@ pub fn select_indexers<'s, R: Rng>(
                 indexers = ?meta_indexer.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
                 score,
             );
-        } else if rng.gen_bool(0.01) {
+        } else if rng.gen_bool(0.001) {
             tracing::debug!(
                 indexers = ?meta_indexer.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
                 score,

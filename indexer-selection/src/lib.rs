@@ -267,7 +267,7 @@ impl State {
         // See also: https://docs.rs/rand/latest/rand/rngs/struct.SmallRng.html
         let mut rng = SmallRng::from_entropy();
 
-        let mut selections = select_indexers(&mut rng, params, &available);
+        let mut selections = select_indexers(&mut rng, params, &available, selection_limit);
         selections.truncate(selection_limit as usize);
         Ok((selections, errors))
     }
