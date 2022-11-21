@@ -7,12 +7,15 @@ mod performance;
 mod reliability;
 mod score;
 pub mod simulation;
+#[cfg(test)]
+mod test;
 pub mod test_utils;
 mod utility;
 
 pub use crate::{
     economic_security::NetworkParameters,
     indexing::{BlockStatus, IndexingState, IndexingStatus},
+    score::SELECTION_LIMIT,
     utility::ConcaveUtilityParameters,
 };
 pub use cost_model::{self, CostModel};
@@ -55,7 +58,7 @@ pub enum InputError {
     MissingNetworkParams,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum IndexerError {
     NoStatus,
     NoStake,
@@ -127,6 +130,7 @@ pub struct BlockRequirements {
     pub has_latest: bool,
 }
 
+#[derive(Debug)]
 pub struct IndexerErrors<'a>(pub BTreeMap<IndexerError, BTreeSet<&'a Address>>);
 
 impl<'a> IndexerErrors<'a> {

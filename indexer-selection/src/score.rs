@@ -24,7 +24,7 @@ pub struct SelectionFactors {
     pub sybil: NotNan<f64>,
 }
 
-const SELECTION_LIMIT: usize = 3;
+pub const SELECTION_LIMIT: usize = 3;
 
 /// A subset of available indexers, with combined utility
 struct MetaIndexer<'s>(pub ArrayVec<&'s SelectionFactors, SELECTION_LIMIT>);
