@@ -33,6 +33,7 @@ use rand::{prelude::SmallRng, SeedableRng as _};
 use score::ExpectedValue;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    fmt::Display,
     sync::Arc,
 };
 
@@ -111,6 +112,15 @@ impl UnresolvedBlock {
         match self {
             Self::WithHash(hash) => &block.hash == hash,
             Self::WithNumber(number) => &block.number == number,
+        }
+    }
+}
+
+impl Display for UnresolvedBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WithHash(hash) => write!(f, "{}", hash),
+            Self::WithNumber(number) => write!(f, "{}", number),
         }
     }
 }

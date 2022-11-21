@@ -1,5 +1,6 @@
 mod block_constraints;
 mod chains;
+mod client_query;
 mod fisherman_client;
 mod geoip;
 mod indexer_client;
@@ -11,7 +12,6 @@ mod metrics;
 mod network_subgraph;
 mod opt;
 mod price_automation;
-mod query_engine;
 mod rate_limiter;
 mod receipts;
 mod studio_client;
@@ -19,21 +19,9 @@ mod subgraph_deployments;
 mod unattestable_errors;
 mod vouchers;
 use crate::{
-    chains::*,
-    fisherman_client::*,
-    geoip::GeoIP,
-    indexer_client::IndexerClient,
-    indexer_status::IndexingStatus,
-    ipfs_client::*,
-    kafka_client::{ClientQueryResult, ISAScoringError, IndexerAttempt, KafkaClient},
-    manifest_client::*,
-    metrics::*,
-    opt::*,
-    price_automation::QueryBudgetFactors,
-    query_engine::*,
-    rate_limiter::*,
-    receipts::ReceiptPools,
-    subgraph_deployments::SubgraphDeployments,
+    chains::*, fisherman_client::*, geoip::GeoIP, indexer_client::IndexerClient,
+    indexer_status::IndexingStatus, ipfs_client::*, kafka_client::KafkaClient, metrics::*, opt::*,
+    price_automation::QueryBudgetFactors, rate_limiter::*, receipts::ReceiptPools,
 };
 use actix_cors::Cors;
 use actix_web::{
@@ -46,29 +34,25 @@ use clap::Parser as _;
 use eventuals::EventualExt as _;
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
-    BlockStatus, IndexerError as IndexerSelectionError, IndexerInfo, Indexing, SELECTION_LIMIT,
+    BlockStatus, IndexerInfo, Indexing,
 };
 use network_subgraph::AllocationInfo;
 use prelude::{
     buffer_queue::{self, QueueWriter},
-    double_buffer::DoubleBufferReader,
     *,
 };
 use prometheus::{self, Encoder as _};
 use reqwest;
 use secp256k1::SecretKey;
-use serde::Deserialize;
-use serde_json::{json, value::RawValue};
+use serde_json::json;
 use simple_rate_limiter::RateLimiter;
 use std::{
-    collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     fs::read_to_string,
     path::Path,
     sync::Arc,
-    time::SystemTime,
 };
 use tokio::spawn;
-use url::Url;
 
 #[actix_web::main]
 async fn main() {
@@ -196,14 +180,12 @@ async fn main() {
     let fisherman_client = opt
         .fisherman
         .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
-    let subgraph_query_data = SubgraphQueryData {
-        config: query_engine::Config {
-            indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
-            budget_factors: QueryBudgetFactors {
-                scale: opt.query_budget_scale,
-                discount: opt.query_budget_discount,
-                processes: (opt.replica_count * opt.location_count) as f64,
-            },
+    let client_query_ctx = client_query::Context {
+        indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
+        budget_factors: QueryBudgetFactors {
+            scale: opt.query_budget_scale,
+            discount: opt.query_budget_discount,
+            processes: (opt.replica_count * opt.location_count) as f64,
         },
         indexer_client: IndexerClient {
             client: http_client.clone(),
@@ -262,7 +244,7 @@ async fn main() {
                 rate_limiter: api_rate_limiter.clone(),
                 key: request_api_key,
             })
-            .app_data(web::Data::new(subgraph_query_data.clone()))
+            .app_data(web::Data::new(client_query_ctx.clone()))
             .app_data(web::JsonConfig::default().error_handler(|err, _| {
                 actix_web::error::InternalError::from_response(
                     err,
@@ -272,11 +254,11 @@ async fn main() {
             }))
             .route(
                 "/subgraphs/id/{subgraph_id}",
-                web::post().to(handle_subgraph_query),
+                web::post().to(client_query::handle_query),
             )
             .route(
                 "/deployments/id/{deployment_id}",
-                web::post().to(handle_subgraph_query),
+                web::post().to(client_query::handle_query),
             );
         let other = web::scope("")
             .wrap(RateLimiterMiddleware {
@@ -521,365 +503,8 @@ async fn handle_network_query(
     }
 }
 
-#[derive(Deserialize, Debug)]
-struct QueryBody {
-    query: String,
-    variables: Option<Box<RawValue>>,
-}
-
-#[derive(Clone)]
-struct SubgraphQueryData {
-    config: Config,
-    indexer_client: IndexerClient,
-    fisherman_client: Option<Arc<FishermanClient>>,
-    block_caches: Arc<HashMap<String, BlockCache>>,
-    subgraph_info: SubgraphInfoMap,
-    subgraph_deployments: SubgraphDeployments,
-    deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
-    receipt_pools: ReceiptPools,
-    isa_state: DoubleBufferReader<indexer_selection::State>,
-    observations: QueueWriter<Update>,
-    api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
-    api_key_payment_required: bool,
-    kafka_client: Arc<KafkaClient>,
-    special_api_keys: Arc<HashSet<String>>,
-}
-
-#[derive(Debug)]
-enum SubgraphResolutionError {
-    InvalidSubgraphID(String),
-    InvalidDeploymentID(String),
-    SubgraphNotFound(String),
-    DeploymentNotFound(String),
-}
-
-impl SubgraphQueryData {
-    async fn resolve_subgraph_deployment(
-        &self,
-        params: &actix_web::dev::Path<actix_web::dev::Url>,
-    ) -> Result<Ptr<SubgraphInfo>, SubgraphResolutionError> {
-        let deployment = if let Some(id) = params.get("subgraph_id") {
-            let subgraph = id
-                .parse::<SubgraphID>()
-                .map_err(|_| SubgraphResolutionError::InvalidSubgraphID(id.to_string()))?;
-            self.subgraph_deployments
-                .current_deployment(&subgraph)
-                .await
-                .ok_or_else(|| SubgraphResolutionError::SubgraphNotFound(id.to_string()))?
-        } else if let Some(id) = params.get("deployment_id") {
-            SubgraphDeploymentID::from_ipfs_hash(id)
-                .ok_or_else(|| SubgraphResolutionError::InvalidDeploymentID(id.to_string()))?
-        } else {
-            return Err(SubgraphResolutionError::SubgraphNotFound("".to_string()));
-        };
-        self.subgraph_info
-            .value_immediate()
-            .and_then(|map| map.get(&deployment)?.value_immediate())
-            .map(move |info| info)
-            .ok_or_else(|| SubgraphResolutionError::DeploymentNotFound(deployment.to_string()))
-    }
-}
-
-async fn handle_subgraph_query(
-    request: HttpRequest,
-    payload: web::Json<QueryBody>,
-    data: web::Data<SubgraphQueryData>,
-) -> HttpResponse {
-    let ray_id = request
-        .headers()
-        .get("cf-ray")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-    let variables = payload.variables.as_ref().map(ToString::to_string);
-    let mut query = Query::new(ray_id, payload.into_inner().query, variables);
-    // We check that the requested subgraph is valid now, since we don't want to log query info for
-    // unknown subgraphs requests.
-    query.subgraph = match data.resolve_subgraph_deployment(request.match_info()).await {
-        Ok(result) => Some(result),
-        Err(subgraph_resolution_err) => {
-            tracing::info!(?subgraph_resolution_err);
-            return graphql_error_response(format!("{:?}", subgraph_resolution_err));
-        }
-    };
-    let span = tracing::info_span!(
-        "handle_subgraph_query",
-        ray_id = %query.ray_id,
-        query_id = %query.id,
-        subgraph = %query.subgraph.as_ref().unwrap().id,
-        deployment = %query.subgraph.as_ref().unwrap().deployment,
-        network = %query.subgraph.as_ref().unwrap().network,
-    );
-    let api_key = request.match_info().get("api_key").unwrap_or("");
-
-    let response = handle_subgraph_query_inner(&request, &data, &mut query, api_key)
-        .instrument(span)
-        .await;
-
-    let (payload, status_result) = match response {
-        Ok(payload) => (payload, Ok(StatusCode::OK.to_string())),
-        Err(msg) => (graphql_error_response(&msg), Err(msg)),
-    };
-    notify_query_result(&data.kafka_client, &query, status_result);
-
-    payload
-}
-
-async fn handle_subgraph_query_inner(
-    request: &HttpRequest,
-    data: &web::Data<SubgraphQueryData>,
-    query: &mut Query,
-    api_key: &str,
-) -> Result<HttpResponse, String> {
-    let query_engine = QueryEngine {
-        config: data.config.clone(),
-        indexer_client: data.indexer_client.clone(),
-        fisherman_client: data.fisherman_client.clone(),
-        deployment_indexers: data.deployment_indexers.clone(),
-        block_caches: data.block_caches.clone(),
-        receipt_pools: data.receipt_pools.clone(),
-        isa: data.isa_state.clone(),
-        observations: data.observations.clone(),
-    };
-    let api_keys = data.api_keys.value_immediate().unwrap_or_default();
-    query.api_key = api_keys.get(api_key).cloned();
-    let api_key = match &query.api_key {
-        Some(api_key) => api_key.clone(),
-        None => return Err("Invalid API key".into()),
-    };
-
-    if data.api_key_payment_required
-        && !api_key.is_subsidized
-        && !data.special_api_keys.contains(&api_key.key)
-    {
-        // Enforce the API key payment status, unless it's being subsidized.
-        match api_key.query_status {
-            QueryStatus::Active => (),
-            QueryStatus::Inactive => return Err(
-                "Querying not activated yet; make sure to add some GRT to your balance in the studio"
-                    .into(),
-            ),
-            QueryStatus::ServiceShutoff => {
-                return Err("Payment required for subsequent requests for this API key".into())
-            }
-        };
-    }
-
-    let domain = request
-        .headers()
-        .get(header::ORIGIN)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
-        .unwrap_or("".to_string());
-    tracing::debug!(%domain, authorized = ?api_key.domains);
-    let authorized_domains = api_key.domains.iter().map(|(d, _)| d.as_str());
-    if !api_key.domains.is_empty() && !is_domain_authorized(authorized_domains, &domain) {
-        return Err("Domain not authorized by API key".into());
-    }
-
-    let deployment = &query.subgraph.as_ref().unwrap().deployment.clone();
-    let deployment_authorized =
-        api_key.deployments.is_empty() || api_key.deployments.contains(&deployment);
-    let subgraph = &query.subgraph.as_ref().unwrap().id;
-    let subgraph_authorized =
-        api_key.subgraphs.is_empty() || api_key.subgraphs.iter().any(|(s, _)| s == subgraph);
-    if !deployment_authorized || !subgraph_authorized {
-        return Err("Subgraph not authorized by API key".into());
-    }
-
-    if let Err(err) = query_engine.execute_query(query).await {
-        return Err(match err {
-            QueryEngineError::MalformedQuery => "Invalid query".into(),
-            QueryEngineError::NoIndexers => "No indexers found for subgraph deployment".into(),
-            QueryEngineError::NoIndexerSelected => {
-                let detail = if query.isa_errors.is_empty() {
-                    format!("{} indexers attempted", query.indexer_attempts.len())
-                } else {
-                    let isa_errors = query
-                        .isa_errors
-                        .iter()
-                        .map(|(k, v)| (k, v.len()))
-                        .filter(|(_, l)| *l > 0)
-                        .collect::<BTreeMap<&IndexerSelectionError, usize>>();
-                    format!("Indexer selection errors: {:?}", isa_errors)
-                };
-                format!(
-                    "No suitable indexer found for subgraph deployment. {}",
-                    detail
-                )
-            }
-            QueryEngineError::BlockBeforeMin => {
-                "Requested block before minimum `startBlock` of subgraph manifest".into()
-            }
-            QueryEngineError::NetworkNotSupported(network) => {
-                format!("Network not supported: {}", network)
-            }
-            QueryEngineError::MissingBlock(_) => "Gateway failed to resolve required blocks".into(),
-            QueryEngineError::MissingNetworkParams => "Internal error: MissingNetworkParams".into(),
-            QueryEngineError::MissingExchangeRate => "Internal error: MissingExchangeRate".into(),
-            QueryEngineError::ExcessiveFee => "Internal error: ExcessiveFee".into(),
-        });
-    }
-    let last_attempt = query.indexer_attempts.last().unwrap();
-    let response = last_attempt.result.as_ref().unwrap();
-
-    let attestation = response
-        .attestation
-        .as_ref()
-        .and_then(|attestation| serde_json::to_string(attestation).ok())
-        .unwrap_or_default();
-    Ok(HttpResponseBuilder::new(StatusCode::OK)
-        .insert_header(header::ContentType::json())
-        .insert_header(("Graph-Attestation", attestation))
-        .body(response.payload.as_ref()))
-}
-
 pub fn graphql_error_response<S: ToString>(message: S) -> HttpResponse {
     HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
         .body(json!({"errors": {"message": message.to_string()}}).to_string())
-}
-
-fn timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
-}
-
-fn is_domain_authorized<'a>(authorized: impl IntoIterator<Item = &'a str>, origin: &str) -> bool {
-    authorized.into_iter().any(|authorized| {
-        let pattern = authorized.split('.');
-        let origin = origin.split('.');
-        let count = pattern.clone().count();
-        if (count < 1) || (origin.clone().count() != count) {
-            return false;
-        }
-        pattern.zip(origin).all(|(p, o)| (p == o) || (p == "*"))
-    })
-}
-
-fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result<String, String>) {
-    let ts = timestamp();
-    let query_result = ClientQueryResult::new(&query, result.clone(), ts);
-    kafka_client.send(&query_result);
-
-    for (err, indexers) in &query.isa_errors {
-        let message = "ISA scoring sample";
-        for indexer in indexers {
-            kafka_client.send(&ISAScoringError::new(&query, &indexer, err, message));
-            tracing::info!(
-                ray_id = %query.ray_id.clone(),
-                query_id = %query.id,
-                deployment = %query.subgraph.as_ref().unwrap().deployment,
-                %indexer,
-                scoring_err = ?err,
-                message,
-            );
-        }
-    }
-
-    let indexer_attempts = query
-        .indexer_attempts
-        .iter()
-        .map(|attempt| IndexerAttempt {
-            api_key: query_result.api_key.clone(),
-            deployment: query_result.deployment.clone(),
-            ray_id: query_result.ray_id.clone(),
-            indexer: attempt.selection.indexing.indexer.to_string(),
-            url: attempt.selection.url.to_string(),
-            allocation: attempt.allocation.to_string(),
-            fee: attempt.selection.fee.as_f64(),
-            utility: 1.0, // For backwards compatibility, means nothing.
-            blocks_behind: attempt.selection.blocks_behind,
-            indexer_errors: attempt.indexer_errors.clone(),
-            response_time_ms: attempt.duration.as_millis() as u32,
-            status: match &attempt.result {
-                Ok(response) => response.status.to_string(),
-                Err(err) => format!("{:?}", err),
-            },
-            status_code: attempt.status_code(),
-            timestamp: ts,
-        })
-        .collect::<Vec<IndexerAttempt>>();
-
-    for attempt in indexer_attempts {
-        kafka_client.send(&attempt);
-    }
-
-    let (status, status_code) = match &result {
-        Ok(status) => (status, 0),
-        Err(status) => (status, sip24_hash(status) | 0x1),
-    };
-    let api_key = &query.api_key.as_ref().map(|k| k.key.as_ref()).unwrap_or("");
-    let subgraph = query.subgraph.as_ref().unwrap();
-    let deployment = subgraph.deployment.to_string();
-    // The following logs are required for data science.
-    tracing::info!(
-        ray_id = %query.ray_id,
-        query_id = %query.id,
-        %deployment,
-        network = %query.subgraph.as_ref().unwrap().network,
-        %api_key,
-        query = %query.query,
-        variables = %query.variables.as_deref().unwrap_or(""),
-        budget = %query.budget.as_ref().map(ToString::to_string).unwrap_or_default(),
-        fee = query_result.fee,
-        response_time_ms = (Instant::now() - query.start_time).as_millis() as u32,
-        %status,
-        status_code,
-        "Client query result",
-    );
-    for (attempt_index, attempt) in query.indexer_attempts.iter().enumerate() {
-        let status = match &attempt.result {
-            Ok(response) => response.status.to_string(),
-            Err(err) => format!("{:?}", err),
-        };
-        tracing::info!(
-            ray_id = %query.ray_id,
-            query_id = %query.id,
-            api_key = %api_key,
-            %deployment,
-            attempt_index,
-            indexer = %attempt.selection.indexing.indexer,
-            url = %attempt.selection.url,
-            allocation = %attempt.allocation,
-            fee = %attempt.selection.fee,
-            blocks_behind = attempt.selection.blocks_behind,
-            indexer_errors = %attempt.indexer_errors,
-            response_time_ms = attempt.duration.as_millis() as u32,
-            %status,
-            status_code = attempt.status_code() as u32,
-            "Indexer attempt",
-        );
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::is_domain_authorized;
-
-    #[test]
-    fn authorized_domains() {
-        let authorized_domains = ["example.com", "localhost", "a.b.c", "*.d.e"];
-        let tests = [
-            ("", false),
-            ("example.com", true),
-            ("subdomain.example.com", false),
-            ("localhost", true),
-            ("badhost", false),
-            ("a.b.c", true),
-            ("c", false),
-            ("b.c", false),
-            ("d.b.c", false),
-            ("a", false),
-            ("a.b", false),
-            ("e", false),
-            ("d.e", false),
-            ("z.d.e", true),
-        ];
-        for (input, expected) in tests {
-            assert_eq!(expected, is_domain_authorized(authorized_domains, input));
-        }
-    }
 }

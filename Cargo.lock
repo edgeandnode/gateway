@@ -822,7 +822,6 @@ dependencies = [
  "actix-http",
  "actix-router",
  "actix-web",
- "async-trait",
  "clap",
  "futures",
  "futures-util",

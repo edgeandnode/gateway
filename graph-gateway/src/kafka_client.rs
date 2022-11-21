@@ -1,5 +1,4 @@
-use crate::query_engine::Query;
-use indexer_selection::IndexerError as IndexerSelectionError;
+use crate::indexer_client::{IndexerError, ResponsePayload};
 use prelude::*;
 use rdkafka::{
     config::ClientConfig,
@@ -32,17 +31,10 @@ impl KafkaClient {
     }
 }
 
-fn timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
-}
-
-#[derive(Serialize)]
+#[derive(Default, Serialize)]
 pub struct ClientQueryResult {
-    pub ray_id: String,
     pub query_id: String,
+    pub ray_id: String,
     pub timestamp: u64,
     pub api_key: String,
     pub deployment: String,
@@ -54,8 +46,13 @@ pub struct ClientQueryResult {
     pub status_code: u32,
 }
 
-#[derive(Serialize)]
+impl Msg for ClientQueryResult {
+    const TOPIC: &'static str = "gateway_client_query_results";
+}
+
+#[derive(Clone, Default, Serialize)]
 pub struct IndexerAttempt {
+    pub query_id: String,
     pub ray_id: String,
     pub api_key: String,
     pub deployment: String,
@@ -72,95 +69,30 @@ pub struct IndexerAttempt {
     pub timestamp: u64,
 }
 
-impl ClientQueryResult {
-    pub fn new(query: &Query, result: Result<String, String>, timestamp: u64) -> Self {
-        let api_key = query.api_key.as_ref().map(|k| k.key.as_ref()).unwrap_or("");
-        let subgraph = query.subgraph.as_ref().unwrap();
-        let deployment = subgraph.deployment.to_string();
-        let network = &query.subgraph.as_ref().unwrap().network;
-        let response_time_ms = (Instant::now() - query.start_time).as_millis() as u32;
-        let budget = query
-            .budget
-            .as_ref()
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        let (status, status_code) = match &result {
-            Ok(status) => (status, 0),
-            Err(status) => (status, sip24_hash(status) as u32 | 0x1),
-        };
-        let fee = query
-            .indexer_attempts
-            .last()
-            .map(|attempt| attempt.selection.fee.as_f64())
-            .unwrap_or(0.0);
-
-        Self {
-            ray_id: query.ray_id.clone(),
-            query_id: query.id.to_string(),
-            timestamp,
-            api_key: api_key.to_string(),
-            deployment: deployment,
-            network: network.clone(),
-            response_time_ms,
-            budget,
-            fee,
-            status: status.clone(),
-            status_code,
-        }
-    }
-}
-
 impl Msg for IndexerAttempt {
     const TOPIC: &'static str = "gateway_indexer_attempts";
 }
 
-impl Msg for ClientQueryResult {
-    const TOPIC: &'static str = "gateway_client_query_results";
+// 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
+pub fn indexer_attempt_status_code(result: &Result<ResponsePayload, IndexerError>) -> u32 {
+    let (prefix, data) = match &result {
+        // prefix 0x0, followed by the HTTP status code
+        Ok(_) => (0x0, 200_u32.to_be()),
+        Err(IndexerError::NoAttestation) => (0x1, 0x0),
+        Err(IndexerError::UnattestableError) => (0x2, 0x0),
+        Err(IndexerError::Timeout) => (0x3, 0x0),
+        Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
+        Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
+        Err(IndexerError::NoAllocation) => (0x7, 0x0),
+        // prefix 0x6, followed by a 28-bit hash of the error message
+        Err(IndexerError::Other(msg)) => (0x6, sip24_hash(&msg) as u32),
+    };
+    (prefix << 28) | (data & (u32::MAX >> 4))
 }
 
-#[derive(Serialize)]
-pub struct ISAScoringError {
-    pub ray_id: String,
-    pub timestamp: u64,
-    pub deployment: String,
-    pub indexer: String,
-    pub error: String,
-    pub error_code: u8,
-    pub error_data: String,
-    pub message: String,
-}
-
-impl ISAScoringError {
-    pub fn new(
-        query: &Query,
-        indexer: &Address,
-        err: &IndexerSelectionError,
-        message: &str,
-    ) -> Self {
-        let error_code = match &err {
-            // 1-3 skipped on purpose, for consistency with prior versions
-            IndexerSelectionError::NoStatus => 4,
-            IndexerSelectionError::NoAllocation => 5,
-            IndexerSelectionError::FeeTooHigh => 6,
-            IndexerSelectionError::QueryNotCosted => 7,
-            IndexerSelectionError::MissingRequiredBlock => 8,
-            IndexerSelectionError::Excluded => 9,
-            IndexerSelectionError::NaN => 10,
-            IndexerSelectionError::NoStake => 11,
-        };
-        Self {
-            ray_id: query.ray_id.clone(),
-            timestamp: timestamp(),
-            deployment: query.subgraph.as_ref().unwrap().deployment.to_string(),
-            indexer: indexer.to_string(),
-            error: format!("{:?}", err),
-            error_code,
-            error_data: "".into(), // TODO: remove
-            message: message.to_string(),
-        }
-    }
-}
-
-impl Msg for ISAScoringError {
-    const TOPIC: &'static str = "gateway_isa_errors";
+pub fn timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
