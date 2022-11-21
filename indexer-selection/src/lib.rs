@@ -186,7 +186,7 @@ impl UtilityParameters {
                 weight: interp(1.0, 1.5, economic_security),
             },
             // 3534cc5a-f562-48ce-ac7a-88737c80698b
-            fee_weight: interp(0.5, 1.0, fee_weight),
+            fee_weight: interp(1.0, 2.0, fee_weight),
         }
     }
 }
