@@ -792,6 +792,7 @@ fn notify_query_result(kafka_client: &KafkaClient, query: &Query, result: Result
             url: attempt.selection.url.to_string(),
             allocation: attempt.allocation.to_string(),
             fee: attempt.selection.fee.as_f64(),
+            utility: 1.0, // For backwards compatibility, means nothing.
             blocks_behind: attempt.selection.blocks_behind,
             indexer_errors: attempt.indexer_errors.clone(),
             response_time_ms: attempt.duration.as_millis() as u32,
