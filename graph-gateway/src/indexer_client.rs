@@ -4,6 +4,7 @@ use indexer_selection::Selection;
 use prelude::*;
 use reqwest;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[async_trait]
 pub trait IndexerInterface {
@@ -18,7 +19,7 @@ pub trait IndexerInterface {
 #[derive(Clone, Debug)]
 pub struct IndexerResponse {
     pub status: u16,
-    pub payload: String,
+    pub payload: Arc<String>,
     pub attestation: Option<Attestation>,
 }
 
@@ -108,7 +109,7 @@ impl IndexerInterface for IndexerClient {
         };
         Ok(IndexerResponse {
             status: response_status.as_u16(),
-            payload: graphql_response,
+            payload: Arc::new(graphql_response),
             attestation: payload.attestation,
         })
     }

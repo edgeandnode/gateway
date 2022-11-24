@@ -564,6 +564,7 @@ where
                 selection.indexing.clone(),
                 result.allocation.clone(),
                 result.query.clone(),
+                response.payload.clone(),
                 attestation.clone(),
             );
         }
@@ -576,6 +577,7 @@ where
         indexing: Indexing,
         allocation: Address,
         indexer_query: Arc<String>,
+        indexer_response: Arc<String>,
         attestation: Attestation,
     ) {
         let fisherman = match &self.fisherman_client {
@@ -585,7 +587,13 @@ where
         let observations = self.observations.clone();
         tokio::spawn(async move {
             let outcome = fisherman
-                .challenge(&indexing.indexer, &allocation, &indexer_query, &attestation)
+                .challenge(
+                    &indexing,
+                    &allocation,
+                    &indexer_query,
+                    &indexer_response,
+                    &attestation,
+                )
                 .await;
             tracing::trace!(?outcome);
             let penalty = match outcome {
