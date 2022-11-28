@@ -16,8 +16,6 @@ mod rate_limiter;
 mod receipts;
 mod studio_client;
 mod subgraph_deployments;
-#[cfg(test)]
-mod tests;
 mod unattestable_errors;
 mod vouchers;
 use crate::{
