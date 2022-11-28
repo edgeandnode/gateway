@@ -731,7 +731,7 @@ async fn handle_subgraph_query_inner(
     Ok(HttpResponseBuilder::new(StatusCode::OK)
         .insert_header(header::ContentType::json())
         .insert_header(("Graph-Attestation", attestation))
-        .body(&response.payload))
+        .body(response.payload.as_ref()))
 }
 
 pub fn graphql_error_response<S: ToString>(message: S) -> HttpResponse {

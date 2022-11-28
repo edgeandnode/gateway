@@ -1,10 +1,10 @@
 use crate::indexer_client::Attestation;
 use async_trait::async_trait;
+use indexer_selection::Indexing;
 use prelude::*;
 use reqwest;
 use serde::Deserialize;
 use serde_json::json;
-use std::error::Error;
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 pub enum ChallengeOutcome {
@@ -19,9 +19,10 @@ pub enum ChallengeOutcome {
 pub trait FishermanInterface {
     async fn challenge(
         &self,
-        indexer: &Address,
+        indexing: &Indexing,
         allocation: &Address,
         indexer_query: &str,
+        indexer_response: &str,
         attestation: &Attestation,
     ) -> ChallengeOutcome;
 }
@@ -36,13 +37,20 @@ pub struct FishermanClient {
 impl FishermanInterface for FishermanClient {
     async fn challenge(
         &self,
-        indexer: &Address,
+        indexing: &Indexing,
         allocation: &Address,
         indexer_query: &str,
+        indexer_response: &str,
         attestation: &Attestation,
     ) -> ChallengeOutcome {
         match self
-            .send_challenge(indexer, allocation, indexer_query, attestation)
+            .send_challenge(
+                indexing,
+                allocation,
+                indexer_query,
+                indexer_response,
+                attestation,
+            )
             .await
         {
             Ok(outcome) => outcome,
@@ -61,22 +69,25 @@ impl FishermanClient {
 
     async fn send_challenge(
         &self,
-        indexer: &Address,
+        indexing: &Indexing,
         allocation: &Address,
         indexer_query: &str,
+        indexer_response: &str,
         attestation: &Attestation,
-    ) -> Result<ChallengeOutcome, Box<dyn Error>> {
+    ) -> anyhow::Result<ChallengeOutcome> {
         let challenge = serde_json::to_string(&json!({
             "jsonrpc": "2.0",
             "id": 0,
             "method": "challenge",
             "params": {
-                "readOperation": indexer_query,
-                "allocationID": allocation.to_string(),
                 "attestation": serde_json::to_value(attestation)?,
+                "subgraphDeploymentID": format!("0x{}", hex::encode(&indexing.deployment.0)),
+                "allocationID": allocation.to_string(),
+                "query": indexer_query,
+                "response": indexer_response,
             },
         }))?;
-        tracing::trace!(%indexer, %challenge);
+        tracing::trace!(?indexing, %challenge);
         self.client
             .post(self.url.0.clone())
             .header("Content-Type", "application/json")
