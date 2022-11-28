@@ -80,18 +80,7 @@ pub fn select_indexers<'s, R: Rng>(
             continue;
         }
         masks.push(mask);
-        let score = meta_indexer.score(params);
-        if tracing::enabled!(tracing::Level::TRACE) {
-            tracing::trace!(
-                indexers = ?meta_indexer.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
-                score,
-            );
-        } else if rng.gen_bool(0.001) {
-            tracing::debug!(
-                indexers = ?meta_indexer.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
-                score,
-            );
-        }
+        let score = meta_indexer.score(params, rng);
         if score > selections.1 {
             selections = (meta_indexer.0, score);
         }
@@ -123,7 +112,7 @@ impl MetaIndexer<'_> {
         mask
     }
 
-    fn score(&self, params: &UtilityParameters) -> f64 {
+    fn score<R: Rng>(&self, params: &UtilityParameters, rng: &mut R) -> f64 {
         if self.0.is_empty() {
             return 0.0;
         }
@@ -195,7 +184,7 @@ impl MetaIndexer<'_> {
         let p_success = ps.iter().sum::<f64>();
         debug_assert!((0.0..=1.0).contains(&p_success));
 
-        weighted_product_model([
+        let factors = [
             reliability_utility(p_success).mul_weight(exploration),
             performance_utility(params.performance, perf_success as u32)
                 .mul_weight(exploration * p_success),
@@ -204,7 +193,24 @@ impl MetaIndexer<'_> {
             params.economic_security.concave_utility(slashable_usd),
             data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
             fee_utility(params.fee_weight, &self.fee(), &params.budget),
-        ])
+        ];
+        let score = weighted_product_model(factors);
+
+        if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(
+                indexers = ?self.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
+                score,
+                ?factors,
+            );
+        } else if rng.gen_bool(0.001) {
+            tracing::debug!(
+                indexers = ?self.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
+                score,
+                ?factors,
+            );
+        }
+
+        score
     }
 }
 
