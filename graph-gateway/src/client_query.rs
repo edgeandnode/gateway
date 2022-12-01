@@ -257,9 +257,15 @@ async fn handle_client_query_inner(
         };
     }
     tracing::debug!(%domain, authorized = ?api_key.domains);
-    let authorized_domains = api_key.domains.iter().map(|(d, _)| d.as_str());
-    if !api_key.domains.is_empty() && !is_domain_authorized(authorized_domains, &domain) {
+    if !api_key.domains.is_empty() && !is_domain_authorized(&api_key.domains, &domain) {
         bail!("Domain not authorized by API key");
+    }
+    let deployment_authorized =
+        api_key.deployments.is_empty() || api_key.deployments.contains(&subgraph_info.deployment);
+    let subgraph_authorized =
+        api_key.subgraphs.is_empty() || api_key.subgraphs.contains(&subgraph_info.id);
+    if !deployment_authorized || !subgraph_authorized {
+        bail!("Subgraph not authorized by API key");
     }
 
     let deployment_indexers = ctx

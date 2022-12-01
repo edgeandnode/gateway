@@ -3,7 +3,11 @@ use eventuals::{self, EventualExt as _};
 use prelude::*;
 use reqwest;
 use serde::Deserialize;
-use std::{collections::HashMap, error::Error, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    error::Error,
+    sync::Arc,
+};
 use tokio::sync::Mutex;
 
 #[derive(Clone, Debug, Default)]
@@ -16,8 +20,8 @@ pub struct APIKey {
     pub query_status: QueryStatus,
     pub max_budget: Option<USD>,
     pub deployments: Vec<SubgraphDeploymentID>,
-    pub subgraphs: Vec<(SubgraphID, i32)>,
-    pub domains: Vec<(String, i32)>,
+    pub subgraphs: BTreeSet<SubgraphID>,
+    pub domains: Vec<String>,
     pub indexer_preferences: IndexerPreferences,
     pub usage: Arc<Mutex<VolumeEstimator>>,
 }
@@ -40,12 +44,9 @@ pub struct IndexerPreferences {
     pub price_efficiency: f64,
 }
 
-pub fn is_domain_authorized<'a>(
-    authorized: impl IntoIterator<Item = &'a str>,
-    origin: &str,
-) -> bool {
-    authorized.into_iter().any(|authorized| {
-        let pattern = authorized.split('.');
+pub fn is_domain_authorized<S: AsRef<str>>(authorized: &[S], origin: &str) -> bool {
+    authorized.iter().any(|authorized| {
+        let pattern = authorized.as_ref().split('.');
         let origin = origin.split('.');
         let count = pattern.clone().count();
         if (count < 1) || (origin.clone().count() != count) {
@@ -145,9 +146,7 @@ impl Actor {
                     subgraphs: api_key
                         .subgraphs
                         .into_iter()
-                        .filter_map(|s| {
-                            Some((s.network_subgraph_id.parse::<SubgraphID>().ok()?, s.id))
-                        })
+                        .filter_map(|s| s.network_subgraph_id.parse::<SubgraphID>().ok())
                         .collect(),
                     deployments: api_key
                         .deployments
@@ -157,7 +156,7 @@ impl Actor {
                     domains: api_key
                         .domains
                         .into_iter()
-                        .map(|domain| (domain.domain, domain.id))
+                        .map(|domain| domain.domain)
                         .collect(),
                     indexer_preferences,
                 };
@@ -288,13 +287,11 @@ struct GatewayIndexerPreference {
 
 #[derive(Deserialize)]
 struct GatewaySubgraph {
-    id: i32,
     network_subgraph_id: String,
 }
 
 #[derive(Deserialize)]
 struct GatewayDomain {
-    id: i32,
     domain: String,
 }
 
@@ -322,7 +319,7 @@ mod test {
             ("z.d.e", true),
         ];
         for (input, expected) in tests {
-            assert_eq!(expected, is_domain_authorized(authorized_domains, input));
+            assert_eq!(expected, is_domain_authorized(&authorized_domains, input));
         }
     }
 }
