@@ -237,6 +237,8 @@ async fn handle_client_query_inner(
     payload: QueryBody,
     domain: String,
 ) -> anyhow::Result<ResponsePayload> {
+    report.network = subgraph_info.network.clone();
+
     let api_key = ctx
         .api_keys
         .value_immediate()
@@ -443,6 +445,12 @@ async fn handle_client_query_inner(
             );
         }
 
+        report.fee = selections
+            .iter()
+            .map(|s| &s.fee)
+            .fold(GRT::zero(), |sum, fee| sum + *fee)
+            .as_f64();
+
         let mut indexer_query_context = IndexerQueryContext {
             indexer_client: ctx.indexer_client.clone(),
             kafka_client: ctx.kafka_client.clone(),
@@ -590,9 +598,9 @@ async fn handle_indexer_query(
         fee = ctx.report.fee,
         blocks_behind = ctx.report.blocks_behind,
         indexer_errors = %ctx.report.indexer_errors,
-        response_time_ms = %ctx.report.response_time_ms,
+        response_time_ms = ctx.report.response_time_ms,
         status = %ctx.report.status,
-        status_code = %ctx.report.status_code,
+        status_code = ctx.report.status_code,
         "Indexer attempt",
     );
 
