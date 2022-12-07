@@ -1,5 +1,11 @@
 use graphql_parser::query::{Definition, Document, OperationDefinition, Selection, Text, Value};
-use indexer_selection::{cost_model::QueryVariables, Context, UnresolvedBlock};
+use indexer_selection::{
+    cost_model::{
+        graphql_utils::{IntoStaticValue as _, StaticValue},
+        QueryVariables,
+    },
+    Context, UnresolvedBlock,
+};
 use itertools::Itertools as _;
 use prelude::*;
 use serde_json::{self, json};
@@ -28,15 +34,25 @@ pub fn block_constraints<'c>(context: &'c Context<'c>) -> Option<BTreeSet<BlockC
     let vars = &context.variables;
     // ba6c90f1-3baf-45be-ac1c-f60733404436
     for operation in &context.operations {
-        let selection_set = match operation {
-            OperationDefinition::SelectionSet(selection_set) => selection_set,
+        let (selection_set, defaults) = match operation {
+            OperationDefinition::SelectionSet(selection_set) => {
+                (selection_set, BTreeMap::default())
+            }
             OperationDefinition::Query(query) if query.directives.is_empty() => {
-                &query.selection_set
+                // Add default definitions for variables not set at top level.
+                let defaults = query
+                    .variable_definitions
+                    .iter()
+                    .filter(|d| !vars.0.contains_key(d.name))
+                    .filter_map(|d| Some((d.name, d.default_value.as_ref()?.to_graphql())))
+                    .collect::<BTreeMap<&str, StaticValue>>();
+                (&query.selection_set, defaults)
             }
             OperationDefinition::Query(_)
             | OperationDefinition::Mutation(_)
             | OperationDefinition::Subscription(_) => return None,
         };
+        println!("{:#?}", defaults);
         for selection in &selection_set.items {
             let selection_field = match selection {
                 Selection::Field(field) => field,
@@ -47,7 +63,7 @@ pub fn block_constraints<'c>(context: &'c Context<'c>) -> Option<BTreeSet<BlockC
                 .iter()
                 .find(|(k, _)| *k == "block")
             {
-                Some((_, arg)) => field_constraint(vars, arg)?,
+                Some((_, arg)) => field_constraint(vars, &defaults, arg)?,
                 None => BlockConstraint::Unconstrained,
             };
             constraints.insert(constraint);
@@ -65,10 +81,22 @@ pub fn make_query_deterministic(
     // Similar walk as ba6c90f1-3baf-45be-ac1c-f60733404436. But now including variables, and
     // mutating as we go.
     for operation in &mut ctx.operations {
-        let selection_set = match operation {
-            OperationDefinition::SelectionSet(selection_set) => selection_set,
+        let (selection_set, defaults) = match operation {
+            OperationDefinition::SelectionSet(selection_set) => {
+                (selection_set, BTreeMap::default())
+            }
             OperationDefinition::Query(query) if query.directives.is_empty() => {
-                &mut query.selection_set
+                // Add default definitions for variables not set at top level.
+                let defaults = query
+                    .variable_definitions
+                    .iter()
+                    .filter(|d| {
+                        !vars.0.contains_key(d.name)
+                            && ["hash", "number", "number_gte"].contains(&d.name)
+                    })
+                    .filter_map(|d| Some((d.name, d.default_value.as_ref()?.to_graphql())))
+                    .collect::<BTreeMap<&str, StaticValue>>();
+                (&mut query.selection_set, defaults)
             }
             OperationDefinition::Query(_)
             | OperationDefinition::Mutation(_)
@@ -85,7 +113,7 @@ pub fn make_query_deterministic(
                 .find(|(k, _)| *k == "block")
             {
                 Some((_, arg)) => {
-                    match field_constraint(vars, &arg)? {
+                    match field_constraint(vars, &defaults, &arg)? {
                         BlockConstraint::Hash(_) => (),
                         BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
                             *arg = deterministic_block(&latest.hash);
@@ -132,12 +160,13 @@ fn deterministic_block<'c>(hash: &Bytes32) -> Value<'c, &'c str> {
 
 fn field_constraint<'c>(
     vars: &QueryVariables,
+    defaults: &BTreeMap<&str, StaticValue>,
     field: &Value<'c, &'c str>,
 ) -> Option<BlockConstraint> {
     match field {
-        Value::Object(fields) => parse_constraint(vars, fields),
+        Value::Object(fields) => parse_constraint(vars, defaults, fields),
         Value::Variable(name) => match vars.get(name)? {
-            Value::Object(fields) => parse_constraint(vars, fields),
+            Value::Object(fields) => parse_constraint(vars, defaults, fields),
             _ => None,
         },
         _ => None,
@@ -146,35 +175,52 @@ fn field_constraint<'c>(
 
 fn parse_constraint<'c, T: Text<'c>>(
     vars: &QueryVariables,
+    defaults: &BTreeMap<&str, StaticValue>,
     fields: &BTreeMap<T::Value, Value<'c, T>>,
 ) -> Option<BlockConstraint> {
     let field = fields.iter().at_most_one().ok()?;
     match field {
         None => Some(BlockConstraint::Unconstrained),
         Some((k, v)) => match (k.as_ref(), v) {
-            ("hash", hash) => parse_hash(hash, vars).map(BlockConstraint::Hash),
-            ("number", number) => parse_number(number, vars).map(BlockConstraint::Number),
-            ("number_gte", number) => parse_number(number, vars).map(BlockConstraint::NumberGTE),
+            ("hash", hash) => parse_hash(hash, vars, defaults).map(BlockConstraint::Hash),
+            ("number", number) => parse_number(number, vars, defaults).map(BlockConstraint::Number),
+            ("number_gte", number) => {
+                parse_number(number, vars, defaults).map(BlockConstraint::NumberGTE)
+            }
             _ => None,
         },
     }
 }
 
-fn parse_hash<'c, T: Text<'c>>(hash: &Value<'c, T>, variables: &QueryVariables) -> Option<Bytes32> {
+fn parse_hash<'c, T: Text<'c>>(
+    hash: &Value<'c, T>,
+    variables: &QueryVariables,
+    defaults: &BTreeMap<&str, StaticValue>,
+) -> Option<Bytes32> {
     match hash {
         Value::String(hash) => hash.parse().ok(),
-        Value::Variable(name) => match variables.get(name.as_ref()) {
+        Value::Variable(name) => match variables
+            .get(name.as_ref())
+            .or_else(|| defaults.get(name.as_ref()))
+        {
             Some(Value::String(hash)) => hash.parse().ok(),
-            _ => return None,
+            _ => None,
         },
-        _ => return None,
+        _ => None,
     }
 }
 
-fn parse_number<'c, T: Text<'c>>(number: &Value<'c, T>, variables: &QueryVariables) -> Option<u64> {
+fn parse_number<'c, T: Text<'c>>(
+    number: &Value<'c, T>,
+    variables: &QueryVariables,
+    defaults: &BTreeMap<&str, StaticValue>,
+) -> Option<u64> {
     let n = match number {
         Value::Int(n) => n,
-        Value::Variable(name) => match variables.get(name.as_ref()) {
+        Value::Variable(name) => match variables
+            .get(name.as_ref())
+            .or_else(|| defaults.get(name.as_ref()))
+        {
             Some(Value::Int(n)) => n,
             _ => return None,
         },
@@ -210,6 +256,10 @@ mod tests {
             (
                 "{ a(block:{number_gte:1}) b }",
                 Some(vec![NumberGTE(1), Unconstrained]),
+            ),
+            (
+                "query($n: Int = 1) { a(block:{number_gte:$n}) }",
+                Some(vec![NumberGTE(1)]),
             ),
         ];
         for (query, expected) in tests {
