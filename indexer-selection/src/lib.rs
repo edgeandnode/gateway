@@ -21,7 +21,6 @@ pub use crate::{
 pub use cost_model::{self, CostModel};
 pub use ordered_float::NotNan;
 pub use receipts;
-use score::ExpectedValue;
 pub use secp256k1::SecretKey;
 
 use crate::{
@@ -31,8 +30,10 @@ use crate::{
 };
 use prelude::{epoch_cache::EpochCache, *};
 use rand::{prelude::SmallRng, SeedableRng as _};
+use score::ExpectedValue;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    fmt::Display,
     sync::Arc,
 };
 
@@ -115,6 +116,15 @@ impl UnresolvedBlock {
     }
 }
 
+impl Display for UnresolvedBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WithHash(hash) => write!(f, "{}", hash),
+            Self::WithNumber(number) => write!(f, "{}", number),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Indexing {
     pub indexer: Address,
@@ -186,7 +196,7 @@ impl UtilityParameters {
                 weight: interp(1.0, 1.5, economic_security),
             },
             // 3534cc5a-f562-48ce-ac7a-88737c80698b
-            fee_weight: interp(0.5, 1.0, fee_weight),
+            fee_weight: interp(1.0, 2.0, fee_weight),
         }
     }
 }

@@ -1,25 +1,19 @@
-use async_trait::async_trait;
 use hex;
-use indexer_selection::Selection;
+use indexer_selection::{Selection, UnresolvedBlock};
 use prelude::*;
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[async_trait]
-pub trait IndexerInterface {
-    async fn query_indexer(
-        &self,
-        selection: &Selection,
-        query: String,
-        receipt: &[u8],
-    ) -> Result<IndexerResponse, IndexerError>;
+#[derive(Debug)]
+pub struct IndexerResponse {
+    pub status: u16,
+    pub payload: ResponsePayload,
 }
 
 #[derive(Clone, Debug)]
-pub struct IndexerResponse {
-    pub status: u16,
-    pub payload: Arc<String>,
+pub struct ResponsePayload {
+    pub body: Arc<String>,
     pub attestation: Option<Attestation>,
 }
 
@@ -32,6 +26,12 @@ pub enum IndexerError {
     UnexpectedPayload,
     UnresolvedBlock,
     Other(String),
+}
+
+impl From<UnresolvedBlock> for IndexerError {
+    fn from(_: UnresolvedBlock) -> Self {
+        Self::UnresolvedBlock
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,10 +60,9 @@ pub struct IndexerClient {
     pub client: reqwest::Client,
 }
 
-#[async_trait]
-impl IndexerInterface for IndexerClient {
+impl IndexerClient {
     #[tracing::instrument(skip(self, selection, query, receipt))]
-    async fn query_indexer(
+    pub async fn query_indexer(
         &self,
         selection: &Selection,
         query: String,
@@ -109,8 +108,10 @@ impl IndexerInterface for IndexerClient {
         };
         Ok(IndexerResponse {
             status: response_status.as_u16(),
-            payload: Arc::new(graphql_response),
-            attestation: payload.attestation,
+            payload: ResponsePayload {
+                body: Arc::new(graphql_response),
+                attestation: payload.attestation,
+            },
         })
     }
 }

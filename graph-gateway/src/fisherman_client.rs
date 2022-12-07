@@ -1,5 +1,4 @@
 use crate::indexer_client::Attestation;
-use async_trait::async_trait;
 use indexer_selection::Indexing;
 use prelude::*;
 use reqwest;
@@ -15,27 +14,14 @@ pub enum ChallengeOutcome {
     Unknown,
 }
 
-#[async_trait]
-pub trait FishermanInterface {
-    async fn challenge(
-        &self,
-        indexing: &Indexing,
-        allocation: &Address,
-        indexer_query: &str,
-        indexer_response: &str,
-        attestation: &Attestation,
-    ) -> ChallengeOutcome;
-}
-
 #[derive(Clone)]
 pub struct FishermanClient {
     client: reqwest::Client,
     url: URL,
 }
 
-#[async_trait]
-impl FishermanInterface for FishermanClient {
-    async fn challenge(
+impl FishermanClient {
+    pub async fn challenge(
         &self,
         indexing: &Indexing,
         allocation: &Address,
