@@ -345,7 +345,7 @@ async fn handle_client_query_inner(
     let mut budget = USD::try_from(budget).unwrap();
     if let Some(max_budget) = api_key.max_budget {
         // Security: Consumers can and will set their budget to unreasonably high values. This
-        // `.min` prevents the budget from being set beyond what it would be automatically. The
+        // `.min` prevents the budget from being set far beyond what it would be automatically. The
         // reason this is important is because sometimes queries are subsidized and we would be
         // at-risk to allow arbitrarily high values.
         budget = max_budget.min(budget * USD::try_from(10_u64).unwrap());
@@ -443,16 +443,6 @@ async fn handle_client_query_inner(
             );
         }
 
-        let blocks_behind = selections.iter().map(|s| s.blocks_behind).min().unwrap();
-        let latest_query_block = match block_cache.latest(blocks_behind + latest_unresolved).await {
-            Ok(latest_query_block) => latest_query_block,
-            Err(_) if !last_retry => continue,
-            Err(unresolved) => bail!("Unresolved block: {}", unresolved),
-        };
-        let deterministic_query =
-            make_query_deterministic(context, &resolved_blocks, &latest_query_block)
-                .ok_or_else(|| anyhow!("Invalid query"))?;
-
         let mut indexer_query_context = IndexerQueryContext {
             indexer_client: ctx.indexer_client.clone(),
             kafka_client: ctx.kafka_client.clone(),
@@ -460,9 +450,7 @@ async fn handle_client_query_inner(
             receipt_pools: ctx.receipt_pools.clone(),
             observations: ctx.observations.clone(),
             subgraph_info: subgraph_info.clone(),
-            deterministic_query: Arc::new(deterministic_query),
             latest_block: latest_block.number,
-            latest_query_block: latest_query_block.number,
             report: IndexerAttempt::default(),
         };
         indexer_query_context.report.query_id = report.query_id.clone();
@@ -472,10 +460,28 @@ async fn handle_client_query_inner(
 
         let (response_tx, mut response_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
+            let latest_query_block = match block_cache
+                .latest(selection.blocks_behind + latest_unresolved)
+                .await
+            {
+                Ok(latest_query_block) => latest_query_block,
+                Err(_) if !last_retry => continue,
+                Err(unresolved) => bail!("Unresolved block: {}", unresolved),
+            };
+            let deterministic_query =
+                make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)
+                    .ok_or_else(|| anyhow!("Invalid query"))?;
+
             let indexer_query_context = indexer_query_context.clone();
             let response_tx = response_tx.clone();
             tokio::spawn(async move {
-                let response = handle_indexer_query(indexer_query_context, selection).await;
+                let response = handle_indexer_query(
+                    indexer_query_context,
+                    selection,
+                    deterministic_query,
+                    latest_query_block.number,
+                )
+                .await;
                 let _ = response_tx.try_send(response);
             });
         }
@@ -502,15 +508,15 @@ struct IndexerQueryContext {
     pub receipt_pools: ReceiptPools,
     pub observations: QueueWriter<Update>,
     pub subgraph_info: Ptr<SubgraphInfo>,
-    pub deterministic_query: Arc<String>,
     pub latest_block: u64,
-    pub latest_query_block: u64,
     pub report: IndexerAttempt,
 }
 
 async fn handle_indexer_query(
     mut ctx: IndexerQueryContext,
     selection: Selection,
+    deterministic_query: String,
+    latest_query_block: u64,
 ) -> Result<ResponsePayload, IndexerError> {
     let indexing = selection.indexing.clone();
     ctx.report.indexer = indexing.indexer.to_string();
@@ -526,7 +532,9 @@ async fn handle_indexer_query(
         .map_err(|_| IndexerError::NoAllocation);
 
     let result = match receipt.as_ref() {
-        Ok(receipt) => handle_indexer_query_inner(&mut ctx, selection, &receipt).await,
+        Ok(receipt) => {
+            handle_indexer_query_inner(&mut ctx, selection, deterministic_query, &receipt).await
+        }
         Err(err) => Err(err.clone()),
     };
     METRICS
@@ -543,7 +551,7 @@ async fn handle_indexer_query(
         Ok(_) => Ok(()),
         Err(IndexerError::Timeout) => Err(IndexerErrorObservation::Timeout),
         Err(IndexerError::UnresolvedBlock) => Err(IndexerErrorObservation::IndexingBehind {
-            latest_query_block: ctx.latest_query_block,
+            latest_query_block,
             latest_block: ctx.latest_block,
         }),
         Err(_) => Err(IndexerErrorObservation::Other),
@@ -594,12 +602,13 @@ async fn handle_indexer_query(
 async fn handle_indexer_query_inner(
     ctx: &mut IndexerQueryContext,
     selection: Selection,
+    deterministic_query: String,
     receipt: &[u8],
 ) -> Result<ResponsePayload, IndexerError> {
     let start_time = Instant::now();
     let result = ctx
         .indexer_client
-        .query_indexer(&selection, ctx.deterministic_query.to_string(), receipt)
+        .query_indexer(&selection, deterministic_query.clone(), receipt)
         .await;
     ctx.report.response_time_ms = (Instant::now() - start_time).as_millis() as u32;
     with_metric(
@@ -670,7 +679,7 @@ async fn handle_indexer_query_inner(
             ctx.observations.clone(),
             selection.indexing.clone(),
             allocation.clone(),
-            ctx.deterministic_query.clone(),
+            deterministic_query,
             response.payload.body.clone(),
             attestation.clone(),
         );
@@ -684,7 +693,7 @@ fn challenge_indexer_response(
     observations: QueueWriter<Update>,
     indexing: Indexing,
     allocation: Address,
-    indexer_query: Arc<String>,
+    indexer_query: String,
     indexer_response: Arc<String>,
     attestation: Attestation,
 ) {
