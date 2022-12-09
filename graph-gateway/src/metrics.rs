@@ -13,7 +13,6 @@ lazy_static! {
 pub struct Metrics {
     pub client_query: ResponseMetricVecs,
     pub indexer_query: ResponseMetricVecs,
-    pub network_subgraph: ResponseMetrics,
     pub collect_receipts: ResponseMetrics,
     pub partial_voucher: ResponseMetrics,
     pub voucher: ResponseMetrics,
@@ -37,7 +36,6 @@ impl Metrics {
                 "indexer query",
                 &["deployment"],
             ),
-            network_subgraph: ResponseMetrics::new("gw_network_subgraph", "network subgraph query"),
             collect_receipts: ResponseMetrics::new(
                 "gw_collect_receipts",
                 "collect-receipts request",

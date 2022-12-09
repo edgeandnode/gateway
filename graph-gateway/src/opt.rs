@@ -32,8 +32,6 @@ pub struct Opt {
     pub ethereum_providers: EthereumProviders,
     #[clap(long, env, help = "Network subgraph URL")]
     pub network_subgraph: URL,
-    #[clap(long, env, help = "Network subgraph auth token")]
-    pub network_subgraph_auth_token: String,
     #[clap(
         long,
         env,
