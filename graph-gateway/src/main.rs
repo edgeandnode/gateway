@@ -21,14 +21,14 @@ mod vouchers;
 
 use crate::{
     chains::*, fisherman_client::*, geoip::GeoIP, indexer_client::IndexerClient,
-    indexer_status::IndexingStatus, ipfs_client::*, kafka_client::KafkaClient, metrics::*, opt::*,
+    indexer_status::IndexingStatus, ipfs_client::*, kafka_client::KafkaClient, opt::*,
     price_automation::QueryBudgetFactors, rate_limiter::*, receipts::ReceiptPools,
 };
 use actix_cors::Cors;
 use actix_web::{
     dev::ServiceRequest,
     http::{header, StatusCode},
-    web, App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer,
+    web, App, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use anyhow::{self, anyhow};
 use clap::Parser as _;
@@ -202,11 +202,6 @@ async fn main() {
         isa_state,
         special_api_keys,
     };
-    let network_subgraph_query_data = NetworkSubgraphQueryData {
-        http_client,
-        network_subgraph: opt.network_subgraph,
-        network_subgraph_auth_token: opt.network_subgraph_auth_token,
-    };
     let ready_data = ReadyData {
         start_time: Instant::now(),
         block_caches,
@@ -269,11 +264,6 @@ async fn main() {
                 web::resource("/ready")
                     .app_data(web::Data::new(ready_data.clone()))
                     .route(web::get().to(handle_ready)),
-            )
-            .service(
-                web::resource("/network")
-                    .app_data(web::Data::new(network_subgraph_query_data.clone()))
-                    .route(web::post().to(handle_network_query)),
             )
             .service(
                 web::resource("/collect-receipts")
@@ -456,47 +446,6 @@ async fn handle_ready(data: web::Data<ReadyData>) -> HttpResponse {
     } else {
         // Respond with 425 Too Early
         HttpResponseBuilder::new(StatusCode::from_u16(425).unwrap()).body("Not ready")
-    }
-}
-
-#[derive(Clone)]
-struct NetworkSubgraphQueryData {
-    http_client: reqwest::Client,
-    network_subgraph: URL,
-    network_subgraph_auth_token: String,
-}
-
-async fn handle_network_query(
-    _: HttpRequest,
-    payload: String,
-    data: web::Data<NetworkSubgraphQueryData>,
-) -> HttpResponse {
-    let _timer = METRICS.network_subgraph.duration.start_timer();
-    let post_request = |body: String| async {
-        let response = data
-            .http_client
-            .post(data.network_subgraph.0.clone())
-            .body(body)
-            .header(header::CONTENT_TYPE.as_str(), "application/json")
-            .header(
-                "Authorization",
-                format!("Bearer {}", data.network_subgraph_auth_token),
-            )
-            .send()
-            .await?;
-        tracing::info!(network_subgraph_response = %response.status());
-        response.text().await
-    };
-    match post_request(payload).await {
-        Ok(result) => {
-            METRICS.network_subgraph.ok.inc();
-            HttpResponseBuilder::new(StatusCode::OK).body(result)
-        }
-        Err(network_subgraph_post_err) => {
-            tracing::error!(%network_subgraph_post_err);
-            METRICS.network_subgraph.err.inc();
-            graphql_error_response("Failed to process network subgraph query")
-        }
     }
 }
 
