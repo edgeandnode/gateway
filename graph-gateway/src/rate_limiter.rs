@@ -57,7 +57,7 @@ where
         self.service.poll_ready(ctx)
     }
 
-    #[tracing::instrument(skip(self, request))]
+    #[tracing::instrument(skip_all)]
     fn call(&self, request: ServiceRequest) -> Self::Future {
         let service = Rc::clone(&self.service);
         let rate_limiter = self.rate_limiter.clone();

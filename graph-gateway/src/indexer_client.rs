@@ -61,7 +61,7 @@ pub struct IndexerClient {
 }
 
 impl IndexerClient {
-    #[tracing::instrument(skip(self, selection, query, receipt))]
+    #[tracing::instrument(skip_all)]
     pub async fn query_indexer(
         &self,
         selection: &Selection,

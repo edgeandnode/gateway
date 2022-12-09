@@ -420,7 +420,6 @@ async fn write_indexer_inputs(
     let _ = update_writer.write(Update::Indexers(indexers));
 }
 
-#[tracing::instrument]
 async fn handle_metrics() -> HttpResponse {
     let encoder = prometheus::TextEncoder::new();
     let metric_families = prometheus::gather();
@@ -468,7 +467,6 @@ struct NetworkSubgraphQueryData {
     network_subgraph_auth_token: String,
 }
 
-#[tracing::instrument(skip(payload, data))]
 async fn handle_network_query(
     _: HttpRequest,
     payload: String,

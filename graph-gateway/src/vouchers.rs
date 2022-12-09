@@ -16,7 +16,7 @@ lazy_static! {
     static ref SECP256K1: Secp256k1<secp256k1::All> = Secp256k1::new();
 }
 
-#[tracing::instrument(skip(data, payload))]
+#[tracing::instrument(skip_all)]
 pub async fn handle_collect_receipts(
     data: web::Data<SecretKey>,
     payload: web::Bytes,
@@ -61,7 +61,7 @@ fn process_oneshot_voucher(
     })))
 }
 
-#[tracing::instrument(skip(data, payload))]
+#[tracing::instrument(skip_all)]
 pub async fn handle_partial_voucher(
     data: web::Data<SecretKey>,
     payload: web::Bytes,
@@ -109,7 +109,7 @@ fn process_partial_voucher(
     })))
 }
 
-#[tracing::instrument(skip(data, payload))]
+#[tracing::instrument(skip_all)]
 pub async fn handle_voucher(data: web::Data<SecretKey>, payload: web::Bytes) -> HttpResponse {
     let _timer = METRICS.voucher.duration.start_timer();
     match process_voucher(&data, &payload) {

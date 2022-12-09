@@ -134,14 +134,13 @@ pub async fn handle_query(
         .as_ref()
         .map(|i| i.deployment.to_string())
         .unwrap_or_default();
-    let _span = tracing::info_span!(
+    let span = tracing::info_span!(
         "handle_client_query",
         query_id = %report.query_id,
         ray_id = %report.ray_id,
         api_key = %report.api_key,
         deployment = %report.deployment,
-    )
-    .entered();
+    );
     let _timer = METRICS.client_query.start_timer(&[&report.deployment]);
 
     let domain = request
@@ -154,7 +153,7 @@ pub async fn handle_query(
     let result = match subgraph_resolution_result {
         Ok(subgraph_info) => {
             handle_client_query_inner(&ctx, &mut report, subgraph_info, payload.0, domain)
-                .in_current_span()
+                .instrument(span)
                 .await
         }
         Err(err) => Err(anyhow!("{:?}", err)),
