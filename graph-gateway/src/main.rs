@@ -18,6 +18,7 @@ mod studio_client;
 mod subgraph_deployments;
 mod unattestable_errors;
 mod vouchers;
+
 use crate::{
     chains::*, fisherman_client::*, geoip::GeoIP, indexer_client::IndexerClient,
     indexer_status::IndexingStatus, ipfs_client::*, kafka_client::KafkaClient, metrics::*, opt::*,
@@ -42,7 +43,6 @@ use prelude::{
     *,
 };
 use prometheus::{self, Encoder as _};
-use reqwest;
 use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
@@ -134,7 +134,6 @@ async fn main() {
         network_subgraph_data.indexers.clone(),
     );
     {
-        let signer_key = signer_key.clone();
         let receipt_pools = receipt_pools.clone();
         let block_caches = block_caches.clone();
         let update_writer = update_writer.clone();
@@ -144,7 +143,6 @@ async fn main() {
             indexer_status_data.indexings,
         ))
         .pipe_async(move |(allocations, indexer_info, indexing_statuses)| {
-            let signer_key = signer_key.clone();
             let receipt_pools = receipt_pools.clone();
             let block_caches = block_caches.clone();
             let update_writer = update_writer.clone();
@@ -280,18 +278,18 @@ async fn main() {
                 web::resource("/collect-receipts")
                     // TODO: decrease payload limit
                     .app_data(web::PayloadConfig::new(16_000_000))
-                    .app_data(web::Data::new(signer_key.clone()))
+                    .app_data(web::Data::new(signer_key))
                     .route(web::post().to(vouchers::handle_collect_receipts)),
             )
             .service(
                 web::resource("/partial-voucher")
                     .app_data(web::PayloadConfig::new(4_000_000))
-                    .app_data(web::Data::new(signer_key.clone()))
+                    .app_data(web::Data::new(signer_key))
                     .route(web::post().to(vouchers::handle_partial_voucher)),
             )
             .service(
                 web::resource("/voucher")
-                    .app_data(web::Data::new(signer_key.clone()))
+                    .app_data(web::Data::new(signer_key))
                     .route(web::post().to(vouchers::handle_voucher)),
             );
         App::new().service(api).service(other)
@@ -345,7 +343,7 @@ fn request_host(request: &ServiceRequest) -> String {
     info.realip_remote_addr()
         .map(|addr|
         // Trim port number
-        &addr[0..addr.rfind(":").unwrap_or(addr.len())])
+        &addr[0..addr.rfind(':').unwrap_or(addr.len())])
         // Fallback to hostname
         .unwrap_or_else(|| info.host())
         .to_string()
@@ -373,7 +371,7 @@ async fn write_indexer_inputs(
                 info: info.clone(),
                 indexings: HashMap::new(),
             };
-            (indexer.clone(), update)
+            (*indexer, update)
         })
         .collect::<HashMap<Address, IndexerUpdate>>();
 
@@ -395,7 +393,7 @@ async fn write_indexer_inputs(
         let allocations = allocations
             .iter()
             .filter(|(_, info)| &info.indexing == indexing)
-            .map(|(id, info)| (id.clone(), info.allocated_tokens.clone()))
+            .map(|(id, info)| (*id, info.allocated_tokens))
             .collect::<HashMap<Address, GRT>>();
 
         receipt_pools
@@ -403,7 +401,7 @@ async fn write_indexer_inputs(
             .await;
 
         indexer.indexings.insert(
-            indexing.deployment.clone(),
+            indexing.deployment,
             indexer_selection::IndexingStatus {
                 allocations: Arc::new(allocations),
                 cost_model: status.cost_model.clone(),

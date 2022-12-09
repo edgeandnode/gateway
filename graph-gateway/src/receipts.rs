@@ -3,8 +3,10 @@ use indexer_selection::{
     receipts::{BorrowFail, ReceiptPool},
     Indexing, SecretKey,
 };
-use prelude::tokio::sync::{Mutex, RwLock};
-use prelude::*;
+use prelude::{
+    tokio::sync::{Mutex, RwLock},
+    *,
+};
 use std::{
     collections::{hash_map::Entry, HashMap},
     sync::Arc,
@@ -21,7 +23,7 @@ impl ReceiptPools {
             return pool.clone();
         }
         let mut pools = self.pools.write().await;
-        match pools.entry(indexing.clone()) {
+        match pools.entry(*indexing) {
             Entry::Occupied(entry) => entry.get().clone(),
             Entry::Vacant(entry) => {
                 let pool = Arc::new(Mutex::default());
@@ -67,15 +69,15 @@ impl ReceiptPools {
         for old_allocation in pool.addresses() {
             if new_allocations
                 .iter()
-                .all(|(id, _)| &old_allocation != id.as_ref())
+                .all(|(id, _)| old_allocation != id.as_ref())
             {
                 pool.remove_allocation(&old_allocation);
             }
         }
         // Add new_allocations not present in allocations
-        for (id, _) in new_allocations {
-            if !pool.contains_allocation(&id) {
-                pool.add_allocation(signer.clone(), id.0);
+        for id in new_allocations.keys() {
+            if !pool.contains_allocation(id) {
+                pool.add_allocation(*signer, id.0);
             }
         }
     }

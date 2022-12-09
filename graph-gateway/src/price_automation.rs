@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn stable_volume() {
-        let mut clock = MockClock::new();
+        let mut clock = MockClock::default();
         let mut estimate = VolumeEstimator::new(clock.clone());
 
         let factors = QueryBudgetFactors {
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn sine_volume() {
-        let mut clock = MockClock::new();
+        let mut clock = MockClock::default();
         let mut estimate = VolumeEstimator::new(clock.clone());
 
         // Show that a stable oscillating traffic has low variance
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn volume_increase() {
-        let mut clock = MockClock::new();
+        let mut clock = MockClock::default();
         let mut estimate = VolumeEstimator::new(clock.clone());
 
         // Over a month, do 1 queries per minute. This is "testing"

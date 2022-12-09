@@ -1,7 +1,5 @@
-use hex;
 use indexer_selection::{Selection, UnresolvedBlock};
 use prelude::*;
-use reqwest;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

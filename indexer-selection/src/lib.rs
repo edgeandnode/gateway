@@ -119,8 +119,8 @@ impl UnresolvedBlock {
 impl Display for UnresolvedBlock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::WithHash(hash) => write!(f, "{}", hash),
-            Self::WithNumber(number) => write!(f, "{}", number),
+            Self::WithHash(hash) => write!(f, "{hash}"),
+            Self::WithNumber(number) => write!(f, "{number}"),
         }
     }
 }

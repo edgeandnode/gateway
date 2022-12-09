@@ -96,7 +96,7 @@ impl<const P: u8> fmt::Display for UDecimal<P> {
 
 impl<const P: u8> fmt::Debug for UDecimal<P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 

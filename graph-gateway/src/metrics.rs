@@ -88,18 +88,18 @@ impl ResponseMetrics {
     pub fn new(prefix: &str, description: &str) -> Self {
         let metrics = Self {
             ok: register_int_counter!(
-                &format!("{}_ok", prefix),
-                &format!("{} success count", description),
+                &format!("{prefix}_ok"),
+                &format!("{description} success count"),
             )
             .unwrap(),
             err: register_int_counter!(
-                &format!("{}_err", prefix),
-                &format!("{} error count", description),
+                &format!("{prefix}_err"),
+                &format!("{description} error count"),
             )
             .unwrap(),
             duration: register_histogram!(
-                &format!("{}_duration", prefix),
-                &format!("{} duration", description),
+                &format!("{prefix}_duration"),
+                &format!("{description} duration"),
             )
             .unwrap(),
         };
@@ -120,20 +120,20 @@ impl ResponseMetricVecs {
     pub fn new(prefix: &str, description: &str, labels: &[&str]) -> Self {
         Self {
             ok: register_int_counter_vec!(
-                &format!("{}_ok", prefix),
-                &format!("{} success count", description),
+                &format!("{prefix}_ok"),
+                &format!("{description} success count"),
                 labels,
             )
             .unwrap(),
             err: register_int_counter_vec!(
-                &format!("{}_err", prefix),
-                &format!("{} error count", description),
+                &format!("{prefix}_err"),
+                &format!("{description} error count"),
                 labels,
             )
             .unwrap(),
             duration: register_histogram_vec!(
-                &format!("{}_duration", prefix),
-                &format!("{} duration", description),
+                &format!("{prefix}_duration"),
+                &format!("{description} duration"),
                 labels,
             )
             .unwrap(),

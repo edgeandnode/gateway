@@ -67,7 +67,7 @@ impl fmt::Display for QueryID {
 
 impl fmt::Debug for QueryID {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -111,19 +111,21 @@ pub async fn handle_query(
 ) -> HttpResponse {
     let start_time = Instant::now();
     let query_id = QueryID::new();
-    let mut report = ClientQueryResult::default();
-    report.query_id = query_id.to_string();
-    report.ray_id = request
-        .headers()
-        .get("cf-ray")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-    report.api_key = request
-        .match_info()
-        .get("api_key")
-        .unwrap_or("")
-        .to_string();
+    let mut report = ClientQueryResult {
+        query_id: query_id.to_string(),
+        ray_id: request
+            .headers()
+            .get("cf-ray")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .to_string(),
+        api_key: request
+            .match_info()
+            .get("api_key")
+            .unwrap_or("")
+            .to_string(),
+        ..Default::default()
+    };
     let subgraph_resolution_result = resolve_subgraph_deployment(
         &ctx.subgraph_deployments,
         &ctx.subgraph_info,
@@ -226,7 +228,6 @@ async fn resolve_subgraph_deployment(
     subgraph_info
         .value_immediate()
         .and_then(|map| map.get(&deployment)?.value_immediate())
-        .map(move |info| info)
         .ok_or_else(|| SubgraphResolutionError::DeploymentNotFound(deployment.to_string()))
 }
 
@@ -356,7 +357,7 @@ async fn handle_client_query_inner(
         .isa_state
         .latest()
         .network_params
-        .usd_to_grt(USD::try_from(budget).unwrap())
+        .usd_to_grt(budget)
         .ok_or_else(|| anyhow!("Internal error: MissingExchangeRate"))?;
     report.budget = budget.to_string();
 
@@ -526,7 +527,7 @@ async fn handle_indexer_query(
     deterministic_query: String,
     latest_query_block: u64,
 ) -> Result<ResponsePayload, IndexerError> {
-    let indexing = selection.indexing.clone();
+    let indexing = selection.indexing;
     ctx.report.indexer = indexing.indexer.to_string();
     ctx.report.url = selection.url.to_string();
     ctx.report.fee = selection.fee.as_f64();
@@ -541,7 +542,7 @@ async fn handle_indexer_query(
 
     let result = match receipt.as_ref() {
         Ok(receipt) => {
-            handle_indexer_query_inner(&mut ctx, selection, deterministic_query, &receipt).await
+            handle_indexer_query_inner(&mut ctx, selection, deterministic_query, receipt).await
         }
         Err(err) => Err(err.clone()),
     };
@@ -551,7 +552,7 @@ async fn handle_indexer_query(
 
     ctx.report.status = match &result {
         Ok(_) => StatusCode::OK.to_string(),
-        Err(err) => format!("{:?}", err),
+        Err(err) => format!("{err:?}"),
     };
     ctx.report.status_code = indexer_attempt_status_code(&result);
 
@@ -685,8 +686,8 @@ async fn handle_indexer_query_inner(
         challenge_indexer_response(
             ctx.fisherman_client.clone(),
             ctx.observations.clone(),
-            selection.indexing.clone(),
-            allocation.clone(),
+            selection.indexing,
+            allocation,
             deterministic_query,
             response.payload.body.clone(),
             attestation.clone(),

@@ -1,6 +1,5 @@
 use crate::metrics::*;
 use actix_web::{http::StatusCode, web, HttpResponse, HttpResponseBuilder};
-use hex;
 use indexer_selection::{
     receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher},
     SecretKey,
@@ -41,7 +40,7 @@ fn process_oneshot_voucher(
 ) -> Result<HttpResponse, String> {
     let (allocation_id, receipts) = parse_receipts(payload)?;
     let allocation_signer = PublicKey::from_secret_key(&SECP256K1, signer);
-    let voucher = receipts_to_voucher(&allocation_id, &allocation_signer, signer, &receipts)
+    let voucher = receipts_to_voucher(&allocation_id, &allocation_signer, signer, receipts)
         .map_err(|err| err.to_string())?;
     tracing::info!(
         allocation = %Address(allocation_id),
@@ -84,10 +83,10 @@ fn process_partial_voucher(
     signer: &SecretKey,
     payload: &web::Bytes,
 ) -> Result<HttpResponse, String> {
-    let (allocation_id, receipts) = parse_receipts(&payload)?;
+    let (allocation_id, receipts) = parse_receipts(payload)?;
     let allocation_signer = PublicKey::from_secret_key(&SECP256K1, signer);
     let partial_voucher =
-        receipts_to_partial_voucher(&allocation_id, &allocation_signer, signer, &receipts)
+        receipts_to_partial_voucher(&allocation_id, &allocation_signer, signer, receipts)
             .map_err(|err| err.to_string())?;
     tracing::info!(
         allocation = %Address(allocation_id),
@@ -127,7 +126,7 @@ pub async fn handle_voucher(data: web::Data<SecretKey>, payload: web::Bytes) -> 
 
 fn process_voucher(signer: &SecretKey, payload: &web::Bytes) -> Result<HttpResponse, String> {
     let request =
-        serde_json::from_slice::<VoucherRequest>(&payload).map_err(|err| err.to_string())?;
+        serde_json::from_slice::<VoucherRequest>(payload).map_err(|err| err.to_string())?;
     let allocation_id = request.allocation_id;
     let partial_vouchers = request
         .partial_vouchers

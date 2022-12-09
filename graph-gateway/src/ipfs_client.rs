@@ -1,5 +1,4 @@
 use prelude::*;
-use reqwest;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 

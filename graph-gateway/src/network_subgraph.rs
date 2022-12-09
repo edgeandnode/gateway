@@ -128,14 +128,14 @@ impl Client {
                 None => continue,
             };
 
-            match deployment_indexers.entry(allocation.subgraph_deployment.id.clone()) {
+            match deployment_indexers.entry(allocation.subgraph_deployment.id) {
                 Entry::Occupied(mut entry) => entry.get_mut().push(allocation.indexer.id),
                 Entry::Vacant(entry) => {
                     entry.insert(vec![allocation.indexer.id]);
                 }
             };
             indexers.insert(
-                allocation.indexer.id.clone(),
+                allocation.indexer.id,
                 Arc::new(IndexerInfo {
                     url,
                     stake: allocation.indexer.staked_tokens.shift(),
@@ -238,9 +238,8 @@ impl Client {
                     "query": format!(r#"
                         query q($block: Block_height!, $skip: Int!, $first: Int!) {{
                             meta: _meta(block: $block) {{ block {{ number hash }} }}
-                            results: {}
+                            results: {query}
                         }}"#,
-                        query,
                     ),
                     "variables": {
                         "block": block,

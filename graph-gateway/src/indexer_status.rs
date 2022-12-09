@@ -4,7 +4,6 @@ use futures::future::join_all;
 use indexer_selection::cost_model::CostModel;
 use indexer_selection::{IndexerInfo, Indexing};
 use prelude::{epoch_cache::EpochCache, graphql, *};
-use reqwest;
 use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
@@ -125,7 +124,7 @@ impl Actor {
         if version < locked_actor.min_version {
             return Err(format!("IndexerVersionBelowMinimum({version})"));
         }
-        locked_actor.apply_geoblocking(&info).await?;
+        locked_actor.apply_geoblocking(info).await?;
         drop(locked_actor);
 
         Self::query_status(&client, actor, info.url.clone(), &indexer)
@@ -163,7 +162,7 @@ impl Actor {
             };
             for ip in ips {
                 if geoip.is_ip_blocked(ip) {
-                    return Err(format!("Geoblocked({})", ip));
+                    return Err(format!("Geoblocked({ip})"));
                 }
             }
             Ok(())
@@ -238,7 +237,7 @@ impl Actor {
             .into_iter()
             .filter_map(|status| {
                 let indexing = Indexing {
-                    indexer: indexer.clone(),
+                    indexer: *indexer,
                     deployment: status.subgraph,
                 };
                 let chain = &status.chains.get(0)?;
@@ -248,7 +247,7 @@ impl Actor {
                     network: chain.network.clone(),
                     block: BlockPointer {
                         number: block_status.number.parse().ok()?,
-                        hash: block_status.hash.clone(),
+                        hash: block_status.hash,
                     },
                     min_block: chain
                         .earliest_block
