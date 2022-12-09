@@ -106,6 +106,7 @@ impl IndexerClient {
                 return Err(IndexerError::Other(err));
             }
         };
+        tracing::debug!(response_len = graphql_response.len());
         Ok(IndexerResponse {
             status: response_status.as_u16(),
             payload: ResponsePayload {
