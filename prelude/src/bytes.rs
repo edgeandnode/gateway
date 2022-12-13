@@ -84,7 +84,7 @@ impl FromStr for SubgraphID {
             sequence_word[24..].copy_from_slice(&sequence_number);
             let hash: [u8; 32] = Keccak256::default()
                 .chain(account.as_ref())
-                .chain(&sequence_word)
+                .chain(sequence_word)
                 .finalize()
                 .into();
             Some(hash)
@@ -114,7 +114,7 @@ impl fmt::Display for SubgraphID {
 
 impl fmt::Debug for SubgraphID {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -164,7 +164,7 @@ impl fmt::Display for SubgraphDeploymentID {
 
 impl fmt::Debug for SubgraphDeploymentID {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 

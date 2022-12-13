@@ -18,7 +18,7 @@ pub struct Client;
 impl super::Client for Client {
     type Provider = Provider;
 
-    fn new(
+    fn create(
         provider: Provider,
         notify: mpsc::UnboundedSender<ClientMsg>,
     ) -> mpsc::UnboundedSender<UnresolvedBlock> {

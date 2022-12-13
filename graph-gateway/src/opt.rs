@@ -1,6 +1,4 @@
 use crate::chains::ethereum;
-use anyhow;
-use bip39;
 use clap::Parser;
 use hdwallet::{self, KeyChain as _};
 use indexer_selection::SecretKey;
@@ -196,17 +194,17 @@ impl FromStr for EthereumProviders {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let err_usage = "networks syntax: <network>=<block-time>,<rpc-url>;...";
-        let providers = s.split(";").collect::<Vec<&str>>();
+        let providers = s.split(';').collect::<Vec<&str>>();
         if providers.is_empty() {
             return Err(err_usage);
         }
         providers
             .into_iter()
             .map(|provider| -> Option<ethereum::Provider> {
-                let kv = provider.splitn(2, "=").collect::<Vec<&str>>();
+                let kv = provider.splitn(2, '=').collect::<Vec<&str>>();
                 let (block_time, rpc) = kv.get(1)?.split_once(',')?;
                 Some(ethereum::Provider {
-                    network: kv.get(0)?.to_string(),
+                    network: kv.first()?.to_string(),
                     block_time: Duration::from_secs(block_time.parse::<u64>().ok()?),
                     rpc: rpc.parse::<URL>().ok()?,
                 })

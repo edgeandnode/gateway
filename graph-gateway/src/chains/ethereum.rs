@@ -28,7 +28,7 @@ pub struct Client {
 impl super::Client for Client {
     type Provider = Provider;
 
-    fn new(
+    fn create(
         provider: Provider,
         notify: mpsc::UnboundedSender<ClientMsg>,
     ) -> mpsc::UnboundedSender<UnresolvedBlock> {
@@ -100,7 +100,7 @@ impl Client {
                 ("eth_getBlockByHash", hash.to_string().into())
             }
             Some(UnresolvedBlock::WithNumber(number)) => {
-                ("eth_getBlockByNumber", format!("0x{:x}", number).into())
+                ("eth_getBlockByNumber", format!("0x{number:x}").into())
             }
             None => ("eth_getBlockByNumber", "latest".into()),
         };

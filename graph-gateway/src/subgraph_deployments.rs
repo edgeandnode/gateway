@@ -21,11 +21,11 @@ impl SubgraphDeployments {
         let inputs = subgraph_deployments.map(|deployments| async move {
             let current_deployments = deployments
                 .iter()
-                .filter_map(|(s, ds)| Some((s.clone(), ds.last()?.clone())))
+                .filter_map(|(s, ds)| Some((*s, *ds.last()?)))
                 .collect();
             let deployment_to_subgraph = deployments
                 .iter()
-                .flat_map(|(s, ds)| ds.iter().map(move |d| (d.clone(), s.clone())))
+                .flat_map(|(s, ds)| ds.iter().map(move |d| (*d, *s)))
                 .collect();
             Ptr::new(Inputs {
                 current_deployments,

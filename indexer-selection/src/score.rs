@@ -35,10 +35,10 @@ pub trait ExpectedValue {
     fn expected_value(&self) -> f64;
 }
 
-pub fn select_indexers<'s, R: Rng>(
+pub fn select_indexers<R: Rng>(
     rng: &mut R,
     params: &UtilityParameters,
-    factors: &'s [SelectionFactors],
+    factors: &[SelectionFactors],
     selection_limit: u8,
 ) -> Vec<Selection> {
     if factors.is_empty() {

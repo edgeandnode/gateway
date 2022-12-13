@@ -1,7 +1,6 @@
 use crate::price_automation::VolumeEstimator;
 use eventuals::{self, EventualExt as _};
 use prelude::*;
-use reqwest;
 use serde::Deserialize;
 use std::{
     collections::{BTreeSet, HashMap},
@@ -74,7 +73,7 @@ impl Actor {
     pub fn create(client: reqwest::Client, mut url: URL, auth: String) -> Data {
         let (api_keys_writer, api_keys) = Eventual::new();
         let (usd_to_grt_writer, usd_to_grt) = Eventual::new();
-        if !url.path().ends_with("/") {
+        if !url.path().ends_with('/') {
             url.0.set_path(&format!("{}/", url.path()));
         }
         let actor = Arc::new(Mutex::new(Self {
@@ -183,8 +182,8 @@ impl Actor {
             .await?
             .usd;
         // Check that the float value isn't completely outside of reasonable bounds.
-        if (price < 1e-3) || (price > 1e3) {
-            return Err(format!("Conversion rate out of range ({})", price).into());
+        if !(1e-3..=1e3).contains(&price) {
+            return Err(format!("Conversion rate out of range ({price})").into());
         }
         let usd_to_grt =
             USD::try_from(price.recip()).map_err(|_| "Failed to convert price to decimal value")?;

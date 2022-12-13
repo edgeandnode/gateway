@@ -13,7 +13,7 @@ pub trait Provider {
 
 pub trait Client {
     type Provider: Provider;
-    fn new(
+    fn create(
         provider: Self::Provider,
         notify: mpsc::UnboundedSender<ClientMsg>,
     ) -> mpsc::UnboundedSender<UnresolvedBlock>;
@@ -50,7 +50,7 @@ impl BlockCache {
         let (request_tx, request_rx) = mpsc::unbounded_channel();
         let actor = Actor {
             network: provider.network().to_string(),
-            client_tx: C::new(provider, notify_tx),
+            client_tx: C::create(provider, notify_tx),
             notify_rx,
             request_rx,
             chain_head_broadcast_tx,
@@ -173,8 +173,8 @@ impl Actor {
     }
 
     async fn handle_block(&mut self, block: BlockPointer) {
-        self.hash_to_number.insert(block.hash.clone(), block.number);
-        self.number_to_hash.insert(block.number, block.hash.clone());
+        self.hash_to_number.insert(block.hash, block.number);
+        self.number_to_hash.insert(block.number, block.hash);
 
         for key in [
             UnresolvedBlock::WithHash(block.hash),

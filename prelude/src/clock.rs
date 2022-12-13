@@ -20,13 +20,15 @@ pub struct MockClock {
     current_time: Rc<RefCell<Instant>>,
 }
 
-impl MockClock {
-    pub fn new() -> Self {
+impl Default for MockClock {
+    fn default() -> Self {
         Self {
             current_time: Rc::new(RefCell::new(Instant::now())),
         }
     }
+}
 
+impl MockClock {
     pub fn advance_time(&mut self, amount: Duration) {
         let mut l = self.current_time.borrow_mut();
         *l += amount;

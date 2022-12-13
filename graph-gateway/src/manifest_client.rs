@@ -1,10 +1,8 @@
 use crate::{ipfs_client::*, subgraph_deployments::SubgraphDeployments};
 use anyhow::{anyhow, Result};
 use eventuals::EventualExt;
-use im;
 use prelude::*;
 use serde::Deserialize;
-use serde_yaml;
 use std::sync::Arc;
 use tokio::{sync::Mutex, time::sleep};
 

@@ -1,7 +1,6 @@
 use crate::indexer_client::Attestation;
 use indexer_selection::Indexing;
 use prelude::*;
-use reqwest;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -67,7 +66,7 @@ impl FishermanClient {
             "method": "challenge",
             "params": {
                 "attestation": serde_json::to_value(attestation)?,
-                "subgraphDeploymentID": format!("0x{}", hex::encode(&indexing.deployment.0)),
+                "subgraphDeploymentID": format!("0x{}", hex::encode(indexing.deployment.0)),
                 "allocationID": allocation.to_string(),
                 "query": indexer_query,
                 "response": indexer_response,

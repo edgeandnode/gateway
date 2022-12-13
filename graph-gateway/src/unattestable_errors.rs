@@ -1,7 +1,7 @@
 // This list should not be necessary, but it is a temporary measure to avoid unattestable errors
 // from getting to users.
 // Derived from https://github.com/graphprotocol/graph-node/blob/master/graph/src/data/query/error.rs
-pub const UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS: [&'static str; 20] = [
+pub const UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS: [&str; 20] = [
     "Non-list value resolved for list field",     // ListValueError
     "Failed to get entities from store:",         // ResolveEntitiesError
     "argument must be between 0 and",             // RangeArgumentsError
