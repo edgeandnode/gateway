@@ -1,4 +1,4 @@
-FROM rust:1.65-bullseye AS build
+FROM rust:1.66-bullseye AS build
 
 ARG GH_USER
 ARG GH_TOKEN
@@ -10,21 +10,20 @@ RUN apt-get update && apt-get install -y \
   git \
   librdkafka-dev \
   libsasl2-dev\
-  npm \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/gateway
 COPY ./ ./
 
 # Setup GitHub credentials for cargo fetch
-RUN npm install -g git-credential-env \
-  && git config --global credential.helper 'env --username=GH_USER --password=GH_TOKEN' \
+RUN git config --global credential.helper store \
   && git config --global --replace-all url.https://github.com/.insteadOf ssh://git@github.com/ \
   && git config --global --add url.https://github.com/.insteadOf git@github.com: \
-  && mkdir ~/.cargo && echo "[net]\ngit-fetch-with-cli = true" > ~/.cargo/config.toml
+  && mkdir ~/.cargo && echo "[net]\ngit-fetch-with-cli = true" > ~/.cargo/config.toml \
+  && (echo url=https://github.com; echo "username=${GH_USER}"; echo "password=${GH_TOKEN}"; echo ) | git credential approve
 
 ENV CC=clang CXX=clang++
-RUN cargo build --release --bin graph-gateway
+RUN cargo build --release --bin graph-gateway --color=always
 
 FROM debian:bullseye-slim
 
