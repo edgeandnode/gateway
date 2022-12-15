@@ -190,6 +190,7 @@ async fn main() {
         },
         subgraph_info,
         subgraph_deployments: network_subgraph_data.subgraph_deployments,
+        restricted_networks: Arc::new(opt.restricted_networks.0),
         deployment_indexers: network_subgraph_data.deployment_indexers,
         api_keys: studio_data.api_keys,
         api_key_payment_required: opt.api_key_payment_required,
