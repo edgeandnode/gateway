@@ -680,17 +680,21 @@ async fn handle_indexer_query_inner(
         }
     }
 
-    // TODO: This is a temporary hack to handle NonNullError being incorrectly categorized as
-    // unattestable in graph-node.
-    if response.payload.attestation.is_none()
-        && indexer_errors
-            .iter()
-            .any(|err| err.contains("Null value resolved for non-null field"))
-    {
+    // Return early if we aren't expecting an attestation.
+    if !ctx.subgraph_info.features.is_empty() {
         return Ok(response.payload);
     }
 
-    if !ctx.subgraph_info.features.is_empty() && response.payload.attestation.is_none() {
+    if response.payload.attestation.is_none() {
+        // TODO: This is a temporary hack to handle NonNullError being incorrectly categorized as
+        // unattestable in graph-node.
+        if indexer_errors
+            .iter()
+            .any(|err| err.contains("Null value resolved for non-null field"))
+        {
+            return Ok(response.payload);
+        }
+
         return Err(IndexerError::NoAttestation);
     }
 
