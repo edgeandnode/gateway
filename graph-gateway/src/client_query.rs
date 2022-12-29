@@ -13,7 +13,9 @@ use crate::{
     receipts::{ReceiptPools, ReceiptStatus},
     studio_client::{is_domain_authorized, APIKey, QueryStatus},
     subgraph_deployments::SubgraphDeployments,
-    unattestable_errors::UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
+    unattestable_errors::{
+        MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS, UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
+    },
 };
 use actix_http::StatusCode;
 use actix_web::{http::header, web, HttpRequest, HttpResponse, HttpResponseBuilder};
@@ -686,13 +688,15 @@ async fn handle_indexer_query_inner(
     }
 
     if response.payload.attestation.is_none() {
-        // TODO: This is a temporary hack to handle NonNullError being incorrectly categorized as
+        // TODO: This is a temporary hack to handle errors that were previously miscategorized as
         // unattestable in graph-node.
-        if indexer_errors
-            .iter()
-            .any(|err| err.contains("Null value resolved for non-null field"))
-        {
-            return Ok(response.payload);
+        for error in &indexer_errors {
+            if MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS
+                .iter()
+                .any(|err| error.contains(err))
+            {
+                return Ok(response.payload);
+            }
         }
 
         return Err(IndexerError::NoAttestation);
