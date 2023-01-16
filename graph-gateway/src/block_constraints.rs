@@ -52,7 +52,6 @@ pub fn block_constraints<'c>(context: &'c Context<'c>) -> Option<BTreeSet<BlockC
             | OperationDefinition::Mutation(_)
             | OperationDefinition::Subscription(_) => return None,
         };
-        println!("{:#?}", defaults);
         for selection in &selection_set.items {
             let selection_field = match selection {
                 Selection::Field(field) => field,
@@ -90,10 +89,7 @@ pub fn make_query_deterministic(
                 let defaults = query
                     .variable_definitions
                     .iter()
-                    .filter(|d| {
-                        !vars.0.contains_key(d.name)
-                            && ["hash", "number", "number_gte"].contains(&d.name)
-                    })
+                    .filter(|d| !vars.0.contains_key(d.name))
                     .filter_map(|d| Some((d.name, d.default_value.as_ref()?.to_graphql())))
                     .collect::<BTreeMap<&str, StaticValue>>();
                 (&mut query.selection_set, defaults)
