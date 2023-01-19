@@ -86,7 +86,6 @@ pub struct Context {
     pub block_caches: Arc<HashMap<String, BlockCache>>,
     pub subgraph_info: SubgraphInfoMap,
     pub subgraph_deployments: SubgraphDeployments,
-    pub restricted_networks: Arc<HashMap<String, HashSet<SubgraphDeploymentID>>>,
     pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     pub receipt_pools: ReceiptPools,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
@@ -304,18 +303,6 @@ async fn handle_client_query_inner(
         .get(&subgraph_info.network)
         .cloned()
         .ok_or_else(|| anyhow!("Network not supported: {}", &subgraph_info.network))?;
-
-    if ctx
-        .restricted_networks
-        .get(&subgraph_info.network)
-        .map(|deployments| !deployments.contains(&subgraph_info.deployment))
-        .unwrap_or(false)
-    {
-        bail!(
-            "Subgraph not yet supported on network ({})",
-            subgraph_info.network
-        );
-    }
 
     let block_constraints = block_constraints(&context).ok_or(anyhow!("Invalid query"))?;
     let resolved_blocks = join_all(
