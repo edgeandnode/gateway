@@ -267,8 +267,13 @@ async fn handle_client_query_inner(
     }
     let deployment_authorized =
         api_key.deployments.is_empty() || api_key.deployments.contains(&subgraph_info.deployment);
-    let subgraph_authorized =
-        api_key.subgraphs.is_empty() || api_key.subgraphs.contains(&subgraph_info.id);
+    // multiple subgraph ids can be resolved to the deployment Qm hash,
+    // check if any of the SubgraphInfo.ids are in the api_key allowed subgraphs
+    let subgraph_authorized = api_key.subgraphs.is_empty()
+        || api_key
+            .subgraphs
+            .iter()
+            .any(|subgraph_id| subgraph_info.ids.contains(subgraph_id));
     if !deployment_authorized || !subgraph_authorized {
         bail!("Subgraph not authorized by API key");
     }

@@ -11,27 +11,32 @@ pub struct SubgraphDeployments {
 struct Inputs {
     // TODO: latest deployments may not be fully indexed, but the prior deployment might be.
     current_deployments: HashMap<SubgraphID, SubgraphDeploymentID>,
-    deployment_to_subgraph: HashMap<SubgraphDeploymentID, SubgraphID>,
+    // A SubgraphDeploymentID is the Qm hash representation of the Subgraph manifest uploaded to decentralized storage (currently IPFS).
+    // A SubgraphID is a hash of the owning user address and an incrementing integer owned by the GNS contract.
+    // It is possible that multiple users could create the same Subgraph manifest, and therefore get the same Qm hash SubgraphDeploymentID.
+    //  And then these multiple users could publish the Subgraph.
+    // This creates a scenario where a single SubgraphDeploymentID could be linked with multiple SubgraphIDs.
+    deployment_to_subgraphs: HashMap<SubgraphDeploymentID, Vec<SubgraphID>>,
 }
 
 impl SubgraphDeployments {
     pub fn new(
-        subgraph_deployments: Eventual<Ptr<Vec<(SubgraphID, Vec<SubgraphDeploymentID>)>>>,
+        subgraph_deployments: Eventual<(
+            Ptr<Vec<(SubgraphID, SubgraphDeploymentID)>>,
+            Ptr<Vec<(SubgraphDeploymentID, Vec<SubgraphID>)>>,
+        )>,
     ) -> Self {
-        let inputs = subgraph_deployments.map(|deployments| async move {
-            let current_deployments = deployments
-                .iter()
-                .filter_map(|(s, ds)| Some((*s, *ds.last()?)))
-                .collect();
-            let deployment_to_subgraph = deployments
-                .iter()
-                .flat_map(|(s, ds)| ds.iter().map(move |d| (*d, *s)))
-                .collect();
-            Ptr::new(Inputs {
-                current_deployments,
-                deployment_to_subgraph,
-            })
-        });
+        let inputs = subgraph_deployments.map(
+            |(current_deployments, deployment_to_subgraphs)| async move {
+                let current_deployments = HashMap::from_iter(current_deployments.iter().cloned());
+                let deployment_to_subgraphs =
+                    HashMap::from_iter(deployment_to_subgraphs.iter().cloned());
+                Ptr::new(Inputs {
+                    current_deployments,
+                    deployment_to_subgraphs,
+                })
+            },
+        );
         Self { inputs }
     }
 
@@ -48,12 +53,12 @@ impl SubgraphDeployments {
     pub async fn deployment_subgraph(
         &self,
         deployment: &SubgraphDeploymentID,
-    ) -> Option<SubgraphID> {
+    ) -> Option<Vec<SubgraphID>> {
         self.inputs
             .value()
             .await
             .ok()?
-            .deployment_to_subgraph
+            .deployment_to_subgraphs
             .get(deployment)
             .cloned()
     }
