@@ -13,7 +13,7 @@ pub struct Inputs {
     // A SubgraphDeploymentID is the Qm hash representation of the Subgraph manifest uploaded to decentralized storage (currently IPFS).
     // A SubgraphID is a hash of the owning user address and an incrementing integer owned by the GNS contract.
     // It is possible that multiple users could create the same Subgraph manifest, and therefore get the same Qm hash SubgraphDeploymentID.
-    //  And then these multiple users could publish the Subgraph.
+    // And then these multiple users could publish the Subgraph.
     // This creates a scenario where a single SubgraphDeploymentID could be linked with multiple SubgraphIDs.
     pub deployment_to_subgraphs: HashMap<SubgraphDeploymentID, Vec<SubgraphID>>,
 }

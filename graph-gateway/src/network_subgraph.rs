@@ -183,7 +183,7 @@ impl Client {
                     versions(
                       orderBy: version
                       orderDirection: asc
-                      where: {subgraph_: {active: true, entityVersion: 2, displayName_not: ""}}
+                      where: {subgraph_: {active: true, entityVersion: 2}}
                     ) {
                         subgraph {
                             currentVersion {
@@ -366,33 +366,33 @@ struct Indexer {
     staked_tokens: GRTWei,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Subgraph {
     id: SubgraphID,
     current_version: SubgraphCurrentVersion,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SubgraphVersion {
     subgraph: Subgraph,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SubgraphCurrentVersion {
     subgraph_deployment: SubgraphDeploymentIdOnly,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize)]
 struct SubgraphDeployment {
     #[serde(rename = "ipfsHash")]
     id: SubgraphDeploymentID,
     versions: Vec<SubgraphVersion>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize)]
 struct SubgraphDeploymentIdOnly {
     #[serde(rename = "ipfsHash")]
     id: SubgraphDeploymentID,
