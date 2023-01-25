@@ -51,7 +51,7 @@ pub fn create(
                 let eventual_subgraph_info = Eventual::spawn(move |mut writer| async move {
                     loop {
                         let manifest_fetch_err =
-                            match subgraph_deployments.deployment_subgraph(&deployment).await {
+                            match subgraph_deployments.deployment_subgraphs(&deployment).await {
                                 None => anyhow!("deployment missing subgraph"),
                                 Some(subgraph) => {
                                     match fetch_manifest(&client, subgraph, deployment).await {

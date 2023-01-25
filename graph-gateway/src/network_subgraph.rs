@@ -1,7 +1,6 @@
-use crate::subgraph_deployments::SubgraphDeployments;
+use crate::subgraph_deployments::{self, SubgraphDeployments};
 use eventuals::{self, EventualExt as _};
 use indexer_selection::{IndexerInfo, Indexing};
-use itertools::Itertools;
 use prelude::{graphql, *};
 use serde::Deserialize;
 use serde_json::json;
@@ -30,10 +29,7 @@ pub struct Client {
     http_client: reqwest::Client,
     latest_block: u64,
     slashing_percentage: EventualWriter<PPM>,
-    subgraph_deployments: EventualWriter<(
-        Ptr<Vec<(SubgraphID, SubgraphDeploymentID)>>,
-        Ptr<Vec<(SubgraphDeploymentID, Vec<SubgraphID>)>>,
-    )>,
+    subgraph_deployments: EventualWriter<Ptr<subgraph_deployments::Inputs>>,
     deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     indexers: EventualWriter<Ptr<HashMap<Address, Arc<IndexerInfo>>>>,
     allocations: EventualWriter<Ptr<HashMap<Address, AllocationInfo>>>,
@@ -76,7 +72,9 @@ impl Client {
             .forever();
         Data {
             slashing_percentage: slashing_percentage_rx,
-            subgraph_deployments: SubgraphDeployments::new(subgraph_deployments_rx),
+            subgraph_deployments: SubgraphDeployments {
+                inputs: subgraph_deployments_rx,
+            },
             deployment_indexers: deployment_indexers_rx,
             indexers: indexers_rx,
             allocations: allocations_rx,
@@ -199,16 +197,17 @@ impl Client {
                 "#,
             )
             .await?;
-        let current_deployments = parse_current_deployments(response.clone());
+        let current_deployments = parse_current_deployments(&response);
         if current_deployments.is_empty() {
             return Err("Discarding empty update (subgraph_deployments)".to_string());
         }
-        let subgraph_deployments = parse_subgraph_deployments(response.clone());
+        let deployment_to_subgraphs = parse_deployment_subgraphs(response);
 
-        self.subgraph_deployments.write((
-            Ptr::new(current_deployments),
-            Ptr::new(subgraph_deployments),
-        ));
+        self.subgraph_deployments
+            .write(Ptr::new(subgraph_deployments::Inputs {
+                current_deployments,
+                deployment_to_subgraphs,
+            }));
         Ok(())
     }
 
@@ -294,27 +293,26 @@ impl Client {
 
 // The current deployment is a map of a SubgraphID to its _current_ SubgraphDeploymentID Qm hash.
 // Iterate through the subgraphDeployments -> versions -> subgraph -> currentVersion -> subgraphDeployment
-// grab a _unique_ set of SubgraphIDs to their current version SubgraphDeploymentID.
+// grab map of SubgraphIDs to their current version SubgraphDeploymentID.
 fn parse_current_deployments(
-    subgraph_deployment_response: Vec<SubgraphDeployment>,
-) -> Vec<(SubgraphID, SubgraphDeploymentID)> {
+    subgraph_deployment_response: &[SubgraphDeployment],
+) -> HashMap<SubgraphID, SubgraphDeploymentID> {
     subgraph_deployment_response
-        .into_iter()
+        .iter()
         .flat_map(|deployment| {
-            deployment.versions.into_iter().map(|version| {
+            deployment.versions.iter().map(|version| {
                 (
                     version.subgraph.id,
                     version.subgraph.current_version.subgraph_deployment.id,
                 )
             })
         })
-        .unique()
-        .collect::<Vec<(SubgraphID, SubgraphDeploymentID)>>()
+        .collect()
 }
 
-fn parse_subgraph_deployments(
+fn parse_deployment_subgraphs(
     subgraph_deployment_response: Vec<SubgraphDeployment>,
-) -> Vec<(SubgraphDeploymentID, Vec<SubgraphID>)> {
+) -> HashMap<SubgraphDeploymentID, Vec<SubgraphID>> {
     subgraph_deployment_response
         .into_iter()
         .map(|deployment| {
@@ -325,7 +323,7 @@ fn parse_subgraph_deployments(
                 .collect();
             (deployment.id, subgraphs)
         })
-        .collect::<Vec<(SubgraphDeploymentID, Vec<SubgraphID>)>>()
+        .collect()
 }
 
 #[derive(Deserialize)]
