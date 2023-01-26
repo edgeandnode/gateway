@@ -8,7 +8,7 @@ use tokio::{sync::Mutex, time::sleep};
 
 #[derive(Debug)]
 pub struct SubgraphInfo {
-    pub id: SubgraphID,
+    pub ids: Vec<SubgraphID>,
     pub deployment: SubgraphDeploymentID,
     pub network: String,
     pub features: Vec<String>,
@@ -48,10 +48,10 @@ pub fn create(
             for deployment in unresolved {
                 let client = ipfs_client.clone();
                 let subgraph_deployments = subgraph_deployments.clone();
-                let info = Eventual::spawn(move |mut writer| async move {
+                let eventual_subgraph_info = Eventual::spawn(move |mut writer| async move {
                     loop {
                         let manifest_fetch_err =
-                            match subgraph_deployments.deployment_subgraph(&deployment).await {
+                            match subgraph_deployments.deployment_subgraphs(&deployment).await {
                                 None => anyhow!("deployment missing subgraph"),
                                 Some(subgraph) => {
                                     match fetch_manifest(&client, subgraph, deployment).await {
@@ -67,7 +67,7 @@ pub fn create(
                         sleep(Duration::from_secs(20)).await;
                     }
                 });
-                manifests.insert(deployment, info);
+                manifests.insert(deployment, eventual_subgraph_info);
             }
             Ptr::new(manifests.clone())
         }
@@ -76,7 +76,7 @@ pub fn create(
 
 pub async fn fetch_manifest(
     client: &IPFSClient,
-    subgraph: SubgraphID,
+    subgraphs: Vec<SubgraphID>,
     deployment: SubgraphDeploymentID,
 ) -> Result<SubgraphInfo> {
     let payload = client.cat(&deployment.ipfs_hash()).await?;
@@ -96,7 +96,7 @@ pub async fn fetch_manifest(
         .next()
         .ok_or_else(|| anyhow!("Network not found"))?;
     Ok(SubgraphInfo {
-        id: subgraph,
+        ids: subgraphs,
         deployment,
         network,
         min_block,

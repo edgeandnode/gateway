@@ -1,4 +1,4 @@
-use crate::subgraph_deployments::SubgraphDeployments;
+use crate::subgraph_deployments::{self, SubgraphDeployments};
 use eventuals::{self, EventualExt as _};
 use indexer_selection::{IndexerInfo, Indexing};
 use prelude::{graphql, *};
@@ -29,7 +29,7 @@ pub struct Client {
     http_client: reqwest::Client,
     latest_block: u64,
     slashing_percentage: EventualWriter<PPM>,
-    subgraph_deployments: EventualWriter<Ptr<Vec<(SubgraphID, Vec<SubgraphDeploymentID>)>>>,
+    subgraph_deployments: EventualWriter<Ptr<subgraph_deployments::Inputs>>,
     deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
     indexers: EventualWriter<Ptr<HashMap<Address, Arc<IndexerInfo>>>>,
     allocations: EventualWriter<Ptr<HashMap<Address, AllocationInfo>>>,
@@ -72,7 +72,9 @@ impl Client {
             .forever();
         Data {
             slashing_percentage: slashing_percentage_rx,
-            subgraph_deployments: SubgraphDeployments::new(subgraph_deployments_rx),
+            subgraph_deployments: SubgraphDeployments {
+                inputs: subgraph_deployments_rx,
+            },
             deployment_indexers: deployment_indexers_rx,
             indexers: indexers_rx,
             allocations: allocations_rx,
@@ -169,36 +171,43 @@ impl Client {
 
     async fn poll_subgraphs(&mut self) -> Result<(), String> {
         let response = self
-            .paginated_query::<Subgraph>(
+            .paginated_query::<SubgraphDeployment>(
                 r#"
-                subgraphs(
-                    block: $block, skip: $skip, first: $first
-                    where: { active: true }
+                subgraphDeployments(
+                    block: $block
+                    skip: $skip
+                    first: $first
+                    where: {activeSubgraphCount_gt: 0}
                 ) {
-                    id
-                    versions(orderBy: version, orderDirection: asc) {
-                        subgraphDeployment { ipfsHash }
+                    ipfsHash
+                    versions(
+                      orderBy: version
+                      orderDirection: asc
+                      where: {subgraph_: {active: true, entityVersion: 2}}
+                    ) {
+                        subgraph {
+                            currentVersion {
+                                subgraphDeployment {
+                                    ipfsHash
+                                }
+                            }
+                        }
                     }
                 }
                 "#,
             )
             .await?;
-        let subgraph_deployments = response
-            .into_iter()
-            .map(|subgraph| {
-                let versions = subgraph
-                    .versions
-                    .into_iter()
-                    .map(|v| v.subgraph_deployment.id)
-                    .collect();
-                (subgraph.id, versions)
-            })
-            .collect::<Vec<(SubgraphID, Vec<SubgraphDeploymentID>)>>();
-        if subgraph_deployments.is_empty() {
+        let current_deployments = parse_current_deployments(&response);
+        if current_deployments.is_empty() {
             return Err("Discarding empty update (subgraph_deployments)".to_string());
         }
+        let deployment_to_subgraphs = parse_deployment_subgraphs(response);
+
         self.subgraph_deployments
-            .write(Ptr::new(subgraph_deployments));
+            .write(Ptr::new(subgraph_deployments::Inputs {
+                current_deployments,
+                deployment_to_subgraphs,
+            }));
         Ok(())
     }
 
@@ -282,6 +291,41 @@ impl Client {
     }
 }
 
+// The current deployment is a map of a SubgraphID to its _current_ SubgraphDeploymentID Qm hash.
+// Iterate through the subgraphDeployments -> versions -> subgraph -> currentVersion -> subgraphDeployment
+// grab map of SubgraphIDs to their current version SubgraphDeploymentID.
+fn parse_current_deployments(
+    subgraph_deployment_response: &[SubgraphDeployment],
+) -> HashMap<SubgraphID, SubgraphDeploymentID> {
+    subgraph_deployment_response
+        .iter()
+        .flat_map(|deployment| {
+            deployment.versions.iter().map(|version| {
+                (
+                    version.subgraph.id,
+                    version.subgraph.current_version.subgraph_deployment.id,
+                )
+            })
+        })
+        .collect()
+}
+
+fn parse_deployment_subgraphs(
+    subgraph_deployment_response: Vec<SubgraphDeployment>,
+) -> HashMap<SubgraphDeploymentID, Vec<SubgraphID>> {
+    subgraph_deployment_response
+        .into_iter()
+        .map(|deployment| {
+            let subgraphs = deployment
+                .versions
+                .into_iter()
+                .map(|version| version.subgraph.id)
+                .collect();
+            (deployment.id, subgraphs)
+        })
+        .collect()
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GraphNetworksResponse {
@@ -326,17 +370,30 @@ struct Indexer {
 #[serde(rename_all = "camelCase")]
 struct Subgraph {
     id: SubgraphID,
-    versions: Vec<SubgraphVersion>,
+    current_version: SubgraphCurrentVersion,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SubgraphVersion {
-    subgraph_deployment: SubgraphDeployment,
+    subgraph: Subgraph,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubgraphCurrentVersion {
+    subgraph_deployment: SubgraphDeploymentIdOnly,
 }
 
 #[derive(Deserialize)]
 struct SubgraphDeployment {
+    #[serde(rename = "ipfsHash")]
+    id: SubgraphDeploymentID,
+    versions: Vec<SubgraphVersion>,
+}
+
+#[derive(Deserialize)]
+struct SubgraphDeploymentIdOnly {
     #[serde(rename = "ipfsHash")]
     id: SubgraphDeploymentID,
 }
