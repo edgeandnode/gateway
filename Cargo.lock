@@ -87,7 +87,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b53c1deabdbf3a8a8b9a949123edd3cafb873abd75da96b5933a8b590f9d6dc2"
 dependencies = [
  "bytestring",
- "firestorm 0.5.1",
+ "firestorm",
  "http",
  "log",
  "regex",
@@ -492,11 +492,10 @@ checksum = "5827cebf4670468b8772dd191856768aedcb1b0278a04f989f7766351917b9dc"
 [[package]]
 name = "cost-model"
 version = "0.1.0"
-source = "git+ssh://git@github.com/graphprotocol/agora.git?rev=6680e61#6680e61f9f80297d15f74203a3a9ab2d9994cdea"
+source = "git+https://github.com/graphprotocol/agora?rev=8378f17#8378f1792152b74094222bc6dbea652cb97adb99"
 dependencies = [
- "firestorm 0.4.6",
+ "firestorm",
  "fraction",
- "graphql-parser",
  "lazy_static",
  "nom",
  "num-bigint",
@@ -504,6 +503,7 @@ dependencies = [
  "serde",
  "serde_json",
  "single",
+ "toolshed",
 ]
 
 [[package]]
@@ -644,10 +644,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "firestorm"
-version = "0.4.6"
+name = "faster-hex"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31586bda1b136406162e381a3185a506cdfc1631708dd40cba2f6628d8634499"
+checksum = "51e2ce894d53b295cf97b05685aa077950ff3e8541af83217fc720a6437169f8"
 
 [[package]]
 name = "firestorm"
@@ -825,7 +825,6 @@ dependencies = [
  "clap",
  "futures",
  "futures-util",
- "graphql-parser",
  "hdwallet",
  "hex",
  "im",
@@ -846,6 +845,7 @@ dependencies = [
  "serde_yaml",
  "simple-rate-limiter",
  "tiny-bip39",
+ "toolshed",
  "trust-dns-resolver",
  "url",
  "uuid",
@@ -853,8 +853,9 @@ dependencies = [
 
 [[package]]
 name = "graphql-parser"
-version = "0.3.0"
-source = "git+https://github.com/graphql-rust/graphql-parser?rev=8a759df#8a759df14ff6a2d97b55bcbccad0a53ce0bee4a6"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2ebc8013b4426d5b81a4364c419a95ed0b404af2b82e2457de52d9348f0e474"
 dependencies = [
  "combine",
  "thiserror",
@@ -2596,6 +2597,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1333c76748e868a4d9d1017b5ab53171dfd095f70c712fdb4653a406547f598f"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "toolshed"
+version = "0.1.0"
+source = "git+https://github.com/edgeandnode/toolshed?tag=v0.1.1#0e4b6d19b58735fa031b3f64d2e630841b101e6c"
+dependencies = [
+ "anyhow",
+ "bs58",
+ "faster-hex",
+ "firestorm",
+ "graphql-parser",
+ "serde",
+ "sha3",
+ "url",
 ]
 
 [[package]]

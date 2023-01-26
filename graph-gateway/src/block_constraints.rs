@@ -1,15 +1,12 @@
-use graphql_parser::query::{Definition, Document, OperationDefinition, Selection, Text, Value};
-use indexer_selection::{
-    cost_model::{
-        graphql_utils::{IntoStaticValue as _, StaticValue},
-        QueryVariables,
-    },
-    Context, UnresolvedBlock,
-};
+use indexer_selection::{Context, UnresolvedBlock};
 use itertools::Itertools as _;
 use prelude::*;
 use serde_json::{self, json};
 use std::collections::{BTreeMap, BTreeSet};
+use toolshed::graphql::{
+    graphql_parser::query::{Definition, Document, OperationDefinition, Selection, Text, Value},
+    IntoStaticValue as _, QueryVariables, StaticValue,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {
@@ -161,7 +158,7 @@ fn field_constraint<'c>(
 ) -> Option<BlockConstraint> {
     match field {
         Value::Object(fields) => parse_constraint(vars, defaults, fields),
-        Value::Variable(name) => match vars.get(name)? {
+        Value::Variable(name) => match vars.get(*name)? {
             Value::Object(fields) => parse_constraint(vars, defaults, fields),
             _ => None,
         },

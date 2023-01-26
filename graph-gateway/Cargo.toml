@@ -11,7 +11,6 @@ actix-router = "=0.5.0-beta.4"
 clap = { version = "3.2", features = ["derive", "env"] }
 futures = "0.3"
 futures-util = "0.3"
-graphql-parser = { git = "https://github.com/graphql-rust/graphql-parser", rev = "8a759df" }
 hdwallet = "0.3"
 hex = "0.4"
 im = "15.0"
@@ -34,6 +33,7 @@ serde_json = { version = "1.0", features = ["raw_value"] }
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 tiny-bip39 = "1.0"
+toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "v0.1.1" }
 trust-dns-resolver = { version = "0.22", features = ["dns-over-rustls"] }
 url = "2.2"
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
