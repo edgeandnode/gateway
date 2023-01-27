@@ -5,10 +5,7 @@ use indexer_selection::SecretKey;
 use prelude::*;
 use rdkafka::config::ClientConfig as KafkaConfig;
 use semver::Version;
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 // TODO: Consider the security implications of passing mnemonics, passwords, etc. via environment variables or CLI arguments.
 
@@ -41,8 +38,6 @@ pub struct Opt {
         use_delimiter = true
     )]
     pub special_api_keys: Vec<String>,
-    #[clap(long, env, default_value = "")]
-    pub restricted_networks: RestrictedNetworks,
     #[clap(long, env)]
     pub restricted_deployments: Option<PathBuf>,
     #[clap(long, env, parse(try_from_str), help = "Format log output as JSON")]
@@ -214,30 +209,6 @@ impl FromStr for EthereumProviders {
             })
             .collect::<Option<Vec<ethereum::Provider>>>()
             .map(EthereumProviders)
-            .ok_or(err_usage)
-    }
-}
-
-#[derive(Debug)]
-pub struct RestrictedNetworks(pub HashMap<String, HashSet<SubgraphDeploymentID>>);
-
-impl FromStr for RestrictedNetworks {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let err_usage = "restricted_networks syntax: <network>=<deployment>(,<deployment>)*;...";
-        s.split_terminator(';')
-            .map(|network| {
-                let kv = network.splitn(2, '=').collect::<Vec<&str>>();
-                let network = kv.get(0)?.to_string();
-                let deployments = kv
-                    .get(1)?
-                    .split_terminator(',')
-                    .map(|deployment| deployment.parse::<SubgraphDeploymentID>().ok())
-                    .collect::<Option<HashSet<SubgraphDeploymentID>>>()?;
-                Some((network, deployments))
-            })
-            .collect::<Option<HashMap<String, HashSet<SubgraphDeploymentID>>>>()
-            .map(Self)
             .ok_or(err_usage)
     }
 }
