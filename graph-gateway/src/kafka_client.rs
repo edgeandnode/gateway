@@ -41,6 +41,7 @@ pub struct ClientQueryResult {
     pub network: String,
     pub response_time_ms: u32,
     pub budget: String,
+    pub query_count: u64,
     pub fee: f64,
     pub status: String,
     pub status_code: u32,
