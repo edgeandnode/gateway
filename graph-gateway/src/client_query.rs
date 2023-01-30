@@ -184,6 +184,7 @@ pub async fn handle_query(
         network = %report.network,
         api_key = %report.api_key,
         budget = %report.budget,
+        query_count = report.query_count,
         fee = report.fee,
         response_time_ms = report.response_time_ms,
         status = %report.status,
@@ -337,7 +338,7 @@ async fn handle_client_query_inner(
         min_block.unwrap_or_default()
     );
 
-    let top_level_operations = context.operations.len().max(1) as u64;
+    report.query_count = context.operations.len().max(1) as u64;
     tracing::trace!(
         indexer_preferences = ?api_key.indexer_preferences,
         max_budget = ?api_key.max_budget,
@@ -350,7 +351,7 @@ async fn handle_client_query_inner(
         .usage
         .lock()
         .await
-        .budget_for_queries(top_level_operations, &ctx.budget_factors);
+        .budget_for_queries(report.query_count, &ctx.budget_factors);
     let mut budget = USD::try_from(budget).unwrap();
     if let Some(max_budget) = api_key.max_budget {
         // Security: Consumers can and will set their budget to unreasonably high values. This
