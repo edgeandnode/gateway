@@ -35,6 +35,7 @@ impl KafkaClient {
 pub struct ClientQueryResult {
     pub query_id: String,
     pub ray_id: String,
+    pub graph_env: String,
     pub timestamp: u64,
     pub api_key: String,
     pub deployment: String,
@@ -56,6 +57,7 @@ impl Msg for ClientQueryResult {
 pub struct IndexerAttempt {
     pub query_id: String,
     pub ray_id: String,
+    pub graph_env: String,
     pub api_key: String,
     pub deployment: String,
     pub network: String,
