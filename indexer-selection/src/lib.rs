@@ -28,9 +28,10 @@ use crate::{
     receipts::BorrowFail,
     score::{select_indexers, SelectionFactors},
 };
+use num_traits::Zero as _;
 use prelude::{epoch_cache::EpochCache, *};
-use rand::{prelude::SmallRng, SeedableRng as _};
-use score::ExpectedValue;
+use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
+use score::{expected_individual_score, ExpectedValue};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt::Display,
@@ -281,6 +282,29 @@ impl State {
         // See also: https://docs.rs/rand/latest/rand/rngs/struct.SmallRng.html
         let mut rng = SmallRng::from_entropy();
 
+        // Find the maximum expected individual indexer score.
+        let max_score = available
+            .iter()
+            .map(|factors| factors.expected_score)
+            .max()
+            .unwrap_or(NotNan::zero());
+        // Having a random score cutoff that is weighted toward 1 normalized to the highest score
+        // makes it so that we define our selection based on an expected score distribution, so that
+        // even if there are many bad indexers with lots of stake it may not adversely affect the
+        // result. This is important because an Indexer deployed on the other side of the world
+        // should not generally bring our expected score down below the minimum requirements set
+        // forth by this equation.
+        let mut score_cutoff: NotNan<f64> = NotNan::new(rng.gen()).unwrap();
+        // Careful raising this value, it's really powerful. Near 0 and score is ignored (only stake
+        // matters). Near 1 score matters at ~ x^2 (depending on the distribution of stake). Above
+        // that and things are getting crazy and we're exploiting the score strongly.
+        const SCORE_PREFERENCE: f64 = 1.1;
+        score_cutoff = max_score * (1.0 - score_cutoff.powf(SCORE_PREFERENCE));
+        // Filter out indexers below the cutoff. This avoids a situation where most indexers have
+        // terrible scores, only a few have good scores, and the good indexers are often passed over
+        // in multi-selection.
+        available.retain(|factors| factors.expected_score >= score_cutoff);
+
         let mut selections = select_indexers(&mut rng, params, &available, selection_limit);
         selections.truncate(selection_limit as usize);
         Ok((selections, errors))
@@ -328,14 +352,29 @@ impl State {
             return Err(IndexerError::NoAllocation.into());
         }
 
+        let reliability = state.reliability.expected_value();
+        let perf_success = state.perf_success.expected_value();
+        let slashable_usd = slashable.as_f64();
+
+        let expected_score = NotNan::new(expected_individual_score(
+            params,
+            reliability,
+            perf_success,
+            status.blocks_behind,
+            slashable_usd,
+            &fee,
+        ))
+        .unwrap_or(NotNan::zero());
+
         Ok(SelectionFactors {
             indexing,
             url: info.url.clone(),
-            reliability: state.reliability.expected_value(),
-            perf_success: state.perf_success.expected_value(),
+            reliability,
+            perf_success,
             perf_failure: state.perf_failure.expected_value(),
             blocks_behind: status.blocks_behind,
-            slashable_usd: slashable.as_f64(),
+            slashable_usd,
+            expected_score,
             fee,
             last_use: state.last_use,
             sybil: sybil(&allocation)?,

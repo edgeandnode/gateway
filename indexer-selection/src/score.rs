@@ -19,6 +19,7 @@ pub struct SelectionFactors {
     pub perf_failure: f64,
     pub blocks_behind: u64,
     pub slashable_usd: f64,
+    pub expected_score: NotNan<f64>,
     pub fee: GRT,
     pub last_use: Instant,
     pub sybil: NotNan<f64>,
@@ -212,6 +213,23 @@ impl MetaIndexer<'_> {
 
         score
     }
+}
+
+pub fn expected_individual_score(
+    params: &UtilityParameters,
+    reliability: f64,
+    perf_success: f64,
+    blocks_behind: u64,
+    slashable_usd: f64,
+    fee: &GRT,
+) -> f64 {
+    weighted_product_model([
+        reliability_utility(reliability),
+        performance_utility(params.performance, perf_success as u32),
+        params.economic_security.concave_utility(slashable_usd),
+        data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
+        fee_utility(params.fee_weight, &fee, &params.budget),
+    ])
 }
 
 /// https://www.desmos.com/calculator/plpijnbvhu
