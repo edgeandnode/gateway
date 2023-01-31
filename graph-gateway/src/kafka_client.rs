@@ -41,8 +41,9 @@ pub struct ClientQueryResult {
     pub network: String,
     pub response_time_ms: u32,
     pub budget: String,
+    pub budget_float: f32,
     pub query_count: u64,
-    pub fee: f64,
+    pub fee: f32,
     pub status: String,
     pub status_code: u32,
 }
@@ -57,6 +58,7 @@ pub struct IndexerAttempt {
     pub ray_id: String,
     pub api_key: String,
     pub deployment: String,
+    pub network: String,
     pub indexer: String,
     pub url: String,
     pub allocation: String,

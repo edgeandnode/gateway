@@ -367,6 +367,7 @@ async fn handle_client_query_inner(
         .usd_to_grt(budget)
         .ok_or_else(|| anyhow!("Internal error: MissingExchangeRate"))?;
     report.budget = budget.to_string();
+    report.budget_float = budget.as_f64() as f32;
 
     let mut utility_params = UtilityParameters::new(
         budget,
@@ -457,7 +458,7 @@ async fn handle_client_query_inner(
             .iter()
             .map(|s| &s.fee)
             .fold(GRT::zero(), |sum, fee| sum + *fee)
-            .as_f64();
+            .as_f64() as f32;
 
         let mut indexer_query_context = IndexerQueryContext {
             indexer_client: ctx.indexer_client.clone(),
@@ -473,6 +474,7 @@ async fn handle_client_query_inner(
         indexer_query_context.report.ray_id = report.ray_id.clone();
         indexer_query_context.report.api_key = report.api_key.clone();
         indexer_query_context.report.deployment = report.deployment.clone();
+        indexer_query_context.report.network = report.network.clone();
 
         let (response_tx, mut response_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
