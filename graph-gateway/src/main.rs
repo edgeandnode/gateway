@@ -188,6 +188,7 @@ async fn main() {
         indexer_client: IndexerClient {
             client: http_client.clone(),
         },
+        graph_env_id: opt.graph_env_id.clone(),
         subgraph_info,
         subgraph_deployments: network_subgraph_data.subgraph_deployments,
         deployment_indexers: network_subgraph_data.deployment_indexers,

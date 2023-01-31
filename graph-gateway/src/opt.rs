@@ -33,6 +33,13 @@ pub struct Opt {
     #[clap(
         long,
         env,
+        help = "Graph network environment identifier, inserted into Kafka messages",
+        default_value = ""
+    )]
+    pub graph_env_id: String,
+    #[clap(
+        long,
+        env,
         help = "API keys that won't be blocked for non-payment",
         default_value = "",
         use_delimiter = true
