@@ -177,7 +177,6 @@ impl Client {
                     block: $block
                     skip: $skip
                     first: $first
-                    where: {activeSubgraphCount_gt: 0}
                 ) {
                     ipfsHash
                     versions(
