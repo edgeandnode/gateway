@@ -542,7 +542,7 @@ async fn handle_indexer_query(
     let indexing = selection.indexing;
     ctx.report.indexer = indexing.indexer.to_string();
     ctx.report.url = selection.url.to_string();
-    ctx.report.fee = selection.fee.as_f64();
+    ctx.report.fee = selection.fee.as_f64() as f32;
     ctx.report.utility = 1.0; // for backwards compatibility
     ctx.report.blocks_behind = selection.blocks_behind;
 
