@@ -282,6 +282,12 @@ impl State {
         // See also: https://docs.rs/rand/latest/rand/rngs/struct.SmallRng.html
         let mut rng = SmallRng::from_entropy();
 
+        if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(?available);
+        } else if rng.gen_bool(0.001) {
+            tracing::debug!(?available);
+        }
+
         // Find the maximum expected individual indexer score.
         let max_score = available
             .iter()
@@ -295,14 +301,15 @@ impl State {
         // should not generally bring our expected score down below the minimum requirements set
         // forth by this equation.
         let mut score_cutoff: NotNan<f64> = NotNan::new(rng.gen()).unwrap();
-        // Careful raising this value, it's really powerful. Near 0 and score is ignored (only stake
-        // matters). Near 1 score matters at ~ x^2 (depending on the distribution of stake). Above
-        // that and things are getting crazy and we're exploiting the score strongly.
-        const SCORE_PREFERENCE: f64 = 1.1;
+        // Near 0 and score is ignored (only stake matters). Near 1 score matters at ~ x^2
+        // (depending on the distribution of stake). Above that and things are getting crazy and
+        // we're exploiting the score strongly.
+        const SCORE_PREFERENCE: f64 = 0.25;
         score_cutoff = max_score * (1.0 - score_cutoff.powf(SCORE_PREFERENCE));
         // Filter out indexers below the cutoff. This avoids a situation where most indexers have
         // terrible scores, only a few have good scores, and the good indexers are often passed over
         // in multi-selection.
+        tracing::debug!(score_cutoff = *score_cutoff);
         available.retain(|factors| factors.expected_score >= score_cutoff);
 
         let mut selections = select_indexers(&mut rng, params, &available, selection_limit);
