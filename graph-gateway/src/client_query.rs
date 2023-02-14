@@ -78,6 +78,7 @@ pub struct Context {
     pub indexer_client: IndexerClient,
     pub kafka_client: Arc<KafkaClient>,
     pub fisherman_client: Option<Arc<FishermanClient>>,
+    pub graph_env_id: String,
     pub api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     pub api_key_payment_required: bool,
     pub special_api_keys: Arc<HashSet<String>>,
@@ -121,6 +122,7 @@ pub async fn handle_query(
             .and_then(|value| value.to_str().ok())
             .unwrap_or("")
             .to_string(),
+        graph_env: ctx.graph_env_id.clone(),
         api_key: request
             .match_info()
             .get("api_key")
@@ -367,6 +369,7 @@ async fn handle_client_query_inner(
         .usd_to_grt(budget)
         .ok_or_else(|| anyhow!("Internal error: MissingExchangeRate"))?;
     report.budget = budget.to_string();
+    report.budget_float = budget.as_f64() as f32;
 
     let mut utility_params = UtilityParameters::new(
         budget,
@@ -457,7 +460,7 @@ async fn handle_client_query_inner(
             .iter()
             .map(|s| &s.fee)
             .fold(GRT::zero(), |sum, fee| sum + *fee)
-            .as_f64();
+            .as_f64() as f32;
 
         let mut indexer_query_context = IndexerQueryContext {
             indexer_client: ctx.indexer_client.clone(),
@@ -471,8 +474,10 @@ async fn handle_client_query_inner(
         };
         indexer_query_context.report.query_id = report.query_id.clone();
         indexer_query_context.report.ray_id = report.ray_id.clone();
+        indexer_query_context.report.graph_env = report.graph_env.clone();
         indexer_query_context.report.api_key = report.api_key.clone();
         indexer_query_context.report.deployment = report.deployment.clone();
+        indexer_query_context.report.network = report.network.clone();
 
         let (response_tx, mut response_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
@@ -537,7 +542,7 @@ async fn handle_indexer_query(
     let indexing = selection.indexing;
     ctx.report.indexer = indexing.indexer.to_string();
     ctx.report.url = selection.url.to_string();
-    ctx.report.fee = selection.fee.as_f64();
+    ctx.report.fee = selection.fee.as_f64() as f32;
     ctx.report.utility = 1.0; // for backwards compatibility
     ctx.report.blocks_behind = selection.blocks_behind;
 

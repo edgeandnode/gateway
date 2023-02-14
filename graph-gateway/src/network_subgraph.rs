@@ -178,7 +178,6 @@ impl Client {
                     block: $block
                     skip: $skip
                     first: $first
-                    where: {activeSubgraphCount_gt: 0}
                 ) {
                     ipfsHash
                     versions(
@@ -187,6 +186,7 @@ impl Client {
                       where: {subgraph_: {active: true, entityVersion: 2}}
                     ) {
                         subgraph {
+                            id
                             currentVersion {
                                 subgraphDeployment {
                                     ipfsHash
@@ -265,7 +265,7 @@ struct GraphNetwork {
 struct Allocation {
     id: Address,
     allocated_tokens: GRTWei,
-    subgraph_deployment: SubgraphDeployment,
+    subgraph_deployment: SubgraphDeploymentIdOnly,
     indexer: Indexer,
 }
 
@@ -278,10 +278,10 @@ struct Indexer {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Subgraph {
-    id: SubgraphID,
-    current_version: SubgraphCurrentVersion,
+struct SubgraphDeployment {
+    #[serde(rename = "ipfsHash")]
+    id: SubgraphDeploymentID,
+    versions: Vec<SubgraphVersion>,
 }
 
 #[derive(Deserialize)]
@@ -292,15 +292,15 @@ struct SubgraphVersion {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SubgraphCurrentVersion {
-    subgraph_deployment: SubgraphDeploymentIdOnly,
+struct Subgraph {
+    id: SubgraphID,
+    current_version: SubgraphCurrentVersion,
 }
 
 #[derive(Deserialize)]
-struct SubgraphDeployment {
-    #[serde(rename = "ipfsHash")]
-    id: SubgraphDeploymentID,
-    versions: Vec<SubgraphVersion>,
+#[serde(rename_all = "camelCase")]
+struct SubgraphCurrentVersion {
+    subgraph_deployment: SubgraphDeploymentIdOnly,
 }
 
 #[derive(Deserialize)]

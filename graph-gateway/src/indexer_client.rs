@@ -70,10 +70,7 @@ impl IndexerClient {
         let receipt = &receipt[0..(receipt.len() - 64)];
         let url = selection
             .url
-            .join(&format!(
-                "/subgraphs/id/{:?}",
-                selection.indexing.deployment
-            ))
+            .join(&format!("subgraphs/id/{:?}", selection.indexing.deployment))
             .map_err(|err| IndexerError::Other(err.to_string()))?;
         let result = self
             .client

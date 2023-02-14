@@ -11,6 +11,7 @@ use prelude::{
     *,
 };
 
+#[derive(Debug)]
 pub struct SelectionFactors {
     pub indexing: Indexing,
     pub url: URL,
@@ -19,6 +20,7 @@ pub struct SelectionFactors {
     pub perf_failure: f64,
     pub blocks_behind: u64,
     pub slashable_usd: f64,
+    pub expected_score: NotNan<f64>,
     pub fee: GRT,
     pub last_use: Instant,
     pub sybil: NotNan<f64>,
@@ -80,7 +82,7 @@ pub fn select_indexers<R: Rng>(
             continue;
         }
         masks.push(mask);
-        let score = meta_indexer.score(params, rng);
+        let score = meta_indexer.score(params);
         if score > selections.1 {
             selections = (meta_indexer.0, score);
         }
@@ -112,7 +114,7 @@ impl MetaIndexer<'_> {
         mask
     }
 
-    fn score<R: Rng>(&self, params: &UtilityParameters, rng: &mut R) -> f64 {
+    fn score(&self, params: &UtilityParameters) -> f64 {
         if self.0.is_empty() {
             return 0.0;
         }
@@ -196,22 +198,31 @@ impl MetaIndexer<'_> {
         ];
         let score = weighted_product_model(factors);
 
-        if tracing::enabled!(tracing::Level::TRACE) {
-            tracing::trace!(
-                indexers = ?self.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
-                score,
-                ?factors,
-            );
-        } else if rng.gen_bool(0.001) {
-            tracing::debug!(
-                indexers = ?self.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
-                score,
-                ?factors,
-            );
-        }
+        tracing::trace!(
+            indexers = ?self.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
+            score,
+            ?factors,
+        );
 
         score
     }
+}
+
+pub fn expected_individual_score(
+    params: &UtilityParameters,
+    reliability: f64,
+    perf_success: f64,
+    blocks_behind: u64,
+    slashable_usd: f64,
+    fee: &GRT,
+) -> f64 {
+    weighted_product_model([
+        reliability_utility(reliability),
+        performance_utility(params.performance, perf_success as u32),
+        params.economic_security.concave_utility(slashable_usd),
+        data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
+        fee_utility(params.fee_weight, fee, &params.budget),
+    ])
 }
 
 /// https://www.desmos.com/calculator/plpijnbvhu
