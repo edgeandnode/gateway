@@ -50,11 +50,17 @@ impl Client {
             .paginated_query::<ActiveSubscription>(
                 r#"
                 activeSubscriptions(first: $first, skip: $skip, block: $block) {
-                  id
-                  user
-                  start
-                  end
-                  rate
+                    id
+                    user {
+                        id
+                        authorizedSigners {
+                            id
+                            signer
+                        }
+                    }
+                    start
+                    end
+                    rate
                 }
                 "#,
             )
@@ -65,7 +71,7 @@ impl Client {
 
         let active_subscriptions_map = active_subscriptions_response
             .into_iter()
-            .map(|sub| (sub.user, sub))
+            .map(|sub| (sub.user.id, sub))
             .collect();
         self.active_subscriptions
             .write(Ptr::new(active_subscriptions_map));

@@ -8,12 +8,26 @@ pub struct Subscriptions {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User {
+    pub id: Address,
+    pub authorized_signers: Option<Vec<AuthorizedSigner>>,
+}
+
+#[derive(Clone, Deserialize)]
 pub struct ActiveSubscription {
     pub id: Bytes32,
-    pub user: Address,
+    pub user: User,
     pub start: u64,
     pub end: u64,
     pub rate: u64,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct AuthorizedSigner {
+    pub id: Bytes32,
+    pub user: User,
+    pub signer: Address,
 }
 
 impl Subscriptions {
