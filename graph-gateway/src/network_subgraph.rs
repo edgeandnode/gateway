@@ -1,4 +1,4 @@
-use crate::subgraph_client::SubgraphClient;
+use crate::subgraph_client;
 use crate::subgraph_deployments::{self, SubgraphDeployments};
 use eventuals::{self, EventualExt as _};
 use indexer_selection::{IndexerInfo, Indexing};
@@ -26,7 +26,7 @@ pub struct AllocationInfo {
 }
 
 pub struct Client {
-    subgraph_client: SubgraphClient,
+    subgraph_client: subgraph_client::Client,
     slashing_percentage: EventualWriter<PPM>,
     subgraph_deployments: EventualWriter<Ptr<subgraph_deployments::Inputs>>,
     deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
@@ -35,7 +35,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn create(subgraph_client: SubgraphClient) -> Data {
+    pub fn create(subgraph_client: subgraph_client::Client) -> Data {
         let (slashing_percentage_tx, slashing_percentage_rx) = Eventual::new();
         let (subgraph_deployments_tx, subgraph_deployments_rx) = Eventual::new();
         let (deployment_indexers_tx, deployment_indexers_rx) = Eventual::new();
@@ -79,17 +79,14 @@ impl Client {
     }
 
     async fn poll_network_params(&mut self) -> Result<(), String> {
-        let response = match self
+        let response = self
             .subgraph_client
             .query::<GraphNetworkResponse>(
                 &json!({ "query": "{ graphNetwork(id: \"1\") { slashingPercentage } }" }),
             )
             .await?
             .graph_network
-        {
-            Some(res) => res,
-            None => return Err("Discarding empty update (graphNetwork)".to_string()),
-        };
+            .ok_or_else(|| "Discarding empty update (graphNetwork)".to_string())?;
         let slashing_percentage = response.slashing_percentage.try_into()?;
         self.slashing_percentage.write(slashing_percentage);
         Ok(())

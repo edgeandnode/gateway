@@ -2,13 +2,13 @@ use prelude::{graphql, *};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-pub struct SubgraphClient {
+pub struct Client {
     subgraph_endpoint: URL,
     http_client: reqwest::Client,
     latest_block: u64,
 }
 
-impl SubgraphClient {
+impl Client {
     pub fn new(http_client: reqwest::Client, subgraph_endpoint: URL) -> Self {
         Self {
             subgraph_endpoint,

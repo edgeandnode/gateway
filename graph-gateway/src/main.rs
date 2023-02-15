@@ -122,7 +122,7 @@ async fn main() {
     );
 
     let network_subgraph_client =
-        subgraph_client::SubgraphClient::new(http_client.clone(), opt.network_subgraph.clone());
+        subgraph_client::Client::new(http_client.clone(), opt.network_subgraph.clone());
     let network_subgraph_data = network_subgraph::Client::create(network_subgraph_client);
     update_from_eventual(
         network_subgraph_data.slashing_percentage,

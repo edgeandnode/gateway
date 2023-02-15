@@ -1,22 +1,17 @@
-use crate::subgraph_client::SubgraphClient;
+use crate::subgraph_client;
 use crate::subscriptions::{ActiveSubscription, Subscriptions};
 use eventuals::{self, EventualExt as _};
 use prelude::*;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
-#[derive(Clone)]
-pub struct Data {
-    pub subscriptions: Subscriptions,
-}
-
 pub struct Client {
-    subgraph_client: SubgraphClient,
+    subgraph_client: subgraph_client::Client,
     active_subscriptions: EventualWriter<Ptr<HashMap<Address, ActiveSubscription>>>,
 }
 
 impl Client {
-    pub fn create(subgraph_client: SubgraphClient) -> Data {
+    pub fn create(subgraph_client: subgraph_client::Client) -> Subscriptions {
         let (active_subscriptions_tx, active_subscriptions_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
@@ -37,10 +32,8 @@ impl Client {
             })
             .forever();
 
-        Data {
-            subscriptions: Subscriptions {
-                active_subscriptions: active_subscriptions_rx,
-            },
+        Subscriptions {
+            active_subscriptions: active_subscriptions_rx,
         }
     }
 

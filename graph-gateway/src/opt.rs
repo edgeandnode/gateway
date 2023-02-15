@@ -31,7 +31,7 @@ pub struct Opt {
     #[clap(long, env, help = "Network subgraph URL")]
     pub network_subgraph: URL,
     #[clap(long, env, help = "Subscriptions subgraph URL")]
-    pub subscriptions_subgraph: URL,
+    pub subscriptions_subgraph: Option<URL>,
     #[clap(
         long,
         env,
