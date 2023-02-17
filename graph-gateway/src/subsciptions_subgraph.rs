@@ -43,11 +43,9 @@ impl Client {
             .paginated_query::<ActiveSubscription>(
                 r#"
                 activeSubscriptions(first: $first, skip: $skip, block: $block) {
-                    id
                     user {
                         id
                         authorizedSigners {
-                            id
                             signer
                         }
                     }
