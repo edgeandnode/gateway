@@ -15,7 +15,10 @@ mod price_automation;
 mod rate_limiter;
 mod receipts;
 mod studio_client;
+mod subgraph_client;
 mod subgraph_deployments;
+mod subsciptions_subgraph;
+mod subscriptions;
 mod unattestable_errors;
 mod vouchers;
 
@@ -118,8 +121,9 @@ async fn main() {
         Update::USDToGRTConversion,
     );
 
-    let network_subgraph_data =
-        network_subgraph::Client::create(http_client.clone(), opt.network_subgraph.clone());
+    let network_subgraph_client =
+        subgraph_client::Client::new(http_client.clone(), opt.network_subgraph.clone());
+    let network_subgraph_data = network_subgraph::Client::create(network_subgraph_client);
     update_from_eventual(
         network_subgraph_data.slashing_percentage,
         update_writer.clone(),

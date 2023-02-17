@@ -1,7 +1,8 @@
+use crate::subgraph_client;
 use crate::subgraph_deployments::{self, SubgraphDeployments};
 use eventuals::{self, EventualExt as _};
 use indexer_selection::{IndexerInfo, Indexing};
-use prelude::{graphql, *};
+use prelude::*;
 use serde::Deserialize;
 use serde_json::json;
 use std::{
@@ -25,9 +26,7 @@ pub struct AllocationInfo {
 }
 
 pub struct Client {
-    network_subgraph: URL,
-    http_client: reqwest::Client,
-    latest_block: u64,
+    subgraph_client: subgraph_client::Client,
     slashing_percentage: EventualWriter<PPM>,
     subgraph_deployments: EventualWriter<Ptr<subgraph_deployments::Inputs>>,
     deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
@@ -36,16 +35,14 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn create(http_client: reqwest::Client, network_subgraph: URL) -> Data {
+    pub fn create(subgraph_client: subgraph_client::Client) -> Data {
         let (slashing_percentage_tx, slashing_percentage_rx) = Eventual::new();
         let (subgraph_deployments_tx, subgraph_deployments_rx) = Eventual::new();
         let (deployment_indexers_tx, deployment_indexers_rx) = Eventual::new();
         let (indexers_tx, indexers_rx) = Eventual::new();
         let (allocations_tx, allocations_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
-            network_subgraph,
-            http_client,
-            latest_block: 0,
+            subgraph_client,
             slashing_percentage: slashing_percentage_tx,
             subgraph_deployments: subgraph_deployments_tx,
             deployment_indexers: deployment_indexers_tx,
@@ -82,15 +79,14 @@ impl Client {
     }
 
     async fn poll_network_params(&mut self) -> Result<(), String> {
-        let response = graphql::query::<GraphNetworksResponse>(
-            &self.http_client,
-            self.network_subgraph.clone(),
-            &json!({ "query": "{ graphNetworks { slashingPercentage } }" }),
-        )
-        .await?
-        .data
-        .and_then(|data| data.graph_networks.into_iter().next())
-        .ok_or("empty response")?;
+        let response = self
+            .subgraph_client
+            .query::<GraphNetworkResponse>(
+                &json!({ "query": "{ graphNetwork(id: \"1\") { slashingPercentage } }" }),
+            )
+            .await?
+            .graph_network
+            .ok_or_else(|| "Discarding empty update (graphNetwork)".to_string())?;
         let slashing_percentage = response.slashing_percentage.try_into()?;
         self.slashing_percentage.write(slashing_percentage);
         Ok(())
@@ -98,6 +94,7 @@ impl Client {
 
     async fn poll_allocations(&mut self) -> Result<(), String> {
         let response = self
+            .subgraph_client
             .paginated_query::<Allocation>(
                 r#"
                 allocations(
@@ -171,6 +168,7 @@ impl Client {
 
     async fn poll_subgraphs(&mut self) -> Result<(), String> {
         let response = self
+            .subgraph_client
             .paginated_query::<SubgraphDeployment>(
                 r#"
                 subgraphDeployments(
@@ -209,85 +207,6 @@ impl Client {
                 deployment_to_subgraphs,
             }));
         Ok(())
-    }
-
-    async fn paginated_query<T: for<'de> Deserialize<'de>>(
-        &mut self,
-        query: &'static str,
-    ) -> Result<Vec<T>, String> {
-        let batch_size: u32 = 1000;
-        let mut index: u32 = 0;
-        let mut query_block: Option<BlockPointer> = None;
-        let mut results = Vec::new();
-        // graph-node is rejecting values of `number_gte:0` on subgraphs with a larger `startBlock`
-        // TODO: delete when resolved
-        if self.latest_block == 0 {
-            #[derive(Deserialize)]
-            struct InitResponse {
-                meta: Meta,
-            }
-            let init = graphql::query::<InitResponse>(
-                &self.http_client,
-                self.network_subgraph.clone(),
-                &json!({"query": "{ meta: _meta { block { number hash } } }"}),
-            )
-            .await?
-            .unpack()?;
-            self.latest_block = init.meta.block.number;
-        }
-        loop {
-            let block = query_block
-                .as_ref()
-                .map(|block| json!({ "hash": block.hash }))
-                .unwrap_or(json!({ "number_gte": self.latest_block }));
-            let response = graphql::query::<PaginatedQueryResponse<T>>(
-                &self.http_client,
-                self.network_subgraph.clone(),
-                &json!({
-                    "query": format!(r#"
-                        query q($block: Block_height!, $skip: Int!, $first: Int!) {{
-                            meta: _meta(block: $block) {{ block {{ number hash }} }}
-                            results: {query}
-                        }}"#,
-                    ),
-                    "variables": {
-                        "block": block,
-                        "skip": index * batch_size,
-                        "first": batch_size,
-                    },
-                }),
-            )
-            .await?;
-            let errors = response
-                .errors
-                .unwrap_or_default()
-                .into_iter()
-                .map(|err| err.message)
-                .collect::<Vec<String>>();
-            if errors
-                .iter()
-                .any(|err| err.contains("no block with that hash found"))
-            {
-                tracing::info!("Reorg detected. Restarting query to try a new block.");
-                index = 0;
-                query_block = None;
-                continue;
-            }
-            if !errors.is_empty() {
-                return Err(errors.join(", "));
-            }
-            let mut data = match response.data {
-                Some(data) if !data.results.is_empty() => data,
-                _ => break,
-            };
-            index += 1;
-            query_block = Some(data.meta.block);
-            results.append(&mut data.results);
-        }
-        if let Some(block) = query_block {
-            self.latest_block = block.number;
-        }
-        Ok(results)
     }
 }
 
@@ -328,25 +247,14 @@ fn parse_deployment_subgraphs(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct GraphNetworksResponse {
-    graph_networks: Vec<GraphNetwork>,
+struct GraphNetworkResponse {
+    graph_network: Option<GraphNetwork>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GraphNetwork {
     slashing_percentage: u32,
-}
-
-#[derive(Deserialize)]
-struct Meta {
-    block: BlockPointer,
-}
-
-#[derive(Deserialize)]
-struct PaginatedQueryResponse<T> {
-    meta: Meta,
-    results: Vec<T>,
 }
 
 #[derive(Deserialize)]
