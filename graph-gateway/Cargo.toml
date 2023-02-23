@@ -9,7 +9,6 @@ actix-http = { version = "=3.0.0-beta.14", default-features = false }
 actix-web = { version = "=4.0.0-beta.13", default-features = false }
 actix-router = "=0.5.0-beta.4"
 chrono = { version = "0.4", default-features = false }
-clap = { version = "3.2", features = ["derive", "env"] }
 futures = "0.3"
 futures-util = "0.3"
 hdwallet = "0.3"
@@ -31,9 +30,11 @@ secp256k1 = { version = "0.24", default-features = false }
 semver = "1.0"
 serde = "1.0"
 serde_json = { version = "1.0", features = ["raw_value"] }
+serde_with = "2.2"
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 tiny-bip39 = "1.0"
+toml = { version = "0.7", default-features = false, features = ["parse"] }
 trust-dns-resolver = { version = "0.22", features = ["dns-over-rustls"] }
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
 
