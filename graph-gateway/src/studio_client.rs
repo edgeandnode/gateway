@@ -18,8 +18,8 @@ pub struct APIKey {
     pub user_address: Address,
     pub query_status: QueryStatus,
     pub max_budget: Option<USD>,
-    pub deployments: Vec<SubgraphDeploymentID>,
-    pub subgraphs: BTreeSet<SubgraphID>,
+    pub deployments: Vec<DeploymentId>,
+    pub subgraphs: BTreeSet<SubgraphId>,
     pub domains: Vec<String>,
     pub indexer_preferences: IndexerPreferences,
     pub usage: Arc<Mutex<VolumeEstimator>>,
@@ -145,12 +145,12 @@ impl Actor {
                     subgraphs: api_key
                         .subgraphs
                         .into_iter()
-                        .filter_map(|s| s.network_subgraph_id.parse::<SubgraphID>().ok())
+                        .filter_map(|s| s.network_subgraph_id.parse::<SubgraphId>().ok())
                         .collect(),
                     deployments: api_key
                         .deployments
                         .into_iter()
-                        .filter_map(|id| SubgraphDeploymentID::from_ipfs_hash(&id))
+                        .filter_map(|id| DeploymentId::from_ipfs_hash(&id))
                         .collect(),
                     domains: api_key
                         .domains

@@ -5,7 +5,6 @@ version = "0.0.1"
 
 [dependencies]
 anyhow = "1.0"
-bs58 = "0.4"
 eventuals = "0.6.7"
 hex = "0.4"
 primitive-types = "0.12"
@@ -15,9 +14,8 @@ reqwest = { version = "0.11", default-features = false, features = [
     "rustls-tls-native-roots",
     "trust-dns",
 ] }
-serde = { version = "1.0", features = ["derive"]}
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha3 = "0.10"
 siphasher = "0.3"
 snmalloc-rs = "0.3"
 tokio = { version = "1.24", features = [
@@ -27,6 +25,7 @@ tokio = { version = "1.24", features = [
     "sync",
     "time",
 ] }
+toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "v0.1.2" }
 tracing = { version = "0.1", default-features = false, features = [
     "attributes",
 ] }

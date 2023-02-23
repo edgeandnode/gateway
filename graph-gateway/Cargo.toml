@@ -34,9 +34,7 @@ serde_json = { version = "1.0", features = ["raw_value"] }
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 tiny-bip39 = "1.0"
-toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "v0.1.1" }
 trust-dns-resolver = { version = "0.22", features = ["dns-over-rustls"] }
-url = "2.2"
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
 
 [dev-dependencies]

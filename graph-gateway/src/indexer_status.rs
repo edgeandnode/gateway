@@ -1,16 +1,16 @@
 use crate::geoip::GeoIP;
+use crate::subgraph_client::graphql_query;
 use eventuals::EventualExt as _;
 use futures::future::join_all;
 use indexer_selection::cost_model::CostModel;
 use indexer_selection::{IndexerInfo, Indexing};
-use prelude::{epoch_cache::EpochCache, graphql, *};
+use prelude::{epoch_cache::EpochCache, graphql, url::url::Host, *};
 use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::sync::Mutex;
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
-use url::Host;
 
 pub struct Data {
     pub indexings: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
@@ -191,7 +191,7 @@ impl Actor {
             }
         }"# });
         let statuses =
-            graphql::query::<IndexerStatusResponse>(client, status_url.into(), &status_query)
+            graphql_query::<IndexerStatusResponse>(client, status_url.into(), &status_query)
                 .await?
                 .unpack()?
                 .indexing_statuses;
@@ -211,9 +211,9 @@ impl Actor {
             }"#,
             "variables": { "deployments": deployments },
         });
-        let cost_models = graphql::query::<CostModelResponse>(client, cost_url.into(), &cost_query)
+        let cost_models = graphql_query::<CostModelResponse>(client, cost_url.into(), &cost_query)
             .await
-            .and_then(graphql::Response::unpack)
+            .and_then(graphql::http::Response::unpack)
             .map(|cost_models| cost_models.cost_models)
             .unwrap_or_default();
 
@@ -230,7 +230,7 @@ impl Actor {
                 };
                 Some((src.deployment, cost_model))
             })
-            .collect::<HashMap<SubgraphDeploymentID, Ptr<CostModel>>>();
+            .collect::<HashMap<DeploymentId, Ptr<CostModel>>>();
         drop(actor);
 
         Ok(statuses
@@ -291,7 +291,7 @@ struct IndexerStatusResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IndexingStatusResponse {
-    subgraph: SubgraphDeploymentID,
+    subgraph: DeploymentId,
     chains: Vec<ChainStatus>,
 }
 
@@ -311,7 +311,7 @@ struct CostModelResponse {
 
 #[derive(Deserialize)]
 struct CostModelSourceResponse {
-    deployment: SubgraphDeploymentID,
+    deployment: DeploymentId,
     model: String,
     variables: Option<String>,
 }

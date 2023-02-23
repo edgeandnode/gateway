@@ -28,7 +28,7 @@ pub fn gen_blocks(numbers: &[u64]) -> Vec<BlockPointer> {
         .collect()
 }
 
-pub fn test_allocation_id(indexer: &Address, deployment: &SubgraphDeploymentID) -> Address {
+pub fn test_allocation_id(indexer: &Address, deployment: &DeploymentId) -> Address {
     let mut hasher = SipHasher24::default();
     indexer.hash(&mut hasher);
     deployment.hash(&mut hasher);

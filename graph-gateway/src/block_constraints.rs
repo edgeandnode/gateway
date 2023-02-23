@@ -1,12 +1,11 @@
 use indexer_selection::{Context, UnresolvedBlock};
 use itertools::Itertools as _;
-use prelude::*;
-use serde_json::{self, json};
-use std::collections::{BTreeMap, BTreeSet};
-use toolshed::graphql::{
+use prelude::{*, graphql::{
     graphql_parser::query::{Definition, Document, OperationDefinition, Selection, Text, Value},
     IntoStaticValue as _, QueryVariables, StaticValue,
-};
+}};
+use serde_json::{self, json};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {

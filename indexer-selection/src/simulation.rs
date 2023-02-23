@@ -37,7 +37,7 @@ pub async fn simulate(
 ) -> Result<Results> {
     init_test_tracing();
 
-    let deployment = SubgraphDeploymentID(bytes_from_id(1));
+    let deployment = DeploymentId(bytes_from_id(1));
     let mut results = simulation::Results {
         client_queries: 10_000,
         ..Default::default()

@@ -8,22 +8,21 @@ use tokio::{sync::Mutex, time::sleep};
 
 #[derive(Debug)]
 pub struct SubgraphInfo {
-    pub ids: Vec<SubgraphID>,
-    pub deployment: SubgraphDeploymentID,
+    pub ids: Vec<SubgraphId>,
+    pub deployment: DeploymentId,
     pub network: String,
     pub features: Vec<String>,
     pub min_block: u64,
 }
 
-pub type SubgraphInfoMap =
-    Eventual<Ptr<im::HashMap<SubgraphDeploymentID, Eventual<Ptr<SubgraphInfo>>>>>;
+pub type SubgraphInfoMap = Eventual<Ptr<im::HashMap<DeploymentId, Eventual<Ptr<SubgraphInfo>>>>>;
 
 pub fn create(
     ipfs_client: Arc<IPFSClient>,
     subgraph_deployments: SubgraphDeployments,
-    subgraphs: Eventual<Vec<SubgraphDeploymentID>>,
+    subgraphs: Eventual<Vec<DeploymentId>>,
 ) -> SubgraphInfoMap {
-    let manifests: Arc<Mutex<im::HashMap<SubgraphDeploymentID, Eventual<Ptr<SubgraphInfo>>>>> =
+    let manifests: Arc<Mutex<im::HashMap<DeploymentId, Eventual<Ptr<SubgraphInfo>>>>> =
         Arc::default();
     subgraphs.map(move |subgraphs| {
         let ipfs_client = ipfs_client.clone();
@@ -36,7 +35,7 @@ pub fn create(
                 .keys()
                 .filter(|id| !subgraphs.contains(id))
                 .cloned()
-                .collect::<Vec<SubgraphDeploymentID>>();
+                .collect::<Vec<DeploymentId>>();
             for deployment in stale_deployments {
                 manifests.remove(&deployment);
             }
@@ -44,7 +43,7 @@ pub fn create(
             let unresolved = subgraphs
                 .into_iter()
                 .filter(|id| !manifests.contains_key(id))
-                .collect::<Vec<SubgraphDeploymentID>>();
+                .collect::<Vec<DeploymentId>>();
             for deployment in unresolved {
                 let client = ipfs_client.clone();
                 let subgraph_deployments = subgraph_deployments.clone();
@@ -76,8 +75,8 @@ pub fn create(
 
 pub async fn fetch_manifest(
     client: &IPFSClient,
-    subgraphs: Vec<SubgraphID>,
-    deployment: SubgraphDeploymentID,
+    subgraphs: Vec<SubgraphId>,
+    deployment: DeploymentId,
 ) -> Result<SubgraphInfo> {
     let payload = client.cat(&deployment.ipfs_hash()).await?;
     let manifest = serde_yaml::from_str::<SubgraphManifest>(&payload)?;

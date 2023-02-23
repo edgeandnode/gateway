@@ -1,5 +1,5 @@
-use prelude::{graphql, *};
-use serde::Deserialize;
+use prelude::{graphql::http::Response, *};
+use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
 
 pub struct Client {
@@ -18,11 +18,10 @@ impl Client {
     }
 
     pub async fn query<T: for<'de> Deserialize<'de>>(&self, query: &Value) -> Result<T, String> {
-        let response =
-            graphql::query::<T>(&self.http_client, self.subgraph_endpoint.clone(), query)
-                .await?
-                .data
-                .ok_or("empty response")?;
+        let response = graphql_query::<T>(&self.http_client, self.subgraph_endpoint.clone(), query)
+            .await?
+            .data
+            .ok_or("empty response")?;
 
         Ok(response)
     }
@@ -42,7 +41,7 @@ impl Client {
             struct InitResponse {
                 meta: Meta,
             }
-            let init = graphql::query::<InitResponse>(
+            let init = graphql_query::<InitResponse>(
                 &self.http_client,
                 self.subgraph_endpoint.clone(),
                 &json!({"query": "{ meta: _meta { block { number hash } } }"}),
@@ -56,7 +55,7 @@ impl Client {
                 .as_ref()
                 .map(|block| json!({ "hash": block.hash }))
                 .unwrap_or(json!({ "number_gte": self.latest_block }));
-            let response = graphql::query::<PaginatedQueryResponse<T>>(
+            let response = graphql_query::<PaginatedQueryResponse<T>>(
                 &self.http_client,
                 self.subgraph_endpoint.clone(),
                 &json!({
@@ -105,6 +104,25 @@ impl Client {
         }
         Ok(results)
     }
+}
+
+pub async fn graphql_query<T>(
+    client: &reqwest::Client,
+    url: URL,
+    body: &Value,
+) -> Result<Response<T>, String>
+where
+    T: DeserializeOwned,
+{
+    client
+        .post(url.0)
+        .json(body)
+        .send()
+        .await
+        .map_err(|err| err.to_string())?
+        .json::<Response<T>>()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[derive(Deserialize)]

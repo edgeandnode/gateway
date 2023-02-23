@@ -31,7 +31,7 @@ pub enum Update {
 #[derive(Debug)]
 pub struct IndexerUpdate {
     pub info: Arc<IndexerInfo>,
-    pub indexings: HashMap<SubgraphDeploymentID, IndexingStatus>,
+    pub indexings: HashMap<DeploymentId, IndexingStatus>,
 }
 
 pub async fn process_updates(
