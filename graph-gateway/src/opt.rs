@@ -19,9 +19,9 @@ pub struct Opt {
     )]
     pub signer_key: SignerKey,
     #[clap(long, env, help = "IPFS endpoint with access to the subgraph files")]
-    pub ipfs: URL,
+    pub ipfs: Url,
     #[clap(long, env, help = "Fisherman endpoint")]
-    pub fisherman: Option<URL>,
+    pub fisherman: Option<Url>,
     #[clap(
         long,
         env,
@@ -29,9 +29,9 @@ pub struct Opt {
     )]
     pub ethereum_providers: EthereumProviders,
     #[clap(long, env, help = "Network subgraph URL")]
-    pub network_subgraph: URL,
+    pub network_subgraph: Url,
     #[clap(long, env, help = "Subscriptions subgraph URL")]
-    pub subscriptions_subgraph: Option<URL>,
+    pub subscriptions_subgraph: Option<Url>,
     #[clap(
         long,
         env,
@@ -104,7 +104,7 @@ pub struct Opt {
     )]
     pub geoip_blocked_countries: Vec<String>,
     #[clap(long, env, help = "Subgraph studio admin url")]
-    pub studio_url: URL,
+    pub studio_url: Url,
     #[clap(long, env, help = "Subgraph studio auth")]
     pub studio_auth: String,
     #[clap(
@@ -213,7 +213,7 @@ impl FromStr for EthereumProviders {
                 Some(ethereum::Provider {
                     network: kv.first()?.to_string(),
                     block_time: Duration::from_secs(block_time.parse::<u64>().ok()?),
-                    rpc: rpc.parse::<URL>().ok()?,
+                    rpc: rpc.parse::<Url>().ok()?,
                 })
             })
             .collect::<Option<Vec<ethereum::Provider>>>()

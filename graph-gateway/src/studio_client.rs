@@ -57,7 +57,7 @@ pub fn is_domain_authorized<S: AsRef<str>>(authorized: &[S], origin: &str) -> bo
 
 pub struct Actor {
     client: reqwest::Client,
-    url: URL,
+    url: Url,
     auth: String,
     api_key_usage: VolumeEstimations,
     api_keys_writer: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
@@ -70,7 +70,7 @@ pub struct Data {
 }
 
 impl Actor {
-    pub fn create(client: reqwest::Client, mut url: URL, auth: String) -> Data {
+    pub fn create(client: reqwest::Client, mut url: Url, auth: String) -> Data {
         let (api_keys_writer, api_keys) = Eventual::new();
         let (usd_to_grt_writer, usd_to_grt) = Eventual::new();
         if !url.path().ends_with('/') {

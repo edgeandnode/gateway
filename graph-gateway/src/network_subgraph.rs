@@ -121,7 +121,7 @@ impl Client {
                 .indexer
                 .url
                 .as_ref()
-                .and_then(|url| url.parse::<URL>().ok())
+                .and_then(|url| url.parse::<Url>().ok())
             {
                 Some(url) => url,
                 None => continue,

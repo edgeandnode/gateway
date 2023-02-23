@@ -16,7 +16,7 @@ pub use tokio::{
     sync::{mpsc, oneshot},
     time::{Duration, Instant},
 };
-pub use toolshed::{bytes::*, *};
+pub use toolshed::{bytes::*, url::Url, *};
 pub use tracing::{self, Instrument};
 
 #[global_allocator]
@@ -24,10 +24,7 @@ static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 use serde::Deserialize;
 use siphasher::sip::SipHasher24;
-use std::{
-    hash::{Hash, Hasher as _},
-    ops::Deref,
-};
+use std::hash::{Hash, Hasher as _};
 use tracing_subscriber::{self, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub fn init_tracing(json: bool) {
@@ -103,39 +100,4 @@ impl Ord for BlockPointer {
 pub struct BlockHead {
     pub block: BlockPointer,
     pub uncles: Vec<Bytes32>,
-}
-
-#[derive(Clone)]
-pub struct URL(pub reqwest::Url);
-
-impl fmt::Debug for URL {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl fmt::Display for URL {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl FromStr for URL {
-    type Err = <reqwest::Url as FromStr>::Err;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        reqwest::Url::from_str(s).map(Self)
-    }
-}
-
-impl Deref for URL {
-    type Target = reqwest::Url;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<reqwest::Url> for URL {
-    fn from(from: reqwest::Url) -> Self {
-        URL(from)
-    }
 }

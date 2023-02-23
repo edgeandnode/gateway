@@ -10,7 +10,7 @@ use serde_json::{json, Value as JSON};
 pub struct Provider {
     pub network: String,
     pub block_time: Duration,
-    pub rpc: URL,
+    pub rpc: Url,
 }
 
 impl super::Provider for Provider {
@@ -92,7 +92,7 @@ impl Client {
 
     async fn fetch_block(
         client: reqwest::Client,
-        rpc: URL,
+        rpc: Url,
         unresolved: Option<UnresolvedBlock>,
     ) -> anyhow::Result<BlockHead> {
         let (method, param): (&str, JSON) = match &unresolved {

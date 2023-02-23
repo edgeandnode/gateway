@@ -3,13 +3,13 @@ use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
 
 pub struct Client {
-    subgraph_endpoint: URL,
+    subgraph_endpoint: Url,
     http_client: reqwest::Client,
     latest_block: u64,
 }
 
 impl Client {
-    pub fn new(http_client: reqwest::Client, subgraph_endpoint: URL) -> Self {
+    pub fn new(http_client: reqwest::Client, subgraph_endpoint: Url) -> Self {
         Self {
             subgraph_endpoint,
             http_client,
@@ -108,7 +108,7 @@ impl Client {
 
 pub async fn graphql_query<T>(
     client: &reqwest::Client,
-    url: URL,
+    url: Url,
     body: &Value,
 ) -> Result<Response<T>, String>
 where

@@ -14,7 +14,7 @@ use prelude::{
 #[derive(Debug)]
 pub struct SelectionFactors {
     pub indexing: Indexing,
-    pub url: URL,
+    pub url: Url,
     pub reliability: f64,
     pub perf_success: f64,
     pub perf_failure: f64,

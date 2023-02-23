@@ -4,12 +4,12 @@ use tokio::sync::Semaphore;
 
 pub struct IPFSClient {
     client: reqwest::Client,
-    endpoint: URL,
+    endpoint: Url,
     semaphore: Semaphore,
 }
 
 impl IPFSClient {
-    pub fn new(client: reqwest::Client, endpoint: URL, max_concurrent: usize) -> Arc<Self> {
+    pub fn new(client: reqwest::Client, endpoint: Url, max_concurrent: usize) -> Arc<Self> {
         Arc::new(Self {
             client,
             endpoint,
