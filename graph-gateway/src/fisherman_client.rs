@@ -16,7 +16,7 @@ pub enum ChallengeOutcome {
 #[derive(Clone)]
 pub struct FishermanClient {
     client: reqwest::Client,
-    url: URL,
+    url: Url,
 }
 
 impl FishermanClient {
@@ -48,7 +48,7 @@ impl FishermanClient {
 }
 
 impl FishermanClient {
-    pub fn new(client: reqwest::Client, url: URL) -> Self {
+    pub fn new(client: reqwest::Client, url: Url) -> Self {
         Self { client, url }
     }
 

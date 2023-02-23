@@ -43,7 +43,7 @@ pub type Context<'c> = cost_model::Context<'c, &'c str>;
 #[derive(Clone, Debug)]
 pub struct Selection {
     pub indexing: Indexing,
-    pub url: URL,
+    pub url: Url,
     pub fee: GRT,
     pub blocks_behind: u64,
 }
@@ -213,7 +213,7 @@ pub struct State {
 
 #[derive(Debug)]
 pub struct IndexerInfo {
-    pub url: URL,
+    pub url: Url,
     pub stake: GRT,
 }
 

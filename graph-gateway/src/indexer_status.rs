@@ -176,7 +176,7 @@ impl Actor {
     async fn query_status(
         client: &reqwest::Client,
         actor: Arc<Mutex<Actor>>,
-        url: URL,
+        url: Url,
         indexer: &Address,
     ) -> Result<Vec<(Indexing, IndexingStatus)>, String> {
         let status_url = url.join("status").map_err(|err| err.to_string())?;
