@@ -15,7 +15,7 @@ use tokio::sync::Mutex;
 pub struct Data {
     pub slashing_percentage: Eventual<PPM>,
     pub subgraph_deployments: SubgraphDeployments,
-    pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
+    pub deployment_indexers: Eventual<Ptr<HashMap<DeploymentId, Vec<Address>>>>,
     pub indexers: Eventual<Ptr<HashMap<Address, Arc<IndexerInfo>>>>,
     pub allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
 }
@@ -29,7 +29,7 @@ pub struct Client {
     subgraph_client: subgraph_client::Client,
     slashing_percentage: EventualWriter<PPM>,
     subgraph_deployments: EventualWriter<Ptr<subgraph_deployments::Inputs>>,
-    deployment_indexers: EventualWriter<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
+    deployment_indexers: EventualWriter<Ptr<HashMap<DeploymentId, Vec<Address>>>>,
     indexers: EventualWriter<Ptr<HashMap<Address, Arc<IndexerInfo>>>>,
     allocations: EventualWriter<Ptr<HashMap<Address, AllocationInfo>>>,
 }
@@ -113,7 +113,7 @@ impl Client {
                 "#,
             )
             .await?;
-        let mut deployment_indexers = HashMap::<SubgraphDeploymentID, Vec<Address>>::new();
+        let mut deployment_indexers = HashMap::<DeploymentId, Vec<Address>>::new();
         let mut indexers = HashMap::<Address, Arc<IndexerInfo>>::new();
         let mut allocations = HashMap::<Address, AllocationInfo>::new();
         for allocation in &response {
@@ -210,12 +210,12 @@ impl Client {
     }
 }
 
-// The current deployment is a map of a SubgraphID to its _current_ SubgraphDeploymentID Qm hash.
+// The current deployment is a map of a SubgraphId to its _current_ DeploymentId Qm hash.
 // Iterate through the subgraphDeployments -> versions -> subgraph -> currentVersion -> subgraphDeployment
-// grab map of SubgraphIDs to their current version SubgraphDeploymentID.
+// grab map of SubgraphIDs to their current version DeploymentId.
 fn parse_current_deployments(
     subgraph_deployment_response: &[SubgraphDeployment],
-) -> HashMap<SubgraphID, SubgraphDeploymentID> {
+) -> HashMap<SubgraphId, DeploymentId> {
     subgraph_deployment_response
         .iter()
         .flat_map(|deployment| {
@@ -231,7 +231,7 @@ fn parse_current_deployments(
 
 fn parse_deployment_subgraphs(
     subgraph_deployment_response: Vec<SubgraphDeployment>,
-) -> HashMap<SubgraphDeploymentID, Vec<SubgraphID>> {
+) -> HashMap<DeploymentId, Vec<SubgraphId>> {
     subgraph_deployment_response
         .into_iter()
         .map(|deployment| {
@@ -277,7 +277,7 @@ struct Indexer {
 #[derive(Deserialize)]
 struct SubgraphDeployment {
     #[serde(rename = "ipfsHash")]
-    id: SubgraphDeploymentID,
+    id: DeploymentId,
     versions: Vec<SubgraphVersion>,
 }
 
@@ -290,7 +290,7 @@ struct SubgraphVersion {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Subgraph {
-    id: SubgraphID,
+    id: SubgraphId,
     current_version: SubgraphCurrentVersion,
 }
 
@@ -303,5 +303,5 @@ struct SubgraphCurrentVersion {
 #[derive(Deserialize)]
 struct SubgraphDeploymentIdOnly {
     #[serde(rename = "ipfsHash")]
-    id: SubgraphDeploymentID,
+    id: DeploymentId,
 }

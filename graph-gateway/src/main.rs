@@ -298,7 +298,7 @@ async fn main() {
 
 fn load_restricted_deployments(
     path: &Path,
-) -> anyhow::Result<Arc<HashMap<SubgraphDeploymentID, HashSet<Address>>>> {
+) -> anyhow::Result<Arc<HashMap<DeploymentId, HashSet<Address>>>> {
     read_to_string(path)?
         .split('\n')
         .filter(|l| l.trim_end() != "")

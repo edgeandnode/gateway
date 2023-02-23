@@ -9,17 +9,17 @@ pub struct SubgraphDeployments {
 #[derive(Clone)]
 pub struct Inputs {
     // TODO: latest deployments may not be fully indexed, but the prior deployment might be.
-    pub current_deployments: HashMap<SubgraphID, SubgraphDeploymentID>,
-    // A SubgraphDeploymentID is the Qm hash representation of the Subgraph manifest uploaded to decentralized storage (currently IPFS).
-    // A SubgraphID is a hash of the owning user address and an incrementing integer owned by the GNS contract.
-    // It is possible that multiple users could create the same Subgraph manifest, and therefore get the same Qm hash SubgraphDeploymentID.
+    pub current_deployments: HashMap<SubgraphId, DeploymentId>,
+    // A DeploymentId is the Qm hash representation of the Subgraph manifest uploaded to decentralized storage (currently IPFS).
+    // A SubgraphId is a hash of the owning user address and an incrementing integer owned by the GNS contract.
+    // It is possible that multiple users could create the same Subgraph manifest, and therefore get the same Qm hash DeploymentId.
     // And then these multiple users could publish the Subgraph.
-    // This creates a scenario where a single SubgraphDeploymentID could be linked with multiple SubgraphIDs.
-    pub deployment_to_subgraphs: HashMap<SubgraphDeploymentID, Vec<SubgraphID>>,
+    // This creates a scenario where a single DeploymentId could be linked with multiple SubgraphIDs.
+    pub deployment_to_subgraphs: HashMap<DeploymentId, Vec<SubgraphId>>,
 }
 
 impl SubgraphDeployments {
-    pub async fn current_deployment(&self, subgraph: &SubgraphID) -> Option<SubgraphDeploymentID> {
+    pub async fn current_deployment(&self, subgraph: &SubgraphId) -> Option<DeploymentId> {
         self.inputs
             .value()
             .await
@@ -29,10 +29,7 @@ impl SubgraphDeployments {
             .cloned()
     }
 
-    pub async fn deployment_subgraphs(
-        &self,
-        deployment: &SubgraphDeploymentID,
-    ) -> Option<Vec<SubgraphID>> {
+    pub async fn deployment_subgraphs(&self, deployment: &DeploymentId) -> Option<Vec<SubgraphId>> {
         self.inputs
             .value()
             .await

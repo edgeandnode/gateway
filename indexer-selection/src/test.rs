@@ -38,13 +38,13 @@ struct Topology {
     slashing_percentage: PPM,
     blocks: Vec<BlockPointer>,
     indexers: HashMap<Address, Arc<IndexerInfo>>,
-    deployments: HashSet<SubgraphDeploymentID>,
+    deployments: HashSet<DeploymentId>,
     indexings: HashMap<Indexing, IndexingStatus>,
 }
 
 #[derive(Debug)]
 struct Request {
-    deployment: SubgraphDeploymentID,
+    deployment: DeploymentId,
     indexers: Vec<Address>,
     params: UtilityParameters,
     query: String,
@@ -61,7 +61,7 @@ impl Topology {
             .map(|id| (Address(bytes_from_id(id)), Self::gen_indexer_info(rng)))
             .collect();
         let deployments = (0..rng.gen_range(config.deployments.clone()))
-            .map(|id| SubgraphDeploymentID(bytes_from_id(id)))
+            .map(|id| DeploymentId(bytes_from_id(id)))
             .collect();
         let blocks = (0..rng.gen_range(config.blocks.clone()))
             .map(|id| BlockPointer {
@@ -125,7 +125,7 @@ impl Topology {
         rng: &mut SmallRng,
         blocks: &[BlockPointer],
         indexers: &HashMap<Address, Arc<IndexerInfo>>,
-        deployments: &HashSet<SubgraphDeploymentID>,
+        deployments: &HashSet<DeploymentId>,
     ) -> Option<(Indexing, IndexingStatus)> {
         let indexing = Indexing {
             indexer: indexers.iter().choose(rng)?.0.clone(),

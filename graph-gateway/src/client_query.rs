@@ -30,8 +30,9 @@ use prelude::{
     anyhow::{anyhow, bail, ensure},
     buffer_queue::QueueWriter,
     double_buffer::DoubleBufferReader,
-    graphql::Response,
-    Eventual, SubgraphDeploymentID, *,
+    graphql::http::Response,
+    url::Url,
+    DeploymentId, Eventual, *,
 };
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -42,7 +43,6 @@ use std::{
         Arc,
     },
 };
-use url::Url;
 use uuid::Uuid;
 
 #[derive(Copy, Clone)]
@@ -87,7 +87,7 @@ pub struct Context {
     pub block_caches: Arc<HashMap<String, BlockCache>>,
     pub subgraph_info: SubgraphInfoMap,
     pub subgraph_deployments: SubgraphDeployments,
-    pub deployment_indexers: Eventual<Ptr<HashMap<SubgraphDeploymentID, Vec<Address>>>>,
+    pub deployment_indexers: Eventual<Ptr<HashMap<DeploymentId, Vec<Address>>>>,
     pub receipt_pools: ReceiptPools,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
@@ -217,14 +217,14 @@ async fn resolve_subgraph_deployment(
 ) -> Result<Ptr<SubgraphInfo>, SubgraphResolutionError> {
     let deployment = if let Some(id) = params.get("subgraph_id") {
         let subgraph = id
-            .parse::<SubgraphID>()
+            .parse::<SubgraphId>()
             .map_err(|_| SubgraphResolutionError::InvalidSubgraphID(id.to_string()))?;
         deployments
             .current_deployment(&subgraph)
             .await
             .ok_or_else(|| SubgraphResolutionError::SubgraphNotFound(id.to_string()))?
     } else if let Some(id) = params.get("deployment_id") {
-        SubgraphDeploymentID::from_ipfs_hash(id)
+        DeploymentId::from_ipfs_hash(id)
             .ok_or_else(|| SubgraphResolutionError::InvalidDeploymentID(id.to_string()))?
     } else {
         return Err(SubgraphResolutionError::SubgraphNotFound("".to_string()));

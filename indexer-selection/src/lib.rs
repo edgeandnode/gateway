@@ -129,7 +129,7 @@ impl Display for UnresolvedBlock {
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Indexing {
     pub indexer: Address,
-    pub deployment: SubgraphDeploymentID,
+    pub deployment: DeploymentId,
 }
 
 #[derive(Default, Debug, Eq, PartialEq)]
@@ -208,7 +208,7 @@ pub struct State {
     indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
     indexings: EpochCache<Indexing, IndexingState, 2>,
     // Restricted subgraphs only allow listed indexers, and ignore their stake.
-    pub restricted_deployments: Arc<HashMap<SubgraphDeploymentID, HashSet<Address>>>,
+    pub restricted_deployments: Arc<HashMap<DeploymentId, HashSet<Address>>>,
 }
 
 #[derive(Debug)]
@@ -248,7 +248,7 @@ impl State {
 
     pub fn select_indexers<'a>(
         &self,
-        deployment: &SubgraphDeploymentID,
+        deployment: &DeploymentId,
         indexers: &'a [Address],
         params: &UtilityParameters,
         context: &mut Context<'_>,
