@@ -1,6 +1,7 @@
 mod block_constraints;
 mod chains;
 mod client_query;
+mod config;
 mod fisherman_client;
 mod geoip;
 mod indexer_client;
@@ -10,7 +11,6 @@ mod kafka_client;
 mod manifest_client;
 mod metrics;
 mod network_subgraph;
-mod opt;
 mod price_automation;
 mod rate_limiter;
 mod receipts;
@@ -23,8 +23,8 @@ mod unattestable_errors;
 mod vouchers;
 
 use crate::{
-    chains::*, fisherman_client::*, geoip::GeoIP, indexer_client::IndexerClient,
-    indexer_status::IndexingStatus, ipfs_client::*, kafka_client::KafkaClient, opt::*,
+    chains::*, config::*, fisherman_client::*, geoip::GeoIP, indexer_client::IndexerClient,
+    indexer_status::IndexingStatus, ipfs_client::*, kafka_client::KafkaClient,
     price_automation::QueryBudgetFactors, rate_limiter::*, receipts::ReceiptPools,
 };
 use actix_cors::Cors;
@@ -34,7 +34,6 @@ use actix_web::{
     web, App, HttpResponse, HttpResponseBuilder, HttpServer,
 };
 use anyhow::{self, anyhow};
-use clap::Parser as _;
 use eventuals::EventualExt as _;
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
@@ -42,6 +41,7 @@ use indexer_selection::{
 };
 use network_subgraph::AllocationInfo;
 use prelude::{
+    anyhow::Context,
     buffer_queue::{self, QueueWriter},
     *,
 };
@@ -51,6 +51,7 @@ use serde_json::json;
 use simple_rate_limiter::RateLimiter;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
+    env,
     fs::read_to_string,
     path::Path,
     sync::Arc,
@@ -59,12 +60,19 @@ use tokio::spawn;
 
 #[actix_web::main]
 async fn main() {
-    let opt = Opt::parse();
-    init_tracing(opt.log_json);
-    tracing::info!("Graph gateway starting...");
-    tracing::debug!("{:#?}", opt);
+    let config_path = env::args()
+        .nth(1)
+        .expect("Missing argument for TOML config path");
+    let config_file_text = read_to_string(config_path).expect("Failed to open TOML config");
+    let config = toml::from_str::<Config>(&config_file_text)
+        .context("Failed to parse TOML config")
+        .unwrap();
 
-    let kafka_client = match KafkaClient::new(&opt.kafka_config()) {
+    init_tracing(config.log_json);
+    tracing::info!("Graph gateway starting...");
+    tracing::debug!("{:#?}", config);
+
+    let kafka_client = match KafkaClient::new(&config.kafka.into()) {
         Ok(kafka_client) => Arc::new(kafka_client),
         Err(kafka_client_err) => {
             tracing::error!(%kafka_client_err);
@@ -74,7 +82,7 @@ async fn main() {
 
     let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
 
-    if let Some(path) = &opt.restricted_deployments {
+    if let Some(path) = &config.restricted_deployments {
         let restricted_deployments =
             load_restricted_deployments(path).expect("Failed to load restricted deployments");
         tracing::debug!(?restricted_deployments);
@@ -90,23 +98,22 @@ async fn main() {
         tracing::error!("ISA actor stopped");
     });
 
-    let geoip = opt
+    let geoip = config
         .geoip_database
-        .filter(|_| !opt.geoip_blocked_countries.is_empty())
-        .map(|db| GeoIP::new(db, opt.geoip_blocked_countries).unwrap());
+        .filter(|_| !config.geoip_blocked_countries.is_empty())
+        .map(|db| GeoIP::new(db, config.geoip_blocked_countries).unwrap());
 
-    let block_caches = opt
-        .ethereum_providers
-        .0
+    let block_caches = config
+        .chains
         .into_iter()
-        .map(|provider| {
-            let network = provider.network.clone();
-            let cache = BlockCache::new::<ethereum::Client>(provider);
+        .map(|chain| {
+            let network = chain.name.clone();
+            let cache = BlockCache::new::<ethereum::Client>(chain.into());
             (network, cache)
         })
         .collect::<HashMap<String, BlockCache>>();
     let block_caches = Arc::new(block_caches);
-    let signer_key = opt.signer_key.0;
+    let signer_key = config.signer_key.0;
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -114,7 +121,7 @@ async fn main() {
         .unwrap();
 
     let studio_data =
-        studio_client::Actor::create(http_client.clone(), opt.studio_url, opt.studio_auth);
+        studio_client::Actor::create(http_client.clone(), config.studio_url, config.studio_auth);
     update_from_eventual(
         studio_data.usd_to_grt,
         update_writer.clone(),
@@ -122,7 +129,7 @@ async fn main() {
     );
 
     let network_subgraph_client =
-        subgraph_client::Client::new(http_client.clone(), opt.network_subgraph.clone());
+        subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
     let network_subgraph_data = network_subgraph::Client::create(network_subgraph_client);
     update_from_eventual(
         network_subgraph_data.slashing_percentage,
@@ -133,7 +140,7 @@ async fn main() {
     let receipt_pools = ReceiptPools::default();
 
     let indexer_status_data = indexer_status::Actor::create(
-        opt.min_indexer_version,
+        config.min_indexer_version,
         geoip,
         network_subgraph_data.indexers.clone(),
     );
@@ -170,34 +177,34 @@ async fn main() {
         .deployment_indexers
         .clone()
         .map(|deployments| async move { deployments.keys().cloned().collect() });
-    let ipfs_client = IPFSClient::new(http_client.clone(), opt.ipfs, 50);
+    let ipfs_client = IPFSClient::new(http_client.clone(), config.ipfs, 50);
     let subgraph_info = manifest_client::create(
         ipfs_client,
         network_subgraph_data.subgraph_deployments.clone(),
         deployment_ids,
     );
 
-    let special_api_keys = Arc::new(HashSet::from_iter(opt.special_api_keys));
+    let special_api_keys = Arc::new(HashSet::from_iter(config.special_api_keys));
 
-    let fisherman_client = opt
+    let fisherman_client = config
         .fisherman
         .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
     let client_query_ctx = client_query::Context {
-        indexer_selection_retry_limit: opt.indexer_selection_retry_limit,
+        indexer_selection_retry_limit: config.indexer_selection_retry_limit,
         budget_factors: QueryBudgetFactors {
-            scale: opt.query_budget_scale,
-            discount: opt.query_budget_discount,
-            processes: (opt.replica_count * opt.location_count) as f64,
+            scale: config.query_budget_scale,
+            discount: config.query_budget_discount,
+            processes: config.gateway_instance_count as f64,
         },
         indexer_client: IndexerClient {
             client: http_client.clone(),
         },
-        graph_env_id: opt.graph_env_id.clone(),
+        graph_env_id: config.graph_env_id.clone(),
         subgraph_info,
         subgraph_deployments: network_subgraph_data.subgraph_deployments,
         deployment_indexers: network_subgraph_data.deployment_indexers,
         api_keys: studio_data.api_keys,
-        api_key_payment_required: opt.api_key_payment_required,
+        api_key_payment_required: config.api_key_payment_required,
         fisherman_client,
         kafka_client,
         block_caches: block_caches.clone(),
@@ -212,7 +219,7 @@ async fn main() {
         allocations: network_subgraph_data.allocations,
     };
 
-    let metrics_port = opt.metrics_port;
+    let metrics_port = config.port_metrics;
     // Host metrics on a separate server with a port that isn't open to public requests.
     actix_web::rt::spawn(async move {
         HttpServer::new(move || App::new().route("/metrics", web::get().to(handle_metrics)))
@@ -224,12 +231,12 @@ async fn main() {
             .expect("Failed to start metrics server")
     });
     let ip_rate_limiter = RateLimiter::<String>::new(
-        opt.ip_rate_limit as usize,
-        opt.ip_rate_limit_window_secs as usize,
+        config.rate_limit_ip_limit as usize,
+        config.rate_limit_ip_window_secs as usize,
     );
     let api_rate_limiter = RateLimiter::<String>::new(
-        opt.api_rate_limit as usize,
-        opt.api_rate_limit_window_secs as usize,
+        config.rate_limit_api_limit as usize,
+        config.rate_limit_ip_window_secs as usize,
     );
     HttpServer::new(move || {
         let cors = Cors::default()
@@ -289,7 +296,7 @@ async fn main() {
             );
         App::new().service(api).service(other)
     })
-    .bind(("0.0.0.0", opt.port))
+    .bind(("0.0.0.0", config.port_api))
     .expect("Failed to bind")
     .run()
     .await
