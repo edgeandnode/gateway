@@ -1,5 +1,7 @@
+use crate::config::SubscriptionTiers;
+use crate::kafka_client::timestamp;
 use crate::subgraph_client;
-use crate::subscriptions::{ActiveSubscription, Subscriptions};
+use crate::subscriptions::{ActiveSubscription, Subscription, Subscriptions};
 use eventuals::{self, EventualExt as _};
 use prelude::*;
 use std::{collections::HashMap, sync::Arc};
@@ -7,14 +9,19 @@ use tokio::sync::Mutex;
 
 pub struct Client {
     subgraph_client: subgraph_client::Client,
-    active_subscriptions: EventualWriter<Ptr<HashMap<Address, ActiveSubscription>>>,
+    tiers: SubscriptionTiers,
+    active_subscriptions: EventualWriter<Ptr<HashMap<Address, Subscription>>>,
 }
 
 impl Client {
-    pub fn create(subgraph_client: subgraph_client::Client) -> Subscriptions {
+    pub fn create(
+        subgraph_client: subgraph_client::Client,
+        tiers: SubscriptionTiers,
+    ) -> Subscriptions {
         let (active_subscriptions_tx, active_subscriptions_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
+            tiers,
             active_subscriptions: active_subscriptions_tx,
         }));
 
@@ -38,34 +45,53 @@ impl Client {
     }
 
     async fn poll_active_subscriptions(&mut self) -> Result<(), String> {
+        // Serve queries for subscriptions that end 10 minutes ago and later.
+        let active_sub_end = timestamp() - (60 * 10);
+
+        let query = format!(
+            r#"
+            activeSubscriptions(
+                first: $first, skip: $skip, block: $block
+                where: {{ end_gte: {active_sub_end} }}
+            ) {{
+                user {{
+                    id
+                    authorizedSigners {{
+                        signer
+                    }}
+                }}
+                start
+                end
+                rate
+            }}
+            "#,
+        );
         let active_subscriptions_response = self
             .subgraph_client
-            .paginated_query::<ActiveSubscription>(
-                r#"
-                activeSubscriptions(first: $first, skip: $skip, block: $block) {
-                    user {
-                        id
-                        authorizedSigners {
-                            signer
-                        }
-                    }
-                    start
-                    end
-                    rate
-                }
-                "#,
-            )
+            .paginated_query::<ActiveSubscription>(&query)
             .await?;
         if active_subscriptions_response.is_empty() {
             return Err("Discarding empty update (active_subscriptions)".to_string());
         }
 
-        let active_subscriptions_map = active_subscriptions_response
+        let subscriptions_map = active_subscriptions_response
             .into_iter()
-            .map(|sub| (sub.user.id, sub))
+            .map(|active_sub| {
+                let user = active_sub.user;
+                let signers = user
+                    .authorized_signers
+                    .into_iter()
+                    .map(|signer| signer.signer)
+                    .chain([user.id]);
+                let tier = self.tiers.tier_for_rate(active_sub.rate);
+                let sub = Subscription {
+                    signers: signers.collect(),
+                    query_rate_limit: tier.query_rate_limit,
+                };
+                (user.id, sub)
+            })
             .collect();
-        self.active_subscriptions
-            .write(Ptr::new(active_subscriptions_map));
+        self.active_subscriptions.write(Ptr::new(subscriptions_map));
 
         Ok(())
     }

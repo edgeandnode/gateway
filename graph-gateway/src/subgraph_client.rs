@@ -28,7 +28,7 @@ impl Client {
 
     pub async fn paginated_query<T: for<'de> Deserialize<'de>>(
         &mut self,
-        query: &'static str,
+        query: &str,
     ) -> Result<Vec<T>, String> {
         let batch_size: u32 = 1000;
         let mut index: u32 = 0;

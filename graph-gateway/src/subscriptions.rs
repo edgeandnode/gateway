@@ -1,18 +1,25 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use prelude::*;
 use serde::{de::Error, Deserialize, Deserializer};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Clone)]
 pub struct Subscriptions {
-    pub active_subscriptions: Eventual<Ptr<HashMap<Address, ActiveSubscription>>>,
+    pub active_subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Subscription {
+    pub signers: BTreeSet<Address>,
+    pub query_rate_limit: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
     pub id: Address,
-    pub authorized_signers: Option<Vec<AuthorizedSigner>>,
+    #[serde(default)]
+    pub authorized_signers: Vec<AuthorizedSigner>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -49,20 +56,13 @@ pub struct AuthorizedSigner {
 }
 
 impl Subscriptions {
-    pub async fn active_subscription(&self, user: &Address) -> Option<ActiveSubscription> {
+    pub async fn active_subscription(&self, user: &Address) -> Option<Subscription> {
         self.active_subscriptions
             .value()
             .await
             .ok()?
             .get(user)
             .cloned()
-    }
-
-    pub async fn has_active_subscription(&self, user: &Address, timestamp: DateTime<Utc>) -> bool {
-        match self.active_subscription(user).await {
-            Some(subscription) => subscription.start <= timestamp && subscription.end >= timestamp,
-            None => false,
-        }
     }
 }
 

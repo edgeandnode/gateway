@@ -4,7 +4,7 @@ use indexer_selection::SecretKey;
 use prelude::*;
 use semver::Version;
 use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{serde_as, DisplayFromStr, FromInto};
 use std::{collections::BTreeMap, path::PathBuf};
 
 #[serde_as]
@@ -64,6 +64,10 @@ pub struct Config {
     pub studio_url: Url,
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub subscriptions_subgraph: Option<Url>,
+    /// Subscription tiers
+    #[serde(default)]
+    #[serde_as(as = "FromInto<Vec<SubscriptionTier>>")]
+    pub subscription_tiers: SubscriptionTiers,
 }
 
 #[serde_as]
@@ -146,5 +150,33 @@ impl FromStr for SignerKey {
             // Convert between versions of secp256k1 lib.
             SecretKey::from_slice(signer_key.as_ref()).unwrap(),
         ))
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SubscriptionTiers(Vec<SubscriptionTier>);
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct SubscriptionTier {
+    /// Payment rate from the subcription contract.
+    pub payment_rate: u128,
+    /// Maximum query rate allowed, in queries per second.
+    pub query_rate_limit: u32,
+}
+
+impl From<Vec<SubscriptionTier>> for SubscriptionTiers {
+    fn from(mut tiers: Vec<SubscriptionTier>) -> Self {
+        tiers.sort_by_key(|t| t.payment_rate);
+        Self(tiers)
+    }
+}
+
+impl SubscriptionTiers {
+    pub fn tier_for_rate(&self, sub_rate: u128) -> SubscriptionTier {
+        self.0
+            .iter()
+            .find(|tier| tier.payment_rate <= sub_rate)
+            .cloned()
+            .unwrap_or_default()
     }
 }
