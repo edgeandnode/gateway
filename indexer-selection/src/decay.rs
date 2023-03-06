@@ -200,7 +200,7 @@ mod test {
 
             println!("---",);
             println!("{:.2e} {}", expected, show(&model.frames()));
-            println!("{:.2e} {}", value, show(&buf.frames()));
+            println!("{:.2e} {}", value, show(buf.frames()));
             println!("{}", (value - expected) / expected);
 
             assert_within(value, expected, 0.013 * expected);

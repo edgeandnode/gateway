@@ -16,6 +16,7 @@ impl<K: Eq + Hash, V, const C: u8> EpochCache<K, V, C> {
     }
 
     #[cfg(test)]
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.len()
     }

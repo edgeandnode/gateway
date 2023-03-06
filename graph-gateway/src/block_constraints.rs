@@ -1,9 +1,12 @@
 use indexer_selection::{Context, UnresolvedBlock};
 use itertools::Itertools as _;
-use prelude::{*, graphql::{
-    graphql_parser::query::{Definition, Document, OperationDefinition, Selection, Text, Value},
-    IntoStaticValue as _, QueryVariables, StaticValue,
-}};
+use prelude::graphql::graphql_parser::query::{
+    Definition, Document, OperationDefinition, Selection, Text, Value,
+};
+use prelude::{
+    graphql::{IntoStaticValue as _, QueryVariables, StaticValue},
+    *,
+};
 use serde_json::{self, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -105,7 +108,7 @@ pub fn make_query_deterministic(
                 .find(|(k, _)| *k == "block")
             {
                 Some((_, arg)) => {
-                    match field_constraint(vars, &defaults, &arg)? {
+                    match field_constraint(vars, &defaults, arg)? {
                         BlockConstraint::Hash(_) => (),
                         BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
                             *arg = deterministic_block(&latest.hash);

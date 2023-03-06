@@ -110,10 +110,10 @@ impl Default for KafkaConfig {
     }
 }
 
-impl Into<rdkafka::config::ClientConfig> for KafkaConfig {
-    fn into(mut self) -> rdkafka::config::ClientConfig {
-        let mut settings = Self::default().0;
-        settings.append(&mut self.0);
+impl From<KafkaConfig> for rdkafka::config::ClientConfig {
+    fn from(mut from: KafkaConfig) -> Self {
+        let mut settings = KafkaConfig::default().0;
+        settings.append(&mut from.0);
 
         let mut config = rdkafka::config::ClientConfig::new();
         for (k, v) in settings {

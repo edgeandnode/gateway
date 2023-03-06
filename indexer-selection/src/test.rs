@@ -94,7 +94,7 @@ impl Topology {
                     .iter()
                     .map(|(indexer, info)| {
                         (
-                            indexer.clone(),
+                            *indexer,
                             IndexerUpdate {
                                 info: info.clone(),
                                 indexings: state
@@ -128,8 +128,8 @@ impl Topology {
         deployments: &HashSet<DeploymentId>,
     ) -> Option<(Indexing, IndexingStatus)> {
         let indexing = Indexing {
-            indexer: indexers.iter().choose(rng)?.0.clone(),
-            deployment: deployments.iter().choose(rng)?.clone(),
+            indexer: *indexers.iter().choose(rng)?.0,
+            deployment: *deployments.iter().choose(rng)?,
         };
         let status = IndexingStatus {
             allocations: Arc::new(HashMap::from_iter([(
@@ -155,7 +155,7 @@ impl Topology {
     }
 
     fn gen_request(&self, rng: &mut SmallRng) -> Option<Request> {
-        let deployment = self.deployments.iter().choose(rng)?.clone();
+        let deployment = *self.deployments.iter().choose(rng)?;
         let required_block = match (rng.gen_bool(0.1), self.blocks.choose(rng)) {
             (true, Some(block)) => Some(block.number),
             _ => None,
@@ -166,7 +166,7 @@ impl Topology {
                 .indexings
                 .keys()
                 .filter(|indexing| indexing.deployment == deployment)
-                .map(|indexing| indexing.indexer.clone())
+                .map(|indexing| indexing.indexer)
                 .collect(),
             params: UtilityParameters::new(
                 "1.0".parse().unwrap(),
@@ -209,8 +209,8 @@ impl Topology {
             let status = self
                 .indexings
                 .get(&Indexing {
-                    indexer: indexer.clone(),
-                    deployment: request.deployment.clone(),
+                    indexer: *indexer,
+                    deployment: request.deployment,
                 })
                 .unwrap();
             let total_allocation = status
