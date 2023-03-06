@@ -110,10 +110,10 @@ impl Default for KafkaConfig {
     }
 }
 
-impl Into<rdkafka::config::ClientConfig> for KafkaConfig {
-    fn into(mut self) -> rdkafka::config::ClientConfig {
-        let mut settings = Self::default().0;
-        settings.append(&mut self.0);
+impl From<KafkaConfig> for rdkafka::config::ClientConfig {
+    fn from(mut from: KafkaConfig) -> Self {
+        let mut settings = KafkaConfig::default().0;
+        settings.append(&mut from.0);
 
         let mut config = rdkafka::config::ClientConfig::new();
         for (k, v) in settings {
@@ -156,9 +156,11 @@ impl FromStr for SignerKey {
 #[derive(Debug, Default)]
 pub struct SubscriptionTiers(Vec<SubscriptionTier>);
 
+#[serde_as]
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct SubscriptionTier {
     /// Payment rate from the subcription contract.
+    #[serde_as(as = "DisplayFromStr")]
     pub payment_rate: u128,
     /// Maximum query rate allowed, in queries per second.
     pub query_rate_limit: u32,
