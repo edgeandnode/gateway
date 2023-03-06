@@ -243,7 +243,7 @@ async fn main() {
             .allow_any_origin()
             .allow_any_header()
             .allowed_methods(vec!["POST", "OPTIONS"]);
-        let api = web::scope("/api/{api_key}")
+        let api = web::scope("/api")
             .wrap(cors)
             .wrap(RateLimiterMiddleware {
                 rate_limiter: api_rate_limiter.clone(),
@@ -257,6 +257,14 @@ async fn main() {
                 )
                 .into()
             }))
+            .route(
+                "/{api_key}/subgraphs/id/{subgraph_id}",
+                web::post().to(client_query::handle_query),
+            )
+            .route(
+                "/{api_key}/deployments/id/{deployment_id}",
+                web::post().to(client_query::handle_query),
+            )
             .route(
                 "/subgraphs/id/{subgraph_id}",
                 web::post().to(client_query::handle_query),

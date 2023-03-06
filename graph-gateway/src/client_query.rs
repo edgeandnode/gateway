@@ -17,7 +17,10 @@ use crate::{
         MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS, UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
     },
 };
-use actix_http::StatusCode;
+use actix_http::{
+    header::{AUTHORIZATION, ORIGIN},
+    StatusCode,
+};
 use actix_web::{http::header, web, HttpRequest, HttpResponse, HttpResponseBuilder};
 use futures::future::join_all;
 use indexer_selection::{
@@ -114,20 +117,26 @@ pub async fn handle_query(
 ) -> HttpResponse {
     let start_time = Instant::now();
     let query_id = QueryID::new();
+    let headers = request.headers();
+
+    let api_key = match (
+        request.match_info().get("api_key"),
+        headers.get(AUTHORIZATION).and_then(|h| h.to_str().ok()),
+    ) {
+        (Some(param), _) => param.to_string(),
+        (None, Some(header)) => header.trim_start_matches("Bearer ").to_string(),
+        (None, None) => "".to_string(),
+    };
+
     let mut report = ClientQueryResult {
         query_id: query_id.to_string(),
-        ray_id: request
-            .headers()
+        ray_id: headers
             .get("cf-ray")
             .and_then(|value| value.to_str().ok())
             .unwrap_or("")
             .to_string(),
         graph_env: ctx.graph_env_id.clone(),
-        api_key: request
-            .match_info()
-            .get("api_key")
-            .unwrap_or("")
-            .to_string(),
+        api_key,
         ..Default::default()
     };
     let subgraph_resolution_result = resolve_subgraph_deployment(
@@ -149,9 +158,8 @@ pub async fn handle_query(
     );
     let _timer = METRICS.client_query.start_timer(&[&report.deployment]);
 
-    let domain = request
-        .headers()
-        .get(header::ORIGIN)
+    let domain = headers
+        .get(ORIGIN)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
