@@ -50,10 +50,11 @@ use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
 use std::{
+    borrow::Borrow as _,
     collections::{hash_map::Entry, HashMap, HashSet},
     env,
     fs::read_to_string,
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 use tokio::spawn;
@@ -62,11 +63,23 @@ use tokio::spawn;
 async fn main() {
     let config_path = env::args()
         .nth(1)
-        .expect("Missing argument for TOML config path");
-    let config_file_text = read_to_string(config_path).expect("Failed to open TOML config");
-    let config = toml::from_str::<Config>(&config_file_text)
-        .context("Failed to parse TOML config")
+        .expect("Missing argument for config path")
+        .parse::<PathBuf>()
         .unwrap();
+    let config_file_text = read_to_string(config_path.clone()).expect("Failed to open config");
+    let config_ext = config_path
+        .extension()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let config = match config_ext.borrow() {
+        "json" => serde_json::from_str::<Config>(&config_file_text)
+            .context("Failed to parse JSON config")
+            .unwrap(),
+        "toml" => toml::from_str::<Config>(&config_file_text)
+            .context("Failed to parse TOML config")
+            .unwrap(),
+        _ => panic!("Unsupported config file format. Use JSON or TOML."),
+    };
 
     init_tracing(config.log_json);
     tracing::info!("Graph gateway starting...");
