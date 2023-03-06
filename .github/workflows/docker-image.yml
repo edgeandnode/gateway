@@ -23,7 +23,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
-          password: ${{ secrets.CR_PAT }}
+          password: ${{ secrets.GRAPH_MAINNET_INFRA_GITHUB_PAT }}
       - name: Build and push Docker image
         uses: docker/build-push-action@v3
         with:
@@ -35,4 +35,4 @@ jobs:
           labels: ${{ steps.docker_meta.outputs.labels }}
           build-args: |
             GH_USER=${{ github.repository_owner }}
-            GH_TOKEN=${{ secrets.CR_PAT }}
+            GH_TOKEN=${{ secrets.GRAPH_MAINNET_INFRA_GITHUB_PAT }}
