@@ -1,17 +1,14 @@
+use crate::price_automation::VolumeEstimator;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use prelude::*;
+use prelude::{tokio::sync::Mutex, *};
 use serde::{de::Error, Deserialize, Deserializer};
-use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct Subscriptions {
-    pub active_subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
-}
-
-#[derive(Clone, Debug)]
 pub struct Subscription {
-    pub signers: BTreeSet<Address>,
+    pub signers: Vec<Address>,
     pub query_rate_limit: u32,
+    pub usage: Arc<Mutex<VolumeEstimator>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -20,6 +17,11 @@ pub struct User {
     pub id: Address,
     #[serde(default)]
     pub authorized_signers: Vec<AuthorizedSigner>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AuthorizedSigner {
+    pub signer: Address,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -32,6 +34,7 @@ pub struct ActiveSubscription {
     #[serde(deserialize_with = "deserialize_u128")]
     pub rate: u128,
 }
+
 fn deserialize_datetime_utc<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
 where
     D: Deserializer<'de>,
@@ -42,28 +45,13 @@ where
         .ok_or_else(|| D::Error::custom("invalid timestamp"))
         .map(|t| DateTime::<Utc>::from_utc(t, Utc))
 }
+
 fn deserialize_u128<'de, D>(deserializer: D) -> Result<u128, D::Error>
 where
     D: Deserializer<'de>,
 {
     let input = String::deserialize(deserializer)?;
     u128::from_str(&input).map_err(D::Error::custom)
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct AuthorizedSigner {
-    pub signer: Address,
-}
-
-impl Subscriptions {
-    pub async fn active_subscription(&self, user: &Address) -> Option<Subscription> {
-        self.active_subscriptions
-            .value()
-            .await
-            .ok()?
-            .get(user)
-            .cloned()
-    }
 }
 
 #[cfg(test)]

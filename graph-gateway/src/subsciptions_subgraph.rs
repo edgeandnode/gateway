@@ -1,7 +1,8 @@
 use crate::config::SubscriptionTiers;
 use crate::kafka_client::timestamp;
+use crate::price_automation::VolumeEstimations;
 use crate::subgraph_client;
-use crate::subscriptions::{ActiveSubscription, Subscription, Subscriptions};
+use crate::subscriptions::{ActiveSubscription, Subscription};
 use eventuals::{self, EventualExt as _};
 use prelude::*;
 use std::{collections::HashMap, sync::Arc};
@@ -10,19 +11,21 @@ use tokio::sync::Mutex;
 pub struct Client {
     subgraph_client: subgraph_client::Client,
     tiers: SubscriptionTiers,
-    active_subscriptions: EventualWriter<Ptr<HashMap<Address, Subscription>>>,
+    subscriptions_usage: VolumeEstimations<Address>,
+    subscriptions: EventualWriter<Ptr<HashMap<Address, Subscription>>>,
 }
 
 impl Client {
     pub fn create(
         subgraph_client: subgraph_client::Client,
         tiers: SubscriptionTiers,
-    ) -> Subscriptions {
-        let (active_subscriptions_tx, active_subscriptions_rx) = Eventual::new();
+    ) -> Eventual<Ptr<HashMap<Address, Subscription>>> {
+        let (subscriptions_tx, subscriptions_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
             tiers,
-            active_subscriptions: active_subscriptions_tx,
+            subscriptions_usage: VolumeEstimations::new(),
+            subscriptions: subscriptions_tx,
         }));
 
         eventuals::timer(Duration::from_secs(30))
@@ -39,9 +42,7 @@ impl Client {
             })
             .forever();
 
-        Subscriptions {
-            active_subscriptions: active_subscriptions_rx,
-        }
+        subscriptions_rx
     }
 
     async fn poll_active_subscriptions(&mut self) -> Result<(), String> {
@@ -87,11 +88,12 @@ impl Client {
                 let sub = Subscription {
                     signers: signers.collect(),
                     query_rate_limit: tier.query_rate_limit,
+                    usage: self.subscriptions_usage.get(&user.id),
                 };
                 (user.id, sub)
             })
             .collect();
-        self.active_subscriptions.write(Ptr::new(subscriptions_map));
+        self.subscriptions.write(Ptr::new(subscriptions_map));
 
         Ok(())
     }

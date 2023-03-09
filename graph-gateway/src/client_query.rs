@@ -1,4 +1,5 @@
 use crate::{
+    auth::{AuthHandler, AuthToken},
     block_constraints::{block_constraints, make_query_deterministic, BlockConstraint},
     chains::BlockCache,
     fisherman_client::{ChallengeOutcome, FishermanClient},
@@ -9,9 +10,7 @@ use crate::{
     },
     manifest_client::{SubgraphInfo, SubgraphInfoMap},
     metrics::{with_metric, METRICS},
-    price_automation::QueryBudgetFactors,
     receipts::{ReceiptPools, ReceiptStatus},
-    studio_client::{is_domain_authorized, APIKey, QueryStatus},
     subgraph_deployments::SubgraphDeployments,
     unattestable_errors::{
         MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS, UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
@@ -30,7 +29,7 @@ use indexer_selection::{
 };
 use lazy_static::lazy_static;
 use prelude::{
-    anyhow::{anyhow, bail, ensure},
+    anyhow::{anyhow, bail, ensure, Context as _},
     buffer_queue::QueueWriter,
     double_buffer::DoubleBufferReader,
     graphql::http::Response,
@@ -40,7 +39,7 @@ use prelude::{
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
         atomic::{AtomicUsize, Ordering as MemoryOrdering},
         Arc,
@@ -82,11 +81,8 @@ pub struct Context {
     pub kafka_client: Arc<KafkaClient>,
     pub fisherman_client: Option<Arc<FishermanClient>>,
     pub graph_env_id: String,
-    pub api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
-    pub api_key_payment_required: bool,
-    pub special_api_keys: Arc<HashSet<String>>,
+    pub auth_handler: &'static AuthHandler,
     pub indexer_selection_retry_limit: usize,
-    pub budget_factors: QueryBudgetFactors,
     pub block_caches: Arc<HashMap<String, BlockCache>>,
     pub subgraph_info: SubgraphInfoMap,
     pub subgraph_deployments: SubgraphDeployments,
@@ -119,13 +115,22 @@ pub async fn handle_query(
     let query_id = QueryID::new();
     let headers = request.headers();
 
-    let api_key = match (
+    let auth = match (
         request.match_info().get("api_key"),
         headers.get(AUTHORIZATION).and_then(|h| h.to_str().ok()),
     ) {
-        (Some(param), _) => param.to_string(),
-        (None, Some(header)) => header.trim_start_matches("Bearer ").to_string(),
-        (None, None) => "".to_string(),
+        (Some(param), _) => param,
+        (None, Some(header)) => header.trim_start_matches("Bearer "),
+        (None, None) => "",
+    };
+    tracing::debug!(%auth);
+    let auth = match ctx
+        .auth_handler
+        .parse_token(auth)
+        .context("Invalid API key")
+    {
+        Ok(auth) => auth,
+        Err(err) => return graphql_error_response(err),
     };
 
     let mut report = ClientQueryResult {
@@ -136,7 +141,7 @@ pub async fn handle_query(
             .unwrap_or("")
             .to_string(),
         graph_env: ctx.graph_env_id.clone(),
-        api_key,
+        api_key: auth.api_key(),
         ..Default::default()
     };
     let subgraph_resolution_result = resolve_subgraph_deployment(
@@ -166,7 +171,7 @@ pub async fn handle_query(
 
     let result = match subgraph_resolution_result {
         Ok(subgraph_info) => {
-            handle_client_query_inner(&ctx, &mut report, subgraph_info, payload.0, domain)
+            handle_client_query_inner(&ctx, &mut report, subgraph_info, payload.0, &auth, domain)
                 .instrument(span)
                 .await
         }
@@ -248,45 +253,13 @@ async fn handle_client_query_inner(
     report: &mut ClientQueryResult,
     subgraph_info: Ptr<SubgraphInfo>,
     payload: QueryBody,
+    auth: &AuthToken,
     domain: String,
 ) -> anyhow::Result<ResponsePayload> {
     report.network = subgraph_info.network.clone();
 
-    let api_key = ctx
-        .api_keys
-        .value_immediate()
-        .unwrap_or_default()
-        .get(&report.api_key)
-        .cloned()
-        .ok_or_else(|| anyhow!("Invalid API key"))?;
-
-    if ctx.api_key_payment_required
-        && !api_key.is_subsidized
-        && !ctx.special_api_keys.contains(&api_key.key)
-    {
-        // Enforce the API key payment status, unless it's being subsidized.
-        match api_key.query_status {
-            QueryStatus::Active => (),
-            QueryStatus::Inactive => bail!("Querying not activated yet; make sure to add some GRT to your balance in the studio"),
-            QueryStatus::ServiceShutoff => bail!("Payment required for subsequent requests for this API key"),
-        };
-    }
-    tracing::debug!(%domain, authorized = ?api_key.domains);
-    if !api_key.domains.is_empty() && !is_domain_authorized(&api_key.domains, &domain) {
-        bail!("Domain not authorized by API key");
-    }
-    let deployment_authorized =
-        api_key.deployments.is_empty() || api_key.deployments.contains(&subgraph_info.deployment);
-    // multiple subgraph ids can be resolved to the deployment Qm hash,
-    // check if any of the SubgraphInfo.ids are in the api_key allowed subgraphs
-    let subgraph_authorized = api_key.subgraphs.is_empty()
-        || api_key
-            .subgraphs
-            .iter()
-            .any(|subgraph_id| subgraph_info.ids.contains(subgraph_id));
-    if !deployment_authorized || !subgraph_authorized {
-        bail!("Subgraph not authorized by API key");
-    }
+    ctx.auth_handler
+        .check_token(auth, &subgraph_info, &domain)?;
 
     let deployment_indexers = ctx
         .deployment_indexers
@@ -349,32 +322,16 @@ async fn handle_client_query_inner(
     );
 
     report.query_count = context.operations.len().max(1) as u64;
-    tracing::trace!(
-        indexer_preferences = ?api_key.indexer_preferences,
-        max_budget = ?api_key.max_budget,
-    );
-    // This has to run even if we don't use the budget because it updates the query volume estimate.
-    // This is important in the case that the user switches back to automated volume discounting.
-    // Otherwise it will look like there is a long period of inactivity which would increase the
-    // price.
-    let budget = api_key
-        .usage
-        .lock()
-        .await
-        .budget_for_queries(report.query_count, &ctx.budget_factors);
-    let mut budget = USD::try_from(budget).unwrap();
-    if let Some(max_budget) = api_key.max_budget {
-        // Security: Consumers can and will set their budget to unreasonably high values. This
-        // `.min` prevents the budget from being set far beyond what it would be automatically. The
-        // reason this is important is because sometimes queries are subsidized and we would be
-        // at-risk to allow arbitrarily high values.
-        budget = max_budget.min(budget * USD::try_from(10_u64).unwrap());
-    }
+    let settings = ctx
+        .auth_handler
+        .query_settings(auth, report.query_count)
+        .await?;
+
     let budget: GRT = ctx
         .isa_state
         .latest()
         .network_params
-        .usd_to_grt(budget)
+        .usd_to_grt(settings.budget)
         .ok_or_else(|| anyhow!("Internal error: MissingExchangeRate"))?;
     report.budget = budget.to_string();
     report.budget_float = budget.as_f64() as f32;
@@ -383,10 +340,10 @@ async fn handle_client_query_inner(
         budget,
         block_requirements,
         0, // 170cbcf3-db7f-404a-be13-2022d9142677
-        api_key.indexer_preferences.performance,
-        api_key.indexer_preferences.data_freshness,
-        api_key.indexer_preferences.economic_security,
-        api_key.indexer_preferences.price_efficiency,
+        settings.indexer_preferences.performance,
+        settings.indexer_preferences.data_freshness,
+        settings.indexer_preferences.economic_security,
+        settings.indexer_preferences.price_efficiency,
     );
 
     let mut total_indexer_queries = 0;

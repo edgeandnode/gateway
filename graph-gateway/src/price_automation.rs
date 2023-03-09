@@ -16,7 +16,8 @@
 // then tweaking until it looked like a fair distribution.
 
 use indexer_selection::{decay::*, impl_struct_decay};
-use prelude::{clock::*, *};
+use prelude::{clock::*, tokio::sync::Mutex, *};
+use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 #[derive(Clone)]
 pub struct QueryBudgetFactors {
@@ -100,6 +101,69 @@ where
         let elapsed_time = elapsed_time.as_secs_f64();
 
         queries * scale / elapsed_time
+    }
+}
+
+pub struct VolumeEstimations<K: Hash + Eq> {
+    by_api_key: HashMap<K, Arc<Mutex<VolumeEstimator>>>,
+    #[allow(clippy::type_complexity)]
+    decay_list: Arc<parking_lot::Mutex<Option<Vec<Arc<Mutex<VolumeEstimator>>>>>>,
+}
+
+impl<K: Hash + Eq> Drop for VolumeEstimations<K> {
+    fn drop(&mut self) {
+        *self.decay_list.lock() = None;
+    }
+}
+
+impl<K: Hash + Eq + ToOwned<Owned = K>> VolumeEstimations<K> {
+    pub fn new() -> Self {
+        let decay_list = Arc::new(parking_lot::Mutex::new(Some(Vec::new())));
+        let result = Self {
+            by_api_key: HashMap::new(),
+            decay_list: decay_list.clone(),
+        };
+
+        // Every 2 minutes, call decay on every VolumeEstimator in our collection.
+        // This task will finish when the VolumeEstimations is dropped, because
+        // drop sets the decay_list to None which breaks the loop.
+        tokio::spawn(async move {
+            loop {
+                let start = Instant::now();
+                let len = if let Some(decay_list) = decay_list.lock().as_deref() {
+                    decay_list.len()
+                } else {
+                    return;
+                };
+                for i in 0..len {
+                    let item = if let Some(decay_list) = decay_list.lock().as_deref() {
+                        decay_list[i].clone()
+                    } else {
+                        return;
+                    };
+                    item.lock().await.decay();
+                }
+                let next = start + Duration::from_secs(120);
+                tokio::time::sleep_until(next).await;
+            }
+        });
+        result
+    }
+
+    pub fn get(&mut self, key: &K) -> Arc<Mutex<VolumeEstimator>> {
+        match self.by_api_key.get(key) {
+            Some(exist) => exist.clone(),
+            None => {
+                let result = Arc::new(Mutex::new(VolumeEstimator::default()));
+                self.by_api_key.insert(key.to_owned(), result.clone());
+                self.decay_list
+                    .lock()
+                    .as_mut()
+                    .unwrap()
+                    .push(result.clone());
+                result
+            }
+        }
     }
 }
 
