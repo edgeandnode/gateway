@@ -47,7 +47,7 @@ impl Client {
 
     async fn poll_active_subscriptions(&mut self) -> Result<(), String> {
         // Serve queries for subscriptions that end 10 minutes ago and later.
-        let active_sub_end = timestamp() - (60 * 10);
+        let active_sub_end = (timestamp() / 1000) - (60 * 10);
 
         let query = format!(
             r#"

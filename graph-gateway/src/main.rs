@@ -18,8 +18,8 @@ mod receipts;
 mod studio_client;
 mod subgraph_client;
 mod subgraph_deployments;
-mod subsciptions_subgraph;
 mod subscriptions;
+mod subscriptions_subgraph;
 mod unattestable_errors;
 mod vouchers;
 
@@ -191,7 +191,7 @@ async fn main() {
 
     let subscriptions = match config.subscriptions_subgraph {
         None => Eventual::from_value(Ptr::default()),
-        Some(subgraph_endpoint) => subsciptions_subgraph::Client::create(
+        Some(subgraph_endpoint) => subscriptions_subgraph::Client::create(
             subgraph_client::Client::new(http_client.clone(), subgraph_endpoint),
             config.subscription_tiers,
         ),
