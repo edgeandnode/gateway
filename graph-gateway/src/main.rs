@@ -53,7 +53,6 @@ use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
 use std::{
-    borrow::Borrow as _,
     collections::{hash_map::Entry, HashMap, HashSet},
     env,
     fs::read_to_string,
@@ -70,19 +69,9 @@ async fn main() {
         .parse::<PathBuf>()
         .unwrap();
     let config_file_text = read_to_string(config_path.clone()).expect("Failed to open config");
-    let config_ext = config_path
-        .extension()
-        .unwrap_or_default()
-        .to_string_lossy();
-    let config = match config_ext.borrow() {
-        "json" => serde_json::from_str::<Config>(&config_file_text)
-            .context("Failed to parse JSON config")
-            .unwrap(),
-        "toml" => toml::from_str::<Config>(&config_file_text)
-            .context("Failed to parse TOML config")
-            .unwrap(),
-        _ => panic!("Unsupported config file format. Use JSON or TOML."),
-    };
+    let config = serde_json::from_str::<Config>(&config_file_text)
+        .context("Failed to parse JSON config")
+        .unwrap();
 
     init_tracing(config.log_json);
     tracing::info!("Graph gateway starting...");

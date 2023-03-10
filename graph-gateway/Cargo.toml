@@ -32,7 +32,6 @@ serde_with = "2.2"
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 tiny-bip39 = "1.0"
-toml = { version = "0.7", default-features = false, features = ["parse"] }
 trust-dns-resolver = { version = "0.22", features = ["dns-over-rustls"] }
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
 
