@@ -124,14 +124,10 @@ pub async fn handle_query(
         (None, None) => "",
     };
     tracing::debug!(%auth);
-    let auth = match ctx
+    let auth = ctx
         .auth_handler
         .parse_token(auth)
-        .context("Invalid API key")
-    {
-        Ok(auth) => auth,
-        Err(err) => return graphql_error_response(err),
-    };
+        .context("Invalid API key");
 
     let mut report = ClientQueryResult {
         query_id: query_id.to_string(),
@@ -141,7 +137,7 @@ pub async fn handle_query(
             .unwrap_or("")
             .to_string(),
         graph_env: ctx.graph_env_id.clone(),
-        api_key: auth.api_key(),
+        api_key: auth.as_ref().map(|auth| auth.api_key()).unwrap_or_default(),
         ..Default::default()
     };
     let subgraph_resolution_result = resolve_subgraph_deployment(
@@ -169,13 +165,14 @@ pub async fn handle_query(
         .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
 
-    let result = match subgraph_resolution_result {
-        Ok(subgraph_info) => {
+    let result = match (auth, subgraph_resolution_result) {
+        (Ok(auth), Ok(subgraph_info)) => {
             handle_client_query_inner(&ctx, &mut report, subgraph_info, payload.0, &auth, domain)
                 .instrument(span)
                 .await
         }
-        Err(err) => Err(anyhow!("{:?}", err)),
+        (Err(auth_err), _) => Err(auth_err),
+        (_, Err(subgraph_resolution_err)) => Err(anyhow!("{:?}", subgraph_resolution_err)),
     };
     METRICS.client_query.check(&[&report.deployment], &result);
 
@@ -219,7 +216,7 @@ pub async fn handle_query(
                 .insert_header(("Graph-Attestation", attestation))
                 .body(body.as_ref())
         }
-        Err(err) => graphql_error_response(err),
+        Err(err) => graphql_error_response(format!("{err:#}")),
     }
 }
 
@@ -259,7 +256,8 @@ async fn handle_client_query_inner(
     report.network = subgraph_info.network.clone();
 
     ctx.auth_handler
-        .check_token(auth, &subgraph_info, &domain)?;
+        .check_token(auth, &subgraph_info, &domain)
+        .await?;
 
     let deployment_indexers = ctx
         .deployment_indexers

@@ -7,11 +7,16 @@ use crate::{
 use graph_subscriptions::{eip712::DomainSeparator, TicketPayload};
 use prelude::{
     anyhow::{anyhow, bail, ensure, Result},
+    eventuals::EventualExt as _,
+    tokio::sync::RwLock,
     *,
 };
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{
+        atomic::{self, AtomicUsize},
+        Arc,
+    },
 };
 
 pub struct AuthHandler {
@@ -21,6 +26,7 @@ pub struct AuthHandler {
     pub api_key_payment_required: bool,
     pub subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
     pub subscriptions_domain_separator: Option<DomainSeparator>,
+    pub subscription_query_counters: RwLock<HashMap<Address, AtomicUsize>>,
 }
 
 #[derive(Debug)]
@@ -49,6 +55,42 @@ impl AuthToken {
 }
 
 impl AuthHandler {
+    pub fn create(
+        query_budget_factors: QueryBudgetFactors,
+        api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
+        special_api_keys: HashSet<String>,
+        api_key_payment_required: bool,
+        subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
+        subscriptions_domain_separator: Option<DomainSeparator>,
+    ) -> &'static Self {
+        let handler: &'static Self = Box::leak(Box::new(Self {
+            query_budget_factors,
+            api_keys,
+            special_api_keys,
+            api_key_payment_required,
+            subscriptions,
+            subscriptions_domain_separator,
+            subscription_query_counters: RwLock::default(),
+        }));
+
+        // Reset counters every 10 seconds.
+        // 5720d5ea-cfc3-4862-865b-52b4508a4c14
+        eventuals::timer(Duration::from_secs(10))
+            .pipe_async(|_| async {
+                let mut counters = handler.subscription_query_counters.write().await;
+                counters.retain(|_, v| {
+                    if v.load(atomic::Ordering::Relaxed) == 0 {
+                        return false;
+                    }
+                    v.store(0, atomic::Ordering::Relaxed);
+                    true
+                });
+            })
+            .forever();
+
+        handler
+    }
+
     pub fn parse_token(&self, input: &str) -> Result<AuthToken> {
         // We assume that Studio API keys are 32 hex digits.
         let mut api_key_buf = [0_u8; 16];
@@ -79,7 +121,7 @@ impl AuthHandler {
         Ok(AuthToken::Ticket(payload, subscription))
     }
 
-    pub fn check_token(
+    pub async fn check_token(
         &self,
         token: &AuthToken,
         subgraph_info: &SubgraphInfo,
@@ -148,6 +190,33 @@ impl AuthHandler {
             allowed_domains.is_empty() || is_domain_authorized(&allowed_domains, domain);
         ensure!(allow_domain, "Domain not authorized by API key");
 
+        // Check rate limit for subscriptions. This step should be last to avoid invalid queries
+        // taking up the rate limit.
+        let (ticket_payload, subscription) = match token {
+            AuthToken::ApiKey(_) => return Ok(()),
+            AuthToken::Ticket(payload, subscription) => (payload, subscription),
+        };
+        let user = Address(ticket_payload.user.unwrap_or(ticket_payload.signer).0);
+        let counters = match self.subscription_query_counters.try_read() {
+            Ok(counters) => counters,
+            // Just skip if we can't acquire the read lock. This is a relaxed operation anyway.
+            Err(_) => return Ok(()),
+        };
+        match counters.get(&user) {
+            Some(counter) => {
+                let count = counter.fetch_add(1, atomic::Ordering::Relaxed);
+                // Note that counters are for 10s intervals
+                // 5720d5ea-cfc3-4862-865b-52b4508a4c14
+                let limit = subscription.query_rate_limit as usize * 10;
+                ensure!(count < limit, "Rate limit exceeded");
+            }
+            // No entry, acquire write lock and insert.
+            None => {
+                drop(counters);
+                let mut counters = self.subscription_query_counters.write().await;
+                counters.insert(user, AtomicUsize::from(0));
+            }
+        }
         Ok(())
     }
 

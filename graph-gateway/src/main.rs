@@ -203,18 +203,18 @@ async fn main() {
             )),
             (_, _) => None,
         };
-    let auth_handler = Box::leak(Box::new(AuthHandler {
-        query_budget_factors: QueryBudgetFactors {
+    let auth_handler = AuthHandler::create(
+        QueryBudgetFactors {
             scale: config.query_budget_scale,
             discount: config.query_budget_discount,
             processes: config.gateway_instance_count as f64,
         },
-        api_keys: studio_data.api_keys,
-        special_api_keys: HashSet::from_iter(config.special_api_keys),
-        api_key_payment_required: config.api_key_payment_required,
+        studio_data.api_keys,
+        HashSet::from_iter(config.special_api_keys),
+        config.api_key_payment_required,
         subscriptions,
         subscriptions_domain_separator,
-    }));
+    );
 
     let fisherman_client = config
         .fisherman
