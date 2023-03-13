@@ -120,7 +120,7 @@ pub async fn handle_query(
         headers.get(AUTHORIZATION).and_then(|h| h.to_str().ok()),
     ) {
         (Some(param), _) => param,
-        (None, Some(header)) => header.trim_start_matches("Bearer "),
+        (None, Some(header)) => header.trim_start_matches("Bearer").trim(),
         (None, None) => "",
     };
     tracing::debug!(%auth);

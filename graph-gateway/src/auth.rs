@@ -92,6 +92,8 @@ impl AuthHandler {
     }
 
     pub fn parse_token(&self, input: &str) -> Result<AuthToken> {
+        ensure!(!input.is_empty(), "Not found");
+
         // We assume that Studio API keys are 32 hex digits.
         let mut api_key_buf = [0_u8; 16];
         if let Ok(()) = faster_hex::hex_decode(input.as_bytes(), &mut api_key_buf) {
@@ -117,6 +119,14 @@ impl AuthHandler {
             .get(&user)
             .cloned()
             .ok_or_else(|| anyhow!("Subscription not found for user {}", user))?;
+
+        let signer = Address(payload.signer.0);
+        ensure!(
+            (signer == user) || subscription.signers.contains(&signer),
+            "Signer {} not authorized for user {}",
+            signer,
+            user,
+        );
 
         Ok(AuthToken::Ticket(payload, subscription))
     }
