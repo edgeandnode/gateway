@@ -62,6 +62,11 @@ pub struct Config {
     /// Subgraph studio admin url
     #[serde_as(as = "DisplayFromStr")]
     pub studio_url: Url,
+    /// Subscriptions contract chain ID
+    pub subscriptions_chain_id: Option<u64>,
+    /// Subscriptions contract address
+    pub subscriptions_contract: Option<Address>,
+    /// Subscriptions contract subgraph URL
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub subscriptions_subgraph: Option<Url>,
     /// Subscription tiers

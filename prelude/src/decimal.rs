@@ -41,7 +41,7 @@ impl<const P: u8> str::FromStr for UDecimal<P> {
         use ParseStrError::*;
         // We require at least one ASCII digit. Otherwise `U256::from_dec_str` will return 0 for
         // some inputs we consider invalid.
-        if !s.chars().any(|c: char| -> bool { ('0'..'9').contains(&c) }) {
+        if !s.chars().any(|c: char| -> bool { c.is_ascii_digit() }) {
             return Err(InvalidInput);
         }
         let (int, frac) = s.split_at(s.chars().position(|c| c == '.').unwrap_or(s.len()));

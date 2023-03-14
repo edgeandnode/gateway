@@ -11,6 +11,7 @@ actix-router = "=0.5.0-beta.4"
 chrono = { version = "0.4", default-features = false }
 futures = "0.3"
 futures-util = "0.3"
+graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "cdd5e87" }
 hdwallet = "0.3"
 hex = "0.4"
 im = "15.0"
@@ -22,10 +23,7 @@ parking_lot = "0.12.0"
 prelude = { path = "../prelude" }
 primitive-types = "0.12"
 prometheus = { version = "0.13", default-features = false }
-rdkafka = { version = "0.29", features = [
-    "ssl-vendored",
-    "gssapi-vendored",
-] }
+rdkafka = { version = "0.29", features = [ "gssapi-vendored", "ssl-vendored" ] }
 secp256k1 = { version = "0.24", default-features = false }
 semver = "1.0"
 serde = "1.0"
@@ -34,7 +32,6 @@ serde_with = "2.2"
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 tiny-bip39 = "1.0"
-toml = { version = "0.7", default-features = false, features = ["parse"] }
 trust-dns-resolver = { version = "0.22", features = ["dns-over-rustls"] }
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
 

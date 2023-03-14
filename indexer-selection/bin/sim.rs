@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
     let blocks = {
         let max_blocks_behind = characteristics.iter().map(|c| c.blocks_behind).max();
         let last_block = max_blocks_behind.unwrap() + 100;
-        gen_blocks(&(0..last_block).into_iter().collect::<Vec<u64>>())
+        gen_blocks(&(0..last_block).collect::<Vec<u64>>())
     };
     let latest_block = blocks.last().unwrap().number;
     let params = UtilityParameters::new(

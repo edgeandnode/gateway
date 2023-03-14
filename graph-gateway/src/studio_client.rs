@@ -1,12 +1,8 @@
-use crate::price_automation::VolumeEstimator;
+use crate::price_automation::{VolumeEstimations, VolumeEstimator};
 use eventuals::{self, EventualExt as _};
 use prelude::*;
 use serde::Deserialize;
-use std::{
-    collections::{BTreeSet, HashMap},
-    error::Error,
-    sync::Arc,
-};
+use std::{collections::HashMap, error::Error, sync::Arc};
 use tokio::sync::Mutex;
 
 #[derive(Clone, Debug, Default)]
@@ -19,7 +15,7 @@ pub struct APIKey {
     pub query_status: QueryStatus,
     pub max_budget: Option<USD>,
     pub deployments: Vec<DeploymentId>,
-    pub subgraphs: BTreeSet<SubgraphId>,
+    pub subgraphs: Vec<SubgraphId>,
     pub domains: Vec<String>,
     pub indexer_preferences: IndexerPreferences,
     pub usage: Arc<Mutex<VolumeEstimator>>,
@@ -59,7 +55,7 @@ pub struct Actor {
     client: reqwest::Client,
     url: Url,
     auth: String,
-    api_key_usage: VolumeEstimations,
+    api_key_usage: VolumeEstimations<i64>,
     api_keys_writer: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
     usd_to_grt_writer: EventualWriter<USD>,
 }
@@ -134,7 +130,7 @@ impl Actor {
                     }
                 }
                 let api_key = APIKey {
-                    usage: self.api_key_usage.get(&api_key.key),
+                    usage: self.api_key_usage.get(&api_key.id),
                     id: api_key.id,
                     key: api_key.key,
                     is_subsidized: api_key.is_subsidized,
@@ -189,68 +185,6 @@ impl Actor {
             USD::try_from(price.recip()).map_err(|_| "Failed to convert price to decimal value")?;
         tracing::debug!(%usd_to_grt, source_price = price);
         Ok(usd_to_grt)
-    }
-}
-
-struct VolumeEstimations {
-    by_api_key: HashMap<String, Arc<Mutex<VolumeEstimator>>>,
-    decay_list: Arc<parking_lot::Mutex<Option<Vec<Arc<Mutex<VolumeEstimator>>>>>>,
-}
-
-impl Drop for VolumeEstimations {
-    fn drop(&mut self) {
-        *self.decay_list.lock() = None;
-    }
-}
-
-impl VolumeEstimations {
-    pub fn new() -> Self {
-        let decay_list = Arc::new(parking_lot::Mutex::new(Some(Vec::new())));
-        let result = Self {
-            by_api_key: HashMap::new(),
-            decay_list: decay_list.clone(),
-        };
-
-        // Every 2 minutes, call decay on every VolumeEstimator in our collection.
-        // This task will finish when the VolumeEstimations is dropped, because
-        // drop sets the decay_list to None which breaks the loop.
-        tokio::spawn(async move {
-            loop {
-                let start = Instant::now();
-                let len = if let Some(decay_list) = decay_list.lock().as_deref() {
-                    decay_list.len()
-                } else {
-                    return;
-                };
-                for i in 0..len {
-                    let item = if let Some(decay_list) = decay_list.lock().as_deref() {
-                        decay_list[i].clone()
-                    } else {
-                        return;
-                    };
-                    item.lock().await.decay();
-                }
-                let next = start + Duration::from_secs(120);
-                tokio::time::sleep_until(next).await;
-            }
-        });
-        result
-    }
-
-    pub fn get(&mut self, key: &str) -> Arc<Mutex<VolumeEstimator>> {
-        match self.by_api_key.get(key) {
-            Some(exist) => exist.clone(),
-            None => {
-                let result = Arc::new(Mutex::new(VolumeEstimator::default()));
-                self.by_api_key.insert(key.to_owned(), result.clone());
-                self.decay_list
-                    .lock()
-                    .as_mut()
-                    .unwrap()
-                    .push(result.clone());
-                result
-            }
-        }
     }
 }
 

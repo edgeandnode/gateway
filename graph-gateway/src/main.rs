@@ -1,3 +1,4 @@
+mod auth;
 mod block_constraints;
 mod chains;
 mod client_query;
@@ -17,15 +18,16 @@ mod receipts;
 mod studio_client;
 mod subgraph_client;
 mod subgraph_deployments;
-mod subsciptions_subgraph;
 mod subscriptions;
+mod subscriptions_subgraph;
 mod unattestable_errors;
 mod vouchers;
 
 use crate::{
-    chains::*, config::*, fisherman_client::*, geoip::GeoIP, indexer_client::IndexerClient,
-    indexer_status::IndexingStatus, ipfs_client::*, kafka_client::KafkaClient,
-    price_automation::QueryBudgetFactors, rate_limiter::*, receipts::ReceiptPools,
+    auth::AuthHandler, chains::*, config::*, fisherman_client::*, geoip::GeoIP,
+    indexer_client::IndexerClient, indexer_status::IndexingStatus, ipfs_client::*,
+    kafka_client::KafkaClient, price_automation::QueryBudgetFactors, rate_limiter::*,
+    receipts::ReceiptPools,
 };
 use actix_cors::Cors;
 use actix_web::{
@@ -35,6 +37,7 @@ use actix_web::{
 };
 use anyhow::{self, anyhow};
 use eventuals::EventualExt as _;
+use graph_subscriptions::{eip712, TicketPayload};
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
     BlockStatus, IndexerInfo, Indexing,
@@ -50,7 +53,6 @@ use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
 use std::{
-    borrow::Borrow as _,
     collections::{hash_map::Entry, HashMap, HashSet},
     env,
     fs::read_to_string,
@@ -67,19 +69,9 @@ async fn main() {
         .parse::<PathBuf>()
         .unwrap();
     let config_file_text = read_to_string(config_path.clone()).expect("Failed to open config");
-    let config_ext = config_path
-        .extension()
-        .unwrap_or_default()
-        .to_string_lossy();
-    let config = match config_ext.borrow() {
-        "json" => serde_json::from_str::<Config>(&config_file_text)
-            .context("Failed to parse JSON config")
-            .unwrap(),
-        "toml" => toml::from_str::<Config>(&config_file_text)
-            .context("Failed to parse TOML config")
-            .unwrap(),
-        _ => panic!("Unsupported config file format. Use JSON or TOML."),
-    };
+    let config = serde_json::from_str::<Config>(&config_file_text)
+        .context("Failed to parse JSON config")
+        .unwrap();
 
     init_tracing(config.log_json);
     tracing::info!("Graph gateway starting...");
@@ -197,34 +189,53 @@ async fn main() {
         deployment_ids,
     );
 
-    let special_api_keys = Arc::new(HashSet::from_iter(config.special_api_keys));
-
-    let fisherman_client = config
-        .fisherman
-        .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
-    let client_query_ctx = client_query::Context {
-        indexer_selection_retry_limit: config.indexer_selection_retry_limit,
-        budget_factors: QueryBudgetFactors {
+    let subscriptions = match config.subscriptions_subgraph {
+        None => Eventual::from_value(Ptr::default()),
+        Some(subgraph_endpoint) => subscriptions_subgraph::Client::create(
+            subgraph_client::Client::new(http_client.clone(), subgraph_endpoint),
+            config.subscription_tiers,
+        ),
+    };
+    let subscriptions_domain_separator =
+        match (config.subscriptions_chain_id, config.subscriptions_contract) {
+            (Some(chain_id), Some(contract)) => Some(eip712::DomainSeparator::new(
+                &TicketPayload::eip712_domain(chain_id, contract.0.into()),
+            )),
+            (_, _) => None,
+        };
+    let auth_handler = AuthHandler::create(
+        QueryBudgetFactors {
             scale: config.query_budget_scale,
             discount: config.query_budget_discount,
             processes: config.gateway_instance_count as f64,
         },
+        studio_data.api_keys,
+        HashSet::from_iter(config.special_api_keys),
+        config.api_key_payment_required,
+        subscriptions,
+        subscriptions_domain_separator,
+    );
+
+    let fisherman_client = config
+        .fisherman
+        .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
+
+    let client_query_ctx = client_query::Context {
+        indexer_selection_retry_limit: config.indexer_selection_retry_limit,
         indexer_client: IndexerClient {
             client: http_client.clone(),
         },
         graph_env_id: config.graph_env_id.clone(),
+        auth_handler,
         subgraph_info,
         subgraph_deployments: network_subgraph_data.subgraph_deployments,
         deployment_indexers: network_subgraph_data.deployment_indexers,
-        api_keys: studio_data.api_keys,
-        api_key_payment_required: config.api_key_payment_required,
         fisherman_client,
         kafka_client,
         block_caches: block_caches.clone(),
         observations: update_writer,
         receipt_pools,
         isa_state,
-        special_api_keys,
     };
     let ready_data = ReadyData {
         start_time: Instant::now(),
