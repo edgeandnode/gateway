@@ -98,8 +98,13 @@ impl Client {
             .paginated_query::<Allocation>(
                 r#"
                 allocations(
-                    block: $block, skip: $skip, first: $first
-                    where: { status: Active }
+                    block: $block
+                    orderBy: id, orderDirection: asc
+                    first: $first
+                    where: {
+                        id_gt: $last
+                        status: Active
+                    }
                 ) {
                     id
                     allocatedTokens
@@ -173,9 +178,13 @@ impl Client {
                 r#"
                 subgraphDeployments(
                     block: $block
-                    skip: $skip
+                    orderBy: id, orderDirection: asc
                     first: $first
+                    where: {
+                        id_gt: $last
+                    }
                 ) {
+                    id
                     ipfsHash
                     versions(
                       orderBy: version

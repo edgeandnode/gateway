@@ -1,6 +1,6 @@
 use prelude::{graphql::http::Response, *};
 use serde::{de::DeserializeOwned, Deserialize};
-use serde_json::{json, Value};
+use serde_json::{json, value::RawValue, Value};
 
 pub struct Client {
     subgraph_endpoint: Url,
@@ -31,7 +31,7 @@ impl Client {
         query: &str,
     ) -> Result<Vec<T>, String> {
         let batch_size: u32 = 1000;
-        let mut index: u32 = 0;
+        let mut last_id = "".to_string();
         let mut query_block: Option<BlockPointer> = None;
         let mut results = Vec::new();
         // graph-node is rejecting values of `number_gte:0` on subgraphs with a larger `startBlock`
@@ -55,20 +55,20 @@ impl Client {
                 .as_ref()
                 .map(|block| json!({ "hash": block.hash }))
                 .unwrap_or(json!({ "number_gte": self.latest_block }));
-            let response = graphql_query::<PaginatedQueryResponse<T>>(
+            let response = graphql_query::<PaginatedQueryResponse>(
                 &self.http_client,
                 self.subgraph_endpoint.clone(),
                 &json!({
                     "query": format!(r#"
-                        query q($block: Block_height!, $skip: Int!, $first: Int!) {{
+                        query q($block: Block_height!, $first: Int!, $last: String!) {{
                             meta: _meta(block: $block) {{ block {{ number hash }} }}
                             results: {query}
                         }}"#,
                     ),
                     "variables": {
                         "block": block,
-                        "skip": index * batch_size,
                         "first": batch_size,
+                        "last": last_id,
                     },
                 }),
             )
@@ -84,20 +84,25 @@ impl Client {
                 .any(|err| err.contains("no block with that hash found"))
             {
                 tracing::info!("Reorg detected. Restarting query to try a new block.");
-                index = 0;
+                last_id = "".to_string();
                 query_block = None;
                 continue;
             }
             if !errors.is_empty() {
                 return Err(errors.join(", "));
             }
-            let mut data = match response.data {
+            let data = match response.data {
                 Some(data) if !data.results.is_empty() => data,
                 _ => break,
             };
-            index += 1;
+            last_id = serde_json::from_str::<OpaqueEntry>(data.results.last().unwrap().get())
+                .map_err(|_| "failed to extract id for last entry".to_string())?
+                .id;
             query_block = Some(data.meta.block);
-            results.append(&mut data.results);
+            for entry in data.results {
+                results
+                    .push(serde_json::from_str::<T>(entry.get()).map_err(|err| err.to_string())?);
+            }
         }
         if let Some(block) = query_block {
             self.latest_block = block.number;
@@ -131,7 +136,12 @@ struct Meta {
 }
 
 #[derive(Deserialize)]
-struct PaginatedQueryResponse<T> {
+struct PaginatedQueryResponse {
     meta: Meta,
-    results: Vec<T>,
+    results: Vec<Box<RawValue>>,
+}
+
+#[derive(Deserialize)]
+struct OpaqueEntry {
+    id: String,
 }
