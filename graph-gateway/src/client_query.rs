@@ -32,7 +32,10 @@ use prelude::{
     anyhow::{anyhow, bail, ensure, Context as _},
     buffer_queue::QueueWriter,
     double_buffer::DoubleBufferReader,
-    graphql::http::Response,
+    graphql::{
+        graphql_parser::query::{OperationDefinition, SelectionSet},
+        http::Response,
+    },
     url::Url,
     DeploymentId, Eventual, *,
 };
@@ -319,7 +322,15 @@ async fn handle_client_query_inner(
         min_block.unwrap_or_default()
     );
 
-    report.query_count = context.operations.len().max(1) as u64;
+    report.query_count = match &auth {
+        AuthToken::Ticket(_, _) => count_top_level_selection_sets(&context),
+        // Maintain old (incorrect) behavior for studio API keys. This is not consistent with how
+        // Agora counts queries, but we want to avoid price shocks for now.
+        AuthToken::ApiKey(_) => Ok(context.operations.len()),
+    }
+    .context("Invalid query")?
+    .max(1) as u64;
+
     let settings = ctx
         .auth_handler
         .query_settings(auth, report.query_count)
@@ -716,4 +727,18 @@ fn challenge_indexer_response(
             });
         }
     });
+}
+
+fn count_top_level_selection_sets(ctx: &AgoraContext) -> anyhow::Result<usize> {
+    let selection_sets = ctx
+        .operations
+        .iter()
+        .map(|op| match op {
+            OperationDefinition::SelectionSet(selection_set) => Ok(selection_set),
+            OperationDefinition::Query(query) => Ok(&query.selection_set),
+            OperationDefinition::Mutation(_) => bail!("Mutations not yet supported"),
+            OperationDefinition::Subscription(_) => bail!("Subscriptions not yet supported"),
+        })
+        .collect::<anyhow::Result<Vec<&SelectionSet<&str>>>>()?;
+    Ok(selection_sets.into_iter().map(|set| set.items.len()).sum())
 }
