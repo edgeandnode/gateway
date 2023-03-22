@@ -991,11 +991,10 @@ dependencies = [
 [[package]]
 name = "eip-712-derive"
 version = "0.3.0"
-source = "git+https://github.com/graphprotocol/eip-712-derive#998a756366f1cdd588f1a97798f792d5708bed59"
+source = "git+https://github.com/graphprotocol/eip-712-derive?rev=d74c62b#d74c62b22f05b7df641e9abc4697bf7e56c4dbb0"
 dependencies = [
  "clear_on_drop",
  "keccak-hash",
- "lazy_static",
  "libsecp256k1",
 ]
 
@@ -1132,7 +1131,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c22d4b5885b6aa2fe5e8b9329fb8d232bf739e434e6b87347c63bdd00c120f60"
 dependencies = [
  "crunchy",
- "fixed-hash 0.8.0",
+ "fixed-hash",
  "impl-codec",
  "impl-rlp",
  "impl-serde",
@@ -1147,11 +1146,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02d215cbf040552efcbe99a38372fe80ab9d00268e20012b79fcd0f073edd8ee"
 dependencies = [
  "ethbloom",
- "fixed-hash 0.8.0",
+ "fixed-hash",
  "impl-codec",
  "impl-rlp",
  "impl-serde",
- "primitive-types 0.12.1",
+ "primitive-types",
  "scale-info",
  "uint",
 ]
@@ -1461,15 +1460,6 @@ checksum = "2c5f6c2c942da57e2aaaa84b8a521489486f14e75e7fa91dab70aba913975f98"
 
 [[package]]
 name = "fixed-hash"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfcf0ed7fe52a17a03854ec54a9f76d6d84508d1c0e66bc1793301c73fc8493c"
-dependencies = [
- "static_assertions",
-]
-
-[[package]]
-name = "fixed-hash"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "835c052cb0c08c1acf6ffd71c022172e18723949c8282f2b9f27efbc51e64534"
@@ -1684,7 +1674,7 @@ dependencies = [
  "maxminddb",
  "parking_lot 0.12.1",
  "prelude",
- "primitive-types 0.12.1",
+ "primitive-types",
  "prometheus",
  "rdkafka",
  "regex",
@@ -1703,7 +1693,7 @@ dependencies = [
 [[package]]
 name = "graph-subscriptions"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/subscription-payments?rev=cdd5e87#cdd5e8774006cd267fe237e4f2d4f0582128fafd"
+source = "git+https://github.com/edgeandnode/subscription-payments?rev=8859606#8859606f5bea8976233160db3575913be5f7d4f1"
 dependencies = [
  "anyhow",
  "base64 0.21.0",
@@ -2174,11 +2164,11 @@ dependencies = [
 
 [[package]]
 name = "keccak-hash"
-version = "0.8.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce2bd4c29270e724d3eaadf7bdc8700af4221fc0ed771b855eadcd1b98d52851"
+checksum = "4b286e6b663fb926e1eeb68528e69cb70ed46c6d65871a21b2215ae8154c6d3c"
 dependencies = [
- "primitive-types 0.10.1",
+ "primitive-types",
  "tiny-keccak",
 ]
 
@@ -2849,7 +2839,7 @@ dependencies = [
  "anyhow",
  "eventuals",
  "hex",
- "primitive-types 0.12.1",
+ "primitive-types",
  "rand",
  "reqwest",
  "serde",
@@ -2874,21 +2864,11 @@ dependencies = [
 
 [[package]]
 name = "primitive-types"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05e4722c697a58a99d5d06a08c30821d7c082a4632198de1eaa5a6c22ef42373"
-dependencies = [
- "fixed-hash 0.7.0",
- "uint",
-]
-
-[[package]]
-name = "primitive-types"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f3486ccba82358b11a77516035647c34ba167dfa53312630de83b12bd4f3d66"
 dependencies = [
- "fixed-hash 0.8.0",
+ "fixed-hash",
  "impl-codec",
  "impl-rlp",
  "impl-serde",
@@ -3068,7 +3048,7 @@ source = "git+ssh://git@github.com/edgeandnode/receipts.git?rev=89a821c#89a821c0
 dependencies = [
  "itertools",
  "lazy_static",
- "primitive-types 0.12.1",
+ "primitive-types",
  "rand",
  "secp256k1 0.24.3",
  "tiny-keccak",
