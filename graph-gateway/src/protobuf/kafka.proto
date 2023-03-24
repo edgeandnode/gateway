@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package kafka;
+
+message GatewaySubscriptionQueryResult {
+  // Set to the value of the CF-Ray header, otherwise a generated UUID
+  string query_id = 1;
+  // Subgraph Deployment ID, CIDv0 ("Qm" hash)
+  string deployment = 2;
+  // Chain name indexed by subgraph deployment
+  string subgraph_chain = 3;
+  // `user` field from ticket payload, 0x-prefixed hex
+  string ticket_user = 4;
+  // `signer` field from ticket payload, 0x-prefixed hex
+  string ticket_signer = 5;
+  // `name` field from ticket payload
+  string ticket_name = 6;
+  uint32 query_count = 7;
+  uint32 status_code = 8;
+  string status_message = 9;
+  uint32 response_time_ms = 10;
+  float query_budget = 11;
+  float indexer_fees = 12;
+}

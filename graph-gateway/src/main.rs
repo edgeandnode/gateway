@@ -13,6 +13,7 @@ mod manifest_client;
 mod metrics;
 mod network_subgraph;
 mod price_automation;
+mod protobuf;
 mod rate_limiter;
 mod receipts;
 mod studio_client;

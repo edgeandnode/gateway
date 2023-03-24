@@ -34,6 +34,10 @@ simple-rate-limiter = "1.0"
 tiny-bip39 = "1.0"
 trust-dns-resolver = { version = "0.22", features = ["dns-over-rustls"] }
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
+prost = { version = "0.11.8", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 regex = "1.5"
+
+[build-dependencies]
+prost-build = "0.11.8"

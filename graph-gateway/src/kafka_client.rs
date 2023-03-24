@@ -1,3 +1,5 @@
+pub use crate::protobuf::kafka::*;
+
 use crate::indexer_client::{IndexerError, ResponsePayload};
 use prelude::*;
 use rdkafka::{
