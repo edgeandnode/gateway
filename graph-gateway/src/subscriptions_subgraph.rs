@@ -51,13 +51,14 @@ impl Client {
 
         let query = format!(
             r#"
-            activeSubscriptions(
+            userSubscriptions(
                 block: $block
                 orderBy: id, orderDirection: asc
                 first: $first
                 where: {{
                     id_gt: $last
                     end_gte: {active_sub_end}
+                    cancelled: false
                 }}
             ) {{
                 id
