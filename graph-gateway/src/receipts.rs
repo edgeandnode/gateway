@@ -12,9 +12,9 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct ReceiptPools {
-    pools: Arc<RwLock<HashMap<Indexing, Arc<Mutex<ReceiptPool>>>>>,
+    pools: RwLock<HashMap<Indexing, Arc<Mutex<ReceiptPool>>>>,
 }
 
 impl ReceiptPools {

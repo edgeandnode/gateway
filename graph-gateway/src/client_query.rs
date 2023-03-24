@@ -81,16 +81,16 @@ impl fmt::Debug for QueryID {
 #[derive(Clone)]
 pub struct Context {
     pub indexer_client: IndexerClient,
-    pub kafka_client: Arc<KafkaClient>,
-    pub fisherman_client: Option<Arc<FishermanClient>>,
+    pub kafka_client: &'static KafkaClient,
+    pub fisherman_client: Option<&'static FishermanClient>,
     pub graph_env_id: String,
     pub auth_handler: &'static AuthHandler,
     pub indexer_selection_retry_limit: usize,
-    pub block_caches: Arc<HashMap<String, BlockCache>>,
+    pub block_caches: &'static HashMap<String, BlockCache>,
     pub subgraph_info: SubgraphInfoMap,
     pub subgraph_deployments: SubgraphDeployments,
     pub deployment_indexers: Eventual<Ptr<HashMap<DeploymentId, Vec<Address>>>>,
-    pub receipt_pools: ReceiptPools,
+    pub receipt_pools: &'static ReceiptPools,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
 }
@@ -438,9 +438,9 @@ async fn handle_client_query_inner(
 
         let mut indexer_query_context = IndexerQueryContext {
             indexer_client: ctx.indexer_client.clone(),
-            kafka_client: ctx.kafka_client.clone(),
-            fisherman_client: ctx.fisherman_client.clone(),
-            receipt_pools: ctx.receipt_pools.clone(),
+            kafka_client: ctx.kafka_client,
+            fisherman_client: ctx.fisherman_client,
+            receipt_pools: ctx.receipt_pools,
             observations: ctx.observations.clone(),
             subgraph_info: subgraph_info.clone(),
             latest_block: latest_block.number,
@@ -498,9 +498,9 @@ async fn handle_client_query_inner(
 #[derive(Clone)]
 struct IndexerQueryContext {
     pub indexer_client: IndexerClient,
-    pub kafka_client: Arc<KafkaClient>,
-    pub fisherman_client: Option<Arc<FishermanClient>>,
-    pub receipt_pools: ReceiptPools,
+    pub kafka_client: &'static KafkaClient,
+    pub fisherman_client: Option<&'static FishermanClient>,
+    pub receipt_pools: &'static ReceiptPools,
     pub observations: QueueWriter<Update>,
     pub subgraph_info: Ptr<SubgraphInfo>,
     pub latest_block: u64,
@@ -676,7 +676,7 @@ async fn handle_indexer_query_inner(
 
     if let Some(attestation) = &response.payload.attestation {
         challenge_indexer_response(
-            ctx.fisherman_client.clone(),
+            ctx.fisherman_client,
             ctx.observations.clone(),
             selection.indexing,
             allocation,
@@ -690,7 +690,7 @@ async fn handle_indexer_query_inner(
 }
 
 fn challenge_indexer_response(
-    fisherman_client: Option<Arc<FishermanClient>>,
+    fisherman_client: Option<&'static FishermanClient>,
     observations: QueueWriter<Update>,
     indexing: Indexing,
     allocation: Address,
