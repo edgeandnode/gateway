@@ -44,38 +44,19 @@ use serde_json::value::RawValue;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
-        atomic::{AtomicUsize, Ordering as MemoryOrdering},
+        atomic::{self, AtomicUsize},
         Arc,
     },
 };
 use uuid::Uuid;
 
-#[derive(Copy, Clone)]
-pub struct QueryID {
-    pub local_id: u64,
-}
-
-impl QueryID {
-    pub fn new() -> Self {
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
-        let local_id = COUNTER.fetch_add(1, MemoryOrdering::Relaxed) as u64;
-        Self { local_id }
+fn query_id() -> String {
+    lazy_static! {
+        static ref GATEWAY_ID: Uuid = Uuid::new_v4();
     }
-}
-
-impl fmt::Display for QueryID {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        lazy_static! {
-            static ref GATEWAY_ID: Uuid = Uuid::new_v4();
-        }
-        write!(f, "{}-{:x}", *GATEWAY_ID, self.local_id)
-    }
-}
-
-impl fmt::Debug for QueryID {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self}")
-    }
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let local_id = COUNTER.fetch_add(1, atomic::Ordering::Relaxed);
+    format!("{}-{:x}", *GATEWAY_ID, local_id)
 }
 
 #[derive(Clone)]
@@ -115,8 +96,9 @@ pub async fn handle_query(
     ctx: web::Data<Context>,
 ) -> HttpResponse {
     let start_time = Instant::now();
-    let query_id = QueryID::new();
     let headers = request.headers();
+    let ray_id = headers.get("cf-ray").and_then(|value| value.to_str().ok());
+    let query_id = ray_id.map(ToString::to_string).unwrap_or_else(query_id);
 
     let auth = match (
         request.match_info().get("api_key"),
@@ -155,8 +137,7 @@ pub async fn handle_query(
         .unwrap_or_default();
     let span = tracing::info_span!(
         "handle_client_query",
-        query_id = %report.query_id,
-        ray_id = %report.ray_id,
+        %query_id,
         api_key = %report.api_key,
         deployment = %report.deployment,
     );
