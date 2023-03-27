@@ -5,9 +5,7 @@ use crate::{
     fisherman_client::{ChallengeOutcome, FishermanClient},
     graphql_error_response,
     indexer_client::{Attestation, IndexerClient, IndexerError, ResponsePayload},
-    kafka_client::{
-        indexer_attempt_status_code, timestamp, ClientQueryResult, IndexerAttempt, KafkaClient,
-    },
+    kafka_client::{indexer_attempt_status_code, ClientQueryResult, IndexerAttempt, KafkaClient},
     manifest_client::{SubgraphInfo, SubgraphInfoMap},
     metrics::{with_metric, METRICS},
     receipts::{ReceiptPools, ReceiptStatus},
@@ -169,7 +167,7 @@ pub async fn handle_query(
         Ok(_) => 0,
         Err(_) => sip24_hash(&report.status) as u32 | 0x1,
     };
-    report.timestamp = timestamp();
+    report.timestamp = unix_timestamp();
     report.response_time_ms = (Instant::now() - start_time).as_millis() as u32;
     ctx.kafka_client.send(&report);
     // data science
@@ -551,7 +549,7 @@ async fn handle_indexer_query(
         result: observation,
     });
 
-    ctx.report.timestamp = timestamp();
+    ctx.report.timestamp = unix_timestamp();
     ctx.kafka_client.send(&ctx.report);
     // data science
     tracing::info!(

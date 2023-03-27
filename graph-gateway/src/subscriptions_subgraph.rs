@@ -1,5 +1,4 @@
 use crate::config::SubscriptionTiers;
-use crate::kafka_client::timestamp;
 use crate::price_automation::VolumeEstimations;
 use crate::subgraph_client;
 use crate::subscriptions::{ActiveSubscription, Subscription};
@@ -47,7 +46,7 @@ impl Client {
 
     async fn poll_active_subscriptions(&mut self) -> Result<(), String> {
         // Serve queries for subscriptions that end 10 minutes ago and later.
-        let active_sub_end = (timestamp() / 1000) - (60 * 10);
+        let active_sub_end = (unix_timestamp() / 1000) - (60 * 10);
 
         let query = format!(
             r#"

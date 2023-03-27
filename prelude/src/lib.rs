@@ -24,7 +24,7 @@ static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 use serde::Deserialize;
 use siphasher::sip::SipHasher24;
-use std::hash::{Hash, Hasher as _};
+use std::{hash::{Hash, Hasher as _}, time::SystemTime};
 use tracing_subscriber::{self, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub fn init_tracing(json: bool) {
@@ -40,6 +40,14 @@ pub fn init_tracing(json: bool) {
     } else {
         defaults.with(fmt_layer).init();
     }
+}
+
+/// Milliseconds since Unix epoch
+pub fn unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
 pub fn sip24_hash(value: &impl Hash) -> u64 {

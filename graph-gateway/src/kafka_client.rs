@@ -8,7 +8,6 @@ use rdkafka::{
     producer::{BaseRecord, DefaultProducerContext, ThreadedProducer},
 };
 use serde::Serialize;
-use std::time::SystemTime;
 
 pub trait Msg: Serialize {
     const TOPIC: &'static str;
@@ -95,11 +94,4 @@ pub fn indexer_attempt_status_code(result: &Result<ResponsePayload, IndexerError
         Err(IndexerError::Other(msg)) => (0x6, sip24_hash(&msg) as u32),
     };
     (prefix << 28) | (data & (u32::MAX >> 4))
-}
-
-pub fn timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
 }
