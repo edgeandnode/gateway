@@ -27,7 +27,7 @@ use indexer_selection::{
 };
 use lazy_static::lazy_static;
 use prelude::{
-    anyhow::{anyhow, bail, ensure, Context as _},
+    anyhow::{anyhow, bail, Context as _},
     buffer_queue::QueueWriter,
     double_buffer::DoubleBufferReader,
     graphql::{
@@ -57,6 +57,36 @@ fn query_id() -> String {
     format!("{}-{:x}", *GATEWAY_ID, local_id)
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Block not found: {0}")]
+    BlockNotFound(UnresolvedBlock),
+    #[error("Subgraph deployment not found: {0}")]
+    DeploymentNotFound(DeploymentId),
+    #[error("Internal error: {0:#}")]
+    Internal(anyhow::Error),
+    #[error("Invalid auth: {0:#}")]
+    InvalidAuth(anyhow::Error),
+    #[error("Invalid subgraph deployment: {0}")]
+    InvalidDeploymentId(String),
+    #[error("Invalid query: {0:#}")]
+    InvalidQuery(anyhow::Error),
+    #[error("Invalid subgraph: {0}")]
+    InvalidSubgraphId(String),
+    #[error("No indexers found for subgraph deployment")]
+    NoIndexers,
+    #[error("No suitable indexer found for subgraph deployment. {0:#}")]
+    NoSuitableIndexer(anyhow::Error),
+    #[error("Subgraph chain not supported: {0}")]
+    SubgraphChainNotSupported(String),
+    #[error("Subgraph not found: {0}")]
+    SubgraphNotFound(SubgraphId),
+}
+
+fn legacy_status<T>(result: &Result<T, Error>) -> (String, u32) {
+    todo!()
+}
+
 #[derive(Clone)]
 pub struct Context {
     pub indexer_client: IndexerClient,
@@ -78,14 +108,6 @@ pub struct Context {
 pub struct QueryBody {
     pub query: String,
     pub variables: Option<Box<RawValue>>,
-}
-
-#[derive(Debug)]
-enum SubgraphResolutionError {
-    InvalidSubgraphID(String),
-    InvalidDeploymentID(String),
-    SubgraphNotFound(String),
-    DeploymentNotFound(String),
 }
 
 pub async fn handle_query(
@@ -153,8 +175,8 @@ pub async fn handle_query(
                 .instrument(span)
                 .await
         }
-        (Err(auth_err), _) => Err(auth_err),
-        (_, Err(subgraph_resolution_err)) => Err(anyhow!("{:?}", subgraph_resolution_err)),
+        (Err(auth_err), _) => Err(Error::InvalidAuth(auth_err)),
+        (_, Err(subgraph_resolution_err)) => Err(subgraph_resolution_err),
     };
     METRICS.client_query.check(&[&report.deployment], &result);
 
@@ -206,25 +228,25 @@ async fn resolve_subgraph_deployment(
     deployments: &SubgraphDeployments,
     subgraph_info: &SubgraphInfoMap,
     params: &actix_web::dev::Path<actix_web::dev::Url>,
-) -> Result<Ptr<SubgraphInfo>, SubgraphResolutionError> {
+) -> Result<Ptr<SubgraphInfo>, Error> {
     let deployment = if let Some(id) = params.get("subgraph_id") {
         let subgraph = id
             .parse::<SubgraphId>()
-            .map_err(|_| SubgraphResolutionError::InvalidSubgraphID(id.to_string()))?;
+            .map_err(|_| Error::InvalidSubgraphId(id.to_string()))?;
         deployments
             .current_deployment(&subgraph)
             .await
-            .ok_or_else(|| SubgraphResolutionError::SubgraphNotFound(id.to_string()))?
+            .ok_or_else(|| Error::SubgraphNotFound(subgraph))?
     } else if let Some(id) = params.get("deployment_id") {
         DeploymentId::from_ipfs_hash(id)
-            .ok_or_else(|| SubgraphResolutionError::InvalidDeploymentID(id.to_string()))?
+            .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))?
     } else {
-        return Err(SubgraphResolutionError::SubgraphNotFound("".to_string()));
+        return Err(Error::InvalidDeploymentId("".to_string()));
     };
     subgraph_info
         .value_immediate()
         .and_then(|map| map.get(&deployment)?.value_immediate())
-        .ok_or_else(|| SubgraphResolutionError::DeploymentNotFound(deployment.to_string()))
+        .ok_or_else(|| Error::DeploymentNotFound(deployment))
 }
 
 async fn handle_client_query_inner(
@@ -234,12 +256,13 @@ async fn handle_client_query_inner(
     payload: QueryBody,
     auth: &AuthToken,
     domain: String,
-) -> anyhow::Result<ResponsePayload> {
+) -> Result<ResponsePayload, Error> {
     report.network = subgraph_info.network.clone();
 
     ctx.auth_handler
         .check_token(auth, &subgraph_info, &domain)
-        .await?;
+        .await
+        .map_err(Error::InvalidAuth)?;
 
     let deployment_indexers = ctx
         .deployment_indexers
@@ -247,17 +270,17 @@ async fn handle_client_query_inner(
         .and_then(|map| map.get(&subgraph_info.deployment).cloned())
         .unwrap_or_default();
     tracing::info!(deployment_indexers = deployment_indexers.len());
-    ensure!(
-        !deployment_indexers.is_empty(),
-        "No indexers found for subgraph deployment"
-    );
+    if deployment_indexers.is_empty() {
+        return Err(Error::NoIndexers);
+    }
 
     let variables = payload
         .variables
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_default();
-    let context = AgoraContext::new(&payload.query, &variables)?;
+    let context = AgoraContext::new(&payload.query, &variables)
+        .map_err(|err| Error::InvalidQuery(anyhow!("{}", err)))?;
     // data science
     tracing::info!(
         query_id = %report.query_id,
@@ -271,9 +294,10 @@ async fn handle_client_query_inner(
         .block_caches
         .get(&subgraph_info.network)
         .cloned()
-        .ok_or_else(|| anyhow!("Network not supported: {}", &subgraph_info.network))?;
+        .ok_or_else(|| Error::SubgraphChainNotSupported(subgraph_info.network.clone()))?;
 
-    let block_constraints = block_constraints(&context).ok_or(anyhow!("Invalid query"))?;
+    let block_constraints = block_constraints(&context)
+        .ok_or_else(|| Error::InvalidQuery(anyhow!("Failed to determine block constraints.")))?;
     let resolved_blocks = join_all(
         block_constraints
             .iter()
@@ -283,7 +307,7 @@ async fn handle_client_query_inner(
     .await
     .into_iter()
     .collect::<Result<BTreeSet<BlockPointer>, UnresolvedBlock>>()
-    .map_err(|unresolved| anyhow!("Unresolved block: {}", unresolved))?;
+    .map_err(Error::BlockNotFound)?;
     let min_block = resolved_blocks.iter().map(|b| b.number).min();
     let max_block = resolved_blocks.iter().map(|b| b.number).max();
     let block_requirements = BlockRequirements {
@@ -295,11 +319,12 @@ async fn handle_client_query_inner(
     };
 
     // Reject queries for blocks before minimum start block of subgraph manifest.
-    ensure!(
-        !matches!(min_block, Some(min_block) if min_block < subgraph_info.min_block),
-        "Requested block before minimum `startBlock` of subgraph manifest: {}",
-        min_block.unwrap_or_default()
-    );
+    if matches!(min_block, Some(min_block) if min_block < subgraph_info.min_block) {
+        return Err(Error::InvalidQuery(anyhow!(
+            "Requested block before minimum `startBlock` of subgraph manifest: {}",
+            min_block.unwrap_or_default()
+        )));
+    }
 
     report.query_count = match &auth {
         AuthToken::Ticket(_, _) => count_top_level_selection_sets(&context),
@@ -307,20 +332,20 @@ async fn handle_client_query_inner(
         // Agora counts queries, but we want to avoid price shocks for now.
         AuthToken::ApiKey(_) => Ok(context.operations.len()),
     }
-    .context("Invalid query")?
+    .map_err(Error::InvalidQuery)?
     .max(1) as u64;
 
     let settings = ctx
         .auth_handler
         .query_settings(auth, report.query_count)
-        .await?;
+        .await;
 
     let budget: GRT = ctx
         .isa_state
         .latest()
         .network_params
         .usd_to_grt(settings.budget)
-        .ok_or_else(|| anyhow!("Internal error: MissingExchangeRate"))?;
+        .ok_or_else(|| Error::Internal(anyhow!("Missing exchange rate")))?;
     report.budget = budget.to_string();
     report.budget_float = budget.as_f64() as f32;
 
@@ -349,7 +374,7 @@ async fn handle_client_query_inner(
         let latest_block = block_cache
             .chain_head
             .value_immediate()
-            .ok_or_else(|| anyhow!("Unresolved block: 0"))?;
+            .ok_or(Error::BlockNotFound(UnresolvedBlock::WithNumber(0)))?;
         tracing::debug!(?latest_block);
         // 170cbcf3-db7f-404a-be13-2022d9142677
         utility_params.latest_block = latest_block.number;
@@ -387,8 +412,10 @@ async fn handle_client_query_inner(
                 SELECTION_LIMIT as u8,
             )
             .map_err(|err| match err {
-                InputError::MalformedQuery => anyhow!("Invalid query"),
-                InputError::MissingNetworkParams => anyhow!("Internal error: MissingNetworkParams"),
+                InputError::MalformedQuery => Error::InvalidQuery(anyhow!("Failed to parse")),
+                InputError::MissingNetworkParams => {
+                    Error::Internal(anyhow!("Missing network params"))
+                }
             })?;
         drop(selection_timer);
 
@@ -403,10 +430,10 @@ async fn handle_client_query_inner(
                 .map(|(k, v)| (k, v.len()))
                 .filter(|(_, l)| *l > 0)
                 .collect::<BTreeMap<&IndexerSelectionError, usize>>();
-            bail!(
-                "No suitable indexer found for subgraph deployment. Indexer selection errors: {:?}",
+            return Err(Error::NoSuitableIndexer(anyhow!(
+                "Indexer selection errors: {:?}",
                 isa_errors
-            );
+            )));
         }
 
         report.fee = selections
@@ -440,11 +467,13 @@ async fn handle_client_query_inner(
             {
                 Ok(latest_query_block) => latest_query_block,
                 Err(_) if !last_retry => continue,
-                Err(unresolved) => bail!("Unresolved block: {}", unresolved),
+                Err(unresolved) => return Err(Error::BlockNotFound(unresolved)),
             };
             let deterministic_query =
                 make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)
-                    .ok_or_else(|| anyhow!("Invalid query"))?;
+                    .ok_or_else(|| {
+                        Error::InvalidQuery(anyhow!("Failed to set block constraints"))
+                    })?;
 
             let indexer_query_context = indexer_query_context.clone();
             let response_tx = response_tx.clone();
@@ -468,10 +497,10 @@ async fn handle_client_query_inner(
         }
     }
 
-    bail!(
-        "No suitable indexer found for subgraph deployment. Indexer queries attempted: {}",
+    Err(Error::NoSuitableIndexer(anyhow!(
+        "Indexer queries attempted: {}",
         total_indexer_queries
-    );
+    )))
 }
 
 #[derive(Clone)]

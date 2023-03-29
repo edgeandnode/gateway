@@ -230,11 +230,7 @@ impl AuthHandler {
         Ok(())
     }
 
-    pub async fn query_settings(
-        &self,
-        token: &AuthToken,
-        query_count: u64,
-    ) -> Result<QuerySettings> {
+    pub async fn query_settings(&self, token: &AuthToken, query_count: u64) -> QuerySettings {
         // This has to run even if we don't use the budget because it updates the query volume
         // estimate. This is important in the case that the user switches back to automated volume
         // discounting. Otherwise it will look like there is a long period of inactivity which would
@@ -263,9 +259,9 @@ impl AuthHandler {
             AuthToken::Ticket(_, _) => IndexerPreferences::default(),
         };
 
-        Ok(QuerySettings {
+        QuerySettings {
             budget,
             indexer_preferences,
-        })
+        }
     }
 }
