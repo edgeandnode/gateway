@@ -1,10 +1,9 @@
 use crate::{
     client_query,
     indexer_client::{IndexerError, ResponsePayload},
-    protobuf::kafka::{GatewaySubscriptionQueryResult, StatusCode},
 };
 use prelude::{tracing::span, *};
-use prost::Message;
+use prost::Message as _;
 use rdkafka::error::KafkaResult;
 use serde::Deserialize;
 use serde_json::{json, Map};
@@ -401,6 +400,50 @@ pub fn status<T>(result: &Result<T, client_query::Error>) -> (String, i32) {
             }
         },
     }
+}
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct GatewaySubscriptionQueryResult {
+    /// Set to the value of the CF-Ray header, otherwise a generated UUID
+    #[prost(string, tag = "1")]
+    pub query_id: prost::alloc::string::String,
+    #[prost(enumeration = "StatusCode", tag = "2")]
+    pub status_code: i32,
+    #[prost(string, tag = "3")]
+    pub status_message: prost::alloc::string::String,
+    #[prost(uint32, tag = "4")]
+    pub response_time_ms: u32,
+    /// `user` field from ticket payload, 0x-prefixed hex
+    #[prost(string, tag = "5")]
+    pub ticket_user: prost::alloc::string::String,
+    /// `signer` field from ticket payload, 0x-prefixed hex
+    #[prost(string, tag = "6")]
+    pub ticket_signer: prost::alloc::string::String,
+    /// `name` field from ticket payload
+    #[prost(string, optional, tag = "7")]
+    pub ticket_name: Option<prost::alloc::string::String>,
+    /// Subgraph Deployment ID, CIDv0 ("Qm" hash)
+    #[prost(string, optional, tag = "8")]
+    pub deployment: Option<prost::alloc::string::String>,
+    /// Chain name indexed by subgraph deployment
+    #[prost(string, optional, tag = "9")]
+    pub subgraph_chain: Option<prost::alloc::string::String>,
+    #[prost(uint32, optional, tag = "10")]
+    pub query_count: Option<u32>,
+    #[prost(float, optional, tag = "11")]
+    pub query_budget: Option<f32>,
+    #[prost(float, optional, tag = "12")]
+    pub indexer_fees: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, prost::Enumeration)]
+#[repr(i32)]
+pub enum StatusCode {
+    Success = 0,
+    InternalError = 1,
+    UserError = 2,
+    NotFound = 3,
 }
 
 pub fn legacy_status<T>(result: &Result<T, client_query::Error>) -> (String, u32) {
