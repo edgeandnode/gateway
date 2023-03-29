@@ -84,7 +84,28 @@ pub enum Error {
 }
 
 fn legacy_status<T>(result: &Result<T, Error>) -> (String, u32) {
-    todo!()
+    match result {
+        Ok(_) => ("200 OK".to_string(), 0),
+        Err(err) => match err {
+            Error::BlockNotFound(_) => ("Unresolved block".to_string(), 604610595),
+            Error::DeploymentNotFound(_) => (err.to_string(), 628859297),
+            Error::Internal(_) => ("Internal error".to_string(), 816601499),
+            Error::InvalidAuth(_) => ("Invalid API key".to_string(), 888904173),
+            Error::InvalidDeploymentId(_) => (err.to_string(), 19391651),
+            Error::InvalidQuery(_) => ("Invalid query".to_string(), 595700117),
+            Error::InvalidSubgraphId(_) => (err.to_string(), 2992863035),
+            Error::NoIndexers => (
+                "No indexers found for subgraph deployment".to_string(),
+                1621366907,
+            ),
+            Error::NoSuitableIndexer(_) => (
+                "No suitable indexer found for subgraph deployment".to_string(),
+                510359393,
+            ),
+            Error::SubgraphChainNotSupported(_) => (err.to_string(), 1760440045),
+            Error::SubgraphNotFound(_) => (err.to_string(), 2599148187),
+        },
+    }
 }
 
 #[derive(Clone)]
@@ -180,15 +201,7 @@ pub async fn handle_query(
     };
     METRICS.client_query.check(&[&report.deployment], &result);
 
-    // TODO: test reporting
-    report.status = match &result {
-        Ok(_) => StatusCode::OK.to_string(),
-        Err(err) => err.to_string(),
-    };
-    report.status_code = match &result {
-        Ok(_) => 0,
-        Err(_) => sip24_hash(&report.status) as u32 | 0x1,
-    };
+    (report.status, report.status_code) = legacy_status(&result);
     report.timestamp = unix_timestamp();
     report.response_time_ms = (Instant::now() - start_time).as_millis() as u32;
     ctx.kafka_client.send(&report);
