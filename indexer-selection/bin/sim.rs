@@ -44,6 +44,7 @@ async fn main() -> Result<()> {
         budget,
         freshness_requirements,
         latest_block,
+        0.1,
         0.0,
         0.0,
         0.0,

@@ -155,6 +155,7 @@ pub struct UtilityParameters {
     pub budget: GRT,
     pub requirements: BlockRequirements,
     pub latest_block: u64,
+    pub block_rate_hz: f64,
     pub performance: ConcaveUtilityParameters,
     pub data_freshness: ConcaveUtilityParameters,
     pub economic_security: ConcaveUtilityParameters,
@@ -162,10 +163,12 @@ pub struct UtilityParameters {
 }
 
 impl UtilityParameters {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         budget: GRT,
         requirements: BlockRequirements,
         latest_block: u64,
+        block_rate_hz: f64,
         performance: f64,
         data_freshness: f64,
         economic_security: f64,
@@ -181,6 +184,7 @@ impl UtilityParameters {
             budget,
             requirements,
             latest_block,
+            block_rate_hz,
             // 170cbcf3-db7f-404a-be13-2022d9142677
             performance: ConcaveUtilityParameters {
                 a: interp(1.1, 1.2, performance),

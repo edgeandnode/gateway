@@ -35,6 +35,7 @@ pub struct BlockRequirements {
 #[derive(Clone)]
 pub struct BlockCache {
     pub chain_head: Eventual<BlockPointer>,
+    pub block_rate_hz: f64,
     request_tx: mpsc::UnboundedSender<Request>,
 }
 
@@ -44,7 +45,7 @@ struct Request {
 }
 
 impl BlockCache {
-    pub fn new<C: Client>(provider: C::Provider) -> Self {
+    pub fn new<C: Client>(block_rate_hz: f64, provider: C::Provider) -> Self {
         let (chain_head_broadcast_tx, chain_head_broadcast_rx) = Eventual::new();
         let (notify_tx, notify_rx) = mpsc::unbounded_channel();
         let (request_tx, request_rx) = mpsc::unbounded_channel();
@@ -61,6 +62,7 @@ impl BlockCache {
         actor.spawn();
         Self {
             chain_head: chain_head_broadcast_rx,
+            block_rate_hz,
             request_tx,
         }
     }

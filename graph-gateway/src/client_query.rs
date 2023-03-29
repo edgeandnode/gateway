@@ -349,6 +349,7 @@ async fn handle_client_query_inner(
         budget,
         block_requirements,
         0, // 170cbcf3-db7f-404a-be13-2022d9142677
+        block_cache.block_rate_hz,
         settings.indexer_preferences.performance,
         settings.indexer_preferences.data_freshness,
         settings.indexer_preferences.economic_security,

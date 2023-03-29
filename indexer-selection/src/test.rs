@@ -175,6 +175,7 @@ impl Topology {
                     has_latest: required_block.is_some() && rng.gen_bool(0.5),
                 },
                 self.blocks.last()?.number,
+                0.1,
                 0.0,
                 0.0,
                 0.0,

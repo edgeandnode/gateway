@@ -113,7 +113,7 @@ async fn main() {
         .into_iter()
         .map(|chain| {
             let network = chain.name.clone();
-            let cache = BlockCache::new::<ethereum::Client>(chain.into());
+            let cache = BlockCache::new::<ethereum::Client>(chain.block_rate_hz, chain.into());
             (network, cache)
         })
         .collect::<HashMap<String, BlockCache>>();
