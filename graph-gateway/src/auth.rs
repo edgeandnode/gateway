@@ -42,18 +42,6 @@ pub enum AuthToken {
     Ticket(TicketPayload, Subscription),
 }
 
-impl AuthToken {
-    pub fn api_key(&self) -> String {
-        match self {
-            Self::ApiKey(api_key) => api_key.key.clone(),
-            Self::Ticket(payload, _) => payload
-                .name
-                .clone()
-                .unwrap_or_else(|| payload.id.to_string()),
-        }
-    }
-}
-
 impl AuthHandler {
     pub fn create(
         query_budget_factors: QueryBudgetFactors,

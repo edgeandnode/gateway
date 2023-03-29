@@ -228,6 +228,27 @@ fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Valu
     .unwrap();
     println!("{log}");
 
+    if let (Some(ticket_user), Some(ticket_signer)) = (fields.ticket_user, fields.ticket_signer) {
+        let payload = GatewaySubscriptionQueryResult {
+            query_id: fields.query_id.clone(),
+            status_code: fields.status_code,
+            status_message: fields.status_message.clone(),
+            response_time_ms,
+            ticket_user,
+            ticket_signer,
+            ticket_name: fields.ticket_name,
+            deployment: fields.deployment.clone(),
+            subgraph_chain: fields.subgraph_chain.clone(),
+            query_count: fields.query_count,
+            query_budget: fields.budget_grt,
+            indexer_fees: fields.indexer_fees_grt,
+        };
+        kafka.send(
+            "gateway_subscription_query_results",
+            &payload.encode_to_vec(),
+        );
+    }
+
     // The following are maintained for backwards compatibility of existing data science
     // systems. They only apply to queries using Studio API keys.
     let api_key = match fields.api_key {

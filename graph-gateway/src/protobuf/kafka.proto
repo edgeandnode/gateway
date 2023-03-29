@@ -5,20 +5,20 @@ package kafka;
 message GatewaySubscriptionQueryResult {
   // Set to the value of the CF-Ray header, otherwise a generated UUID
   string query_id = 1;
-  // Subgraph Deployment ID, CIDv0 ("Qm" hash)
-  string deployment = 2;
-  // Chain name indexed by subgraph deployment
-  string subgraph_chain = 3;
+  uint32 status_code = 2;
+  string status_message = 3;
+  uint32 response_time_ms = 4;
   // `user` field from ticket payload, 0x-prefixed hex
-  string ticket_user = 4;
+  string ticket_user = 5;
   // `signer` field from ticket payload, 0x-prefixed hex
-  string ticket_signer = 5;
+  string ticket_signer = 6;
   // `name` field from ticket payload
-  string ticket_name = 6;
-  uint32 query_count = 7;
-  uint32 status_code = 8;
-  string status_message = 9;
-  uint32 response_time_ms = 10;
-  float query_budget = 11;
-  float indexer_fees = 12;
+  optional string ticket_name = 7;
+  // Subgraph Deployment ID, CIDv0 ("Qm" hash)
+  optional string deployment = 8;
+  // Chain name indexed by subgraph deployment
+  optional string subgraph_chain = 9;
+  optional uint32 query_count = 10;
+  optional float query_budget = 11;
+  optional float indexer_fees = 12;
 }
