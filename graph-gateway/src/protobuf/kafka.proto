@@ -2,10 +2,17 @@ syntax = "proto3";
 
 package kafka;
 
+enum StatusCode {
+  STATUS_SUCCESS = 0;
+  STATUS_INTERNAL_ERROR = 1;
+  STATUS_USER_ERROR = 2;
+  STATUS_NOT_FOUND = 3;
+}
+
 message GatewaySubscriptionQueryResult {
   // Set to the value of the CF-Ray header, otherwise a generated UUID
   string query_id = 1;
-  uint32 status_code = 2;
+  StatusCode status_code = 2;
   string status_message = 3;
   uint32 response_time_ms = 4;
   // `user` field from ticket payload, 0x-prefixed hex

@@ -1,3 +1,8 @@
+use crate::{
+    client_query,
+    indexer_client::{IndexerError, ResponsePayload},
+    protobuf::kafka::GatewaySubscriptionQueryResult,
+};
 use prelude::{tracing::span, *};
 use prost::Message;
 use rdkafka::error::KafkaResult;
@@ -5,11 +10,6 @@ use serde::Deserialize;
 use serde_json::{json, Map};
 use std::error::Error;
 use tracing_subscriber::{filter::FilterFn, layer, prelude::*, registry, EnvFilter, Layer};
-
-use crate::{
-    indexer_client::{IndexerError, ResponsePayload},
-    protobuf::kafka::GatewaySubscriptionQueryResult,
-};
 
 // TODO: integrate Prometheus metrics
 
@@ -378,6 +378,53 @@ fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json::Val
         "gateway_indexer_attempts",
         &serde_json::to_vec(&kafka_msg).unwrap(),
     );
+}
+
+pub fn status<T>(result: &Result<T, client_query::Error>) -> (String, u32) {
+    match result {
+        Ok(_) => ("200 OK".to_string(), 0),
+        Err(err) => match err {
+            // internal
+            client_query::Error::Internal(_) => (err.to_string(), 1),
+            // user error
+            client_query::Error::InvalidAuth(_)
+            | client_query::Error::InvalidDeploymentId(_)
+            | client_query::Error::InvalidQuery(_)
+            | client_query::Error::InvalidSubgraphId(_)
+            | client_query::Error::SubgraphChainNotSupported(_) => (err.to_string(), 2),
+            // not found
+            client_query::Error::BlockNotFound(_)
+            | client_query::Error::DeploymentNotFound(_)
+            | client_query::Error::NoIndexers
+            | client_query::Error::NoSuitableIndexer(_)
+            | client_query::Error::SubgraphNotFound(_) => (err.to_string(), 3),
+        },
+    }
+}
+
+pub fn legacy_status<T>(result: &Result<T, client_query::Error>) -> (String, u32) {
+    match result {
+        Ok(_) => ("200 OK".to_string(), 0),
+        Err(err) => match err {
+            client_query::Error::BlockNotFound(_) => ("Unresolved block".to_string(), 604610595),
+            client_query::Error::DeploymentNotFound(_) => (err.to_string(), 628859297),
+            client_query::Error::Internal(_) => ("Internal error".to_string(), 816601499),
+            client_query::Error::InvalidAuth(_) => ("Invalid API key".to_string(), 888904173),
+            client_query::Error::InvalidDeploymentId(_) => (err.to_string(), 19391651),
+            client_query::Error::InvalidQuery(_) => ("Invalid query".to_string(), 595700117),
+            client_query::Error::InvalidSubgraphId(_) => (err.to_string(), 2992863035),
+            client_query::Error::NoIndexers => (
+                "No indexers found for subgraph deployment".to_string(),
+                1621366907,
+            ),
+            client_query::Error::NoSuitableIndexer(_) => (
+                "No suitable indexer found for subgraph deployment".to_string(),
+                510359393,
+            ),
+            client_query::Error::SubgraphChainNotSupported(_) => (err.to_string(), 1760440045),
+            client_query::Error::SubgraphNotFound(_) => (err.to_string(), 2599148187),
+        },
+    }
 }
 
 // 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)

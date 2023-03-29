@@ -83,53 +83,6 @@ pub enum Error {
     SubgraphNotFound(SubgraphId),
 }
 
-fn status<T>(result: &Result<T, Error>) -> (String, u32) {
-    match result {
-        Ok(_) => ("200 OK".to_string(), 0),
-        Err(err) => match err {
-            // internal
-            Error::Internal(_) => (err.to_string(), 1),
-            // user error
-            Error::InvalidAuth(_)
-            | Error::InvalidDeploymentId(_)
-            | Error::InvalidQuery(_)
-            | Error::InvalidSubgraphId(_)
-            | Error::SubgraphChainNotSupported(_) => (err.to_string(), 2),
-            // not found
-            Error::BlockNotFound(_)
-            | Error::DeploymentNotFound(_)
-            | Error::NoIndexers
-            | Error::NoSuitableIndexer(_)
-            | Error::SubgraphNotFound(_) => (err.to_string(), 3),
-        },
-    }
-}
-
-fn legacy_status<T>(result: &Result<T, Error>) -> (String, u32) {
-    match result {
-        Ok(_) => ("200 OK".to_string(), 0),
-        Err(err) => match err {
-            Error::BlockNotFound(_) => ("Unresolved block".to_string(), 604610595),
-            Error::DeploymentNotFound(_) => (err.to_string(), 628859297),
-            Error::Internal(_) => ("Internal error".to_string(), 816601499),
-            Error::InvalidAuth(_) => ("Invalid API key".to_string(), 888904173),
-            Error::InvalidDeploymentId(_) => (err.to_string(), 19391651),
-            Error::InvalidQuery(_) => ("Invalid query".to_string(), 595700117),
-            Error::InvalidSubgraphId(_) => (err.to_string(), 2992863035),
-            Error::NoIndexers => (
-                "No indexers found for subgraph deployment".to_string(),
-                1621366907,
-            ),
-            Error::NoSuitableIndexer(_) => (
-                "No suitable indexer found for subgraph deployment".to_string(),
-                510359393,
-            ),
-            Error::SubgraphChainNotSupported(_) => (err.to_string(), 1760440045),
-            Error::SubgraphNotFound(_) => (err.to_string(), 2599148187),
-        },
-    }
-}
-
 #[derive(Clone)]
 pub struct Context {
     pub indexer_client: IndexerClient,
@@ -214,8 +167,8 @@ pub async fn handle_query(
         .check(&[deployment.as_deref().unwrap_or("")], &result);
 
     span.in_scope(|| {
-        let (status_message, status_code) = status(&result);
-        let (legacy_status_message, legacy_status_code) = legacy_status(&result);
+        let (status_message, status_code) = reports::status(&result);
+        let (legacy_status_message, legacy_status_code) = reports::legacy_status(&result);
         tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
             start_time_ms,
