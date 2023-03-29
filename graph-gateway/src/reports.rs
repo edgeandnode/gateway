@@ -1,7 +1,7 @@
 use crate::{
     client_query,
     indexer_client::{IndexerError, ResponsePayload},
-    protobuf::kafka::GatewaySubscriptionQueryResult,
+    protobuf::kafka::{GatewaySubscriptionQueryResult, StatusCode},
 };
 use prelude::{tracing::span, *};
 use prost::Message;
@@ -182,7 +182,7 @@ fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Valu
         query_id: String,
         graph_env: String,
         status_message: String,
-        status_code: u32,
+        status_code: i32,
         legacy_status_message: String,
         legacy_status_code: u32,
         start_time_ms: u64,
@@ -380,24 +380,25 @@ fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json::Val
     );
 }
 
-pub fn status<T>(result: &Result<T, client_query::Error>) -> (String, u32) {
+pub fn status<T>(result: &Result<T, client_query::Error>) -> (String, i32) {
     match result {
-        Ok(_) => ("200 OK".to_string(), 0),
+        Ok(_) => ("200 OK".to_string(), StatusCode::Success.into()),
         Err(err) => match err {
-            // internal
-            client_query::Error::Internal(_) => (err.to_string(), 1),
-            // user error
+            client_query::Error::Internal(_) => (err.to_string(), StatusCode::InternalError.into()),
             client_query::Error::InvalidAuth(_)
             | client_query::Error::InvalidDeploymentId(_)
             | client_query::Error::InvalidQuery(_)
             | client_query::Error::InvalidSubgraphId(_)
-            | client_query::Error::SubgraphChainNotSupported(_) => (err.to_string(), 2),
-            // not found
+            | client_query::Error::SubgraphChainNotSupported(_) => {
+                (err.to_string(), StatusCode::UserError.into())
+            }
             client_query::Error::BlockNotFound(_)
             | client_query::Error::DeploymentNotFound(_)
             | client_query::Error::NoIndexers
             | client_query::Error::NoSuitableIndexer(_)
-            | client_query::Error::SubgraphNotFound(_) => (err.to_string(), 3),
+            | client_query::Error::SubgraphNotFound(_) => {
+                (err.to_string(), StatusCode::NotFound.into())
+            }
         },
     }
 }
