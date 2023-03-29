@@ -229,7 +229,6 @@ async fn main() {
         subgraph_deployments: network_subgraph_data.subgraph_deployments,
         deployment_indexers: network_subgraph_data.deployment_indexers,
         fisherman_client,
-        kafka_client,
         block_caches,
         observations: update_writer,
         receipt_pools,
