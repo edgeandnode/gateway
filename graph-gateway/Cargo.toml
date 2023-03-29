@@ -8,10 +8,10 @@ actix-cors = "=0.6.0-beta.4"
 actix-http = { version = "=3.0.0-beta.14", default-features = false }
 actix-web = { version = "=4.0.0-beta.13", default-features = false }
 actix-router = "=0.5.0-beta.4"
-chrono = { version = "0.4", default-features = false }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures = "0.3"
 futures-util = "0.3"
-graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "8859606" }
+graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "b12bd58" }
 hdwallet = "0.3"
 hex = "0.4"
 im = "15.0"
@@ -34,6 +34,12 @@ simple-rate-limiter = "1.0"
 tiny-bip39 = "1.0"
 trust-dns-resolver = { version = "0.22", features = ["dns-over-rustls"] }
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
+prost = { version = "0.11.8", default-features = false, features = ["std"] }
+thiserror = "1.0.40"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter", "json", "parking_lot"] }
 
 [dev-dependencies]
 regex = "1.5"
+
+[build-dependencies]
+prost-build = "0.11.8"

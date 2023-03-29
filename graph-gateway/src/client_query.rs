@@ -5,12 +5,10 @@ use crate::{
     fisherman_client::{ChallengeOutcome, FishermanClient},
     graphql_error_response,
     indexer_client::{Attestation, IndexerClient, IndexerError, ResponsePayload},
-    kafka_client::{
-        indexer_attempt_status_code, timestamp, ClientQueryResult, IndexerAttempt, KafkaClient,
-    },
     manifest_client::{SubgraphInfo, SubgraphInfoMap},
     metrics::{with_metric, METRICS},
     receipts::{ReceiptPools, ReceiptStatus},
+    reports,
     subgraph_deployments::SubgraphDeployments,
     unattestable_errors::{
         MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS, UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
@@ -29,7 +27,7 @@ use indexer_selection::{
 };
 use lazy_static::lazy_static;
 use prelude::{
-    anyhow::{anyhow, bail, ensure, Context as _},
+    anyhow::{anyhow, bail, Context as _},
     buffer_queue::QueueWriter,
     double_buffer::DoubleBufferReader,
     graphql::{
@@ -44,53 +42,59 @@ use serde_json::value::RawValue;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
-        atomic::{AtomicUsize, Ordering as MemoryOrdering},
+        atomic::{self, AtomicUsize},
         Arc,
     },
 };
 use uuid::Uuid;
 
-#[derive(Copy, Clone)]
-pub struct QueryID {
-    pub local_id: u64,
+fn query_id() -> String {
+    lazy_static! {
+        static ref GATEWAY_ID: Uuid = Uuid::new_v4();
+    }
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let local_id = COUNTER.fetch_add(1, atomic::Ordering::Relaxed);
+    format!("{}-{:x}", *GATEWAY_ID, local_id)
 }
 
-impl QueryID {
-    pub fn new() -> Self {
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
-        let local_id = COUNTER.fetch_add(1, MemoryOrdering::Relaxed) as u64;
-        Self { local_id }
-    }
-}
-
-impl fmt::Display for QueryID {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        lazy_static! {
-            static ref GATEWAY_ID: Uuid = Uuid::new_v4();
-        }
-        write!(f, "{}-{:x}", *GATEWAY_ID, self.local_id)
-    }
-}
-
-impl fmt::Debug for QueryID {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self}")
-    }
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Block not found: {0}")]
+    BlockNotFound(UnresolvedBlock),
+    #[error("Subgraph deployment not found: {0}")]
+    DeploymentNotFound(DeploymentId),
+    #[error("Internal error: {0:#}")]
+    Internal(anyhow::Error),
+    #[error("{0:#}")]
+    InvalidAuth(anyhow::Error),
+    #[error("Invalid subgraph deployment: {0}")]
+    InvalidDeploymentId(String),
+    #[error("Invalid query: {0:#}")]
+    InvalidQuery(anyhow::Error),
+    #[error("Invalid subgraph: {0}")]
+    InvalidSubgraphId(String),
+    #[error("No indexers found for subgraph deployment")]
+    NoIndexers,
+    #[error("No suitable indexer found for subgraph deployment. {0:#}")]
+    NoSuitableIndexer(anyhow::Error),
+    #[error("Subgraph chain not supported: {0}")]
+    SubgraphChainNotSupported(String),
+    #[error("Subgraph not found: {0}")]
+    SubgraphNotFound(SubgraphId),
 }
 
 #[derive(Clone)]
 pub struct Context {
     pub indexer_client: IndexerClient,
-    pub kafka_client: Arc<KafkaClient>,
-    pub fisherman_client: Option<Arc<FishermanClient>>,
+    pub fisherman_client: Option<&'static FishermanClient>,
     pub graph_env_id: String,
     pub auth_handler: &'static AuthHandler,
     pub indexer_selection_retry_limit: usize,
-    pub block_caches: Arc<HashMap<String, BlockCache>>,
+    pub block_caches: &'static HashMap<String, BlockCache>,
     pub subgraph_info: SubgraphInfoMap,
     pub subgraph_deployments: SubgraphDeployments,
     pub deployment_indexers: Eventual<Ptr<HashMap<DeploymentId, Vec<Address>>>>,
-    pub receipt_pools: ReceiptPools,
+    pub receipt_pools: &'static ReceiptPools,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
 }
@@ -101,22 +105,15 @@ pub struct QueryBody {
     pub variables: Option<Box<RawValue>>,
 }
 
-#[derive(Debug)]
-enum SubgraphResolutionError {
-    InvalidSubgraphID(String),
-    InvalidDeploymentID(String),
-    SubgraphNotFound(String),
-    DeploymentNotFound(String),
-}
-
 pub async fn handle_query(
     request: HttpRequest,
     payload: web::Json<QueryBody>,
     ctx: web::Data<Context>,
 ) -> HttpResponse {
-    let start_time = Instant::now();
-    let query_id = QueryID::new();
+    let start_time_ms = unix_timestamp();
     let headers = request.headers();
+    let ray_id = headers.get("cf-ray").and_then(|value| value.to_str().ok());
+    let query_id = ray_id.map(ToString::to_string).unwrap_or_else(query_id);
 
     let auth = match (
         request.match_info().get("api_key"),
@@ -132,35 +129,23 @@ pub async fn handle_query(
         .parse_token(auth)
         .context("Invalid API key");
 
-    let mut report = ClientQueryResult {
-        query_id: query_id.to_string(),
-        ray_id: headers
-            .get("cf-ray")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("")
-            .to_string(),
-        graph_env: ctx.graph_env_id.clone(),
-        api_key: auth.as_ref().map(|auth| auth.api_key()).unwrap_or_default(),
-        ..Default::default()
-    };
     let subgraph_resolution_result = resolve_subgraph_deployment(
         &ctx.subgraph_deployments,
         &ctx.subgraph_info,
         request.match_info(),
     )
     .await;
-    report.deployment = subgraph_resolution_result
+    let deployment = subgraph_resolution_result
         .as_ref()
-        .map(|i| i.deployment.to_string())
-        .unwrap_or_default();
+        .map(|subgraph_info| subgraph_info.deployment.to_string())
+        .ok();
     let span = tracing::info_span!(
-        "handle_client_query",
-        query_id = %report.query_id,
-        ray_id = %report.ray_id,
-        api_key = %report.api_key,
-        deployment = %report.deployment,
+        target: reports::CLIENT_QUERY_TARGET,
+        "client_query",
+        %query_id,
+        graph_env = %ctx.graph_env_id,
+        deployment,
     );
-    let _timer = METRICS.client_query.start_timer(&[&report.deployment]);
 
     let domain = headers
         .get(ORIGIN)
@@ -170,42 +155,29 @@ pub async fn handle_query(
 
     let result = match (auth, subgraph_resolution_result) {
         (Ok(auth), Ok(subgraph_info)) => {
-            handle_client_query_inner(&ctx, &mut report, subgraph_info, payload.0, &auth, domain)
-                .instrument(span)
+            handle_client_query_inner(&ctx, subgraph_info, payload.0, auth, domain)
+                .instrument(span.clone())
                 .await
         }
-        (Err(auth_err), _) => Err(auth_err),
-        (_, Err(subgraph_resolution_err)) => Err(anyhow!("{:?}", subgraph_resolution_err)),
+        (Err(auth_err), _) => Err(Error::InvalidAuth(auth_err)),
+        (_, Err(subgraph_resolution_err)) => Err(subgraph_resolution_err),
     };
-    METRICS.client_query.check(&[&report.deployment], &result);
+    METRICS
+        .client_query
+        .check(&[deployment.as_deref().unwrap_or("")], &result);
 
-    // TODO: test reporting
-    report.status = match &result {
-        Ok(_) => StatusCode::OK.to_string(),
-        Err(err) => err.to_string(),
-    };
-    report.status_code = match &result {
-        Ok(_) => 0,
-        Err(_) => sip24_hash(&report.status) as u32 | 0x1,
-    };
-    report.timestamp = timestamp();
-    report.response_time_ms = (Instant::now() - start_time).as_millis() as u32;
-    ctx.kafka_client.send(&report);
-    // data science
-    tracing::info!(
-        query_id = %report.query_id,
-        ray_id = %report.ray_id,
-        deployment = %report.deployment,
-        network = %report.network,
-        api_key = %report.api_key,
-        budget = %report.budget,
-        query_count = report.query_count,
-        fee = report.fee,
-        response_time_ms = report.response_time_ms,
-        status = %report.status,
-        status_code = report.status_code,
-        "Client query result",
-    );
+    span.in_scope(|| {
+        let (status_message, status_code) = reports::status(&result);
+        let (legacy_status_message, legacy_status_code) = reports::legacy_status(&result);
+        tracing::info!(
+            target: reports::CLIENT_QUERY_TARGET,
+            start_time_ms,
+            %status_message,
+            status_code,
+            %legacy_status_message,
+            legacy_status_code,
+        );
+    });
 
     let mut response_builder = HttpResponseBuilder::new(StatusCode::OK);
     response_builder.insert_header(header::ContentType::json());
@@ -219,7 +191,7 @@ pub async fn handle_query(
                 .insert_header(("Graph-Attestation", attestation))
                 .body(body.as_ref())
         }
-        Err(err) => graphql_error_response(format!("{err:#}")),
+        Err(err) => graphql_error_response(err.to_string()),
     }
 }
 
@@ -227,40 +199,58 @@ async fn resolve_subgraph_deployment(
     deployments: &SubgraphDeployments,
     subgraph_info: &SubgraphInfoMap,
     params: &actix_web::dev::Path<actix_web::dev::Url>,
-) -> Result<Ptr<SubgraphInfo>, SubgraphResolutionError> {
+) -> Result<Ptr<SubgraphInfo>, Error> {
     let deployment = if let Some(id) = params.get("subgraph_id") {
         let subgraph = id
             .parse::<SubgraphId>()
-            .map_err(|_| SubgraphResolutionError::InvalidSubgraphID(id.to_string()))?;
+            .map_err(|_| Error::InvalidSubgraphId(id.to_string()))?;
         deployments
             .current_deployment(&subgraph)
             .await
-            .ok_or_else(|| SubgraphResolutionError::SubgraphNotFound(id.to_string()))?
+            .ok_or_else(|| Error::SubgraphNotFound(subgraph))?
     } else if let Some(id) = params.get("deployment_id") {
         DeploymentId::from_ipfs_hash(id)
-            .ok_or_else(|| SubgraphResolutionError::InvalidDeploymentID(id.to_string()))?
+            .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))?
     } else {
-        return Err(SubgraphResolutionError::SubgraphNotFound("".to_string()));
+        return Err(Error::InvalidDeploymentId("".to_string()));
     };
     subgraph_info
         .value_immediate()
         .and_then(|map| map.get(&deployment)?.value_immediate())
-        .ok_or_else(|| SubgraphResolutionError::DeploymentNotFound(deployment.to_string()))
+        .ok_or_else(|| Error::DeploymentNotFound(deployment))
 }
 
 async fn handle_client_query_inner(
     ctx: &Context,
-    report: &mut ClientQueryResult,
     subgraph_info: Ptr<SubgraphInfo>,
     payload: QueryBody,
-    auth: &AuthToken,
+    auth: AuthToken,
     domain: String,
-) -> anyhow::Result<ResponsePayload> {
-    report.network = subgraph_info.network.clone();
+) -> Result<ResponsePayload, Error> {
+    let deployment = subgraph_info.deployment.to_string();
+    let _timer = METRICS.client_query.start_timer(&[&deployment]);
+
+    tracing::info!(
+        target: reports::CLIENT_QUERY_TARGET,
+        subgraph_chain = %subgraph_info.network,
+    );
+    match &auth {
+        AuthToken::ApiKey(api_key) => tracing::info!(
+            target: reports::CLIENT_QUERY_TARGET,
+            api_key = %api_key.key,
+        ),
+        AuthToken::Ticket(payload, _) => tracing::info!(
+            target: reports::CLIENT_QUERY_TARGET,
+            ticket_user = ?payload.user.unwrap_or(payload.signer),
+            ticket_signer = ?payload.signer,
+            ticket_name = payload.name,
+        ),
+    };
 
     ctx.auth_handler
-        .check_token(auth, &subgraph_info, &domain)
-        .await?;
+        .check_token(&auth, &subgraph_info, &domain)
+        .await
+        .map_err(Error::InvalidAuth)?;
 
     let deployment_indexers = ctx
         .deployment_indexers
@@ -268,33 +258,32 @@ async fn handle_client_query_inner(
         .and_then(|map| map.get(&subgraph_info.deployment).cloned())
         .unwrap_or_default();
     tracing::info!(deployment_indexers = deployment_indexers.len());
-    ensure!(
-        !deployment_indexers.is_empty(),
-        "No indexers found for subgraph deployment"
-    );
+    if deployment_indexers.is_empty() {
+        return Err(Error::NoIndexers);
+    }
 
     let variables = payload
         .variables
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_default();
-    let context = AgoraContext::new(&payload.query, &variables)?;
-    // data science
+    let context = AgoraContext::new(&payload.query, &variables)
+        .map_err(|err| Error::InvalidQuery(anyhow!("{}", err)))?;
+
     tracing::info!(
-        query_id = %report.query_id,
-        ray_id = %report.ray_id,
+        target: reports::CLIENT_QUERY_TARGET,
         query = %payload.query,
         %variables,
-        "Client query",
     );
 
     let mut block_cache = ctx
         .block_caches
         .get(&subgraph_info.network)
         .cloned()
-        .ok_or_else(|| anyhow!("Network not supported: {}", &subgraph_info.network))?;
+        .ok_or_else(|| Error::SubgraphChainNotSupported(subgraph_info.network.clone()))?;
 
-    let block_constraints = block_constraints(&context).ok_or(anyhow!("Invalid query"))?;
+    let block_constraints = block_constraints(&context)
+        .ok_or_else(|| Error::InvalidQuery(anyhow!("Failed to determine block constraints.")))?;
     let resolved_blocks = join_all(
         block_constraints
             .iter()
@@ -304,7 +293,7 @@ async fn handle_client_query_inner(
     .await
     .into_iter()
     .collect::<Result<BTreeSet<BlockPointer>, UnresolvedBlock>>()
-    .map_err(|unresolved| anyhow!("Unresolved block: {}", unresolved))?;
+    .map_err(Error::BlockNotFound)?;
     let min_block = resolved_blocks.iter().map(|b| b.number).min();
     let max_block = resolved_blocks.iter().map(|b| b.number).max();
     let block_requirements = BlockRequirements {
@@ -316,34 +305,35 @@ async fn handle_client_query_inner(
     };
 
     // Reject queries for blocks before minimum start block of subgraph manifest.
-    ensure!(
-        !matches!(min_block, Some(min_block) if min_block < subgraph_info.min_block),
-        "Requested block before minimum `startBlock` of subgraph manifest: {}",
-        min_block.unwrap_or_default()
-    );
+    if matches!(min_block, Some(min_block) if min_block < subgraph_info.min_block) {
+        return Err(Error::InvalidQuery(anyhow!(
+            "Requested block before minimum `startBlock` of subgraph manifest: {}",
+            min_block.unwrap_or_default()
+        )));
+    }
 
-    report.query_count = match &auth {
+    let query_count = match &auth {
         AuthToken::Ticket(_, _) => count_top_level_selection_sets(&context),
         // Maintain old (incorrect) behavior for studio API keys. This is not consistent with how
         // Agora counts queries, but we want to avoid price shocks for now.
         AuthToken::ApiKey(_) => Ok(context.operations.len()),
     }
-    .context("Invalid query")?
+    .map_err(Error::InvalidQuery)?
     .max(1) as u64;
 
-    let settings = ctx
-        .auth_handler
-        .query_settings(auth, report.query_count)
-        .await?;
-
+    let settings = ctx.auth_handler.query_settings(&auth, query_count).await;
     let budget: GRT = ctx
         .isa_state
         .latest()
         .network_params
         .usd_to_grt(settings.budget)
-        .ok_or_else(|| anyhow!("Internal error: MissingExchangeRate"))?;
-    report.budget = budget.to_string();
-    report.budget_float = budget.as_f64() as f32;
+        .ok_or_else(|| Error::Internal(anyhow!("Missing exchange rate")))?;
+
+    tracing::info!(
+        target: reports::CLIENT_QUERY_TARGET,
+        query_count,
+        budget_grt = budget.as_f64() as f32,
+    );
 
     let mut utility_params = UtilityParameters::new(
         budget,
@@ -370,7 +360,7 @@ async fn handle_client_query_inner(
         let latest_block = block_cache
             .chain_head
             .value_immediate()
-            .ok_or_else(|| anyhow!("Unresolved block: 0"))?;
+            .ok_or(Error::BlockNotFound(UnresolvedBlock::WithNumber(0)))?;
         tracing::debug!(?latest_block);
         // 170cbcf3-db7f-404a-be13-2022d9142677
         utility_params.latest_block = latest_block.number;
@@ -394,7 +384,7 @@ async fn handle_client_query_inner(
 
         let selection_timer = with_metric(
             &METRICS.indexer_selection_duration,
-            &[&report.deployment],
+            &[&deployment],
             |hist| hist.start_timer(),
         );
         let (selections, indexer_errors) = ctx
@@ -408,8 +398,10 @@ async fn handle_client_query_inner(
                 SELECTION_LIMIT as u8,
             )
             .map_err(|err| match err {
-                InputError::MalformedQuery => anyhow!("Invalid query"),
-                InputError::MissingNetworkParams => anyhow!("Internal error: MissingNetworkParams"),
+                InputError::MalformedQuery => Error::InvalidQuery(anyhow!("Failed to parse")),
+                InputError::MissingNetworkParams => {
+                    Error::Internal(anyhow!("Missing network params"))
+                }
             })?;
         drop(selection_timer);
 
@@ -424,34 +416,31 @@ async fn handle_client_query_inner(
                 .map(|(k, v)| (k, v.len()))
                 .filter(|(_, l)| *l > 0)
                 .collect::<BTreeMap<&IndexerSelectionError, usize>>();
-            bail!(
-                "No suitable indexer found for subgraph deployment. Indexer selection errors: {:?}",
+            return Err(Error::NoSuitableIndexer(anyhow!(
+                "Indexer selection errors: {:?}",
                 isa_errors
-            );
+            )));
         }
 
-        report.fee = selections
-            .iter()
-            .map(|s| &s.fee)
-            .fold(GRT::zero(), |sum, fee| sum + *fee)
-            .as_f64() as f32;
+        tracing::info!(
+            target: reports::CLIENT_QUERY_TARGET,
+            indexer_fees_grt = selections
+                .iter()
+                .map(|s| &s.fee)
+                .fold(GRT::zero(), |sum, fee| sum + *fee)
+                .as_f64() as f32,
+        );
 
-        let mut indexer_query_context = IndexerQueryContext {
+        let indexer_query_context = IndexerQueryContext {
             indexer_client: ctx.indexer_client.clone(),
-            kafka_client: ctx.kafka_client.clone(),
-            fisherman_client: ctx.fisherman_client.clone(),
-            receipt_pools: ctx.receipt_pools.clone(),
+            fisherman_client: ctx.fisherman_client,
+            receipt_pools: ctx.receipt_pools,
             observations: ctx.observations.clone(),
             subgraph_info: subgraph_info.clone(),
             latest_block: latest_block.number,
-            report: IndexerAttempt::default(),
+            response_time: Duration::default(),
+            subgraph_chain: subgraph_info.network.clone(),
         };
-        indexer_query_context.report.query_id = report.query_id.clone();
-        indexer_query_context.report.ray_id = report.ray_id.clone();
-        indexer_query_context.report.graph_env = report.graph_env.clone();
-        indexer_query_context.report.api_key = report.api_key.clone();
-        indexer_query_context.report.deployment = report.deployment.clone();
-        indexer_query_context.report.network = report.network.clone();
 
         let (response_tx, mut response_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
@@ -461,24 +450,29 @@ async fn handle_client_query_inner(
             {
                 Ok(latest_query_block) => latest_query_block,
                 Err(_) if !last_retry => continue,
-                Err(unresolved) => bail!("Unresolved block: {}", unresolved),
+                Err(unresolved) => return Err(Error::BlockNotFound(unresolved)),
             };
             let deterministic_query =
                 make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)
-                    .ok_or_else(|| anyhow!("Invalid query"))?;
+                    .ok_or_else(|| {
+                        Error::InvalidQuery(anyhow!("Failed to set block constraints"))
+                    })?;
 
             let indexer_query_context = indexer_query_context.clone();
             let response_tx = response_tx.clone();
-            tokio::spawn(async move {
-                let response = handle_indexer_query(
-                    indexer_query_context,
-                    selection,
-                    deterministic_query,
-                    latest_query_block.number,
-                )
-                .await;
-                let _ = response_tx.try_send(response);
-            });
+            tokio::spawn(
+                async move {
+                    let response = handle_indexer_query(
+                        indexer_query_context,
+                        selection,
+                        deterministic_query,
+                        latest_query_block.number,
+                    )
+                    .await;
+                    let _ = response_tx.try_send(response);
+                }
+                .in_current_span(),
+            );
         }
         for _ in 0..selections_len {
             match response_rx.recv().await {
@@ -489,36 +483,44 @@ async fn handle_client_query_inner(
         }
     }
 
-    bail!(
-        "No suitable indexer found for subgraph deployment. Indexer queries attempted: {}",
+    Err(Error::NoSuitableIndexer(anyhow!(
+        "Indexer queries attempted: {}",
         total_indexer_queries
-    );
+    )))
 }
 
 #[derive(Clone)]
 struct IndexerQueryContext {
     pub indexer_client: IndexerClient,
-    pub kafka_client: Arc<KafkaClient>,
-    pub fisherman_client: Option<Arc<FishermanClient>>,
-    pub receipt_pools: ReceiptPools,
+    pub fisherman_client: Option<&'static FishermanClient>,
+    pub receipt_pools: &'static ReceiptPools,
     pub observations: QueueWriter<Update>,
     pub subgraph_info: Ptr<SubgraphInfo>,
     pub latest_block: u64,
-    pub report: IndexerAttempt,
+    pub response_time: Duration,
+    pub subgraph_chain: String,
 }
 
+#[tracing::instrument(
+    target = "indexer_query", name = "indexer_query",
+    skip_all, fields(indexer = %selection.indexing.indexer),
+)]
 async fn handle_indexer_query(
     mut ctx: IndexerQueryContext,
     selection: Selection,
     deterministic_query: String,
     latest_query_block: u64,
 ) -> Result<ResponsePayload, IndexerError> {
+    tracing::info!(
+        target: reports::INDEXER_QUERY_TARGET,
+        url = %selection.url,
+        blocks_behind = selection.blocks_behind,
+        fee_grt = selection.fee.as_f64() as f32,
+        subgraph_chain = %ctx.subgraph_chain,
+    );
+
     let indexing = selection.indexing;
-    ctx.report.indexer = indexing.indexer.to_string();
-    ctx.report.url = selection.url.to_string();
-    ctx.report.fee = selection.fee.as_f64() as f32;
-    ctx.report.utility = 1.0; // for backwards compatibility
-    ctx.report.blocks_behind = selection.blocks_behind;
+    let deployment = indexing.deployment.to_string();
 
     let receipt = ctx
         .receipt_pools
@@ -532,15 +534,17 @@ async fn handle_indexer_query(
         }
         Err(err) => Err(err.clone()),
     };
-    METRICS
-        .indexer_query
-        .check(&[&ctx.report.deployment], &result);
+    METRICS.indexer_query.check(&[&deployment], &result);
 
-    ctx.report.status = match &result {
-        Ok(_) => StatusCode::OK.to_string(),
-        Err(err) => format!("{err:?}"),
-    };
-    ctx.report.status_code = indexer_attempt_status_code(&result);
+    tracing::info!(
+        target: reports::INDEXER_QUERY_TARGET,
+        response_time_ms = ctx.response_time.as_millis() as u32,
+        status_message = match &result {
+            Ok(_) => "200 OK".to_string(),
+            Err(err) => format!("{err:?}"),
+        },
+        status_code = reports::indexer_attempt_status_code(&result),
+    );
 
     let observation = match &result {
         Ok(_) => Ok(()),
@@ -566,30 +570,9 @@ async fn handle_indexer_query(
 
     let _ = ctx.observations.write(Update::QueryObservation {
         indexing,
-        duration: Duration::from_millis(ctx.report.response_time_ms as u64),
+        duration: ctx.response_time,
         result: observation,
     });
-
-    ctx.report.timestamp = timestamp();
-    ctx.kafka_client.send(&ctx.report);
-    // data science
-    tracing::info!(
-        query_id = %ctx.report.query_id,
-        ray_id = %ctx.report.ray_id,
-        api_key = %ctx.report.api_key,
-        deployment = %ctx.report.deployment,
-        attempt_index = 0, // for backwards compatibility
-        indexer = %ctx.report.indexer,
-        url = %ctx.report.url,
-        allocation = %ctx.report.allocation,
-        fee = ctx.report.fee,
-        blocks_behind = ctx.report.blocks_behind,
-        indexer_errors = %ctx.report.indexer_errors,
-        response_time_ms = ctx.report.response_time_ms,
-        status = %ctx.report.status,
-        status_code = ctx.report.status_code,
-        "Indexer attempt",
-    );
 
     result
 }
@@ -605,16 +588,19 @@ async fn handle_indexer_query_inner(
         .indexer_client
         .query_indexer(&selection, deterministic_query.clone(), receipt)
         .await;
-    ctx.report.response_time_ms = (Instant::now() - start_time).as_millis() as u32;
-    with_metric(
-        &METRICS.indexer_query.duration,
-        &[&ctx.report.deployment],
-        |hist| hist.observe(ctx.report.response_time_ms as f64),
-    );
+    ctx.response_time = Instant::now() - start_time;
+    let deployment = selection.indexing.deployment.to_string();
+    with_metric(&METRICS.indexer_query.duration, &[&deployment], |hist| {
+        hist.observe(ctx.response_time.as_millis() as f64)
+    });
 
     let mut allocation = Address([0; 20]);
     allocation.0.copy_from_slice(&receipt[0..20]);
-    ctx.report.allocation = allocation.to_string();
+
+    tracing::info!(
+        target: reports::INDEXER_QUERY_TARGET,
+        allocation = allocation.to_string(),
+    );
 
     let response = result?;
     if response.status != StatusCode::OK.as_u16() {
@@ -628,10 +614,11 @@ async fn handle_indexer_query_inner(
         .into_iter()
         .map(|err| err.message)
         .collect::<Vec<String>>();
-    ctx.report.indexer_errors = indexer_errors.join(",");
-    if !indexer_errors.is_empty() {
-        tracing::debug!(indexer_errors = %ctx.report.indexer_errors);
-    }
+
+    tracing::info!(
+        target: reports::INDEXER_QUERY_TARGET,
+        indexer_errors = indexer_errors.join(","),
+    );
 
     if indexer_errors.iter().any(|err| {
         err.contains("Failed to decode `block.hash` value")
@@ -676,7 +663,7 @@ async fn handle_indexer_query_inner(
 
     if let Some(attestation) = &response.payload.attestation {
         challenge_indexer_response(
-            ctx.fisherman_client.clone(),
+            ctx.fisherman_client,
             ctx.observations.clone(),
             selection.indexing,
             allocation,
@@ -690,7 +677,7 @@ async fn handle_indexer_query_inner(
 }
 
 fn challenge_indexer_response(
-    fisherman_client: Option<Arc<FishermanClient>>,
+    fisherman_client: Option<&'static FishermanClient>,
     observations: QueueWriter<Update>,
     indexing: Indexing,
     allocation: Address,

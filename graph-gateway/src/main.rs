@@ -8,13 +8,14 @@ mod geoip;
 mod indexer_client;
 mod indexer_status;
 mod ipfs_client;
-mod kafka_client;
 mod manifest_client;
 mod metrics;
 mod network_subgraph;
 mod price_automation;
+mod protobuf;
 mod rate_limiter;
 mod receipts;
+mod reports;
 mod studio_client;
 mod subgraph_client;
 mod subgraph_deployments;
@@ -26,8 +27,8 @@ mod vouchers;
 use crate::{
     auth::AuthHandler, chains::*, config::*, fisherman_client::*, geoip::GeoIP,
     indexer_client::IndexerClient, indexer_status::IndexingStatus, ipfs_client::*,
-    kafka_client::KafkaClient, price_automation::QueryBudgetFactors, rate_limiter::*,
-    receipts::ReceiptPools,
+    price_automation::QueryBudgetFactors, rate_limiter::*, receipts::ReceiptPools,
+    reports::KafkaClient,
 };
 use actix_cors::Cors;
 use actix_web::{
@@ -73,17 +74,19 @@ async fn main() {
         .context("Failed to parse JSON config")
         .unwrap();
 
-    init_tracing(config.log_json);
-    tracing::info!("Graph gateway starting...");
-    tracing::debug!("{:#?}", config);
+    let config_repr = format!("{config:#?}");
 
     let kafka_client = match KafkaClient::new(&config.kafka.into()) {
-        Ok(kafka_client) => Arc::new(kafka_client),
+        Ok(kafka_client) => Box::leak(Box::new(kafka_client)),
         Err(kafka_client_err) => {
             tracing::error!(%kafka_client_err);
             return;
         }
     };
+
+    reports::init(kafka_client, config.log_json);
+    tracing::info!("Graph gateway starting...");
+    tracing::debug!(config = %config_repr);
 
     let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
 
@@ -117,7 +120,7 @@ async fn main() {
             (network, cache)
         })
         .collect::<HashMap<String, BlockCache>>();
-    let block_caches = Arc::new(block_caches);
+    let block_caches: &'static HashMap<String, BlockCache> = Box::leak(Box::new(block_caches));
     let signer_key = config.signer_key.0;
 
     let http_client = reqwest::Client::builder()
@@ -142,7 +145,7 @@ async fn main() {
         Update::SlashingPercentage,
     );
 
-    let receipt_pools = ReceiptPools::default();
+    let receipt_pools: &'static ReceiptPools = Box::leak(Box::default());
 
     let indexer_status_data = indexer_status::Actor::create(
         config.min_indexer_version,
@@ -150,8 +153,6 @@ async fn main() {
         network_subgraph_data.indexers.clone(),
     );
     {
-        let receipt_pools = receipt_pools.clone();
-        let block_caches = block_caches.clone();
         let update_writer = update_writer.clone();
         eventuals::join((
             network_subgraph_data.allocations.clone(),
@@ -159,15 +160,13 @@ async fn main() {
             indexer_status_data.indexings,
         ))
         .pipe_async(move |(allocations, indexer_info, indexing_statuses)| {
-            let receipt_pools = receipt_pools.clone();
-            let block_caches = block_caches.clone();
             let update_writer = update_writer.clone();
             async move {
                 write_indexer_inputs(
                     &signer_key,
-                    &block_caches,
+                    block_caches,
                     &update_writer,
-                    &receipt_pools,
+                    receipt_pools,
                     &allocations,
                     &indexer_info,
                     &indexing_statuses,
@@ -216,9 +215,10 @@ async fn main() {
         subscriptions_domain_separator,
     );
 
-    let fisherman_client = config
-        .fisherman
-        .map(|url| Arc::new(FishermanClient::new(http_client.clone(), url)));
+    let fisherman_client = config.fisherman.map(|url| {
+        Box::leak(Box::new(FishermanClient::new(http_client.clone(), url)))
+            as &'static FishermanClient
+    });
 
     let client_query_ctx = client_query::Context {
         indexer_selection_retry_limit: config.indexer_selection_retry_limit,
@@ -231,8 +231,7 @@ async fn main() {
         subgraph_deployments: network_subgraph_data.subgraph_deployments,
         deployment_indexers: network_subgraph_data.deployment_indexers,
         fisherman_client,
-        kafka_client,
-        block_caches: block_caches.clone(),
+        block_caches,
         observations: update_writer,
         receipt_pools,
         isa_state,
@@ -467,7 +466,7 @@ async fn handle_metrics() -> HttpResponse {
 #[derive(Clone)]
 struct ReadyData {
     start_time: Instant,
-    block_caches: Arc<HashMap<String, BlockCache>>,
+    block_caches: &'static HashMap<String, BlockCache>,
     allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
 }
 
