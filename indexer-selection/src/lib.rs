@@ -155,7 +155,6 @@ pub struct UtilityParameters {
     pub budget: GRT,
     pub requirements: BlockRequirements,
     pub latest_block: u64,
-    pub block_rate_hz: f64,
     pub performance: ConcaveUtilityParameters,
     pub data_freshness: ConcaveUtilityParameters,
     pub economic_security: ConcaveUtilityParameters,
@@ -184,7 +183,6 @@ impl UtilityParameters {
             budget,
             requirements,
             latest_block,
-            block_rate_hz,
             // 170cbcf3-db7f-404a-be13-2022d9142677
             performance: ConcaveUtilityParameters {
                 a: interp(1.1, 1.2, performance),
@@ -192,8 +190,8 @@ impl UtilityParameters {
             },
             // 9f6c6cb0-0e49-4bc4-848e-22a1599af45b
             data_freshness: ConcaveUtilityParameters {
-                a: interp(5.0, 3.0, data_freshness),
-                weight: interp(3.0, 4.5, data_freshness),
+                a: 32.0 * block_rate_hz,
+                weight: interp(1.0, 2.0, data_freshness),
             },
             // https://www.desmos.com/calculator/g7t53e70lf
             economic_security: ConcaveUtilityParameters {
