@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
   cmake \
   git \
   librdkafka-dev \
-  libsasl2-dev\
+  libsasl2-dev \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/gateway
