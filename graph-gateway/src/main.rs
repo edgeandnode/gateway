@@ -8,7 +8,6 @@ mod geoip;
 mod indexer_client;
 mod indexer_status;
 mod ipfs_client;
-mod kafka_client;
 mod manifest_client;
 mod metrics;
 mod network_subgraph;
@@ -16,6 +15,7 @@ mod price_automation;
 mod protobuf;
 mod rate_limiter;
 mod receipts;
+mod reports;
 mod studio_client;
 mod subgraph_client;
 mod subgraph_deployments;
@@ -27,8 +27,8 @@ mod vouchers;
 use crate::{
     auth::AuthHandler, chains::*, config::*, fisherman_client::*, geoip::GeoIP,
     indexer_client::IndexerClient, indexer_status::IndexingStatus, ipfs_client::*,
-    kafka_client::KafkaClient, price_automation::QueryBudgetFactors, rate_limiter::*,
-    receipts::ReceiptPools,
+    price_automation::QueryBudgetFactors, rate_limiter::*, receipts::ReceiptPools,
+    reports::KafkaClient,
 };
 use actix_cors::Cors;
 use actix_web::{
@@ -74,9 +74,7 @@ async fn main() {
         .context("Failed to parse JSON config")
         .unwrap();
 
-    init_tracing(config.log_json);
-    tracing::info!("Graph gateway starting...");
-    tracing::debug!("{:#?}", config);
+    let config_repr = format!("{config:#?}");
 
     let kafka_client = match KafkaClient::new(&config.kafka.into()) {
         Ok(kafka_client) => Box::leak(Box::new(kafka_client)),
@@ -85,6 +83,10 @@ async fn main() {
             return;
         }
     };
+
+    reports::init(kafka_client, config.log_json);
+    tracing::info!("Graph gateway starting...");
+    tracing::debug!(config = %config_repr);
 
     let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
 

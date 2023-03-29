@@ -5,10 +5,10 @@ use crate::{
     fisherman_client::{ChallengeOutcome, FishermanClient},
     graphql_error_response,
     indexer_client::{Attestation, IndexerClient, IndexerError, ResponsePayload},
-    kafka_client::indexer_attempt_status_code,
     manifest_client::{SubgraphInfo, SubgraphInfoMap},
     metrics::{with_metric, METRICS},
     receipts::{ReceiptPools, ReceiptStatus},
+    reports,
     subgraph_deployments::SubgraphDeployments,
     unattestable_errors::{
         MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS, UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
@@ -187,6 +187,7 @@ pub async fn handle_query(
         .map(|subgraph_info| subgraph_info.deployment.to_string())
         .ok();
     let span = tracing::info_span!(
+        target: reports::CLIENT_QUERY_TARGET,
         "client_query",
         %query_id,
         graph_env = %ctx.graph_env_id,
@@ -216,6 +217,7 @@ pub async fn handle_query(
         let (status_message, status_code) = status(&result);
         let (legacy_status_message, legacy_status_code) = legacy_status(&result);
         tracing::info!(
+            target: reports::CLIENT_QUERY_TARGET,
             start_time_ms,
             %status_message,
             status_code,
@@ -276,13 +278,16 @@ async fn handle_client_query_inner(
     let _timer = METRICS.client_query.start_timer(&[&deployment]);
 
     tracing::info!(
+        target: reports::CLIENT_QUERY_TARGET,
         subgraph_chain = %subgraph_info.network,
     );
     match &auth {
         AuthToken::ApiKey(api_key) => tracing::info!(
+            target: reports::CLIENT_QUERY_TARGET,
             api_key = %api_key.key,
         ),
         AuthToken::Ticket(payload, _) => tracing::info!(
+            target: reports::CLIENT_QUERY_TARGET,
             ticket_user = ?payload.user.unwrap_or(payload.signer),
             ticket_signer = ?payload.signer,
             ticket_name = payload.name,
@@ -313,6 +318,7 @@ async fn handle_client_query_inner(
         .map_err(|err| Error::InvalidQuery(anyhow!("{}", err)))?;
 
     tracing::info!(
+        target: reports::CLIENT_QUERY_TARGET,
         query = %payload.query,
         %variables,
     );
@@ -370,7 +376,11 @@ async fn handle_client_query_inner(
         .usd_to_grt(settings.budget)
         .ok_or_else(|| Error::Internal(anyhow!("Missing exchange rate")))?;
 
-    tracing::info!(query_count, budget_grt = budget.as_f64() as f32);
+    tracing::info!(
+        target: reports::CLIENT_QUERY_TARGET,
+        query_count,
+        budget_grt = budget.as_f64() as f32,
+    );
 
     let mut utility_params = UtilityParameters::new(
         budget,
@@ -460,6 +470,7 @@ async fn handle_client_query_inner(
         }
 
         tracing::info!(
+            target: reports::CLIENT_QUERY_TARGET,
             indexer_fees_grt = selections
                 .iter()
                 .map(|s| &s.fee)
@@ -548,6 +559,7 @@ async fn handle_indexer_query(
     latest_query_block: u64,
 ) -> Result<ResponsePayload, IndexerError> {
     tracing::info!(
+        target: reports::INDEXER_QUERY_TARGET,
         url = %selection.url,
         blocks_behind = selection.blocks_behind,
         fee_grt = selection.fee.as_f64() as f32,
@@ -572,12 +584,13 @@ async fn handle_indexer_query(
     METRICS.indexer_query.check(&[&deployment], &result);
 
     tracing::info!(
+        target: reports::INDEXER_QUERY_TARGET,
         response_time_ms = ctx.response_time.as_millis() as u32,
         status_message = match &result {
-            Ok(_) => StatusCode::OK.to_string(),
+            Ok(_) => "200 OK".to_string(),
             Err(err) => format!("{err:?}"),
         },
-        status_code = indexer_attempt_status_code(&result),
+        status_code = reports::indexer_attempt_status_code(&result),
     );
 
     let observation = match &result {
@@ -631,7 +644,10 @@ async fn handle_indexer_query_inner(
     let mut allocation = Address([0; 20]);
     allocation.0.copy_from_slice(&receipt[0..20]);
 
-    tracing::info!(allocation = allocation.to_string());
+    tracing::info!(
+        target: reports::INDEXER_QUERY_TARGET,
+        allocation = allocation.to_string(),
+    );
 
     let response = result?;
     if response.status != StatusCode::OK.as_u16() {
@@ -646,7 +662,10 @@ async fn handle_indexer_query_inner(
         .map(|err| err.message)
         .collect::<Vec<String>>();
 
-    tracing::info!(indexer_errors = indexer_errors.join(","));
+    tracing::info!(
+        target: reports::INDEXER_QUERY_TARGET,
+        indexer_errors = indexer_errors.join(","),
+    );
 
     if indexer_errors.iter().any(|err| {
         err.contains("Failed to decode `block.hash` value")
