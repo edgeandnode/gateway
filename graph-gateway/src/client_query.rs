@@ -61,6 +61,8 @@ fn query_id() -> String {
 pub enum Error {
     #[error("Block not found: {0}")]
     BlockNotFound(UnresolvedBlock),
+    #[error("Subgraph deployment not found (subgraph migrated to L2): {0}")]
+    DeploymentMigrated(DeploymentId),
     #[error("Subgraph deployment not found: {0}")]
     DeploymentNotFound(DeploymentId),
     #[error("Internal error: {0:#}")]
@@ -214,6 +216,9 @@ async fn resolve_subgraph_deployment(
     } else {
         return Err(Error::InvalidDeploymentId("".to_string()));
     };
+    if deployments.migrated_away(&deployment).await {
+        return Err(Error::DeploymentMigrated(deployment));
+    }
     subgraph_info
         .value_immediate()
         .and_then(|map| map.get(&deployment)?.value_immediate())
