@@ -1,5 +1,5 @@
 use prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
 pub struct SubgraphDeployments {
@@ -16,6 +16,8 @@ pub struct Inputs {
     // And then these multiple users could publish the Subgraph.
     // This creates a scenario where a single DeploymentId could be linked with multiple SubgraphIDs.
     pub deployment_to_subgraphs: HashMap<DeploymentId, Vec<SubgraphId>>,
+    // Set of deployments migrated away from the network environment served by this gateway.
+    pub migrated_away: HashSet<DeploymentId>,
 }
 
 impl SubgraphDeployments {
@@ -37,5 +39,13 @@ impl SubgraphDeployments {
             .deployment_to_subgraphs
             .get(deployment)
             .cloned()
+    }
+
+    pub async fn migrated_away(&self, deployment: &DeploymentId) -> bool {
+        self.inputs
+            .value()
+            .await
+            .map(|inputs| inputs.migrated_away.contains(deployment))
+            .unwrap_or(false)
     }
 }

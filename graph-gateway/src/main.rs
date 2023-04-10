@@ -137,7 +137,11 @@ async fn main() {
 
     let network_subgraph_client =
         subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
-    let network_subgraph_data = network_subgraph::Client::create(network_subgraph_client);
+    let l2_migration_delay = config
+        .l2_migration_delay_hours
+        .map(|hours| chrono::Duration::hours(hours as i64));
+    let network_subgraph_data =
+        network_subgraph::Client::create(network_subgraph_client, l2_migration_delay);
     update_from_eventual(
         network_subgraph_data.slashing_percentage,
         update_writer.clone(),

@@ -34,6 +34,8 @@ pub struct Config {
     pub kafka: KafkaConfig,
     /// Format log output as JSON
     pub log_json: bool,
+    /// Hours after subgraph migration to L2 where service is continued.
+    pub l2_migration_delay_hours: Option<u32>,
     #[serde_as(as = "DisplayFromStr")]
     pub min_indexer_version: Version,
     #[serde_as(as = "DisplayFromStr")]
