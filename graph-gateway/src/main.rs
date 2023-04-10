@@ -287,10 +287,8 @@ async fn main() {
                 "/{api_key}/deployments/id/{deployment_id}",
                 web::post().to(client_query::handle_query),
             )
-            .route(
-                "/subgraphs/id/{subgraph_id}",
-                web::post().to(client_query::handle_query),
-            )
+            // We are omitting the subgraphs route here, since it's a footgun on the network.
+            // At some point we should deprecate the legacy subgraphs route above.
             .route(
                 "/deployments/id/{deployment_id}",
                 web::post().to(client_query::handle_query),
