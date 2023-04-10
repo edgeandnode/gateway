@@ -162,10 +162,12 @@ pub struct UtilityParameters {
 }
 
 impl UtilityParameters {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         budget: GRT,
         requirements: BlockRequirements,
         latest_block: u64,
+        block_rate_hz: f64,
         performance: f64,
         data_freshness: f64,
         economic_security: f64,
@@ -188,8 +190,8 @@ impl UtilityParameters {
             },
             // 9f6c6cb0-0e49-4bc4-848e-22a1599af45b
             data_freshness: ConcaveUtilityParameters {
-                a: interp(5.0, 3.0, data_freshness),
-                weight: interp(3.0, 4.5, data_freshness),
+                a: 32.0 * block_rate_hz,
+                weight: interp(1.0, 2.0, data_freshness),
             },
             // https://www.desmos.com/calculator/g7t53e70lf
             economic_security: ConcaveUtilityParameters {

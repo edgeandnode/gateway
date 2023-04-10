@@ -84,6 +84,7 @@ pub struct Chain {
     #[serde_as(as = "DisplayFromStr")]
     pub rpc: Url,
     pub poll_hz: u16,
+    pub block_rate_hz: f64,
 }
 
 impl From<Chain> for ethereum::Provider {

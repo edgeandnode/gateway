@@ -230,7 +230,7 @@ fn reliability_utility(p_success: f64) -> UtilityFactor {
     UtilityFactor::one(p_success.powi(7))
 }
 
-/// https://www.desmos.com/calculator/kcp4e9zink
+/// https://www.desmos.com/calculator/6unqha22hp
 /// 9f6c6cb0-0e49-4bc4-848e-22a1599af45b
 fn data_freshness_utility(
     params: ConcaveUtilityParameters,
