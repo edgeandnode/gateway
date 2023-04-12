@@ -179,38 +179,43 @@ impl Client {
     }
 
     async fn poll_subgraphs(&mut self) -> Result<(), String> {
-        let response = self
-            .subgraph_client
-            .paginated_query::<SubgraphDeployment>(
-                r#"
+        let query = format!(
+            r#"
                 subgraphDeployments(
                     block: $block
                     orderBy: id, orderDirection: asc
                     first: $first
-                    where: {
+                    where: {{
                         id_gt: $last
-                    }
-                ) {
+                    }}
+                ) {{
                     id
                     ipfsHash
                     versions(
                       orderBy: version
                       orderDirection: asc
-                      where: {subgraph_: {active: true, entityVersion: 2}}
-                    ) {
-                        subgraph {
+                      where: {{subgraph_: {{active: true, entityVersion: 2}}}}
+                    ) {{
+                        subgraph {{
                             id
-                            currentVersion {
-                                subgraphDeployment {
+                            currentVersion {{
+                                subgraphDeployment {{
                                     ipfsHash
-                                }
-                            }
-                            startedMigrationToL2At
-                        }
-                    }
-                }
+                                }}
+                            }}
+                            {}
+                        }}
+                    }}
+                }}
                 "#,
-            )
+            self.l2_migration_delay
+                .map(|_| "startedMigrationToL2At")
+                .unwrap_or("")
+        );
+
+        let response = self
+            .subgraph_client
+            .paginated_query::<SubgraphDeployment>(&query)
             .await?;
 
         let now = chrono::Utc::now();
