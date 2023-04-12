@@ -42,9 +42,9 @@ pub fn block_constraints<'c>(context: &'c Context<'c>) -> Option<BTreeSet<BlockC
                 let defaults = query
                     .variable_definitions
                     .iter()
-                    .filter(|d| !vars.0.contains_key(d.name))
-                    .filter_map(|d| Some((d.name, d.default_value.as_ref()?.to_graphql())))
-                    .collect::<BTreeMap<&str, StaticValue>>();
+                    .filter(|d| !vars.0.contains_key(&d.name))
+                    .filter_map(|d| Some((d.name.clone(), d.default_value.as_ref()?.to_graphql())))
+                    .collect::<BTreeMap<String, StaticValue>>();
                 (&query.selection_set, defaults)
             }
             OperationDefinition::Query(_)
@@ -88,9 +88,9 @@ pub fn make_query_deterministic(
                 let defaults = query
                     .variable_definitions
                     .iter()
-                    .filter(|d| !vars.0.contains_key(d.name))
-                    .filter_map(|d| Some((d.name, d.default_value.as_ref()?.to_graphql())))
-                    .collect::<BTreeMap<&str, StaticValue>>();
+                    .filter(|d| !vars.0.contains_key(&d.name))
+                    .filter_map(|d| Some((d.name.clone(), d.default_value.as_ref()?.to_graphql())))
+                    .collect::<BTreeMap<String, StaticValue>>();
                 (&mut query.selection_set, defaults)
             }
             OperationDefinition::Query(_)
@@ -123,7 +123,7 @@ pub fn make_query_deterministic(
                 None => {
                     selection_field
                         .arguments
-                        .push(("block", deterministic_block(&latest.hash)));
+                        .push(("block".to_string(), deterministic_block(&latest.hash)));
                 }
             };
         }
@@ -146,21 +146,21 @@ pub fn make_query_deterministic(
     .ok()
 }
 
-fn deterministic_block<'c>(hash: &Bytes32) -> Value<'c, &'c str> {
+fn deterministic_block<'c>(hash: &Bytes32) -> Value<'c, String> {
     Value::Object(BTreeMap::from_iter([(
-        "hash",
+        "hash".to_string(),
         Value::String(hash.to_string()),
     )]))
 }
 
-fn field_constraint<'c>(
+fn field_constraint(
     vars: &QueryVariables,
-    defaults: &BTreeMap<&str, StaticValue>,
-    field: &Value<'c, &'c str>,
+    defaults: &BTreeMap<String, StaticValue>,
+    field: &Value<'_, String>,
 ) -> Option<BlockConstraint> {
     match field {
         Value::Object(fields) => parse_constraint(vars, defaults, fields),
-        Value::Variable(name) => match vars.get(*name)? {
+        Value::Variable(name) => match vars.get(name)? {
             Value::Object(fields) => parse_constraint(vars, defaults, fields),
             _ => None,
         },
@@ -170,7 +170,7 @@ fn field_constraint<'c>(
 
 fn parse_constraint<'c, T: Text<'c>>(
     vars: &QueryVariables,
-    defaults: &BTreeMap<&str, StaticValue>,
+    defaults: &BTreeMap<String, StaticValue>,
     fields: &BTreeMap<T::Value, Value<'c, T>>,
 ) -> Option<BlockConstraint> {
     let field = fields.iter().at_most_one().ok()?;
@@ -190,7 +190,7 @@ fn parse_constraint<'c, T: Text<'c>>(
 fn parse_hash<'c, T: Text<'c>>(
     hash: &Value<'c, T>,
     variables: &QueryVariables,
-    defaults: &BTreeMap<&str, StaticValue>,
+    defaults: &BTreeMap<String, StaticValue>,
 ) -> Option<Bytes32> {
     match hash {
         Value::String(hash) => hash.parse().ok(),
@@ -208,7 +208,7 @@ fn parse_hash<'c, T: Text<'c>>(
 fn parse_number<'c, T: Text<'c>>(
     number: &Value<'c, T>,
     variables: &QueryVariables,
-    defaults: &BTreeMap<&str, StaticValue>,
+    defaults: &BTreeMap<String, StaticValue>,
 ) -> Option<u64> {
     let n = match number {
         Value::Int(n) => n,
