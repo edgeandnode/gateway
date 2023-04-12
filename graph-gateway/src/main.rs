@@ -12,7 +12,6 @@ mod manifest_client;
 mod metrics;
 mod network_subgraph;
 mod price_automation;
-mod rate_limiter;
 mod receipts;
 mod reports;
 mod studio_client;
@@ -26,16 +25,16 @@ mod vouchers;
 use crate::{
     auth::AuthHandler, chains::*, config::*, fisherman_client::*, geoip::GeoIP,
     indexer_client::IndexerClient, indexer_status::IndexingStatus, ipfs_client::*,
-    price_automation::QueryBudgetFactors, rate_limiter::*, receipts::ReceiptPools,
-    reports::KafkaClient,
-};
-use actix_cors::Cors;
-use actix_web::{
-    dev::ServiceRequest,
-    http::{header, StatusCode},
-    web, App, HttpResponse, HttpResponseBuilder, HttpServer,
+    price_automation::QueryBudgetFactors, receipts::ReceiptPools, reports::KafkaClient,
 };
 use anyhow::{self, anyhow};
+use axum::{
+    extract::{ConnectInfo, State},
+    http::{self, header, status::StatusCode, HeaderMap, HeaderName, HeaderValue, Request},
+    middleware,
+    response::Response,
+    routing, Json, Router, Server,
+};
 use eventuals::EventualExt as _;
 use graph_subscriptions::{eip712, TicketPayload};
 use indexer_selection::{
@@ -56,12 +55,16 @@ use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     env,
     fs::read_to_string,
+    io::Write as _,
+    iter,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
 };
 use tokio::spawn;
+use tower_http::cors::{self, CorsLayer};
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() {
     let config_path = env::args()
         .nth(1)
@@ -245,90 +248,72 @@ async fn main() {
         allocations: network_subgraph_data.allocations,
     };
 
-    let metrics_port = config.port_metrics;
     // Host metrics on a separate server with a port that isn't open to public requests.
-    actix_web::rt::spawn(async move {
-        HttpServer::new(move || App::new().route("/metrics", web::get().to(handle_metrics)))
-            .workers(1)
-            .bind(("0.0.0.0", metrics_port))
-            .expect("Failed to bind to metrics port")
-            .run()
-            .await
-            .expect("Failed to start metrics server")
+    let metrics_port = config.port_metrics;
+    spawn(async move {
+        let router = Router::new().route("/metrics", routing::get(handle_metrics));
+
+        Server::bind(&SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            metrics_port,
+        ))
+        .serve(router.into_make_service())
+        .await
+        .expect("Failed to start metrics server");
     });
-    let ip_rate_limiter = RateLimiter::<String>::new(
+
+    let api_port = config.port_api;
+    let rate_limiter = create_rate_limiter(
         config.ip_rate_limit as usize,
         config.ip_rate_limit_window_secs as usize,
     );
-    HttpServer::new(move || {
-        let cors = Cors::default()
-            .allow_any_origin()
-            .allow_any_header()
-            .allowed_methods(vec!["POST", "OPTIONS"]);
-        let api = web::scope("/api")
-            .wrap(RateLimiterMiddleware {
-                rate_limiter: ip_rate_limiter.clone(),
-                key: request_host,
-            })
-            .wrap(cors)
-            .app_data(web::Data::new(client_query_ctx.clone()))
-            .app_data(web::JsonConfig::default().error_handler(|err, _| {
-                actix_web::error::InternalError::from_response(
-                    err,
-                    graphql_error_response("Invalid query"),
-                )
-                .into()
-            }))
-            .route(
-                "/{api_key}/subgraphs/id/{subgraph_id}",
-                web::post().to(client_query::handle_query),
-            )
-            .route(
-                "/{api_key}/deployments/id/{deployment_id}",
-                web::post().to(client_query::handle_query),
-            )
-            // We are omitting the subgraphs route here, since it's a footgun on the network.
-            // At some point we should deprecate the legacy subgraphs route above.
-            .route(
-                "/deployments/id/{deployment_id}",
-                web::post().to(client_query::handle_query),
-            );
-        let other = web::scope("")
-            .wrap(RateLimiterMiddleware {
-                rate_limiter: ip_rate_limiter.clone(),
-                key: request_host,
-            })
-            .route("/", web::get().to(|| async { "Ready to roll!" }))
-            .service(
-                web::resource("/ready")
-                    .app_data(web::Data::new(ready_data.clone()))
-                    .route(web::get().to(handle_ready)),
-            )
-            .service(
-                web::resource("/collect-receipts")
-                    // TODO: decrease payload limit
-                    .app_data(web::PayloadConfig::new(16_000_000))
-                    .app_data(web::Data::new(signer_key))
-                    .route(web::post().to(vouchers::handle_collect_receipts)),
-            )
-            .service(
-                web::resource("/partial-voucher")
-                    .app_data(web::PayloadConfig::new(4_000_000))
-                    .app_data(web::Data::new(signer_key))
-                    .route(web::post().to(vouchers::handle_partial_voucher)),
-            )
-            .service(
-                web::resource("/voucher")
-                    .app_data(web::Data::new(signer_key))
-                    .route(web::post().to(vouchers::handle_voucher)),
-            );
-        App::new().service(api).service(other)
-    })
-    .bind(("0.0.0.0", config.port_api))
-    .expect("Failed to bind")
-    .run()
+    let api = Router::new()
+        .route(
+            "/deployments/id/:deployment_id",
+            routing::post(client_query::handle_query),
+        )
+        .route(
+            "/:api_key/deployments/id/:deployment_id",
+            routing::post(client_query::handle_query),
+        )
+        // This subgraphs route is a footgun on the network. We should eventually deprecate it.
+        .route(
+            "/:api_key/subgraphs/id/:subgraph_id",
+            routing::post(client_query::handle_query),
+        )
+        .with_state(client_query_ctx)
+        .layer(
+            CorsLayer::new()
+                .allow_origin(cors::Any)
+                .allow_headers(cors::Any)
+                .allow_methods([http::Method::POST]),
+        );
+
+    let router = Router::new()
+        .route("/", routing::get(|| async { "Ready to roll!" }))
+        .route("/ready", routing::get(handle_ready).with_state(ready_data))
+        .route(
+            "/collect-receipts",
+            routing::post(vouchers::handle_collect_receipts).with_state(signer_key),
+        )
+        .route(
+            "/partial-voucher",
+            routing::post(vouchers::handle_partial_voucher).with_state(signer_key),
+        )
+        .route(
+            "/voucher",
+            routing::post(vouchers::handle_voucher).with_state(signer_key),
+        )
+        .nest("/api", api)
+        .layer(middleware::from_fn_with_state(rate_limiter, ip_rate_limit));
+
+    Server::bind(&SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        api_port,
+    ))
+    .serve(router.into_make_service_with_connect_info::<SocketAddr>())
     .await
-    .expect("Failed to start server");
+    .expect("Failed to start API server");
 }
 
 fn load_restricted_deployments(
@@ -360,15 +345,24 @@ where
         .forever();
 }
 
-fn request_host(request: &ServiceRequest) -> String {
-    let info = request.connection_info();
-    info.realip_remote_addr()
-        .map(|addr|
-        // Trim port number
-        &addr[0..addr.rfind(':').unwrap_or(addr.len())])
-        // Fallback to hostname
-        .unwrap_or_else(|| info.host())
-        .to_string()
+fn create_rate_limiter(limit: usize, slots: usize) -> &'static RateLimiter<String> {
+    let rate_limiter = Box::leak(Box::new(RateLimiter::<String>::new(limit, slots)));
+    eventuals::timer(Duration::from_secs(1))
+        .pipe(|_| rate_limiter.rotate_slots())
+        .forever();
+    rate_limiter
+}
+
+async fn ip_rate_limit<B>(
+    State(limiter): State<&'static RateLimiter<String>>,
+    ConnectInfo(info): ConnectInfo<SocketAddr>,
+    req: Request<B>,
+    next: middleware::Next<B>,
+) -> Result<Response, JsonResponse> {
+    if limiter.check_limited(info.ip().to_string()) {
+        return Err(graphql_error_response("Too many requests, try again later"));
+    }
+    Ok(next.run(req).await)
 }
 
 async fn write_indexer_inputs(
@@ -440,16 +434,17 @@ async fn write_indexer_inputs(
     let _ = update_writer.write(Update::Indexers(indexers));
 }
 
-async fn handle_metrics() -> HttpResponse {
+async fn handle_metrics() -> impl axum::response::IntoResponse {
     let encoder = prometheus::TextEncoder::new();
     let metric_families = prometheus::gather();
-    let mut buffer = vec![];
+    let mut buffer = Vec::new();
     if let Err(metrics_encode_err) = encoder.encode(&metric_families, &mut buffer) {
         tracing::error!(%metrics_encode_err);
-        return HttpResponseBuilder::new(StatusCode::INTERNAL_SERVER_ERROR)
-            .body("Failed to encode metrics");
+        buffer.clear();
+        write!(&mut buffer, "Failed to encode metrics").unwrap();
+        return (StatusCode::INTERNAL_SERVER_ERROR, buffer);
     }
-    HttpResponseBuilder::new(StatusCode::OK).body(buffer)
+    (StatusCode::OK, buffer)
 }
 
 #[derive(Clone)]
@@ -459,7 +454,7 @@ struct ReadyData {
     allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
 }
 
-async fn handle_ready(data: web::Data<ReadyData>) -> HttpResponse {
+async fn handle_ready(State(data): State<ReadyData>) -> impl axum::response::IntoResponse {
     // Wait for 30 seconds since startup for subgraph manifests to load.
     let timer_ready = data.start_time.elapsed() > Duration::from_secs(30);
     let block_caches_ready = data
@@ -473,15 +468,29 @@ async fn handle_ready(data: web::Data<ReadyData>) -> HttpResponse {
         .unwrap_or(0)
         > 0;
     if timer_ready && block_caches_ready && allocations_ready {
-        HttpResponseBuilder::new(StatusCode::OK).body("Ready")
+        (StatusCode::OK, "Ready")
     } else {
         // Respond with 425 Too Early
-        HttpResponseBuilder::new(StatusCode::from_u16(425).unwrap()).body("Not ready")
+        (StatusCode::from_u16(425).unwrap(), "Not ready")
     }
 }
 
-pub fn graphql_error_response<S: ToString>(message: S) -> HttpResponse {
-    HttpResponseBuilder::new(StatusCode::OK)
-        .insert_header(header::ContentType::json())
-        .body(json!({"errors": {"message": message.to_string()}}).to_string())
+pub type JsonResponse = (HeaderMap, Json<serde_json::Value>);
+
+pub fn json_response<H>(headers: H, payload: serde_json::Value) -> JsonResponse
+where
+    H: IntoIterator<Item = (HeaderName, HeaderValue)>,
+{
+    let headers = HeaderMap::from_iter(
+        iter::once((
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        ))
+        .chain(headers),
+    );
+    (headers, Json(payload))
+}
+
+pub fn graphql_error_response<S: ToString>(message: S) -> JsonResponse {
+    json_response([], json!({"errors": {"message": message.to_string()}}))
 }
