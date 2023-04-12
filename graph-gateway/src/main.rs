@@ -257,12 +257,8 @@ async fn main() {
             .expect("Failed to start metrics server")
     });
     let ip_rate_limiter = RateLimiter::<String>::new(
-        config.rate_limit_ip_limit as usize,
-        config.rate_limit_ip_window_secs as usize,
-    );
-    let api_rate_limiter = RateLimiter::<String>::new(
-        config.rate_limit_api_limit as usize,
-        config.rate_limit_ip_window_secs as usize,
+        config.ip_rate_limit as usize,
+        config.ip_rate_limit_window_secs as usize,
     );
     HttpServer::new(move || {
         let cors = Cors::default()
@@ -270,11 +266,11 @@ async fn main() {
             .allow_any_header()
             .allowed_methods(vec!["POST", "OPTIONS"]);
         let api = web::scope("/api")
-            .wrap(cors)
             .wrap(RateLimiterMiddleware {
-                rate_limiter: api_rate_limiter.clone(),
-                key: request_api_key,
+                rate_limiter: ip_rate_limiter.clone(),
+                key: request_host,
             })
+            .wrap(cors)
             .app_data(web::Data::new(client_query_ctx.clone()))
             .app_data(web::JsonConfig::default().error_handler(|err, _| {
                 actix_web::error::InternalError::from_response(
@@ -362,14 +358,6 @@ where
             let _ = writer.write(f(v));
         })
         .forever();
-}
-
-fn request_api_key(request: &ServiceRequest) -> String {
-    format!(
-        "{}/{}",
-        request_host(request),
-        request.match_info().get("api_key").unwrap_or("")
-    )
 }
 
 fn request_host(request: &ServiceRequest) -> String {
