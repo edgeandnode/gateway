@@ -38,7 +38,9 @@ use std::{
     sync::Arc,
 };
 
-pub type Context<'c> = cost_model::Context<'c, &'c str>;
+// We have to use `String` instead of `&'c str` here because of compiler bug triggered when holding
+// a context across an await. See https://github.com/rust-lang/rust/issues/71723
+pub type Context<'c> = cost_model::Context<'c, String>;
 
 #[derive(Clone, Debug)]
 pub struct Selection {

@@ -732,6 +732,6 @@ fn count_top_level_selection_sets(ctx: &AgoraContext) -> anyhow::Result<usize> {
             OperationDefinition::Mutation(_) => bail!("Mutations not yet supported"),
             OperationDefinition::Subscription(_) => bail!("Subscriptions not yet supported"),
         })
-        .collect::<anyhow::Result<Vec<&SelectionSet<&str>>>>()?;
+        .collect::<anyhow::Result<Vec<&SelectionSet<String>>>>()?;
     Ok(selection_sets.into_iter().map(|set| set.items.len()).sum())
 }
