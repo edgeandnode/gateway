@@ -14,11 +14,12 @@ use crate::{
         MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS, UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
     },
 };
-use actix_http::{
-    header::{AUTHORIZATION, ORIGIN},
-    StatusCode,
+use axum::{
+    body::Bytes,
+    extract::{Path, State},
+    http::{header, HeaderMap, Response, StatusCode},
+    Json,
 };
-use actix_web::{http::header, web, HttpRequest, HttpResponse, HttpResponseBuilder};
 use futures::future::join_all;
 use indexer_selection::{
     actor::Update, BlockRequirements, Context as AgoraContext,
@@ -30,13 +31,11 @@ use prelude::{
     anyhow::{anyhow, bail, Context as _},
     buffer_queue::QueueWriter,
     double_buffer::DoubleBufferReader,
-    graphql::{
-        graphql_parser::query::{OperationDefinition, SelectionSet},
-        http::Response,
-    },
+    graphql::graphql_parser::query::{OperationDefinition, SelectionSet},
     url::Url,
     DeploymentId, Eventual, *,
 };
+use prost::bytes::Buf;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::{
@@ -108,18 +107,20 @@ pub struct QueryBody {
 }
 
 pub async fn handle_query(
-    request: HttpRequest,
-    payload: web::Json<QueryBody>,
-    ctx: web::Data<Context>,
-) -> HttpResponse {
+    State(ctx): State<Context>,
+    Path(params): Path<BTreeMap<String, String>>,
+    headers: HeaderMap,
+    payload: Bytes,
+) -> Response<String> {
     let start_time_ms = unix_timestamp();
-    let headers = request.headers();
     let ray_id = headers.get("cf-ray").and_then(|value| value.to_str().ok());
     let query_id = ray_id.map(ToString::to_string).unwrap_or_else(query_id);
 
     let auth = match (
-        request.match_info().get("api_key"),
-        headers.get(AUTHORIZATION).and_then(|h| h.to_str().ok()),
+        params.get("api_key"),
+        headers
+            .get(header::AUTHORIZATION)
+            .and_then(|h| h.to_str().ok()),
     ) {
         (Some(param), _) => param,
         (None, Some(header)) => header.trim_start_matches("Bearer").trim(),
@@ -131,12 +132,8 @@ pub async fn handle_query(
         .parse_token(auth)
         .context("Invalid API key");
 
-    let subgraph_resolution_result = resolve_subgraph_deployment(
-        &ctx.subgraph_deployments,
-        &ctx.subgraph_info,
-        request.match_info(),
-    )
-    .await;
+    let subgraph_resolution_result =
+        resolve_subgraph_deployment(&ctx.subgraph_deployments, &ctx.subgraph_info, &params).await;
     let deployment = subgraph_resolution_result
         .as_ref()
         .map(|subgraph_info| subgraph_info.deployment.to_string())
@@ -150,14 +147,14 @@ pub async fn handle_query(
     );
 
     let domain = headers
-        .get(ORIGIN)
+        .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
 
     let result = match (auth, subgraph_resolution_result) {
         (Ok(auth), Ok(subgraph_info)) => {
-            handle_client_query_inner(&ctx, subgraph_info, payload.0, auth, domain)
+            handle_client_query_inner(&ctx, subgraph_info, payload, auth, domain)
                 .instrument(span.clone())
                 .await
         }
@@ -181,26 +178,31 @@ pub async fn handle_query(
         );
     });
 
-    let mut response_builder = HttpResponseBuilder::new(StatusCode::OK);
-    response_builder.insert_header(header::ContentType::json());
+    let response = Response::builder().header(header::CONTENT_TYPE, "application/json");
     match result {
         Ok(ResponsePayload { body, attestation }) => {
             let attestation = attestation
                 .as_ref()
                 .and_then(|attestation| serde_json::to_string(attestation).ok())
                 .unwrap_or_default();
-            response_builder
-                .insert_header(("Graph-Attestation", attestation))
-                .body(body.as_ref())
+            response
+                .header("Graph-Attestation", attestation)
+                .body(body.to_string())
+                .unwrap()
         }
-        Err(err) => graphql_error_response(err.to_string()),
+        Err(err) => {
+            let (_, Json(body)) = graphql_error_response(err.to_string());
+            response
+                .body(serde_json::to_string(&body).unwrap())
+                .unwrap()
+        }
     }
 }
 
 async fn resolve_subgraph_deployment(
     deployments: &SubgraphDeployments,
     subgraph_info: &SubgraphInfoMap,
-    params: &actix_web::dev::Path<actix_web::dev::Url>,
+    params: &BTreeMap<String, String>,
 ) -> Result<Ptr<SubgraphInfo>, Error> {
     let deployment = if let Some(id) = params.get("subgraph_id") {
         let subgraph = id
@@ -228,7 +230,7 @@ async fn resolve_subgraph_deployment(
 async fn handle_client_query_inner(
     ctx: &Context,
     subgraph_info: Ptr<SubgraphInfo>,
-    payload: QueryBody,
+    payload: Bytes,
     auth: AuthToken,
     domain: String,
 ) -> Result<ResponsePayload, Error> {
@@ -251,6 +253,9 @@ async fn handle_client_query_inner(
             ticket_name = payload.name,
         ),
     };
+
+    let payload: QueryBody =
+        serde_json::from_reader(payload.reader()).map_err(|err| Error::InvalidQuery(err.into()))?;
 
     ctx.auth_handler
         .check_token(&auth, &subgraph_info, &domain)
@@ -613,13 +618,14 @@ async fn handle_indexer_query_inner(
         tracing::warn!(indexer_response_status = %response.status);
     }
 
-    let indexer_errors = serde_json::from_str::<Response<Box<RawValue>>>(&response.payload.body)
-        .map_err(|_| IndexerError::UnexpectedPayload)?
-        .errors
-        .unwrap_or_default()
-        .into_iter()
-        .map(|err| err.message)
-        .collect::<Vec<String>>();
+    let indexer_errors =
+        serde_json::from_str::<graphql::http::Response<Box<RawValue>>>(&response.payload.body)
+            .map_err(|_| IndexerError::UnexpectedPayload)?
+            .errors
+            .unwrap_or_default()
+            .into_iter()
+            .map(|err| err.message)
+            .collect::<Vec<String>>();
 
     tracing::info!(
         target: reports::INDEXER_QUERY_TARGET,

@@ -2,7 +2,6 @@ pub mod ethereum;
 pub mod test;
 
 use crate::{block_constraints::*, metrics::*};
-use actix_web::Result;
 use indexer_selection::UnresolvedBlock;
 use prelude::{epoch_cache::EpochCache, tokio::time::interval, *};
 use std::collections::{BTreeSet, HashMap};
