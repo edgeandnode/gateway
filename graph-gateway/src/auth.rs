@@ -4,7 +4,7 @@ use crate::{
     studio_client::{is_domain_authorized, APIKey, IndexerPreferences, QueryStatus},
     subscriptions::Subscription,
 };
-use graph_subscriptions::{eip712::DomainSeparator, TicketPayload};
+use graph_subscriptions::{TicketPayload, TicketVerificationDomain};
 use prelude::{
     anyhow::{anyhow, bail, ensure, Result},
     eventuals::EventualExt as _,
@@ -25,7 +25,7 @@ pub struct AuthHandler {
     pub special_api_keys: HashSet<String>,
     pub api_key_payment_required: bool,
     pub subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
-    pub subscriptions_domain_separator: Option<DomainSeparator>,
+    pub subscriptions_verification_domain: Option<TicketVerificationDomain>,
     pub subscription_query_counters: RwLock<HashMap<Address, AtomicUsize>>,
 }
 
@@ -49,7 +49,7 @@ impl AuthHandler {
         special_api_keys: HashSet<String>,
         api_key_payment_required: bool,
         subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
-        subscriptions_domain_separator: Option<DomainSeparator>,
+        subscriptions_verification_domain: Option<TicketVerificationDomain>,
     ) -> &'static Self {
         let handler: &'static Self = Box::leak(Box::new(Self {
             query_budget_factors,
@@ -57,7 +57,7 @@ impl AuthHandler {
             special_api_keys,
             api_key_payment_required,
             subscriptions,
-            subscriptions_domain_separator,
+            subscriptions_verification_domain,
             subscription_query_counters: RwLock::default(),
         }));
 
@@ -94,10 +94,11 @@ impl AuthHandler {
                 .ok_or_else(|| anyhow!("Not found"));
         }
 
-        let domain_separator = self
-            .subscriptions_domain_separator
+        let domain = self
+            .subscriptions_verification_domain
+            .as_ref()
             .ok_or_else(|| anyhow!("Subscriptions not supported"))?;
-        let (payload, _) = TicketPayload::from_ticket_base64(input.as_bytes(), &domain_separator)?;
+        let (payload, _) = TicketPayload::from_ticket_base64(domain, input)?;
 
         let user = Address(payload.user.unwrap_or(payload.signer).0);
         let subscription = self
