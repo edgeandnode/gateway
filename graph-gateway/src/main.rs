@@ -36,7 +36,7 @@ use axum::{
     routing, Json, Router, Server,
 };
 use eventuals::EventualExt as _;
-use graph_subscriptions::{eip712, TicketPayload};
+use graph_subscriptions::TicketVerificationDomain;
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
     BlockStatus, IndexerInfo, Indexing,
@@ -203,9 +203,10 @@ async fn main() {
     };
     let subscriptions_domain_separator =
         match (config.subscriptions_chain_id, config.subscriptions_contract) {
-            (Some(chain_id), Some(contract)) => Some(eip712::DomainSeparator::new(
-                &TicketPayload::eip712_domain(chain_id, contract.0.into()),
-            )),
+            (Some(chain_id), Some(contract)) => Some(TicketVerificationDomain {
+                contract: contract.0.into(),
+                chain_id: chain_id.into(),
+            }),
             (_, _) => None,
         };
     let auth_handler = AuthHandler::create(
