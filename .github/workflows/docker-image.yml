@@ -38,4 +38,4 @@ jobs:
           labels: ${{ steps.docker_meta.outputs.labels }}
           build-args: |
             GH_USER=${{ github.repository_owner }}
-            GH_TOKEN=${{ secrets.PRIVATE_TOKEN }}
+            GH_TOKEN=${{ secrets.GH_PRIVATE_TOKEN }}
