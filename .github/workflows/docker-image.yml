@@ -1,11 +1,15 @@
 name: Docker Image
 
+# configure manual trigger
 on:
-  push:
-    branches:
-      - main
-      - release
-    tags: ["v*"]
+  workflow_dispatch:
+  
+#on:
+#  push:
+#    branches:
+#      - main
+#      - release
+#    tags: ["v*"]
 
 jobs:
   build:
