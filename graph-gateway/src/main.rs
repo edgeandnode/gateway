@@ -263,11 +263,17 @@ async fn main() {
         .expect("Failed to start metrics server");
     });
 
+    let rate_limiter_slots = 10;
+    let rate_limiter: &'static RateLimiter<String> =
+        Box::leak(Box::new(RateLimiter::<String>::new(
+            rate_limiter_slots * config.ip_rate_limit as usize,
+            rate_limiter_slots,
+        )));
+    eventuals::timer(Duration::from_secs(1))
+        .pipe(|_| rate_limiter.rotate_slots())
+        .forever();
+
     let api_port = config.port_api;
-    let rate_limiter = create_rate_limiter(
-        config.ip_rate_limit as usize,
-        config.ip_rate_limit_window_secs as usize,
-    );
     let api = Router::new()
         .route(
             "/deployments/id/:deployment_id",
@@ -344,14 +350,6 @@ where
             let _ = writer.write(f(v));
         })
         .forever();
-}
-
-fn create_rate_limiter(limit: usize, slots: usize) -> &'static RateLimiter<String> {
-    let rate_limiter = Box::leak(Box::new(RateLimiter::<String>::new(limit, slots)));
-    eventuals::timer(Duration::from_secs(1))
-        .pipe(|_| rate_limiter.rotate_slots())
-        .forever();
-    rate_limiter
 }
 
 async fn ip_rate_limit<B>(

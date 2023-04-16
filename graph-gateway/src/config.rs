@@ -29,10 +29,8 @@ pub struct Config {
     /// IPFS endpoint with access to the subgraph files
     #[serde_as(as = "DisplayFromStr")]
     pub ipfs: Url,
-    /// IP rate limit per window
+    /// IP rate limit in requests per second
     pub ip_rate_limit: u16,
-    /// Duration of IP rate limiting window in seconds
-    pub ip_rate_limit_window_secs: u8,
     /// See https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
     #[serde(default)]
     pub kafka: KafkaConfig,
