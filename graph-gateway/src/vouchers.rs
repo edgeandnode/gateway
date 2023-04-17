@@ -127,7 +127,7 @@ pub async fn handle_voucher(
 fn process_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonResponse, String> {
     let request =
         serde_json::from_slice::<VoucherRequest>(payload).map_err(|err| err.to_string())?;
-    let allocation_id = request.allocation_id;
+    let allocation_id = request.allocation;
     let partial_vouchers = request
         .partial_vouchers
         .into_iter()
@@ -176,12 +176,11 @@ fn parse_receipts(payload: &[u8]) -> Result<([u8; 20], &[u8]), String> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VoucherRequest {
-    allocation_id: Address,
+    allocation: Address,
     partial_vouchers: Vec<PartialVoucher>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct PartialVoucher {
     #[serde(deserialize_with = "deserialize_signature")]
     signature: [u8; 65],
@@ -203,5 +202,8 @@ fn deserialize_signature<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[
 
 fn deserialize_u256<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, D::Error> {
     let input: &str = Deserialize::deserialize(deserializer)?;
-    U256::from_str(input).map_err(serde::de::Error::custom)
+    // U256::from_str is busted, so use the equivalent decimals representation
+    Ok(GRTWei::from_str(input)
+        .map_err(serde::de::Error::custom)?
+        .as_u256())
 }
