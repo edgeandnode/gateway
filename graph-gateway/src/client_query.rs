@@ -248,9 +248,8 @@ async fn handle_client_query_inner(
         ),
         AuthToken::Ticket(payload, _) => tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
-            ticket_user = ?payload.user.unwrap_or(payload.signer),
-            ticket_signer = ?payload.signer,
-            ticket_name = payload.name,
+            ticket_user = ?payload.user(),
+            ticket_payload = serde_json::to_string(payload).unwrap(),
         ),
     };
 
