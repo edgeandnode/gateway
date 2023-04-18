@@ -187,9 +187,8 @@ fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Valu
         start_time_ms: u64,
         deployment: Option<String>,
         api_key: Option<String>,
-        ticket_name: Option<String>,
         ticket_user: Option<String>,
-        ticket_signer: Option<String>,
+        ticket_payload: Option<String>,
         subgraph_chain: Option<String>,
         query_count: Option<u32>,
         budget_grt: Option<f32>,
@@ -227,15 +226,14 @@ fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Valu
     .unwrap();
     println!("{log}");
 
-    if let (Some(ticket_user), Some(ticket_signer)) = (fields.ticket_user, fields.ticket_signer) {
+    if let Some(ticket_payload) = fields.ticket_payload {
         let payload = GatewaySubscriptionQueryResult {
             query_id: fields.query_id.clone(),
             status_code: fields.status_code,
             status_message: fields.status_message.clone(),
             response_time_ms,
-            ticket_user,
-            ticket_signer,
-            ticket_name: fields.ticket_name,
+            ticket_user: fields.ticket_user.unwrap_or_default(),
+            ticket_payload,
             deployment: fields.deployment.clone(),
             subgraph_chain: fields.subgraph_chain.clone(),
             query_count: fields.query_count,
@@ -408,33 +406,30 @@ pub fn status<T>(result: &Result<T, client_query::Error>) -> (String, i32) {
 pub struct GatewaySubscriptionQueryResult {
     /// Set to the value of the CF-Ray header, otherwise a generated UUID
     #[prost(string, tag = "1")]
-    pub query_id: prost::alloc::string::String,
+    pub query_id: String,
     #[prost(enumeration = "StatusCode", tag = "2")]
     pub status_code: i32,
     #[prost(string, tag = "3")]
-    pub status_message: prost::alloc::string::String,
+    pub status_message: String,
     #[prost(uint32, tag = "4")]
     pub response_time_ms: u32,
     /// `user` field from ticket payload, 0x-prefixed hex
     #[prost(string, tag = "5")]
-    pub ticket_user: prost::alloc::string::String,
-    /// `signer` field from ticket payload, 0x-prefixed hex
+    pub ticket_user: String,
+    /// ticket payload, JSON
     #[prost(string, tag = "6")]
-    pub ticket_signer: prost::alloc::string::String,
-    /// `name` field from ticket payload
-    #[prost(string, optional, tag = "7")]
-    pub ticket_name: Option<prost::alloc::string::String>,
+    pub ticket_payload: String,
     /// Subgraph Deployment ID, CIDv0 ("Qm" hash)
-    #[prost(string, optional, tag = "8")]
-    pub deployment: Option<prost::alloc::string::String>,
+    #[prost(string, optional, tag = "7")]
+    pub deployment: Option<String>,
     /// Chain name indexed by subgraph deployment
-    #[prost(string, optional, tag = "9")]
-    pub subgraph_chain: Option<prost::alloc::string::String>,
-    #[prost(uint32, optional, tag = "10")]
+    #[prost(string, optional, tag = "8")]
+    pub subgraph_chain: Option<String>,
+    #[prost(uint32, optional, tag = "9")]
     pub query_count: Option<u32>,
-    #[prost(float, optional, tag = "11")]
+    #[prost(float, optional, tag = "10")]
     pub query_budget: Option<f32>,
-    #[prost(float, optional, tag = "12")]
+    #[prost(float, optional, tag = "11")]
     pub indexer_fees: Option<f32>,
 }
 

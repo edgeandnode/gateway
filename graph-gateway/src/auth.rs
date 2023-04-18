@@ -100,7 +100,7 @@ impl AuthHandler {
             .ok_or_else(|| anyhow!("Subscriptions not supported"))?;
         let (payload, _) = TicketPayload::from_ticket_base64(domain, input)?;
 
-        let user = Address(payload.user.unwrap_or(payload.signer).0);
+        let user = Address(payload.user().0);
         let subscription = self
             .subscriptions
             .value_immediate()
@@ -195,7 +195,7 @@ impl AuthHandler {
             AuthToken::ApiKey(_) => return Ok(()),
             AuthToken::Ticket(payload, subscription) => (payload, subscription),
         };
-        let user = Address(ticket_payload.user.unwrap_or(ticket_payload.signer).0);
+        let user = Address(ticket_payload.user().0);
         let counters = match self.subscription_query_counters.try_read() {
             Ok(counters) => counters,
             // Just skip if we can't acquire the read lock. This is a relaxed operation anyway.
