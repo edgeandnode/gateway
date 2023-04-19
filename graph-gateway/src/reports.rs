@@ -63,7 +63,20 @@ where
     S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
 {
     fn on_new_span(&self, attrs: &span::Attributes<'_>, id: &span::Id, ctx: layer::Context<'_, S>) {
-        let mut fields = Map::<String, serde_json::Value>::new();
+        let mut fields: Map<String, serde_json::Value> = Map::new();
+        // insert values from parent spans
+        for span in ctx.span_scope(id).unwrap().skip(1) {
+            let extensions = span.extensions();
+            if let Some(scope_fields) = extensions.get::<Map<String, serde_json::Value>>() {
+                for (key, value) in scope_fields {
+                    // favor values set in inner scopes
+                    if !fields.contains_key(key) {
+                        fields.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+
         attrs.record(&mut CollectFields(&mut fields));
         let span = ctx.span(id).unwrap();
         span.extensions_mut().insert(fields);
@@ -100,19 +113,7 @@ where
             return;
         }
 
-        let mut fields: Map<String, serde_json::Value> = extensions.remove().unwrap();
-        // insert values from parent spans
-        for span in ctx.event_scope(event).unwrap().skip(1) {
-            let extensions = span.extensions();
-            if let Some(scope_fields) = extensions.get::<Map<String, serde_json::Value>>() {
-                for (key, value) in scope_fields {
-                    if !fields.contains_key(key) {
-                        fields.insert(key.clone(), value.clone());
-                    }
-                }
-            }
-        }
-
+        let fields: Map<String, serde_json::Value> = extensions.remove().unwrap();
         match event.metadata().target() {
             CLIENT_QUERY_TARGET => report_client_query(self.0, fields),
             INDEXER_QUERY_TARGET => report_indexer_query(self.0, fields),
