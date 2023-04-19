@@ -470,6 +470,14 @@ async fn handle_client_query_inner(
 
             let indexer_query_context = indexer_query_context.clone();
             let response_tx = response_tx.clone();
+            // We must manually construct this span before the spawned task, since otherwise
+            // there's a race between creating this span and another indexer responding which will
+            // close the outer client_query span.
+            let span = tracing::info_span!(
+                target: reports::INDEXER_QUERY_TARGET,
+                "indexer_query",
+                indexer = %selection.indexing.indexer,
+            );
             tokio::spawn(
                 async move {
                     let response = handle_indexer_query(
@@ -481,7 +489,7 @@ async fn handle_client_query_inner(
                     .await;
                     let _ = response_tx.try_send(response);
                 }
-                .in_current_span(),
+                .instrument(span),
             );
         }
         for _ in 0..selections_len {
@@ -511,10 +519,6 @@ struct IndexerQueryContext {
     pub subgraph_chain: String,
 }
 
-#[tracing::instrument(
-    target = "indexer_query", name = "indexer_query",
-    skip_all, fields(indexer = %selection.indexing.indexer),
-)]
 async fn handle_indexer_query(
     mut ctx: IndexerQueryContext,
     selection: Selection,
