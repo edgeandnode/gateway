@@ -198,6 +198,7 @@ async fn main() {
         None => Eventual::from_value(Ptr::default()),
         Some(subgraph_endpoint) => subscriptions_subgraph::Client::create(
             subgraph_client::Client::new(http_client.clone(), subgraph_endpoint),
+            config.subscriptions_owner,
             config.subscription_tiers,
         ),
     };

@@ -11,19 +11,34 @@ pub struct Client {
     subgraph_client: subgraph_client::Client,
     tiers: SubscriptionTiers,
     subscriptions_usage: VolumeEstimations<Address>,
+    owner_subscription: Option<(Address, Subscription)>,
     subscriptions: EventualWriter<Ptr<HashMap<Address, Subscription>>>,
 }
 
 impl Client {
     pub fn create(
         subgraph_client: subgraph_client::Client,
+        owner: Option<Address>,
         tiers: SubscriptionTiers,
     ) -> Eventual<Ptr<HashMap<Address, Subscription>>> {
+        let owner_subscription = owner.map(|owner| {
+            (
+                owner,
+                Subscription {
+                    query_rate_limit: u32::MAX,
+                    // TODO: query for authorized signers for owner.
+                    signers: vec![],
+                    usage: Arc::default(),
+                },
+            )
+        });
+
         let (subscriptions_tx, subscriptions_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
             tiers,
             subscriptions_usage: VolumeEstimations::new(),
+            owner_subscription,
             subscriptions: subscriptions_tx,
         }));
 
@@ -98,6 +113,7 @@ impl Client {
                 };
                 (user.id, sub)
             })
+            .chain(self.owner_subscription.clone())
             .collect();
         self.subscriptions.write(Ptr::new(subscriptions_map));
 
