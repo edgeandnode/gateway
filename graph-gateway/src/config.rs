@@ -62,6 +62,8 @@ pub struct Config {
     pub subscriptions_chain_id: Option<u64>,
     /// Subscriptions contract address
     pub subscriptions_contract: Option<Address>,
+    /// Subscriptions contract owner
+    pub subscriptions_owner: Option<Address>,
     /// Subscriptions contract subgraph URL
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub subscriptions_subgraph: Option<Url>,
