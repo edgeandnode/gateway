@@ -194,12 +194,15 @@ async fn main() {
         deployment_ids,
     );
 
+    let subscription_tiers: &'static SubscriptionTiers =
+        Box::leak(Box::new(config.subscription_tiers));
+
     let subscriptions = match config.subscriptions_subgraph {
         None => Eventual::from_value(Ptr::default()),
         Some(subgraph_endpoint) => subscriptions_subgraph::Client::create(
             subgraph_client::Client::new(http_client.clone(), subgraph_endpoint),
             config.subscriptions_owner,
-            config.subscription_tiers,
+            subscription_tiers,
         ),
     };
     let subscriptions_domain_separator =
@@ -312,6 +315,11 @@ async fn main() {
             "/voucher",
             routing::post(vouchers::handle_voucher).with_state(signer_key),
         )
+        // Temporary route. Will be replaced by gateway metadata (GSP).
+        .route(
+            "/subscription-tiers",
+            routing::get(handle_subscription_tiers).with_state(subscription_tiers),
+        )
         .nest("/api", api)
         .layer(middleware::from_fn_with_state(rate_limiter, ip_rate_limit));
 
@@ -363,6 +371,13 @@ async fn ip_rate_limit<B>(
         return Err(graphql_error_response("Too many requests, try again later"));
     }
     Ok(next.run(req).await)
+}
+
+async fn handle_subscription_tiers(
+    State(tiers): State<&'static SubscriptionTiers>,
+) -> JsonResponse {
+    let response = serde_json::to_value(tiers).unwrap();
+    json_response([], response)
 }
 
 async fn write_indexer_inputs(
