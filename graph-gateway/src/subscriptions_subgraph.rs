@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 pub struct Client {
     subgraph_client: subgraph_client::Client,
-    tiers: SubscriptionTiers,
+    tiers: &'static SubscriptionTiers,
     subscriptions_usage: VolumeEstimations<Address>,
     owner_subscription: Option<(Address, Subscription)>,
     subscriptions: EventualWriter<Ptr<HashMap<Address, Subscription>>>,
@@ -19,7 +19,7 @@ impl Client {
     pub fn create(
         subgraph_client: subgraph_client::Client,
         owner: Option<Address>,
-        tiers: SubscriptionTiers,
+        tiers: &'static SubscriptionTiers,
     ) -> Eventual<Ptr<HashMap<Address, Subscription>>> {
         let owner_subscription = owner.map(|owner| {
             (

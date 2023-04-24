@@ -3,7 +3,7 @@ use hdwallet::{self, KeyChain as _};
 use indexer_selection::SecretKey;
 use prelude::*;
 use semver::Version;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr, FromInto};
 use std::{collections::BTreeMap, path::PathBuf};
 
@@ -157,11 +157,11 @@ impl FromStr for SignerKey {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct SubscriptionTiers(Vec<SubscriptionTier>);
 
 #[serde_as]
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SubscriptionTier {
     /// Payment rate from the subcription contract.
     #[serde_as(as = "DisplayFromStr")]
