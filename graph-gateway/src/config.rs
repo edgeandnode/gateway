@@ -67,6 +67,8 @@ pub struct Config {
     /// Subscriptions contract subgraph URL
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub subscriptions_subgraph: Option<Url>,
+    /// Subscriptions ticket for internal queries
+    pub subscriptions_ticket: Option<String>,
     /// Subscription tiers
     #[serde(default)]
     #[serde_as(as = "FromInto<Vec<SubscriptionTier>>")]

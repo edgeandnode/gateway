@@ -139,7 +139,7 @@ async fn main() {
     );
 
     let network_subgraph_client =
-        subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
+        subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone(), None);
     let l2_migration_delay = config
         .l2_migration_delay_hours
         .map(|hours| chrono::Duration::hours(hours as i64));
@@ -200,7 +200,11 @@ async fn main() {
     let subscriptions = match config.subscriptions_subgraph {
         None => Eventual::from_value(Ptr::default()),
         Some(subgraph_endpoint) => subscriptions_subgraph::Client::create(
-            subgraph_client::Client::new(http_client.clone(), subgraph_endpoint),
+            subgraph_client::Client::new(
+                http_client.clone(),
+                subgraph_endpoint,
+                config.subscriptions_ticket,
+            ),
             config.subscriptions_owner,
             subscription_tiers,
         ),
