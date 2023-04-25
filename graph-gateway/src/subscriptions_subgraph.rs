@@ -33,7 +33,8 @@ impl Client {
             )
         });
 
-        let (subscriptions_tx, subscriptions_rx) = Eventual::new();
+        let (mut subscriptions_tx, subscriptions_rx) = Eventual::new();
+        subscriptions_tx.write(Ptr::new(owner_subscription.clone().into_iter().collect()));
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
             tiers,
