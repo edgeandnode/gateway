@@ -191,7 +191,7 @@ impl Actor {
             }
         }"# });
         let statuses =
-            graphql_query::<IndexerStatusResponse>(client, status_url.into(), &status_query)
+            graphql_query::<IndexerStatusResponse>(client, status_url.into(), &status_query, None)
                 .await?
                 .unpack()?
                 .indexing_statuses;
@@ -211,11 +211,12 @@ impl Actor {
             }"#,
             "variables": { "deployments": deployments },
         });
-        let cost_models = graphql_query::<CostModelResponse>(client, cost_url.into(), &cost_query)
-            .await
-            .and_then(graphql::http::Response::unpack)
-            .map(|cost_models| cost_models.cost_models)
-            .unwrap_or_default();
+        let cost_models =
+            graphql_query::<CostModelResponse>(client, cost_url.into(), &cost_query, None)
+                .await
+                .and_then(graphql::http::Response::unpack)
+                .map(|cost_models| cost_models.cost_models)
+                .unwrap_or_default();
 
         let mut actor = actor.lock().await;
         let mut cost_models = cost_models

@@ -1,27 +1,39 @@
+use axum::http::{header, HeaderMap, HeaderValue};
 use prelude::{graphql::http::Response, *};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, value::RawValue, Value};
 
 pub struct Client {
-    subgraph_endpoint: Url,
     http_client: reqwest::Client,
+    subgraph_endpoint: Url,
+    ticket: Option<String>,
     latest_block: u64,
 }
 
 impl Client {
-    pub fn new(http_client: reqwest::Client, subgraph_endpoint: Url) -> Self {
+    pub fn new(
+        http_client: reqwest::Client,
+        subgraph_endpoint: Url,
+        ticket: Option<String>,
+    ) -> Self {
         Self {
-            subgraph_endpoint,
             http_client,
+            subgraph_endpoint,
+            ticket,
             latest_block: 0,
         }
     }
 
     pub async fn query<T: for<'de> Deserialize<'de>>(&self, query: &Value) -> Result<T, String> {
-        let response = graphql_query::<T>(&self.http_client, self.subgraph_endpoint.clone(), query)
-            .await?
-            .data
-            .ok_or("empty response")?;
+        let response = graphql_query::<T>(
+            &self.http_client,
+            self.subgraph_endpoint.clone(),
+            query,
+            self.ticket.as_deref(),
+        )
+        .await?
+        .data
+        .ok_or("empty response")?;
 
         Ok(response)
     }
@@ -45,6 +57,7 @@ impl Client {
                 &self.http_client,
                 self.subgraph_endpoint.clone(),
                 &json!({"query": "{ meta: _meta { block { number hash } } }"}),
+                self.ticket.as_deref(),
             )
             .await?
             .unpack()?;
@@ -71,6 +84,7 @@ impl Client {
                         "last": last_id,
                     },
                 }),
+                self.ticket.as_deref(),
             )
             .await?;
             let errors = response
@@ -115,12 +129,21 @@ pub async fn graphql_query<T>(
     client: &reqwest::Client,
     url: Url,
     body: &Value,
+    ticket: Option<&str>,
 ) -> Result<Response<T>, String>
 where
     T: DeserializeOwned,
 {
+    let headers = ticket
+        .into_iter()
+        .map(|ticket| {
+            let value = HeaderValue::from_str(&format!("Bearer {ticket}")).unwrap();
+            (header::AUTHORIZATION, value)
+        })
+        .collect::<HeaderMap>();
     client
         .post(url.0)
+        .headers(headers)
         .json(body)
         .send()
         .await
