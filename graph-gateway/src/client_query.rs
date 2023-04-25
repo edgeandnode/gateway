@@ -17,7 +17,7 @@ use crate::{
 use axum::{
     body::Bytes,
     extract::{Path, State},
-    http::{header, HeaderMap, Response, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Response, StatusCode},
     Json,
 };
 use futures::future::join_all;
@@ -91,6 +91,7 @@ pub struct Context {
     pub graph_env_id: String,
     pub auth_handler: &'static AuthHandler,
     pub indexer_selection_retry_limit: usize,
+    pub l2_gateway: Option<Url>,
     pub block_caches: &'static HashMap<String, BlockCache>,
     pub subgraph_info: SubgraphInfoMap,
     pub subgraph_deployments: SubgraphDeployments,
@@ -134,6 +135,30 @@ pub async fn handle_query(
 
     let subgraph_resolution_result =
         resolve_subgraph_deployment(&ctx.subgraph_deployments, &ctx.subgraph_info, &params).await;
+
+    if let Err(Error::DeploymentMigrated(deployment)) = subgraph_resolution_result {
+        let gateway_response =
+            forward_to_l2(ctx.l2_gateway.clone(), &deployment, headers, payload).await;
+        tracing::info!(
+            l2_gateway = ?ctx.l2_gateway,
+            success = gateway_response.is_some(),
+            %deployment,
+            "forward query to L2 gateway",
+        );
+        let body = gateway_response.unwrap_or_else(|| {
+            graphql_error_response("Internal Error: L2 gateway unavailable")
+                .1
+                .to_string()
+        });
+        return Response::builder()
+            .header(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            )
+            .body(body)
+            .unwrap();
+    }
+
     let deployment = subgraph_resolution_result
         .as_ref()
         .map(|subgraph_info| subgraph_info.deployment.to_string())
@@ -744,4 +769,25 @@ fn count_top_level_selection_sets(ctx: &AgoraContext) -> anyhow::Result<usize> {
         })
         .collect::<anyhow::Result<Vec<&SelectionSet<String>>>>()?;
     Ok(selection_sets.into_iter().map(|set| set.items.len()).sum())
+}
+
+async fn forward_to_l2(
+    l2_gateway: Option<Url>,
+    deployment: &DeploymentId,
+    headers: HeaderMap,
+    payload: Bytes,
+) -> Option<String> {
+    let url = l2_gateway?
+        .join(&format!("/api/deployments/id/{deployment}"))
+        .ok()?;
+    reqwest::Client::new()
+        .post(url)
+        .headers(headers)
+        .body(payload)
+        .send()
+        .await
+        .ok()?
+        .text()
+        .await
+        .ok()
 }
