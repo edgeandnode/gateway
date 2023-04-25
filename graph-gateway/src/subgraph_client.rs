@@ -124,6 +124,7 @@ where
         .json(body)
         .send()
         .await
+        .and_then(|response| response.error_for_status())
         .map_err(|err| err.to_string())?
         .json::<Response<T>>()
         .await
