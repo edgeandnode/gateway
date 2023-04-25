@@ -507,5 +507,5 @@ where
 }
 
 pub fn graphql_error_response<S: ToString>(message: S) -> JsonResponse {
-    json_response([], json!({"errors": {"message": message.to_string()}}))
+    json_response([], json!({"errors": [{"message": message.to_string()}]}))
 }
