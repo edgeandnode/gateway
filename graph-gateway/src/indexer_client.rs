@@ -79,7 +79,8 @@ impl IndexerClient {
             .header("Scalar-Receipt", receipt)
             .body(query)
             .send()
-            .await;
+            .await
+            .and_then(|response| response.error_for_status());
         // We need to observe timeouts differently in the ISA, so we discriminate them here.
         let response = match result {
             Ok(response) => response,
