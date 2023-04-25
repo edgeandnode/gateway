@@ -127,10 +127,7 @@ pub async fn handle_query(
         (None, None) => "",
     };
     tracing::debug!(%auth);
-    let auth = ctx
-        .auth_handler
-        .parse_token(auth)
-        .context("Invalid API key");
+    let auth = ctx.auth_handler.parse_token(auth).context("Invalid auth");
 
     let subgraph_resolution_result =
         resolve_subgraph_deployment(&ctx.subgraph_deployments, &ctx.subgraph_info, &params).await;

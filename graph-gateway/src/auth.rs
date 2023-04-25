@@ -153,7 +153,7 @@ impl AuthHandler {
         tracing::debug!(?allowed_deployments);
         let allow_deployment = allowed_deployments.is_empty()
             || allowed_deployments.contains(&subgraph_info.deployment);
-        ensure!(allow_deployment, "Deployment not authorized by API key");
+        ensure!(allow_deployment, "Deployment not authorized");
 
         // Check subgraph allowlist
         let allowed_subgraphs: Vec<SubgraphId> = match token {
@@ -173,7 +173,7 @@ impl AuthHandler {
                 .iter()
                 .any(|subgraph_id| subgraph_info.ids.contains(subgraph_id))
         };
-        ensure!(allow_subgraph, "Subgraph not authorized by API key");
+        ensure!(allow_subgraph, "Subgraph not authorized by user");
 
         // Check domain allowlist
         let allowed_domains: Vec<&str> = match token {
@@ -187,7 +187,7 @@ impl AuthHandler {
         tracing::debug!(%domain, ?allowed_domains);
         let allow_domain =
             allowed_domains.is_empty() || is_domain_authorized(&allowed_domains, domain);
-        ensure!(allow_domain, "Domain not authorized by API key");
+        ensure!(allow_domain, "Domain not authorized by user");
 
         // Check rate limit for subscriptions. This step should be last to avoid invalid queries
         // taking up the rate limit.
