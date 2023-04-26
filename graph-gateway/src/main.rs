@@ -3,6 +3,7 @@ mod block_constraints;
 mod chains;
 mod client_query;
 mod config;
+mod exchange_rate;
 mod fisherman_client;
 mod geoip;
 mod indexer_client;
