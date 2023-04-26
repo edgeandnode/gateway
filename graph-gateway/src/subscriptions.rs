@@ -7,7 +7,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct Subscription {
     pub signers: Vec<Address>,
-    pub query_rate_limit: u32,
+    pub queries_per_minute: u32,
     pub usage: Arc<Mutex<VolumeEstimator>>,
 }
 

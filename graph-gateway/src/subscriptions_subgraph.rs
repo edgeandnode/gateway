@@ -25,7 +25,7 @@ impl Client {
             (
                 owner,
                 Subscription {
-                    query_rate_limit: u32::MAX,
+                    queries_per_minute: u32::MAX,
                     // TODO: query for authorized signers for owner.
                     signers: vec![],
                     usage: Arc::default(),
@@ -109,7 +109,7 @@ impl Client {
                 let tier = self.tiers.tier_for_rate(active_sub.rate);
                 let sub = Subscription {
                     signers: signers.collect(),
-                    query_rate_limit: tier.query_rate_limit,
+                    queries_per_minute: tier.queries_per_minute,
                     usage: self.subscriptions_usage.get(&user.id),
                 };
                 (user.id, sub)
