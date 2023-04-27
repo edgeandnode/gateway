@@ -29,7 +29,7 @@ use crate::{
 };
 use anyhow::{self, anyhow};
 use axum::{
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, DefaultBodyLimit, State},
     http::{self, header, status::StatusCode, HeaderMap, HeaderName, HeaderValue, Request},
     middleware,
     response::Response,
@@ -314,7 +314,9 @@ async fn main() {
         )
         .route(
             "/partial-voucher",
-            routing::post(vouchers::handle_partial_voucher).with_state(signer_key),
+            routing::post(vouchers::handle_partial_voucher)
+                .with_state(signer_key)
+                .layer(DefaultBodyLimit::max(3_000_000)),
         )
         .route(
             "/voucher",
