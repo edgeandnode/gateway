@@ -131,10 +131,15 @@ async fn main() {
         .build()
         .unwrap();
 
+    let usd_to_grt = match config.exchange_rate_provider {
+        ExchangeRateProvider::Fixed(usd_to_grt) => Eventual::from_value(usd_to_grt),
+        ExchangeRateProvider::Rpc(url) => exchange_rate::usd_to_grt(url).await.unwrap(),
+    };
+
     let studio_data =
         studio_client::Actor::create(http_client.clone(), config.studio_url, config.studio_auth);
     update_from_eventual(
-        studio_data.usd_to_grt,
+        usd_to_grt,
         update_writer.clone(),
         Update::USDToGRTConversion,
     );

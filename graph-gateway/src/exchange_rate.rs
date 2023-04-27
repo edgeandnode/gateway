@@ -7,7 +7,7 @@ use prelude::{
     anyhow::{anyhow, ensure, Result},
     eventuals::{self, EventualExt},
     tokio::sync::Mutex,
-    tracing, Duration, Eventual, EventualWriter, UDecimal, USD,
+    tracing, Duration, Eventual, EventualWriter, UDecimal, Url, USD,
 };
 use std::sync::Arc;
 
@@ -17,11 +17,12 @@ abigen!(
     event_derives(serde::Deserialize, serde::Serialize);
 );
 
-pub async fn usd_to_grt(provider: Arc<Provider<Http>>) -> Result<Eventual<USD>> {
+pub async fn usd_to_grt(provider: Url) -> Result<Eventual<USD>> {
     // https://info.uniswap.org/#/pools/0x4d1fb02fa84eda35881902e8e0fdacc3a873398b
     let uniswap_v3_pool: Address = "0x4d1Fb02fa84EdA35881902e8E0fdacC3a873398B"
         .parse()
         .unwrap();
+    let provider = Arc::new(Provider::<Http>::try_from(provider.to_string()).unwrap());
     let pool: &'static UniswapV3Pool<Provider<Http>> =
         Box::leak(Box::new(UniswapV3Pool::new(uniswap_v3_pool, provider)));
 

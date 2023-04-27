@@ -57,18 +57,15 @@ pub struct Actor {
     auth: String,
     api_key_usage: VolumeEstimations<i64>,
     api_keys_writer: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
-    usd_to_grt_writer: EventualWriter<USD>,
 }
 
 pub struct Data {
     pub api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
-    pub usd_to_grt: Eventual<USD>,
 }
 
 impl Actor {
     pub fn create(client: reqwest::Client, mut url: Url, auth: String) -> Data {
         let (api_keys_writer, api_keys) = Eventual::new();
-        let (usd_to_grt_writer, usd_to_grt) = Eventual::new();
         if !url.path().ends_with('/') {
             url.0.set_path(&format!("{}/", url.path()));
         }
@@ -78,17 +75,12 @@ impl Actor {
             auth,
             api_key_usage: VolumeEstimations::new(),
             api_keys_writer,
-            usd_to_grt_writer,
         }));
         eventuals::timer(Duration::from_secs(30))
             .pipe_async(move |_| {
                 let actor = actor.clone();
                 async move {
                     let mut actor = actor.lock().await;
-                    match actor.fetch_usd_to_grt().await {
-                        Ok(usd_to_grt) => actor.usd_to_grt_writer.write(usd_to_grt),
-                        Err(usd_to_grt_fetch_error) => tracing::error!(%usd_to_grt_fetch_error),
-                    };
                     match actor.fetch_api_keys().await {
                         Ok(api_keys) => actor.api_keys_writer.write(Ptr::new(api_keys)),
                         Err(api_key_fetch_error) => tracing::error!(%api_key_fetch_error),
@@ -96,10 +88,7 @@ impl Actor {
                 }
             })
             .forever();
-        Data {
-            api_keys,
-            usd_to_grt,
-        }
+        Data { api_keys }
     }
 
     async fn fetch_api_keys(&mut self) -> Result<HashMap<String, Arc<APIKey>>, Box<dyn Error>> {
@@ -161,30 +150,6 @@ impl Actor {
 
         tracing::info!(api_keys = api_keys.len());
         Ok(api_keys)
-    }
-
-    async fn fetch_usd_to_grt(&mut self) -> Result<USD, Box<dyn Error>> {
-        #[derive(Deserialize)]
-        struct GRTPrice {
-            usd: f64,
-        }
-        let price = self
-            .client
-            .get(self.url.join("grt-price")?)
-            .bearer_auth(&self.auth)
-            .send()
-            .await?
-            .json::<GRTPrice>()
-            .await?
-            .usd;
-        // Check that the float value isn't completely outside of reasonable bounds.
-        if !(1e-3..=1e3).contains(&price) {
-            return Err(format!("Conversion rate out of range ({price})").into());
-        }
-        let usd_to_grt =
-            USD::try_from(price.recip()).map_err(|_| "Failed to convert price to decimal value")?;
-        tracing::debug!(%usd_to_grt, source_price = price);
-        Ok(usd_to_grt)
     }
 }
 
