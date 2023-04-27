@@ -58,6 +58,7 @@ async fn fetch_usd_to_grt(pool: &UniswapV3Pool<Provider<Http>>) -> Result<USD> {
     // token1/token0 -> GRT/USDC
     let twap_seconds: u32 = 3600;
     let (tick_cumulatives, _) = pool.observe(vec![twap_seconds, 0]).await?;
+    ensure!(tick_cumulatives.len() == 2);
     let tick = (tick_cumulatives[1] - tick_cumulatives[0]) / twap_seconds as i64;
     let price = UDecimal::<0>::try_from(1.0001_f64.powi(tick as i32) as u128)
         .map_err(|err| anyhow!(err))?
