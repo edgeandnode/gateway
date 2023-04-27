@@ -13,6 +13,8 @@ pub struct Config {
     /// Respect the payment state of API keys (disable for testnets)
     pub api_key_payment_required: bool,
     pub chains: Vec<Chain>,
+    /// Ethereum RPC provider, or fixed exchange rate for testing
+    pub exchange_rate_provider: ExchangeRateProvider,
     /// Fisherman RPC for challenges
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub fisherman: Option<Url>,
@@ -96,6 +98,14 @@ impl From<Chain> for ethereum::Provider {
             block_time: Duration::from_secs(chain.poll_hz as u64),
         }
     }
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum ExchangeRateProvider {
+    Rpc(#[serde_as(as = "DisplayFromStr")] Url),
+    Fixed(USD),
 }
 
 #[derive(Debug, Deserialize)]
