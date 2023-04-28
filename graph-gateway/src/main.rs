@@ -135,14 +135,18 @@ async fn main() {
         ExchangeRateProvider::Fixed(usd_to_grt) => Eventual::from_value(usd_to_grt),
         ExchangeRateProvider::Rpc(url) => exchange_rate::usd_to_grt(url).await.unwrap(),
     };
-
-    let studio_data =
-        studio_client::Actor::create(http_client.clone(), config.studio_url, config.studio_auth);
     update_from_eventual(
         usd_to_grt,
         update_writer.clone(),
         Update::USDToGRTConversion,
     );
+
+    let api_keys = match config.studio_url {
+        Some(url) => {
+            studio_client::Actor::create(http_client.clone(), url, config.studio_auth).api_keys
+        }
+        None => Eventual::from_value(Ptr::default()),
+    };
 
     let network_subgraph_client =
         subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone(), None);
@@ -229,7 +233,7 @@ async fn main() {
             discount: config.query_budget_discount,
             processes: config.gateway_instance_count as f64,
         },
-        studio_data.api_keys,
+        api_keys,
         HashSet::from_iter(config.special_api_keys),
         config.api_key_payment_required,
         subscriptions,

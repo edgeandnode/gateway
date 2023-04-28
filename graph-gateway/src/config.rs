@@ -61,8 +61,8 @@ pub struct Config {
     /// Subgraph studio admin auth token
     pub studio_auth: String,
     /// Subgraph studio admin url
-    #[serde_as(as = "DisplayFromStr")]
-    pub studio_url: Url,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub studio_url: Option<Url>,
     /// Subscriptions contract chain ID
     pub subscriptions_chain_id: Option<u64>,
     /// Subscriptions contract address
