@@ -15,9 +15,9 @@ mod network_subgraph;
 mod price_automation;
 mod receipts;
 mod reports;
-mod studio_client;
 mod subgraph_client;
 mod subgraph_deployments;
+mod subgraph_studio;
 mod subscriptions;
 mod subscriptions_subgraph;
 mod unattestable_errors;
@@ -141,13 +141,6 @@ async fn main() {
         Update::USDToGRTConversion,
     );
 
-    let api_keys = match config.studio_url {
-        Some(url) => {
-            studio_client::Actor::create(http_client.clone(), url, config.studio_auth).api_keys
-        }
-        None => Eventual::from_value(Ptr::default()),
-    };
-
     let network_subgraph_client =
         subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone(), None);
     let l2_migration_delay = config
@@ -203,6 +196,11 @@ async fn main() {
         network_subgraph_data.subgraph_deployments.clone(),
         deployment_ids,
     );
+
+    let api_keys = match config.studio_url {
+        Some(url) => subgraph_studio::api_keys(http_client.clone(), url, config.studio_auth),
+        None => Eventual::from_value(Ptr::default()),
+    };
 
     let subscription_tiers: &'static SubscriptionTiers =
         Box::leak(Box::new(config.subscription_tiers));

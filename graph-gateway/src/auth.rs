@@ -1,7 +1,7 @@
 use crate::{
     manifest_client::SubgraphInfo,
     price_automation::QueryBudgetFactors,
-    studio_client::{is_domain_authorized, APIKey, IndexerPreferences, QueryStatus},
+    subgraph_studio::{APIKey, IndexerPreferences, QueryStatus},
     subscriptions::Subscription,
 };
 use graph_subscriptions::{TicketPayload, TicketVerificationDomain};
@@ -251,6 +251,47 @@ impl AuthHandler {
         QuerySettings {
             budget,
             indexer_preferences,
+        }
+    }
+}
+
+pub fn is_domain_authorized<S: AsRef<str>>(authorized: &[S], origin: &str) -> bool {
+    authorized.iter().any(|authorized| {
+        let pattern = authorized.as_ref().split('.');
+        let origin = origin.split('.');
+        let count = pattern.clone().count();
+        if (count < 1) || (origin.clone().count() != count) {
+            return false;
+        }
+        pattern.zip(origin).all(|(p, o)| (p == o) || (p == "*"))
+    })
+}
+
+#[cfg(test)]
+mod test {
+    use super::is_domain_authorized;
+
+    #[test]
+    fn authorized_domains() {
+        let authorized_domains = ["example.com", "localhost", "a.b.c", "*.d.e"];
+        let tests = [
+            ("", false),
+            ("example.com", true),
+            ("subdomain.example.com", false),
+            ("localhost", true),
+            ("badhost", false),
+            ("a.b.c", true),
+            ("c", false),
+            ("b.c", false),
+            ("d.b.c", false),
+            ("a", false),
+            ("a.b", false),
+            ("e", false),
+            ("d.e", false),
+            ("z.d.e", true),
+        ];
+        for (input, expected) in tests {
+            assert_eq!(expected, is_domain_authorized(&authorized_domains, input));
         }
     }
 }
