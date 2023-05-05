@@ -3,8 +3,6 @@ use eventuals::{self, EventualExt as _};
 use prelude::*;
 use serde::Deserialize;
 use serde_json::json;
-use serde_with::serde_as;
-use serde_with::DisplayFromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -42,13 +40,11 @@ pub struct Allocation {
     pub indexer: Indexer,
 }
 
-#[serde_as]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Indexer {
     pub id: Address,
-    #[serde_as(as = "DisplayFromStr")]
-    pub url: Url,
+    pub url: String,
     pub staked_tokens: GRTWei,
 }
 
