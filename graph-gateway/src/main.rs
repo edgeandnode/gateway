@@ -7,7 +7,7 @@ mod exchange_rate;
 mod fisherman_client;
 mod geoip;
 mod indexer_client;
-mod indexer_status;
+mod indexing;
 mod ipfs;
 mod manifest_client;
 mod metrics;
@@ -24,12 +24,8 @@ mod topology;
 mod unattestable_errors;
 mod vouchers;
 
-use crate::{
-    auth::AuthHandler, chains::*, config::*, fisherman_client::*, geoip::GeoIP,
-    indexer_client::IndexerClient, indexer_status::IndexingStatus,
-    price_automation::QueryBudgetFactors, receipts::ReceiptPools, reports::KafkaClient,
-};
 use anyhow::{self, anyhow};
+use auth::AuthHandler;
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, State},
     http::{self, header, status::StatusCode, HeaderMap, HeaderName, HeaderValue, Request},
@@ -37,19 +33,29 @@ use axum::{
     response::Response,
     routing, Json, Router, Server,
 };
+use chains::*;
+use config::*;
 use eventuals::EventualExt as _;
+use fisherman_client::*;
+use geoip::GeoIP;
 use graph_subscriptions::TicketVerificationDomain;
+use indexer_client::IndexerClient;
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
     BlockStatus, IndexerInfo, Indexing,
 };
+use indexing::indexing_statuses;
+use indexing::IndexingStatus;
 use network_subgraph::AllocationInfo;
 use prelude::{
     anyhow::Context,
     buffer_queue::{self, QueueWriter},
     *,
 };
+use price_automation::QueryBudgetFactors;
 use prometheus::{self, Encoder as _};
+use receipts::ReceiptPools;
+use reports::KafkaClient;
 use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
@@ -64,6 +70,7 @@ use std::{
     sync::Arc,
 };
 use tokio::spawn;
+use topology::{Allocation, Deployment, GraphNetwork};
 use tower_http::cors::{self, CorsLayer};
 
 #[tokio::main]
@@ -150,53 +157,41 @@ async fn main() {
     let network_subgraph_data =
         network_subgraph::Client::create(network_subgraph_client, l2_migration_delay);
     update_from_eventual(
-        network_subgraph_data.slashing_percentage,
+        network_subgraph_data.slashing_percentage.clone(),
         update_writer.clone(),
         Update::SlashingPercentage,
     );
 
     let receipt_pools: &'static ReceiptPools = Box::leak(Box::default());
 
-    let indexer_status_data = indexer_status::Actor::create(
+    let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
+    let network = GraphNetwork::new(network_subgraph_data.clone(), ipfs).await;
+
+    let indexing_statuses = indexing_statuses(
+        network.deployments.clone(),
+        http_client.clone(),
         config.min_indexer_version,
         geoip,
-        network_subgraph_data.indexers.clone(),
     );
     {
         let update_writer = update_writer.clone();
-        eventuals::join((
-            network_subgraph_data.allocations.clone(),
-            network_subgraph_data.indexers,
-            indexer_status_data.indexings,
-        ))
-        .pipe_async(move |(allocations, indexer_info, indexing_statuses)| {
-            let update_writer = update_writer.clone();
-            async move {
-                write_indexer_inputs(
-                    &signer_key,
-                    block_caches,
-                    &update_writer,
-                    receipt_pools,
-                    &allocations,
-                    &indexer_info,
-                    &indexing_statuses,
-                )
-                .await;
-            }
-        })
-        .forever();
+        eventuals::join((network.deployments.clone(), indexing_statuses))
+            .pipe_async(move |(deployments, indexing_statuses)| {
+                let update_writer = update_writer.clone();
+                async move {
+                    write_indexer_inputs(
+                        &signer_key,
+                        block_caches,
+                        &update_writer,
+                        receipt_pools,
+                        &deployments,
+                        &indexing_statuses,
+                    )
+                    .await;
+                }
+            })
+            .forever();
     }
-
-    let deployment_ids = network_subgraph_data
-        .deployment_indexers
-        .clone()
-        .map(|deployments| async move { deployments.keys().cloned().collect() });
-    let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
-    let subgraph_info = manifest_client::create(
-        ipfs,
-        network_subgraph_data.subgraph_deployments.clone(),
-        deployment_ids,
-    );
 
     let api_keys = match config.studio_url {
         Some(url) => subgraph_studio::api_keys(http_client.clone(), url, config.studio_auth),
@@ -252,20 +247,19 @@ async fn main() {
         },
         graph_env_id: config.graph_env_id.clone(),
         auth_handler,
-        subgraph_info,
-        subgraph_deployments: network_subgraph_data.subgraph_deployments,
-        deployment_indexers: network_subgraph_data.deployment_indexers,
+        network,
         fisherman_client,
         block_caches,
         observations: update_writer,
         receipt_pools,
         isa_state,
     };
-    let ready_data = ReadyData {
-        start_time: Instant::now(),
-        block_caches,
-        allocations: network_subgraph_data.allocations,
-    };
+
+    tracing::info!("Waiting for chain heads from block caches...");
+    for (chain, block_cache) in block_caches {
+        let head = block_cache.chain_head.value().await.unwrap();
+        tracing::debug!(%chain, ?head);
+    }
 
     // Host metrics on a separate server with a port that isn't open to public requests.
     let metrics_port = config.port_metrics;
@@ -316,7 +310,7 @@ async fn main() {
 
     let router = Router::new()
         .route("/", routing::get(|| async { "Ready to roll!" }))
-        .route("/ready", routing::get(handle_ready).with_state(ready_data))
+        .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/collect-receipts",
             routing::post(vouchers::handle_collect_receipts).with_state(signer_key),
@@ -401,26 +395,32 @@ async fn write_indexer_inputs(
     block_caches: &HashMap<String, BlockCache>,
     update_writer: &QueueWriter<Update>,
     receipt_pools: &ReceiptPools,
-    allocations: &HashMap<Address, AllocationInfo>,
-    indexer_info: &HashMap<Address, Arc<IndexerInfo>>,
+    deployments: &HashMap<DeploymentId, Arc<Deployment>>,
     indexing_statuses: &HashMap<Indexing, IndexingStatus>,
 ) {
     tracing::info!(
-        allocations = allocations.len(),
-        indexers = indexer_info.len(),
+        deployments = deployments.len(),
+        allocations = deployments
+            .values()
+            .map(|d| d.allocations.len())
+            .sum::<usize>(),
         indexing_statuses = indexing_statuses.len(),
     );
 
-    let mut indexers = indexer_info
-        .iter()
-        .map(|(indexer, info)| {
+    let mut indexers: HashMap<Address, IndexerUpdate> = deployments
+        .values()
+        .flat_map(|deployment| &deployment.allocations)
+        .map(|Allocation { indexer, .. }| {
             let update = IndexerUpdate {
-                info: info.clone(),
+                info: Arc::new(IndexerInfo {
+                    stake: indexer.staked_tokens,
+                    url: indexer.url.clone(),
+                }),
                 indexings: HashMap::new(),
             };
-            (*indexer, update)
+            (indexer.id, update)
         })
-        .collect::<HashMap<Address, IndexerUpdate>>();
+        .collect();
 
     let mut latest_blocks = HashMap::<String, u64>::new();
     for (indexing, status) in indexing_statuses {
@@ -428,20 +428,28 @@ async fn write_indexer_inputs(
             Some(indexer) => indexer,
             None => continue,
         };
-        let latest = match latest_blocks.entry(status.network.clone()) {
+        let latest = match latest_blocks.entry(status.chain.clone()) {
             Entry::Occupied(entry) => *entry.get(),
             Entry::Vacant(entry) => *entry.insert(
                 block_caches
-                    .get(&status.network)
+                    .get(&status.chain)
                     .and_then(|cache| cache.chain_head.value_immediate().map(|b| b.number))
                     .unwrap_or(0),
             ),
         };
-        let allocations = allocations
-            .iter()
-            .filter(|(_, info)| &info.indexing == indexing)
-            .map(|(id, info)| (*id, info.allocated_tokens))
-            .collect::<HashMap<Address, GRT>>();
+        let allocations: HashMap<Address, GRT> = deployments
+            .get(&indexing.deployment)
+            .into_iter()
+            .flat_map(|deployment| &deployment.allocations)
+            .filter(|Allocation { indexer, .. }| indexer.id == indexing.indexer)
+            .map(
+                |Allocation {
+                     id,
+                     allocated_tokens,
+                     ..
+                 }| (*id, *allocated_tokens),
+            )
+            .collect();
 
         receipt_pools
             .update_receipt_pool(signer, indexing, &allocations)
@@ -483,27 +491,6 @@ struct ReadyData {
     start_time: Instant,
     block_caches: &'static HashMap<String, BlockCache>,
     allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
-}
-
-async fn handle_ready(State(data): State<ReadyData>) -> impl axum::response::IntoResponse {
-    // Wait for 30 seconds since startup for subgraph manifests to load.
-    let timer_ready = data.start_time.elapsed() > Duration::from_secs(30);
-    let block_caches_ready = data
-        .block_caches
-        .iter()
-        .all(|(_, cache)| cache.chain_head.value_immediate().is_some());
-    let allocations_ready = data
-        .allocations
-        .value_immediate()
-        .map(|map| map.len())
-        .unwrap_or(0)
-        > 0;
-    if timer_ready && block_caches_ready && allocations_ready {
-        (StatusCode::OK, "Ready")
-    } else {
-        // Respond with 425 Too Early
-        (StatusCode::from_u16(425).unwrap(), "Not ready")
-    }
 }
 
 pub type JsonResponse = (HeaderMap, Json<serde_json::Value>);
