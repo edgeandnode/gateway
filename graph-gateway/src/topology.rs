@@ -184,21 +184,21 @@ impl ManifestCache {
         // https://github.com/graphprotocol/graph-node/blob/master/docs/subgraph-manifest.md
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
-        pub struct ManifestSrc {
-            pub data_sources: Vec<DataSource>,
+        struct ManifestSrc {
+            data_sources: Vec<DataSource>,
             #[serde(default)]
-            pub features: Vec<String>,
+            features: Vec<String>,
         }
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
-        pub struct DataSource {
-            pub network: String,
-            pub source: EthereumContractSource,
+        struct DataSource {
+            network: String,
+            source: EthereumContractSource,
         }
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
-        pub struct EthereumContractSource {
-            pub start_block: Option<u64>,
+        struct EthereumContractSource {
+            start_block: Option<u64>,
         }
 
         let payload = ipfs.cat(&deployment.ipfs_hash()).await?;
