@@ -239,6 +239,9 @@ async fn main() {
             as &'static FishermanClient
     });
 
+    tracing::info!("Waiting for ISA setup...");
+    update_writer.flush().await.unwrap();
+
     let client_query_ctx = client_query::Context {
         indexer_selection_retry_limit: config.indexer_selection_retry_limit,
         l2_gateway: config.l2_gateway,
