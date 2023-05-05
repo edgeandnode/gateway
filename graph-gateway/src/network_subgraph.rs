@@ -1,15 +1,18 @@
 use crate::subgraph_client;
 use eventuals::{self, EventualExt as _};
-use prelude::*;
+use prelude::{anyhow::anyhow, *};
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-#[derive(Clone)]
 pub struct Data {
-    pub slashing_percentage: Eventual<PPM>,
+    pub network_params: NetworkParams,
     pub subgraphs: Eventual<Ptr<Vec<Subgraph>>>,
+}
+
+pub struct NetworkParams {
+    pub slashing_percentage: PPM,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,46 +53,44 @@ pub struct Indexer {
 
 pub struct Client {
     subgraph_client: subgraph_client::Client,
-    slashing_percentage: EventualWriter<PPM>,
     subgraphs: EventualWriter<Ptr<Vec<Subgraph>>>,
     l2_migration_delay: Option<chrono::Duration>,
 }
 
 impl Client {
-    pub fn create(
+    pub async fn create(
         subgraph_client: subgraph_client::Client,
         l2_migration_delay: Option<chrono::Duration>,
-    ) -> Data {
-        let (slashing_percentage_tx, slashing_percentage_rx) = Eventual::new();
+    ) -> anyhow::Result<Data> {
         let (subgraphs_tx, subgraphs_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
-            slashing_percentage: slashing_percentage_tx,
             subgraphs: subgraphs_tx,
             l2_migration_delay,
         }));
+
+        let network_params = client.lock().await.network_params().await?;
+
         // 4e072dfe-5cb3-4f86-80f6-b64afeb9dcb2
         eventuals::timer(Duration::from_secs(30))
             .pipe_async(move |_| {
                 let client = client.clone();
                 async move {
                     let mut client = client.lock().await;
-                    if let Err(poll_network_params_err) = client.poll_network_params().await {
-                        tracing::error!(%poll_network_params_err);
-                    }
                     if let Err(poll_subgraphs_err) = client.poll_subgraphs().await {
                         tracing::error!(%poll_subgraphs_err);
                     }
                 }
             })
             .forever();
-        Data {
-            slashing_percentage: slashing_percentage_rx,
+
+        Ok(Data {
+            network_params,
             subgraphs: subgraphs_rx,
-        }
+        })
     }
 
-    async fn poll_network_params(&mut self) -> Result<(), String> {
+    async fn network_params(&mut self) -> anyhow::Result<NetworkParams> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct GraphNetworkResponse {
@@ -100,18 +101,21 @@ impl Client {
         struct GraphNetwork {
             slashing_percentage: u32,
         }
-
+        let query = r#"{ graphNetwork(id: "1") { slashingPercentage } }"#;
         let response = self
             .subgraph_client
-            .query::<GraphNetworkResponse>(
-                &json!({ "query": "{ graphNetwork(id: \"1\") { slashingPercentage } }" }),
-            )
-            .await?
+            .query::<GraphNetworkResponse>(&json!({ "query": query }))
+            .await
+            .map_err(|err| anyhow!(err))?
             .graph_network
-            .ok_or_else(|| "Discarding empty update (graphNetwork)".to_string())?;
-        let slashing_percentage = response.slashing_percentage.try_into()?;
-        self.slashing_percentage.write(slashing_percentage);
-        Ok(())
+            .ok_or_else(|| anyhow!("Discarding empty update (graphNetwork)"))?;
+
+        Ok(NetworkParams {
+            slashing_percentage: response
+                .slashing_percentage
+                .try_into()
+                .map_err(|_| anyhow!("Failed to parse slashingPercentage"))?,
+        })
     }
 
     async fn poll_subgraphs(&mut self) -> Result<(), String> {

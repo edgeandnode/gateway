@@ -12,8 +12,6 @@ use std::{
 pub struct GraphNetwork {
     pub subgraphs: Eventual<Ptr<HashMap<SubgraphId, Subgraph>>>,
     pub deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
-    /// Indexer penalty on successful indexing disputes, in parts per million.
-    pub slashing_percentage: Eventual<PPM>,
 }
 
 /// In an effort to keep the ownership structure a simple tree, this only contains the info required
@@ -53,14 +51,17 @@ pub struct Manifest {
 }
 
 impl GraphNetwork {
-    pub async fn new(network_subgraph: network_subgraph::Data, ipfs: Arc<ipfs::Client>) -> Self {
+    pub async fn new(
+        subgraphs: Eventual<Ptr<Vec<network_subgraph::Subgraph>>>,
+        ipfs: Arc<ipfs::Client>,
+    ) -> Self {
         let manifest_cache: &'static RwLock<ManifestCache> =
             Box::leak(Box::new(RwLock::new(ManifestCache {
                 ipfs,
                 cache: HashMap::new(),
             })));
 
-        let subgraphs = network_subgraph.subgraphs.map(move |subgraphs| async move {
+        let subgraphs = subgraphs.map(move |subgraphs| async move {
             Ptr::new(Self::subgraphs(&subgraphs, manifest_cache).await)
         });
         let deployments = subgraphs.clone().map(|subgraphs| async move {
@@ -80,7 +81,6 @@ impl GraphNetwork {
         Self {
             subgraphs,
             deployments,
-            slashing_percentage: network_subgraph.slashing_percentage,
         }
     }
 

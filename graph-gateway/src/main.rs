@@ -152,17 +152,20 @@ async fn main() {
         .l2_migration_delay_hours
         .map(|hours| chrono::Duration::hours(hours as i64));
     let network_subgraph_data =
-        network_subgraph::Client::create(network_subgraph_client, l2_migration_delay);
-    update_from_eventual(
-        network_subgraph_data.slashing_percentage.clone(),
-        update_writer.clone(),
-        Update::SlashingPercentage,
-    );
+        network_subgraph::Client::create(network_subgraph_client, l2_migration_delay)
+            .await
+            .unwrap();
+
+    update_writer
+        .write(Update::SlashingPercentage(
+            network_subgraph_data.network_params.slashing_percentage,
+        ))
+        .unwrap();
 
     let receipt_pools: &'static ReceiptPools = Box::leak(Box::default());
 
     let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
-    let network = GraphNetwork::new(network_subgraph_data.clone(), ipfs).await;
+    let network = GraphNetwork::new(network_subgraph_data.subgraphs, ipfs).await;
 
     let indexing_statuses = indexing_statuses(
         network.deployments.clone(),
