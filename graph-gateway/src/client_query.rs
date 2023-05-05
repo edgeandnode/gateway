@@ -284,13 +284,19 @@ async fn handle_client_query_inner(
         .await
         .map_err(Error::InvalidAuth)?;
 
-    let deployment_indexers = ctx
+    let available_indexings: Vec<Indexing> = ctx
         .deployment_indexers
         .value_immediate()
         .and_then(|map| map.get(&subgraph_info.deployment).cloned())
-        .unwrap_or_default();
-    tracing::info!(deployment_indexers = deployment_indexers.len());
-    if deployment_indexers.is_empty() {
+        .unwrap_or_default()
+        .into_iter()
+        .map(|indexer| Indexing {
+            indexer,
+            deployment: subgraph_info.deployment,
+        })
+        .collect();
+    tracing::info!(available_indexings = available_indexings.len());
+    if available_indexings.is_empty() {
         return Err(Error::NoIndexers);
     }
 
@@ -424,8 +430,7 @@ async fn handle_client_query_inner(
             .isa_state
             .latest()
             .select_indexers(
-                &subgraph_info.deployment,
-                &deployment_indexers,
+                &available_indexings,
                 &utility_params,
                 &mut context,
                 SELECTION_LIMIT as u8,

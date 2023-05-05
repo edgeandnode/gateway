@@ -252,28 +252,23 @@ impl State {
 
     pub fn select_indexers<'a>(
         &self,
-        deployment: &DeploymentId,
-        indexers: &'a [Address],
+        indexings: &'a [Indexing],
         params: &UtilityParameters,
         context: &mut Context<'_>,
         selection_limit: u8,
     ) -> Result<(Vec<Selection>, IndexerErrors<'a>), InputError> {
         let mut errors = IndexerErrors(BTreeMap::new());
         let mut available = Vec::<SelectionFactors>::new();
-        for indexer in indexers {
-            if let Some(allowed) = self.restricted_deployments.get(deployment) {
-                if !allowed.contains(indexer) {
-                    errors.add(IndexerError::Excluded, indexer);
+        for indexing in indexings {
+            if let Some(allowed) = self.restricted_deployments.get(&indexing.deployment) {
+                if !allowed.contains(&indexing.indexer) {
+                    errors.add(IndexerError::Excluded, &indexing.indexer);
                     continue;
                 }
             }
-            let indexing = Indexing {
-                indexer: *indexer,
-                deployment: *deployment,
-            };
-            match self.selection_factors(indexing, params, context, selection_limit) {
+            match self.selection_factors(*indexing, params, context, selection_limit) {
                 Ok(factors) => available.push(factors),
-                Err(SelectionError::BadIndexer(err)) => errors.add(err, indexer),
+                Err(SelectionError::BadIndexer(err)) => errors.add(err, &indexing.indexer),
                 Err(SelectionError::BadInput(err)) => return Err(err),
             };
         }

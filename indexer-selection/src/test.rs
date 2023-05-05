@@ -288,9 +288,16 @@ async fn fuzz() {
         };
         println!("{:#?}", request);
         let mut context = Context::new(&request.query, "").unwrap();
+        let indexings: Vec<Indexing> = request
+            .indexers
+            .iter()
+            .map(|indexer| Indexing {
+                indexer: *indexer,
+                deployment: request.deployment,
+            })
+            .collect();
         let result = isa_state.latest().select_indexers(
-            &request.deployment,
-            &request.indexers,
+            &indexings,
             &request.params,
             &mut context,
             request.selection_limit,
