@@ -15,9 +15,9 @@ mod network_subgraph;
 mod price_automation;
 mod receipts;
 mod reports;
-mod studio_client;
 mod subgraph_client;
 mod subgraph_deployments;
+mod subgraph_studio;
 mod subscriptions;
 mod subscriptions_subgraph;
 mod unattestable_errors;
@@ -135,9 +135,6 @@ async fn main() {
         ExchangeRateProvider::Fixed(usd_to_grt) => Eventual::from_value(usd_to_grt),
         ExchangeRateProvider::Rpc(url) => exchange_rate::usd_to_grt(url).await.unwrap(),
     };
-
-    let studio_data =
-        studio_client::Actor::create(http_client.clone(), config.studio_url, config.studio_auth);
     update_from_eventual(
         usd_to_grt,
         update_writer.clone(),
@@ -200,6 +197,11 @@ async fn main() {
         deployment_ids,
     );
 
+    let api_keys = match config.studio_url {
+        Some(url) => subgraph_studio::api_keys(http_client.clone(), url, config.studio_auth),
+        None => Eventual::from_value(Ptr::default()),
+    };
+
     let subscription_tiers: &'static SubscriptionTiers =
         Box::leak(Box::new(config.subscription_tiers));
 
@@ -229,7 +231,7 @@ async fn main() {
             discount: config.query_budget_discount,
             processes: config.gateway_instance_count as f64,
         },
-        studio_data.api_keys,
+        api_keys,
         HashSet::from_iter(config.special_api_keys),
         config.api_key_payment_required,
         subscriptions,

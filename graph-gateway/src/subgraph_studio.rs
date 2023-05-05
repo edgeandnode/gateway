@@ -39,19 +39,35 @@ pub struct IndexerPreferences {
     pub price_efficiency: f64,
 }
 
-pub fn is_domain_authorized<S: AsRef<str>>(authorized: &[S], origin: &str) -> bool {
-    authorized.iter().any(|authorized| {
-        let pattern = authorized.as_ref().split('.');
-        let origin = origin.split('.');
-        let count = pattern.clone().count();
-        if (count < 1) || (origin.clone().count() != count) {
-            return false;
-        }
-        pattern.zip(origin).all(|(p, o)| (p == o) || (p == "*"))
-    })
+pub fn api_keys(
+    client: reqwest::Client,
+    mut url: Url,
+    auth: String,
+) -> Eventual<Ptr<HashMap<String, Arc<APIKey>>>> {
+    let (writer, reader) = Eventual::new();
+    if !url.path().ends_with('/') {
+        url.0.set_path(&format!("{}/", url.path()));
+    }
+    let client: &'static Mutex<Client> = Box::leak(Box::new(Mutex::new(Client {
+        client,
+        url,
+        auth,
+        api_key_usage: VolumeEstimations::new(),
+        api_keys_writer: writer,
+    })));
+    eventuals::timer(Duration::from_secs(30))
+        .pipe_async(move |_| async move {
+            let mut client = client.lock().await;
+            match client.fetch_api_keys().await {
+                Ok(api_keys) => client.api_keys_writer.write(Ptr::new(api_keys)),
+                Err(api_key_fetch_error) => tracing::error!(%api_key_fetch_error),
+            };
+        })
+        .forever();
+    reader
 }
 
-pub struct Actor {
+struct Client {
     client: reqwest::Client,
     url: Url,
     auth: String,
@@ -59,38 +75,7 @@ pub struct Actor {
     api_keys_writer: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
 }
 
-pub struct Data {
-    pub api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
-}
-
-impl Actor {
-    pub fn create(client: reqwest::Client, mut url: Url, auth: String) -> Data {
-        let (api_keys_writer, api_keys) = Eventual::new();
-        if !url.path().ends_with('/') {
-            url.0.set_path(&format!("{}/", url.path()));
-        }
-        let actor = Arc::new(Mutex::new(Self {
-            client,
-            url,
-            auth,
-            api_key_usage: VolumeEstimations::new(),
-            api_keys_writer,
-        }));
-        eventuals::timer(Duration::from_secs(30))
-            .pipe_async(move |_| {
-                let actor = actor.clone();
-                async move {
-                    let mut actor = actor.lock().await;
-                    match actor.fetch_api_keys().await {
-                        Ok(api_keys) => actor.api_keys_writer.write(Ptr::new(api_keys)),
-                        Err(api_key_fetch_error) => tracing::error!(%api_key_fetch_error),
-                    };
-                }
-            })
-            .forever();
-        Data { api_keys }
-    }
-
+impl Client {
     async fn fetch_api_keys(&mut self) -> Result<HashMap<String, Arc<APIKey>>, Box<dyn Error>> {
         let response = self
             .client
@@ -191,33 +176,4 @@ struct GatewaySubgraph {
 #[derive(Deserialize)]
 struct GatewayDomain {
     domain: String,
-}
-
-#[cfg(test)]
-mod test {
-    use super::is_domain_authorized;
-
-    #[test]
-    fn authorized_domains() {
-        let authorized_domains = ["example.com", "localhost", "a.b.c", "*.d.e"];
-        let tests = [
-            ("", false),
-            ("example.com", true),
-            ("subdomain.example.com", false),
-            ("localhost", true),
-            ("badhost", false),
-            ("a.b.c", true),
-            ("c", false),
-            ("b.c", false),
-            ("d.b.c", false),
-            ("a", false),
-            ("a.b", false),
-            ("e", false),
-            ("d.e", false),
-            ("z.d.e", true),
-        ];
-        for (input, expected) in tests {
-            assert_eq!(expected, is_domain_authorized(&authorized_domains, input));
-        }
-    }
 }
