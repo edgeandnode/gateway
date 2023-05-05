@@ -8,7 +8,7 @@ mod fisherman_client;
 mod geoip;
 mod indexer_client;
 mod indexer_status;
-mod ipfs_client;
+mod ipfs;
 mod manifest_client;
 mod metrics;
 mod network_subgraph;
@@ -25,7 +25,7 @@ mod vouchers;
 
 use crate::{
     auth::AuthHandler, chains::*, config::*, fisherman_client::*, geoip::GeoIP,
-    indexer_client::IndexerClient, indexer_status::IndexingStatus, ipfs_client::*,
+    indexer_client::IndexerClient, indexer_status::IndexingStatus,
     price_automation::QueryBudgetFactors, receipts::ReceiptPools, reports::KafkaClient,
 };
 use anyhow::{self, anyhow};
@@ -190,9 +190,9 @@ async fn main() {
         .deployment_indexers
         .clone()
         .map(|deployments| async move { deployments.keys().cloned().collect() });
-    let ipfs_client = IPFSClient::new(http_client.clone(), config.ipfs, 50);
+    let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
     let subgraph_info = manifest_client::create(
-        ipfs_client,
+        ipfs,
         network_subgraph_data.subgraph_deployments.clone(),
         deployment_ids,
     );

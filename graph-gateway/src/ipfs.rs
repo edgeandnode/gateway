@@ -2,13 +2,13 @@ use prelude::*;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
-pub struct IPFSClient {
+pub struct Client {
     client: reqwest::Client,
     endpoint: Url,
     semaphore: Semaphore,
 }
 
-impl IPFSClient {
+impl Client {
     pub fn new(client: reqwest::Client, endpoint: Url, max_concurrent: usize) -> Arc<Self> {
         Arc::new(Self {
             client,

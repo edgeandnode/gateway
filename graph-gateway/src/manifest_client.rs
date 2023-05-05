@@ -1,4 +1,4 @@
-use crate::{ipfs_client::*, subgraph_deployments::SubgraphDeployments};
+use crate::{ipfs, subgraph_deployments::SubgraphDeployments};
 use anyhow::{anyhow, Result};
 use eventuals::EventualExt;
 use prelude::*;
@@ -18,7 +18,7 @@ pub struct SubgraphInfo {
 pub type SubgraphInfoMap = Eventual<Ptr<im::HashMap<DeploymentId, Eventual<Ptr<SubgraphInfo>>>>>;
 
 pub fn create(
-    ipfs_client: Arc<IPFSClient>,
+    ipfs_client: Arc<ipfs::Client>,
     subgraph_deployments: SubgraphDeployments,
     subgraphs: Eventual<Vec<DeploymentId>>,
 ) -> SubgraphInfoMap {
@@ -74,7 +74,7 @@ pub fn create(
 }
 
 pub async fn fetch_manifest(
-    client: &IPFSClient,
+    client: &ipfs::Client,
     subgraphs: Vec<SubgraphId>,
     deployment: DeploymentId,
 ) -> Result<SubgraphInfo> {
