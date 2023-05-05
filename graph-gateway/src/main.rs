@@ -20,6 +20,7 @@ mod subgraph_deployments;
 mod subgraph_studio;
 mod subscriptions;
 mod subscriptions_subgraph;
+mod topology;
 mod unattestable_errors;
 mod vouchers;
 
