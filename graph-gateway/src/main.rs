@@ -9,14 +9,12 @@ mod geoip;
 mod indexer_client;
 mod indexing;
 mod ipfs;
-mod manifest_client;
 mod metrics;
 mod network_subgraph;
 mod price_automation;
 mod receipts;
 mod reports;
 mod subgraph_client;
-mod subgraph_deployments;
 mod subgraph_studio;
 mod subscriptions;
 mod subscriptions_subgraph;
@@ -46,7 +44,6 @@ use indexer_selection::{
 };
 use indexing::indexing_statuses;
 use indexing::IndexingStatus;
-use network_subgraph::AllocationInfo;
 use prelude::{
     anyhow::Context,
     buffer_queue::{self, QueueWriter},
@@ -484,13 +481,6 @@ async fn handle_metrics() -> impl axum::response::IntoResponse {
         return (StatusCode::INTERNAL_SERVER_ERROR, buffer);
     }
     (StatusCode::OK, buffer)
-}
-
-#[derive(Clone)]
-struct ReadyData {
-    start_time: Instant,
-    block_caches: &'static HashMap<String, BlockCache>,
-    allocations: Eventual<Ptr<HashMap<Address, AllocationInfo>>>,
 }
 
 pub type JsonResponse = (HeaderMap, Json<serde_json::Value>);

@@ -1,5 +1,6 @@
 use crate::{ipfs, network_subgraph};
-use prelude::{eventuals::EventualExt as _, *};
+use prelude::{anyhow::anyhow, eventuals::EventualExt as _, *};
+use serde::Deserialize;
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
@@ -85,4 +86,51 @@ impl GraphNetwork {
     async fn assemble_topology(subgraphs: &[network_subgraph::Subgraph], ipfs: &ipfs::Client) {
         todo!();
     }
+}
+
+pub async fn cat_manifest(
+    client: &ipfs::Client,
+    deployment: DeploymentId,
+) -> anyhow::Result<Manifest> {
+    // Subgraph manifest schema:
+    // https://github.com/graphprotocol/graph-node/blob/master/docs/subgraph-manifest.md
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ManifestSrc {
+        pub data_sources: Vec<DataSource>,
+        #[serde(default)]
+        pub features: Vec<String>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct DataSource {
+        pub network: String,
+        pub source: EthereumContractSource,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct EthereumContractSource {
+        pub start_block: Option<u64>,
+    }
+
+    let payload = client.cat(&deployment.ipfs_hash()).await?;
+    let manifest = serde_yaml::from_str::<ManifestSrc>(&payload)?;
+    let min_block = manifest
+        .data_sources
+        .iter()
+        .map(|data_source| data_source.source.start_block.unwrap_or(0))
+        .min()
+        .unwrap_or(0);
+    // We are assuming that all `dataSource.network` fields are identical.
+    let network = manifest
+        .data_sources
+        .into_iter()
+        .map(|data_source| data_source.network)
+        .next()
+        .ok_or_else(|| anyhow!("Network not found"))?;
+    Ok(Manifest {
+        network,
+        min_block,
+        features: manifest.features,
+    })
 }
