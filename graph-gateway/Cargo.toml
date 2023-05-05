@@ -15,7 +15,6 @@ futures-util = "0.3"
 graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "e4f0dc9" }
 hdwallet = "0.3"
 hex = "0.4"
-im = "15.0"
 indexer-selection = { path = "../indexer-selection" }
 itertools = "0.10"
 lazy_static = "1.4"
