@@ -5,11 +5,10 @@ use crate::{
     fisherman_client::{ChallengeOutcome, FishermanClient},
     graphql_error_response,
     indexer_client::{Attestation, IndexerClient, IndexerError, ResponsePayload},
-    manifest_client::{SubgraphInfo, SubgraphInfoMap},
     metrics::{with_metric, METRICS},
     receipts::{ReceiptPools, ReceiptStatus},
     reports,
-    subgraph_deployments::SubgraphDeployments,
+    topology::{Deployment, GraphNetwork},
     unattestable_errors::{
         MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS, UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
     },
@@ -33,7 +32,7 @@ use prelude::{
     double_buffer::DoubleBufferReader,
     graphql::graphql_parser::query::{OperationDefinition, SelectionSet},
     url::Url,
-    DeploymentId, Eventual, *,
+    DeploymentId, *,
 };
 use prost::bytes::Buf;
 use serde::Deserialize;
@@ -93,9 +92,7 @@ pub struct Context {
     pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,
     pub block_caches: &'static HashMap<String, BlockCache>,
-    pub subgraph_info: SubgraphInfoMap,
-    pub subgraph_deployments: SubgraphDeployments,
-    pub deployment_indexers: Eventual<Ptr<HashMap<DeploymentId, Vec<Address>>>>,
+    pub network: GraphNetwork,
     pub receipt_pools: &'static ReceiptPools,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
@@ -130,10 +127,9 @@ pub async fn handle_query(
     tracing::debug!(%auth);
     let auth = ctx.auth_handler.parse_token(auth).context("Invalid auth");
 
-    let subgraph_resolution_result =
-        resolve_subgraph_deployment(&ctx.subgraph_deployments, &ctx.subgraph_info, &params).await;
+    let resolved_deployment = resolve_subgraph_deployment(&ctx.network, &params).await;
 
-    if let Err(Error::DeploymentMigrated(deployment)) = subgraph_resolution_result {
+    if let Err(Error::DeploymentMigrated(deployment)) = resolved_deployment {
         let gateway_response =
             forward_to_l2(ctx.l2_gateway.clone(), &deployment, headers, payload).await;
         tracing::info!(
@@ -156,9 +152,9 @@ pub async fn handle_query(
             .unwrap();
     }
 
-    let deployment = subgraph_resolution_result
+    let deployment = resolved_deployment
         .as_ref()
-        .map(|subgraph_info| subgraph_info.deployment.to_string())
+        .map(|deployment| deployment.id.to_string())
         .ok();
     let span = tracing::info_span!(
         target: reports::CLIENT_QUERY_TARGET,
@@ -174,9 +170,9 @@ pub async fn handle_query(
         .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
 
-    let result = match (auth, subgraph_resolution_result) {
-        (Ok(auth), Ok(subgraph_info)) => {
-            handle_client_query_inner(&ctx, subgraph_info, payload, auth, domain)
+    let result = match (auth, resolved_deployment) {
+        (Ok(auth), Ok(deployment)) => {
+            handle_client_query_inner(&ctx, deployment, payload, auth, domain)
                 .instrument(span.clone())
                 .await
         }
@@ -222,46 +218,46 @@ pub async fn handle_query(
 }
 
 async fn resolve_subgraph_deployment(
-    deployments: &SubgraphDeployments,
-    subgraph_info: &SubgraphInfoMap,
+    network: &GraphNetwork,
     params: &BTreeMap<String, String>,
-) -> Result<Ptr<SubgraphInfo>, Error> {
+) -> Result<Arc<Deployment>, Error> {
     let deployment = if let Some(id) = params.get("subgraph_id") {
-        let subgraph = id
-            .parse::<SubgraphId>()
-            .map_err(|_| Error::InvalidSubgraphId(id.to_string()))?;
-        deployments
-            .current_deployment(&subgraph)
-            .await
-            .ok_or_else(|| Error::SubgraphNotFound(subgraph))?
+        let id = SubgraphId::from_str(id).map_err(|_| Error::InvalidSubgraphId(id.to_string()))?;
+        network
+            .subgraphs
+            .value_immediate()
+            .and_then(|subgraphs| subgraphs.get(&id)?.deployments.last().cloned())
+            .ok_or_else(|| Error::SubgraphNotFound(id))?
     } else if let Some(id) = params.get("deployment_id") {
-        DeploymentId::from_ipfs_hash(id)
-            .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))?
+        let id = DeploymentId::from_ipfs_hash(id)
+            .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))?;
+        network
+            .deployments
+            .value_immediate()
+            .and_then(|deployments| deployments.get(&id).cloned())
+            .ok_or_else(|| Error::DeploymentNotFound(id))?
     } else {
         return Err(Error::InvalidDeploymentId("".to_string()));
     };
-    if deployments.migrated_away(&deployment).await {
-        return Err(Error::DeploymentMigrated(deployment));
+    if deployment.migrated_to_l2 {
+        return Err(Error::DeploymentMigrated(deployment.id));
     }
-    subgraph_info
-        .value_immediate()
-        .and_then(|map| map.get(&deployment)?.value_immediate())
-        .ok_or_else(|| Error::DeploymentNotFound(deployment))
+    Ok(deployment)
 }
 
 async fn handle_client_query_inner(
     ctx: &Context,
-    subgraph_info: Ptr<SubgraphInfo>,
+    deployment: Arc<Deployment>,
     payload: Bytes,
     auth: AuthToken,
     domain: String,
 ) -> Result<ResponsePayload, Error> {
-    let deployment = subgraph_info.deployment.to_string();
-    let _timer = METRICS.client_query.start_timer(&[&deployment]);
+    let deployment_id = deployment.id.to_string();
+    let _timer = METRICS.client_query.start_timer(&[&deployment_id]);
 
     tracing::info!(
         target: reports::CLIENT_QUERY_TARGET,
-        subgraph_chain = %subgraph_info.network,
+        subgraph_chain = %deployment.manifest.network,
     );
     match &auth {
         AuthToken::ApiKey(api_key) => tracing::info!(
@@ -280,17 +276,23 @@ async fn handle_client_query_inner(
         serde_json::from_reader(payload.reader()).map_err(|err| Error::InvalidQuery(err.into()))?;
 
     ctx.auth_handler
-        .check_token(&auth, &subgraph_info, &domain)
+        .check_token(&auth, &deployment, &domain)
         .await
         .map_err(Error::InvalidAuth)?;
 
-    let deployment_indexers = ctx
-        .deployment_indexers
-        .value_immediate()
-        .and_then(|map| map.get(&subgraph_info.deployment).cloned())
-        .unwrap_or_default();
-    tracing::info!(deployment_indexers = deployment_indexers.len());
-    if deployment_indexers.is_empty() {
+    let available_indexings: Vec<Indexing> = deployment
+        .allocations
+        .iter()
+        .map(|allocation| allocation.indexer.id)
+        .collect::<BTreeSet<Address>>()
+        .into_iter()
+        .map(|indexer| Indexing {
+            indexer,
+            deployment: deployment.id,
+        })
+        .collect();
+    tracing::info!(available_indexings = available_indexings.len());
+    if available_indexings.is_empty() {
         return Err(Error::NoIndexers);
     }
 
@@ -308,11 +310,12 @@ async fn handle_client_query_inner(
         %variables,
     );
 
+    let network = deployment.manifest.network.clone();
     let mut block_cache = ctx
         .block_caches
-        .get(&subgraph_info.network)
+        .get(&network)
         .cloned()
-        .ok_or_else(|| Error::SubgraphChainNotSupported(subgraph_info.network.clone()))?;
+        .ok_or_else(|| Error::SubgraphChainNotSupported(network))?;
 
     let block_constraints = block_constraints(&context)
         .ok_or_else(|| Error::InvalidQuery(anyhow!("Failed to determine block constraints.")))?;
@@ -336,10 +339,10 @@ async fn handle_client_query_inner(
         }),
     };
 
-    // Reject queries for blocks before minimum start block of subgraph manifest.
-    if matches!(min_block, Some(min_block) if min_block < subgraph_info.min_block) {
+    // Reject queries for blocks before minimum start block in the manifest.
+    if matches!(min_block, Some(min_block) if min_block < deployment.manifest.min_block) {
         return Err(Error::InvalidQuery(anyhow!(
-            "Requested block before minimum `startBlock` of subgraph manifest: {}",
+            "Requested block before minimum `startBlock` of manifest: {}",
             min_block.unwrap_or_default()
         )));
     }
@@ -417,15 +420,14 @@ async fn handle_client_query_inner(
 
         let selection_timer = with_metric(
             &METRICS.indexer_selection_duration,
-            &[&deployment],
+            &[&deployment_id],
             |hist| hist.start_timer(),
         );
         let (selections, indexer_errors) = ctx
             .isa_state
             .latest()
             .select_indexers(
-                &subgraph_info.deployment,
-                &deployment_indexers,
+                &available_indexings,
                 &utility_params,
                 &mut context,
                 SELECTION_LIMIT as u8,
@@ -469,10 +471,9 @@ async fn handle_client_query_inner(
             fisherman_client: ctx.fisherman_client,
             receipt_pools: ctx.receipt_pools,
             observations: ctx.observations.clone(),
-            subgraph_info: subgraph_info.clone(),
+            deployment: deployment.clone(),
             latest_block: latest_block.number,
             response_time: Duration::default(),
-            subgraph_chain: subgraph_info.network.clone(),
         };
 
         let (response_tx, mut response_rx) = mpsc::channel(SELECTION_LIMIT);
@@ -536,10 +537,9 @@ struct IndexerQueryContext {
     pub fisherman_client: Option<&'static FishermanClient>,
     pub receipt_pools: &'static ReceiptPools,
     pub observations: QueueWriter<Update>,
-    pub subgraph_info: Ptr<SubgraphInfo>,
+    pub deployment: Arc<Deployment>,
     pub latest_block: u64,
     pub response_time: Duration,
-    pub subgraph_chain: String,
 }
 
 async fn handle_indexer_query(
@@ -553,7 +553,7 @@ async fn handle_indexer_query(
         url = %selection.url,
         blocks_behind = selection.blocks_behind,
         fee_grt = selection.fee.as_f64() as f32,
-        subgraph_chain = %ctx.subgraph_chain,
+        subgraph_chain = %ctx.deployment.manifest.network,
     );
 
     let indexing = selection.indexing;
@@ -680,7 +680,7 @@ async fn handle_indexer_query_inner(
     }
 
     // Return early if we aren't expecting an attestation.
-    if !ctx.subgraph_info.features.is_empty() {
+    if !ctx.deployment.manifest.features.is_empty() {
         return Ok(response.payload);
     }
 
@@ -783,6 +783,7 @@ async fn forward_to_l2(
         .body(payload)
         .send()
         .await
+        .and_then(|response| response.error_for_status())
         .ok()?
         .text()
         .await

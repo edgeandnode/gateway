@@ -1,8 +1,8 @@
 use crate::{
-    manifest_client::SubgraphInfo,
     price_automation::QueryBudgetFactors,
     subgraph_studio::{APIKey, IndexerPreferences, QueryStatus},
     subscriptions::Subscription,
+    topology::Deployment,
 };
 use graph_subscriptions::{TicketPayload, TicketVerificationDomain};
 use prelude::{
@@ -123,7 +123,7 @@ impl AuthHandler {
     pub async fn check_token(
         &self,
         token: &AuthToken,
-        subgraph_info: &SubgraphInfo,
+        deployment: &Deployment,
         domain: &str,
     ) -> Result<()> {
         // Enforce the API key payment status, unless it's being subsidized.
@@ -151,8 +151,8 @@ impl AuthHandler {
                 .collect(),
         };
         tracing::debug!(?allowed_deployments);
-        let allow_deployment = allowed_deployments.is_empty()
-            || allowed_deployments.contains(&subgraph_info.deployment);
+        let allow_deployment =
+            allowed_deployments.is_empty() || allowed_deployments.contains(&deployment.id);
         ensure!(allow_deployment, "Deployment not authorized");
 
         // Check subgraph allowlist
@@ -171,7 +171,7 @@ impl AuthHandler {
         let allow_subgraph = allowed_subgraphs.is_empty() || {
             allowed_subgraphs
                 .iter()
-                .any(|subgraph_id| subgraph_info.ids.contains(subgraph_id))
+                .any(|id| deployment.subgraphs.contains(id))
         };
         ensure!(allow_subgraph, "Subgraph not authorized by user");
 

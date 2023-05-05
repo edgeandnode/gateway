@@ -81,14 +81,15 @@ pub async fn simulate(
         );
     }
 
-    let indexers = characteristics
+    let indexings: Vec<Indexing> = characteristics
         .iter()
-        .map(|c| c.address)
-        .collect::<Vec<Address>>();
-    let characteristics = characteristics
-        .iter()
-        .map(|c| (&c.address, c))
-        .collect::<HashMap<&Address, &IndexerCharacteristics>>();
+        .map(|c| Indexing {
+            indexer: c.address,
+            deployment,
+        })
+        .collect();
+    let characteristics: HashMap<&Address, &IndexerCharacteristics> =
+        characteristics.iter().map(|c| (&c.address, c)).collect();
     let mut rng = SmallRng::from_entropy();
     for client_query_index in 0..results.client_queries {
         if (client_query_index % queries_per_second) == 0 {
@@ -98,13 +99,7 @@ pub async fn simulate(
         let mut context = Context::new("{ a }", "").unwrap();
         let t0 = Instant::now();
         let (mut selections, _) = isa
-            .select_indexers(
-                &deployment,
-                &indexers,
-                params,
-                &mut context,
-                selection_limit,
-            )
+            .select_indexers(&indexings, params, &mut context, selection_limit)
             .unwrap();
         results.avg_selection_seconds += Instant::now().duration_since(t0).as_secs_f64();
 
