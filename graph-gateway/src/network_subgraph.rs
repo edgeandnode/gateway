@@ -47,7 +47,7 @@ pub struct Allocation {
 #[serde(rename_all = "camelCase")]
 pub struct Indexer {
     pub id: Address,
-    pub url: String,
+    pub url: Option<String>,
     pub staked_tokens: GRTWei,
 }
 
