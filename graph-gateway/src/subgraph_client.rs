@@ -42,7 +42,7 @@ impl Client {
         &mut self,
         query: &str,
     ) -> Result<Vec<T>, String> {
-        let batch_size: u32 = 1000;
+        let batch_size: u32 = 200;
         let mut last_id = "".to_string();
         let mut query_block: Option<BlockPointer> = None;
         let mut results = Vec::new();
