@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "graph-gateway"
-version = "13.1.0"
+version = "13.2.0"
 
 [dependencies]
 axum = { version = "0.6.15", default-features = false, features = [
@@ -12,7 +12,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 ethers = { version = "2.0.3", default-features = false, features = ["abigen"] }
 futures = "0.3"
 futures-util = "0.3"
-graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "e4f0dc9" }
+graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "8ca11d6" }
 hdwallet = "0.3"
 hex = "0.4"
 indexer-selection = { path = "../indexer-selection" }
