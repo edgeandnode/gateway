@@ -133,7 +133,7 @@ impl GraphNetwork {
                     allocated_tokens: allocation.allocated_tokens.change_precision(),
                     indexer: Indexer {
                         id: allocation.indexer.id,
-                        url: allocation.indexer.url.parse().ok()?,
+                        url: allocation.indexer.url.as_ref()?.parse().ok()?,
                         staked_tokens: allocation.indexer.staked_tokens.change_precision(),
                     },
                 })
