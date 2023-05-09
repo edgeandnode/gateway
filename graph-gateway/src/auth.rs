@@ -61,9 +61,9 @@ impl AuthHandler {
             subscription_query_counters: RwLock::default(),
         }));
 
-        // Reset counters every 10 minutes.
+        // Reset counters every 60 minutes.
         // 5720d5ea-cfc3-4862-865b-52b4508a4c14
-        eventuals::timer(Duration::from_secs(600))
+        eventuals::timer(Duration::from_secs(60 * 60))
             .pipe_async(|_| async {
                 let mut counters = handler.subscription_query_counters.write().await;
                 counters.retain(|_, v| {
@@ -204,9 +204,9 @@ impl AuthHandler {
         match counters.get(&user) {
             Some(counter) => {
                 let count = counter.fetch_add(1, atomic::Ordering::Relaxed);
-                // Note that counters are for 10 minute intervals
+                // Note that counters are for 60 minute intervals
                 // 5720d5ea-cfc3-4862-865b-52b4508a4c14
-                let limit = subscription.queries_per_minute as usize * 10;
+                let limit = subscription.queries_per_minute as usize * 60;
                 ensure!(count < limit, "Rate limit exceeded");
             }
             // No entry, acquire write lock and insert.
