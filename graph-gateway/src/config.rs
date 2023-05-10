@@ -183,6 +183,9 @@ pub struct SubscriptionTier {
     pub payment_rate: u128,
     /// Maximum query rate allowed, in queries per minute.
     pub queries_per_minute: u32,
+    /// Maximum queries per month.
+    #[serde(default)]
+    pub monthly_query_limit: Option<u64>,
 }
 
 impl From<Vec<SubscriptionTier>> for SubscriptionTiers {
