@@ -207,6 +207,9 @@ impl AuthHandler {
                 // Note that counters are for 60 minute intervals
                 // 5720d5ea-cfc3-4862-865b-52b4508a4c14
                 let limit = subscription.queries_per_minute as usize * 60;
+                // This error message should remain constant, since the graph-subscriptions-api
+                // relies on it to track rate limited conditions.
+                // TODO: Monthly limits should use the message "Monthly query limit exceeded"
                 ensure!(count < limit, "Rate limit exceeded");
             }
             // No entry, acquire write lock and insert.
