@@ -24,6 +24,7 @@ pub struct Subgraph {
 pub struct Deployment {
     pub id: DeploymentId,
     pub manifest: Arc<Manifest>,
+    pub version: Option<Arc<semver::Version>>,
     pub allocations: Vec<Allocation>,
     /// A deployment may be associated with multiple subgraphs.
     pub subgraphs: BTreeSet<SubgraphId>,
@@ -55,14 +56,14 @@ impl GraphNetwork {
         subgraphs: Eventual<Ptr<Vec<network_subgraph::Subgraph>>>,
         ipfs: Arc<ipfs::Client>,
     ) -> Self {
-        let manifest_cache: &'static RwLock<ManifestCache> =
-            Box::leak(Box::new(RwLock::new(ManifestCache {
-                ipfs,
-                cache: HashMap::new(),
-            })));
+        let cache: &'static RwLock<IpfsCache> = Box::leak(Box::new(RwLock::new(IpfsCache {
+            ipfs,
+            manifests: HashMap::new(),
+            metadata: HashMap::new(),
+        })));
 
         let subgraphs = subgraphs.map(move |subgraphs| async move {
-            Ptr::new(Self::subgraphs(&subgraphs, manifest_cache).await)
+            Ptr::new(Self::subgraphs(&subgraphs, cache).await)
         });
         let deployments = subgraphs.clone().map(|subgraphs| async move {
             subgraphs
@@ -86,14 +87,14 @@ impl GraphNetwork {
 
     async fn subgraphs(
         subgraphs: &[network_subgraph::Subgraph],
-        manifest_cache: &'static RwLock<ManifestCache>,
+        cache: &'static RwLock<IpfsCache>,
     ) -> HashMap<SubgraphId, Subgraph> {
         join_all(subgraphs.iter().map(|subgraph| async move {
             let deployments = join_all(
                 subgraph
                     .versions
                     .iter()
-                    .map(|version| Self::deployment(subgraphs, version, manifest_cache)),
+                    .map(|version| Self::deployment(subgraphs, version, cache)),
             )
             .await
             .into_iter()
@@ -109,10 +110,10 @@ impl GraphNetwork {
     async fn deployment(
         subgraphs: &[network_subgraph::Subgraph],
         version: &network_subgraph::SubgraphVersion,
-        manifest_cache: &'static RwLock<ManifestCache>,
+        cache: &'static RwLock<IpfsCache>,
     ) -> Option<Arc<Deployment>> {
         let id = version.subgraph_deployment.id;
-        let manifest = ManifestCache::get(manifest_cache, &version.subgraph_deployment.id).await?;
+        let manifest = IpfsCache::manifest(cache, &version.subgraph_deployment.id).await?;
         let subgraphs = subgraphs
             .iter()
             .filter(|subgraph| {
@@ -139,9 +140,20 @@ impl GraphNetwork {
                 })
             })
             .collect();
+
+        let metadata_hash = version
+            .metadata_hash
+            .as_ref()
+            .and_then(|hash| Bytes32::from_str(hash).ok());
+        let version = match metadata_hash {
+            Some(hash) => IpfsCache::metadata(cache, &hash).await,
+            None => None,
+        };
+
         Some(Arc::new(Deployment {
             id,
             manifest,
+            version,
             subgraphs,
             allocations,
             migrated_to_l2: false, // TODO
@@ -149,15 +161,16 @@ impl GraphNetwork {
     }
 }
 
-struct ManifestCache {
+struct IpfsCache {
     ipfs: Arc<ipfs::Client>,
-    cache: HashMap<DeploymentId, Arc<Manifest>>,
+    manifests: HashMap<DeploymentId, Arc<Manifest>>,
+    metadata: HashMap<Bytes32, Arc<semver::Version>>,
 }
 
-impl ManifestCache {
-    async fn get(cache: &RwLock<Self>, deployment: &DeploymentId) -> Option<Arc<Manifest>> {
+impl IpfsCache {
+    async fn manifest(cache: &RwLock<Self>, deployment: &DeploymentId) -> Option<Arc<Manifest>> {
         let read = cache.read().await;
-        if let Some(manifest) = read.cache.get(deployment) {
+        if let Some(manifest) = read.manifests.get(deployment) {
             return Some(manifest.clone());
         }
         let ipfs = read.ipfs.clone();
@@ -172,8 +185,29 @@ impl ManifestCache {
         };
 
         let mut write = cache.write().await;
-        write.cache.insert(*deployment, manifest.clone());
+        write.manifests.insert(*deployment, manifest.clone());
         Some(manifest)
+    }
+
+    async fn metadata(cache: &RwLock<Self>, hash: &Bytes32) -> Option<Arc<semver::Version>> {
+        let read = cache.read().await;
+        if let Some(metadata) = read.metadata.get(hash) {
+            return Some(metadata.clone());
+        }
+        let ipfs = read.ipfs.clone();
+        drop(read);
+
+        let metadata = match Self::cat_metadata(&ipfs, hash).await {
+            Ok(metadata) => Arc::new(metadata),
+            Err(metadata_err) => {
+                tracing::warn!(%hash, %metadata_err);
+                return None;
+            }
+        };
+
+        let mut write = cache.write().await;
+        write.metadata.insert(*hash, metadata.clone());
+        Some(metadata)
     }
 
     async fn cat_manifest(
@@ -221,5 +255,19 @@ impl ManifestCache {
             min_block,
             features: manifest.features,
         })
+    }
+
+    async fn cat_metadata(ipfs: &ipfs::Client, hash: &Bytes32) -> anyhow::Result<semver::Version> {
+        #[derive(Deserialize)]
+        struct Metadata {
+            label: String,
+        }
+
+        // CIDv0 prefix for hex-encoded content address
+        let cid = format!("f1220{}", hex::encode(hash.0));
+
+        let payload = ipfs.cat(&cid).await?;
+        let metadata: Metadata = serde_json::from_str(&payload)?;
+        Ok(metadata.label.parse()?)
     }
 }
