@@ -1,3 +1,8 @@
+## IDEs and editors
+/.idea
+/.vscode
+
+## Rust
 **/*.rs.bk
 /target/
 test-outputs/
