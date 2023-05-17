@@ -313,7 +313,6 @@ async fn main() {
 
     let router = Router::new()
         .route("/", routing::get(|| async { "Ready to roll!" }))
-        .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/collect-receipts",
             routing::post(vouchers::handle_collect_receipts).with_state(signer_key),
