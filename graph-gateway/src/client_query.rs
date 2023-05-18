@@ -110,7 +110,8 @@ pub async fn handle_query(
     headers: HeaderMap,
     payload: Bytes,
 ) -> Response<String> {
-    let start_time_ms = unix_timestamp();
+    let start_time = Instant::now();
+    let timestamp = unix_timestamp();
     let ray_id = headers.get("cf-ray").and_then(|value| value.to_str().ok());
     let query_id = ray_id.map(ToString::to_string).unwrap_or_else(query_id);
 
@@ -152,16 +153,11 @@ pub async fn handle_query(
             .unwrap();
     }
 
-    let deployment = resolved_deployment
-        .as_ref()
-        .map(|deployment| deployment.id.to_string())
-        .ok();
     let span = tracing::info_span!(
         target: reports::CLIENT_QUERY_TARGET,
         "client_query",
         %query_id,
         graph_env = %ctx.graph_env_id,
-        deployment,
     );
 
     let domain = headers
@@ -179,16 +175,25 @@ pub async fn handle_query(
         (Err(auth_err), _) => Err(Error::InvalidAuth(auth_err)),
         (_, Err(subgraph_resolution_err)) => Err(subgraph_resolution_err),
     };
-    METRICS
-        .client_query
-        .check(&[deployment.as_deref().unwrap_or("")], &result);
+
+    let deployment: Option<String> = result
+        .as_ref()
+        .map(|response| response.selection.indexing.deployment.to_string())
+        .ok();
+    let metric_labels = [deployment.as_deref().unwrap_or("")];
+
+    METRICS.client_query.check(&metric_labels, &result);
+    with_metric(&METRICS.client_query.duration, &metric_labels, |h| {
+        h.observe((Instant::now() - start_time).as_secs_f64())
+    });
 
     span.in_scope(|| {
         let (status_message, status_code) = reports::status(&result);
         let (legacy_status_message, legacy_status_code) = reports::legacy_status(&result);
         tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
-            start_time_ms,
+            start_time_ms = timestamp,
+            deployment,
             %status_message,
             status_code,
             %legacy_status_message,
@@ -260,9 +265,6 @@ async fn handle_client_query_inner(
     auth: AuthToken,
     domain: String,
 ) -> Result<QueryOutcome, Error> {
-    let deployment_id = deployment.id.to_string();
-    let _timer = METRICS.client_query.start_timer(&[&deployment_id]);
-
     tracing::info!(
         target: reports::CLIENT_QUERY_TARGET,
         subgraph_chain = %deployment.manifest.network,
@@ -426,11 +428,7 @@ async fn handle_client_query_inner(
         // to the state of the client query.
         let mut context = context.clone();
 
-        let selection_timer = with_metric(
-            &METRICS.indexer_selection_duration,
-            &[&deployment_id],
-            |hist| hist.start_timer(),
-        );
+        let selection_timer = METRICS.indexer_selection_duration.start_timer();
         let (selections, indexer_errors) = ctx
             .isa_state
             .latest()
