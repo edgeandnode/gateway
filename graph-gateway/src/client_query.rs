@@ -286,7 +286,7 @@ async fn handle_client_query_inner(
         serde_json::from_reader(payload.reader()).map_err(|err| Error::InvalidQuery(err.into()))?;
 
     ctx.auth_handler
-        .check_token(&auth, &deployment, &domain)
+        .check_token(&auth, &[deployment.clone()], &domain)
         .await
         .map_err(Error::InvalidAuth)?;
 
