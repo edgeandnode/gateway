@@ -168,7 +168,7 @@ pub async fn handle_query(
 
     let result = match (auth, resolved_deployment) {
         (Ok(auth), Ok(deployment)) => {
-            handle_client_query_inner(&ctx, deployment, payload, auth, domain)
+            handle_client_query_inner(&ctx, vec![deployment], payload, auth, domain)
                 .instrument(span.clone())
                 .await
         }
@@ -260,15 +260,23 @@ struct QueryOutcome {
 
 async fn handle_client_query_inner(
     ctx: &Context,
-    deployment: Arc<Deployment>,
+    mut deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
     auth: AuthToken,
     domain: String,
 ) -> Result<QueryOutcome, Error> {
-    tracing::info!(
-        target: reports::CLIENT_QUERY_TARGET,
-        subgraph_chain = %deployment.manifest.network,
-    );
+    let subgraph_chain = deployments
+        .last()
+        .map(|deployment| deployment.manifest.network.clone())
+        .ok_or_else(|| Error::InvalidSubgraph("No matching deployments".to_string()))?;
+    tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain);
+    // Make sure we only select from deployments indexing the same chain. This simplifies dealing
+    // with block constraints later.
+    deployments.retain(|deployment| deployment.manifest.network == subgraph_chain);
+    tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
+
+    let manifest_min_block = deployments.last().unwrap().manifest.min_block;
+
     match &auth {
         AuthToken::ApiKey(api_key) => tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
@@ -286,20 +294,24 @@ async fn handle_client_query_inner(
         serde_json::from_reader(payload.reader()).map_err(|err| Error::InvalidQuery(err.into()))?;
 
     ctx.auth_handler
-        .check_token(&auth, &[deployment.clone()], &domain)
+        .check_token(&auth, &deployments, &domain)
         .await
         .map_err(Error::InvalidAuth)?;
 
-    let available_indexings: Vec<Indexing> = deployment
-        .allocations
+    let available_indexings: Vec<Indexing> = deployments
         .iter()
-        .map(|allocation| allocation.indexer.id)
-        .collect::<BTreeSet<Address>>()
-        .into_iter()
-        .map(|indexer| Indexing {
-            indexer,
-            deployment: deployment.id,
+        .flat_map(|deployment| {
+            let id = deployment.id;
+            deployment
+                .allocations
+                .iter()
+                .map(move |allocation| Indexing {
+                    indexer: allocation.indexer.id,
+                    deployment: id,
+                })
         })
+        .collect::<BTreeSet<Indexing>>()
+        .into_iter()
         .collect();
     tracing::info!(available_indexings = available_indexings.len());
     if available_indexings.is_empty() {
@@ -320,12 +332,11 @@ async fn handle_client_query_inner(
         %variables,
     );
 
-    let network = deployment.manifest.network.clone();
     let mut block_cache = ctx
         .block_caches
-        .get(&network)
+        .get(&subgraph_chain)
         .cloned()
-        .ok_or_else(|| Error::SubgraphChainNotSupported(network))?;
+        .ok_or_else(|| Error::SubgraphChainNotSupported(subgraph_chain))?;
 
     let block_constraints = block_constraints(&context)
         .ok_or_else(|| Error::InvalidQuery(anyhow!("Failed to determine block constraints.")))?;
@@ -350,7 +361,7 @@ async fn handle_client_query_inner(
     };
 
     // Reject queries for blocks before minimum start block in the manifest.
-    if matches!(min_block, Some(min_block) if min_block < deployment.manifest.min_block) {
+    if matches!(min_block, Some(min_block) if min_block < manifest_min_block) {
         return Err(Error::InvalidQuery(anyhow!(
             "Requested block before minimum `startBlock` of manifest: {}",
             min_block.unwrap_or_default()
@@ -472,18 +483,23 @@ async fn handle_client_query_inner(
                 .as_f64() as f32,
         );
 
-        let indexer_query_context = IndexerQueryContext {
-            indexer_client: ctx.indexer_client.clone(),
-            fisherman_client: ctx.fisherman_client,
-            receipt_pools: ctx.receipt_pools,
-            observations: ctx.observations.clone(),
-            deployment: deployment.clone(),
-            latest_block: latest_block.number,
-            response_time: Duration::default(),
-        };
-
         let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
+            let deployment = deployments
+                .iter()
+                .find(|deployment| deployment.id == selection.indexing.deployment)
+                .unwrap()
+                .clone();
+            let indexer_query_context = IndexerQueryContext {
+                indexer_client: ctx.indexer_client.clone(),
+                fisherman_client: ctx.fisherman_client,
+                receipt_pools: ctx.receipt_pools,
+                observations: ctx.observations.clone(),
+                deployment,
+                latest_block: latest_block.number,
+                response_time: Duration::default(),
+            };
+
             let latest_query_block = match block_cache
                 .latest(selection.blocks_behind + latest_unresolved)
                 .await
