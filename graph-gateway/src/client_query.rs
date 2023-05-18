@@ -198,7 +198,10 @@ pub async fn handle_query(
 
     let response = Response::builder().header(header::CONTENT_TYPE, "application/json");
     match result {
-        Ok(ResponsePayload { body, attestation }) => {
+        Ok(QueryOutcome {
+            response: ResponsePayload { body, attestation },
+            ..
+        }) => {
             let attestation = attestation
                 .as_ref()
                 .and_then(|attestation| serde_json::to_string(attestation).ok())
@@ -245,13 +248,18 @@ async fn resolve_subgraph_deployment(
     Ok(deployment)
 }
 
+struct QueryOutcome {
+    response: ResponsePayload,
+    selection: Selection,
+}
+
 async fn handle_client_query_inner(
     ctx: &Context,
     deployment: Arc<Deployment>,
     payload: Bytes,
     auth: AuthToken,
     domain: String,
-) -> Result<ResponsePayload, Error> {
+) -> Result<QueryOutcome, Error> {
     let deployment_id = deployment.id.to_string();
     let _timer = METRICS.client_query.start_timer(&[&deployment_id]);
 
@@ -476,7 +484,7 @@ async fn handle_client_query_inner(
             response_time: Duration::default(),
         };
 
-        let (response_tx, mut response_rx) = mpsc::channel(SELECTION_LIMIT);
+        let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
             let latest_query_block = match block_cache
                 .latest(selection.blocks_behind + latest_unresolved)
@@ -493,7 +501,7 @@ async fn handle_client_query_inner(
                     })?;
 
             let indexer_query_context = indexer_query_context.clone();
-            let response_tx = response_tx.clone();
+            let outcome_tx = outcome_tx.clone();
             // We must manually construct this span before the spawned task, since otherwise
             // there's a race between creating this span and another indexer responding which will
             // close the outer client_query span.
@@ -506,19 +514,22 @@ async fn handle_client_query_inner(
                 async move {
                     let response = handle_indexer_query(
                         indexer_query_context,
-                        selection,
+                        selection.clone(),
                         deterministic_query,
                         latest_query_block.number,
                     )
                     .await;
-                    let _ = response_tx.try_send(response);
+                    let _ = outcome_tx.try_send(response.map(|response| QueryOutcome {
+                        response,
+                        selection,
+                    }));
                 }
                 .instrument(span),
             );
         }
         for _ in 0..selections_len {
-            match response_rx.recv().await {
-                Some(Ok(payload)) => return Ok(payload),
+            match outcome_rx.recv().await {
+                Some(Ok(outcome)) => return Ok(outcome),
                 Some(Err(IndexerError::UnresolvedBlock)) => latest_unresolved += 1,
                 Some(Err(_)) | None => (),
             };
