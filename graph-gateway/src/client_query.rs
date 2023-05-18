@@ -72,7 +72,7 @@ pub enum Error {
     #[error("Invalid query: {0:#}")]
     InvalidQuery(anyhow::Error),
     #[error("Invalid subgraph: {0}")]
-    InvalidSubgraphId(String),
+    InvalidSubgraph(String),
     #[error("No indexers found for subgraph deployment")]
     NoIndexers,
     #[error("No suitable indexer found for subgraph deployment. {0:#}")]
@@ -230,7 +230,7 @@ async fn resolve_subgraph_deployment(
     params: &BTreeMap<String, String>,
 ) -> Result<Arc<Deployment>, Error> {
     let deployment = if let Some(id) = params.get("subgraph_id") {
-        let id = SubgraphId::from_str(id).map_err(|_| Error::InvalidSubgraphId(id.to_string()))?;
+        let id = SubgraphId::from_str(id).map_err(|_| Error::InvalidSubgraph(id.to_string()))?;
         network
             .subgraphs
             .value_immediate()

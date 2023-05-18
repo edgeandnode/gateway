@@ -389,7 +389,7 @@ pub fn status<T>(result: &Result<T, client_query::Error>) -> (String, i32) {
             client_query::Error::InvalidAuth(_)
             | client_query::Error::InvalidDeploymentId(_)
             | client_query::Error::InvalidQuery(_)
-            | client_query::Error::InvalidSubgraphId(_)
+            | client_query::Error::InvalidSubgraph(_)
             | client_query::Error::SubgraphChainNotSupported(_) => {
                 (err.to_string(), StatusCode::UserError.into())
             }
@@ -457,7 +457,7 @@ pub fn legacy_status<T>(result: &Result<T, client_query::Error>) -> (String, u32
             client_query::Error::InvalidAuth(_) => ("Invalid API key".to_string(), 888904173),
             client_query::Error::InvalidDeploymentId(_) => (err.to_string(), 19391651),
             client_query::Error::InvalidQuery(_) => ("Invalid query".to_string(), 595700117),
-            client_query::Error::InvalidSubgraphId(_) => (err.to_string(), 2992863035),
+            client_query::Error::InvalidSubgraph(_) => (err.to_string(), 2992863035),
             client_query::Error::NoIndexers => (
                 "No indexers found for subgraph deployment".to_string(),
                 1621366907,
