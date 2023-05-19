@@ -8,7 +8,7 @@ use crate::{
     metrics::{with_metric, METRICS},
     receipts::{ReceiptPools, ReceiptStatus},
     reports,
-    topology::{Deployment, GraphNetwork},
+    topology::{Deployment, GraphNetwork, Subgraph},
     unattestable_errors::{
         MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS, UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
     },
@@ -16,7 +16,7 @@ use crate::{
 use axum::{
     body::Bytes,
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderValue, Response, StatusCode},
+    http::{header, HeaderMap, Response, StatusCode},
     Json,
 };
 use futures::future::join_all;
@@ -59,8 +59,6 @@ fn query_id() -> String {
 pub enum Error {
     #[error("Block not found: {0}")]
     BlockNotFound(UnresolvedBlock),
-    #[error("Subgraph deployment not found (subgraph migrated to L2): {0}")]
-    DeploymentMigrated(DeploymentId),
     #[error("Subgraph deployment not found: {0}")]
     DeploymentNotFound(DeploymentId),
     #[error("Internal error: {0:#}")]
@@ -72,7 +70,7 @@ pub enum Error {
     #[error("Invalid query: {0:#}")]
     InvalidQuery(anyhow::Error),
     #[error("Invalid subgraph: {0}")]
-    InvalidSubgraphId(String),
+    InvalidSubgraph(String),
     #[error("No indexers found for subgraph deployment")]
     NoIndexers,
     #[error("No suitable indexer found for subgraph deployment. {0:#}")]
@@ -110,7 +108,8 @@ pub async fn handle_query(
     headers: HeaderMap,
     payload: Bytes,
 ) -> Response<String> {
-    let start_time_ms = unix_timestamp();
+    let start_time = Instant::now();
+    let timestamp = unix_timestamp();
     let ray_id = headers.get("cf-ray").and_then(|value| value.to_str().ok());
     let query_id = ray_id.map(ToString::to_string).unwrap_or_else(query_id);
 
@@ -127,41 +126,20 @@ pub async fn handle_query(
     tracing::debug!(%auth);
     let auth = ctx.auth_handler.parse_token(auth).context("Invalid auth");
 
-    let resolved_deployment = resolve_subgraph_deployment(&ctx.network, &params).await;
+    let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
 
-    if let Err(Error::DeploymentMigrated(deployment)) = resolved_deployment {
-        let gateway_response =
-            forward_to_l2(ctx.l2_gateway.clone(), &deployment, headers, payload).await;
-        tracing::info!(
-            l2_gateway = ?ctx.l2_gateway,
-            success = gateway_response.is_some(),
-            %deployment,
-            "forward query to L2 gateway",
-        );
-        let body = gateway_response.unwrap_or_else(|| {
-            graphql_error_response("Internal Error: L2 gateway unavailable")
-                .1
-                .to_string()
-        });
-        return Response::builder()
-            .header(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static("application/json"),
-            )
-            .body(body)
-            .unwrap();
+    if matches!(
+        &resolved_deployments,
+        Ok(deployments) if deployments.iter().all(|d| d.migrated_to_l2),
+    ) {
+        // TODO: forward query to L2 gateway
     }
 
-    let deployment = resolved_deployment
-        .as_ref()
-        .map(|deployment| deployment.id.to_string())
-        .ok();
     let span = tracing::info_span!(
         target: reports::CLIENT_QUERY_TARGET,
         "client_query",
         %query_id,
         graph_env = %ctx.graph_env_id,
-        deployment,
     );
 
     let domain = headers
@@ -170,25 +148,34 @@ pub async fn handle_query(
         .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
 
-    let result = match (auth, resolved_deployment) {
-        (Ok(auth), Ok(deployment)) => {
-            handle_client_query_inner(&ctx, deployment, payload, auth, domain)
+    let result = match (auth, resolved_deployments) {
+        (Ok(auth), Ok(deployments)) => {
+            handle_client_query_inner(&ctx, deployments, payload, auth, domain)
                 .instrument(span.clone())
                 .await
         }
         (Err(auth_err), _) => Err(Error::InvalidAuth(auth_err)),
         (_, Err(subgraph_resolution_err)) => Err(subgraph_resolution_err),
     };
-    METRICS
-        .client_query
-        .check(&[deployment.as_deref().unwrap_or("")], &result);
+
+    let deployment: Option<String> = result
+        .as_ref()
+        .map(|response| response.selection.indexing.deployment.to_string())
+        .ok();
+    let metric_labels = [deployment.as_deref().unwrap_or("")];
+
+    METRICS.client_query.check(&metric_labels, &result);
+    with_metric(&METRICS.client_query.duration, &metric_labels, |h| {
+        h.observe((Instant::now() - start_time).as_secs_f64())
+    });
 
     span.in_scope(|| {
         let (status_message, status_code) = reports::status(&result);
         let (legacy_status_message, legacy_status_code) = reports::legacy_status(&result);
         tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
-            start_time_ms,
+            start_time_ms = timestamp,
+            deployment,
             %status_message,
             status_code,
             %legacy_status_message,
@@ -198,7 +185,10 @@ pub async fn handle_query(
 
     let response = Response::builder().header(header::CONTENT_TYPE, "application/json");
     match result {
-        Ok(ResponsePayload { body, attestation }) => {
+        Ok(QueryOutcome {
+            response: ResponsePayload { body, attestation },
+            ..
+        }) => {
             let attestation = attestation
                 .as_ref()
                 .and_then(|attestation| serde_json::to_string(attestation).ok())
@@ -217,48 +207,92 @@ pub async fn handle_query(
     }
 }
 
-async fn resolve_subgraph_deployment(
+async fn resolve_subgraph_deployments(
     network: &GraphNetwork,
     params: &BTreeMap<String, String>,
-) -> Result<Arc<Deployment>, Error> {
-    let deployment = if let Some(id) = params.get("subgraph_id") {
-        let id = SubgraphId::from_str(id).map_err(|_| Error::InvalidSubgraphId(id.to_string()))?;
-        network
+) -> Result<Vec<Arc<Deployment>>, Error> {
+    if let Some(constraint) = params.get("subgraph_id") {
+        let (id, comparator) = constraint
+            .split_once('^')
+            .map(|(id, comparator)| (id, Some(comparator)))
+            .unwrap_or((constraint, None));
+        let id = SubgraphId::from_str(id).map_err(|_| Error::InvalidSubgraph(id.to_string()))?;
+        let subgraph = network
             .subgraphs
             .value_immediate()
-            .and_then(|subgraphs| subgraphs.get(&id)?.deployments.last().cloned())
-            .ok_or_else(|| Error::SubgraphNotFound(id))?
+            .and_then(|subgraphs| subgraphs.get(&id).cloned())
+            .ok_or_else(|| Error::SubgraphNotFound(id))?;
+        let comparator = match comparator {
+            None => None,
+            Some(comparator) => Some(
+                semver::Comparator::from_str(comparator)
+                    .map_err(|err| Error::InvalidSubgraph(err.to_string()))?,
+            ),
+        };
+        resolve_subgraph_versions(&subgraph, comparator)
+            .ok_or_else(|| Error::InvalidSubgraph("No matching deployments".to_string()))
     } else if let Some(id) = params.get("deployment_id") {
         let id = DeploymentId::from_ipfs_hash(id)
             .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))?;
         network
             .deployments
             .value_immediate()
-            .and_then(|deployments| deployments.get(&id).cloned())
-            .ok_or_else(|| Error::DeploymentNotFound(id))?
+            .and_then(|deployments| Some(vec![deployments.get(&id)?.clone()]))
+            .ok_or_else(|| Error::DeploymentNotFound(id))
     } else {
-        return Err(Error::InvalidDeploymentId("".to_string()));
-    };
-    if deployment.migrated_to_l2 {
-        return Err(Error::DeploymentMigrated(deployment.id));
+        Err(Error::InvalidDeploymentId("".to_string()))
     }
-    Ok(deployment)
+}
+
+fn resolve_subgraph_versions(
+    subgraph: &Subgraph,
+    constraint: Option<semver::Comparator>,
+) -> Option<Vec<Arc<Deployment>>> {
+    let comparator = match constraint {
+        Some(comparator) => comparator,
+        None => {
+            return subgraph
+                .deployments
+                .last()
+                .map(|deployment| vec![deployment.clone()])
+        }
+    };
+    let matching_subgraph_versions: Vec<Arc<Deployment>> = subgraph
+        .deployments
+        .iter()
+        .filter(|deployment| match &deployment.version {
+            None => false,
+            Some(version) => comparator.matches(version),
+        })
+        .cloned()
+        .collect();
+    Some(matching_subgraph_versions)
+}
+
+struct QueryOutcome {
+    response: ResponsePayload,
+    selection: Selection,
 }
 
 async fn handle_client_query_inner(
     ctx: &Context,
-    deployment: Arc<Deployment>,
+    mut deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
     auth: AuthToken,
     domain: String,
-) -> Result<ResponsePayload, Error> {
-    let deployment_id = deployment.id.to_string();
-    let _timer = METRICS.client_query.start_timer(&[&deployment_id]);
+) -> Result<QueryOutcome, Error> {
+    let subgraph_chain = deployments
+        .last()
+        .map(|deployment| deployment.manifest.network.clone())
+        .ok_or_else(|| Error::InvalidSubgraph("No matching deployments".to_string()))?;
+    tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain);
+    // Make sure we only select from deployments indexing the same chain. This simplifies dealing
+    // with block constraints later.
+    deployments.retain(|deployment| deployment.manifest.network == subgraph_chain);
+    tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
 
-    tracing::info!(
-        target: reports::CLIENT_QUERY_TARGET,
-        subgraph_chain = %deployment.manifest.network,
-    );
+    let manifest_min_block = deployments.last().unwrap().manifest.min_block;
+
     match &auth {
         AuthToken::ApiKey(api_key) => tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
@@ -276,20 +310,24 @@ async fn handle_client_query_inner(
         serde_json::from_reader(payload.reader()).map_err(|err| Error::InvalidQuery(err.into()))?;
 
     ctx.auth_handler
-        .check_token(&auth, &deployment, &domain)
+        .check_token(&auth, &deployments, &domain)
         .await
         .map_err(Error::InvalidAuth)?;
 
-    let available_indexings: Vec<Indexing> = deployment
-        .allocations
+    let available_indexings: Vec<Indexing> = deployments
         .iter()
-        .map(|allocation| allocation.indexer.id)
-        .collect::<BTreeSet<Address>>()
-        .into_iter()
-        .map(|indexer| Indexing {
-            indexer,
-            deployment: deployment.id,
+        .flat_map(|deployment| {
+            let id = deployment.id;
+            deployment
+                .allocations
+                .iter()
+                .map(move |allocation| Indexing {
+                    indexer: allocation.indexer.id,
+                    deployment: id,
+                })
         })
+        .collect::<BTreeSet<Indexing>>()
+        .into_iter()
         .collect();
     tracing::info!(available_indexings = available_indexings.len());
     if available_indexings.is_empty() {
@@ -310,12 +348,11 @@ async fn handle_client_query_inner(
         %variables,
     );
 
-    let network = deployment.manifest.network.clone();
     let mut block_cache = ctx
         .block_caches
-        .get(&network)
+        .get(&subgraph_chain)
         .cloned()
-        .ok_or_else(|| Error::SubgraphChainNotSupported(network))?;
+        .ok_or_else(|| Error::SubgraphChainNotSupported(subgraph_chain))?;
 
     let block_constraints = block_constraints(&context)
         .ok_or_else(|| Error::InvalidQuery(anyhow!("Failed to determine block constraints.")))?;
@@ -340,7 +377,7 @@ async fn handle_client_query_inner(
     };
 
     // Reject queries for blocks before minimum start block in the manifest.
-    if matches!(min_block, Some(min_block) if min_block < deployment.manifest.min_block) {
+    if matches!(min_block, Some(min_block) if min_block < manifest_min_block) {
         return Err(Error::InvalidQuery(anyhow!(
             "Requested block before minimum `startBlock` of manifest: {}",
             min_block.unwrap_or_default()
@@ -418,11 +455,7 @@ async fn handle_client_query_inner(
         // to the state of the client query.
         let mut context = context.clone();
 
-        let selection_timer = with_metric(
-            &METRICS.indexer_selection_duration,
-            &[&deployment_id],
-            |hist| hist.start_timer(),
-        );
+        let selection_timer = METRICS.indexer_selection_duration.start_timer();
         let (selections, indexer_errors) = ctx
             .isa_state
             .latest()
@@ -466,18 +499,23 @@ async fn handle_client_query_inner(
                 .as_f64() as f32,
         );
 
-        let indexer_query_context = IndexerQueryContext {
-            indexer_client: ctx.indexer_client.clone(),
-            fisherman_client: ctx.fisherman_client,
-            receipt_pools: ctx.receipt_pools,
-            observations: ctx.observations.clone(),
-            deployment: deployment.clone(),
-            latest_block: latest_block.number,
-            response_time: Duration::default(),
-        };
-
-        let (response_tx, mut response_rx) = mpsc::channel(SELECTION_LIMIT);
+        let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
+            let deployment = deployments
+                .iter()
+                .find(|deployment| deployment.id == selection.indexing.deployment)
+                .unwrap()
+                .clone();
+            let indexer_query_context = IndexerQueryContext {
+                indexer_client: ctx.indexer_client.clone(),
+                fisherman_client: ctx.fisherman_client,
+                receipt_pools: ctx.receipt_pools,
+                observations: ctx.observations.clone(),
+                deployment,
+                latest_block: latest_block.number,
+                response_time: Duration::default(),
+            };
+
             let latest_query_block = match block_cache
                 .latest(selection.blocks_behind + latest_unresolved)
                 .await
@@ -493,7 +531,7 @@ async fn handle_client_query_inner(
                     })?;
 
             let indexer_query_context = indexer_query_context.clone();
-            let response_tx = response_tx.clone();
+            let outcome_tx = outcome_tx.clone();
             // We must manually construct this span before the spawned task, since otherwise
             // there's a race between creating this span and another indexer responding which will
             // close the outer client_query span.
@@ -506,19 +544,22 @@ async fn handle_client_query_inner(
                 async move {
                     let response = handle_indexer_query(
                         indexer_query_context,
-                        selection,
+                        selection.clone(),
                         deterministic_query,
                         latest_query_block.number,
                     )
                     .await;
-                    let _ = response_tx.try_send(response);
+                    let _ = outcome_tx.try_send(response.map(|response| QueryOutcome {
+                        response,
+                        selection,
+                    }));
                 }
                 .instrument(span),
             );
         }
         for _ in 0..selections_len {
-            match response_rx.recv().await {
-                Some(Ok(payload)) => return Ok(payload),
+            match outcome_rx.recv().await {
+                Some(Ok(outcome)) => return Ok(outcome),
                 Some(Err(IndexerError::UnresolvedBlock)) => latest_unresolved += 1,
                 Some(Err(_)) | None => (),
             };
@@ -768,24 +809,66 @@ fn count_top_level_selection_sets(ctx: &AgoraContext) -> anyhow::Result<usize> {
     Ok(selection_sets.into_iter().map(|set| set.items.len()).sum())
 }
 
-async fn forward_to_l2(
-    l2_gateway: Option<Url>,
-    deployment: &DeploymentId,
-    headers: HeaderMap,
-    payload: Bytes,
-) -> Option<String> {
-    let url = l2_gateway?
-        .join(&format!("/api/deployments/id/{deployment}"))
-        .ok()?;
-    reqwest::Client::new()
-        .post(url)
-        .headers(headers)
-        .body(payload)
-        .send()
-        .await
-        .and_then(|response| response.error_for_status())
-        .ok()?
-        .text()
-        .await
-        .ok()
+#[cfg(test)]
+mod test {
+    use super::resolve_subgraph_versions;
+    use crate::topology::{Deployment, Manifest, Subgraph};
+    use prelude::*;
+    use std::{collections::BTreeSet, sync::Arc};
+
+    #[test]
+    fn resolving_subgraph_versions() {
+        let deployment1 = "QmcvzjH2RvLiytkkwaiCB3fzkqzr33LbAh71nACB13UGr1"
+            .parse()
+            .unwrap();
+        let deployment2 = "QmcvzjH2RvLiytkkwaiCB3fzkqzr33LbAh71nACB13UGr2"
+            .parse()
+            .unwrap();
+        let deployment3 = "QmcvzjH2RvLiytkkwaiCB3fzkqzr33LbAh71nACB13UGr3"
+            .parse()
+            .unwrap();
+        let deployment4 = "QmcvzjH2RvLiytkkwaiCB3fzkqzr33LbAh71nACB13UGr4"
+            .parse()
+            .unwrap();
+        let deployment = |id: DeploymentId, version: Option<&str>| -> Arc<Deployment> {
+            Arc::new(Deployment {
+                id,
+                manifest: Arc::new(Manifest {
+                    network: "testnet".to_string(),
+                    features: vec![],
+                    min_block: 0,
+                }),
+                version: version.map(|v| Arc::new(v.parse().unwrap())),
+                allocations: vec![],
+                subgraphs: BTreeSet::new(),
+                migrated_to_l2: false,
+            })
+        };
+        let subgraph = Subgraph {
+            deployments: vec![
+                deployment(deployment1, Some("0.1.0")),
+                deployment(deployment2, Some("0.2.0")),
+                deployment(deployment3, Some("1.0.0")),
+                deployment(deployment4, None),
+            ],
+        };
+
+        let tests: Vec<(Option<&str>, Vec<DeploymentId>)> = vec![
+            (None, vec![deployment4]),
+            (Some("^0"), vec![deployment1, deployment2]),
+            (Some("^0.1"), vec![deployment1]),
+            (Some("^0.2"), vec![deployment2]),
+            (Some("^1"), vec![deployment3]),
+        ];
+
+        for (constraint, expected) in tests {
+            let constraint = constraint.map(|c| c.parse().unwrap());
+            let resolved: Vec<DeploymentId> = resolve_subgraph_versions(&subgraph, constraint)
+                .unwrap()
+                .into_iter()
+                .map(|deployment| deployment.id)
+                .collect();
+            assert_eq!(resolved, expected);
+        }
+    }
 }

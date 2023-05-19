@@ -123,7 +123,7 @@ impl AuthHandler {
     pub async fn check_token(
         &self,
         token: &AuthToken,
-        deployment: &Deployment,
+        deployments: &[Arc<Deployment>],
         domain: &str,
     ) -> Result<()> {
         // Enforce the API key payment status, unless it's being subsidized.
@@ -151,8 +151,10 @@ impl AuthHandler {
                 .collect(),
         };
         tracing::debug!(?allowed_deployments);
-        let allow_deployment =
-            allowed_deployments.is_empty() || allowed_deployments.contains(&deployment.id);
+        let allow_deployment = allowed_deployments.is_empty()
+            || deployments
+                .iter()
+                .any(|deployment| allowed_deployments.contains(&deployment.id));
         ensure!(allow_deployment, "Deployment not authorized");
 
         // Check subgraph allowlist
@@ -166,13 +168,13 @@ impl AuthHandler {
                 .collect(),
         };
         tracing::debug!(?allowed_subgraphs);
-        // multiple subgraph ids can be resolved to the deployment Qm hash,
-        // check if any of the SubgraphInfo.ids are in the api_key allowed subgraphs
-        let allow_subgraph = allowed_subgraphs.is_empty() || {
-            allowed_subgraphs
-                .iter()
-                .any(|id| deployment.subgraphs.contains(id))
-        };
+        let allow_subgraph = allowed_subgraphs.is_empty()
+            || deployments.iter().any(|deployment| {
+                deployment
+                    .subgraphs
+                    .iter()
+                    .any(|subgraph| allowed_subgraphs.contains(subgraph))
+            });
         ensure!(allow_subgraph, "Subgraph not authorized by user");
 
         // Check domain allowlist

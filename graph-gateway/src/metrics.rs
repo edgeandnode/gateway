@@ -20,7 +20,7 @@ pub struct Metrics {
     pub block_cache_hit: IntCounterVec,
     pub block_cache_miss: IntCounterVec,
     pub chain_head: IntGaugeVec,
-    pub indexer_selection_duration: HistogramVec,
+    pub indexer_selection_duration: Histogram,
 }
 
 impl Metrics {
@@ -65,10 +65,9 @@ impl Metrics {
                 &["network"]
             )
             .unwrap(),
-            indexer_selection_duration: register_histogram_vec!(
+            indexer_selection_duration: register_histogram!(
                 "gw_indexer_selection_duration",
-                "indexer selection duration",
-                &["deployment"]
+                "indexer selection duration"
             )
             .unwrap(),
         }

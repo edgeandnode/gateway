@@ -389,12 +389,11 @@ pub fn status<T>(result: &Result<T, client_query::Error>) -> (String, i32) {
             client_query::Error::InvalidAuth(_)
             | client_query::Error::InvalidDeploymentId(_)
             | client_query::Error::InvalidQuery(_)
-            | client_query::Error::InvalidSubgraphId(_)
+            | client_query::Error::InvalidSubgraph(_)
             | client_query::Error::SubgraphChainNotSupported(_) => {
                 (err.to_string(), StatusCode::UserError.into())
             }
             client_query::Error::BlockNotFound(_)
-            | client_query::Error::DeploymentMigrated(_)
             | client_query::Error::DeploymentNotFound(_)
             | client_query::Error::NoIndexers
             | client_query::Error::NoSuitableIndexer(_)
@@ -451,13 +450,12 @@ pub fn legacy_status<T>(result: &Result<T, client_query::Error>) -> (String, u32
         Ok(_) => ("200 OK".to_string(), 0),
         Err(err) => match err {
             client_query::Error::BlockNotFound(_) => ("Unresolved block".to_string(), 604610595),
-            client_query::Error::DeploymentMigrated(_)
-            | client_query::Error::DeploymentNotFound(_) => (err.to_string(), 628859297),
+            client_query::Error::DeploymentNotFound(_) => (err.to_string(), 628859297),
             client_query::Error::Internal(_) => ("Internal error".to_string(), 816601499),
             client_query::Error::InvalidAuth(_) => ("Invalid API key".to_string(), 888904173),
             client_query::Error::InvalidDeploymentId(_) => (err.to_string(), 19391651),
             client_query::Error::InvalidQuery(_) => ("Invalid query".to_string(), 595700117),
-            client_query::Error::InvalidSubgraphId(_) => (err.to_string(), 2992863035),
+            client_query::Error::InvalidSubgraph(_) => (err.to_string(), 2992863035),
             client_query::Error::NoIndexers => (
                 "No indexers found for subgraph deployment".to_string(),
                 1621366907,

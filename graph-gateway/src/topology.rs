@@ -17,6 +17,7 @@ pub struct GraphNetwork {
 /// In an effort to keep the ownership structure a simple tree, this only contains the info required
 /// to resolve queries by `SubgraphId` into the relevant deployments. Therefore, there is no need
 /// for a query by `DeploymentId` to interact with this.
+#[derive(Clone)]
 pub struct Subgraph {
     pub deployments: Vec<Arc<Deployment>>,
 }

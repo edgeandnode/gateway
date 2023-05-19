@@ -298,7 +298,10 @@ async fn main() {
             "/:api_key/deployments/id/:deployment_id",
             routing::post(client_query::handle_query),
         )
-        // This subgraphs route is a footgun on the network. We should eventually deprecate it.
+        .route(
+            "/subgraphs/id/:subgraph_id",
+            routing::post(client_query::handle_query),
+        )
         .route(
             "/:api_key/subgraphs/id/:subgraph_id",
             routing::post(client_query::handle_query),
