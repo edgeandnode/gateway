@@ -20,7 +20,7 @@ pub struct IndexingStatus {
     pub cost_model: Option<Ptr<CostModel>>,
 }
 
-pub fn indexing_statuses(
+pub async fn indexing_statuses(
     deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
     client: reqwest::Client,
     min_version: Version,
@@ -44,6 +44,11 @@ pub fn indexing_statuses(
             async move { update_statuses(actor, client, &deployments).await }
         })
         .forever();
+
+    // Wait for first sync before proceeding.
+    if indexing_statuses_rx.value().await.is_err() {
+        panic!("Failed to await indexing_statuses");
+    }
 
     indexing_statuses_rx
 }

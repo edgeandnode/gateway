@@ -172,7 +172,8 @@ async fn main() {
         http_client.clone(),
         config.min_indexer_version,
         geoip,
-    );
+    )
+    .await;
     {
         let update_writer = update_writer.clone();
         eventuals::join((network.deployments.clone(), indexing_statuses))
