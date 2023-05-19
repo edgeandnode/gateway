@@ -119,6 +119,8 @@ impl Client {
     }
 
     async fn poll_subgraphs(&mut self) -> Result<(), String> {
+        // TODO: `indexerAllocations(first: 500` is for the MIPs program. Under normal circumstances
+        // we would not expect so many indexers per deployment.
         let query = r#"
             subgraphs(
                 block: $block
@@ -134,7 +136,7 @@ impl Client {
                 versions(orderBy: version, orderDirection: asc) {
                     subgraphDeployment {
                         ipfsHash
-                        indexerAllocations(where: { status: Active }) {
+                        indexerAllocations(first: 500, where: { status: Active }) {
                             id
                             allocatedTokens
                             indexer {
