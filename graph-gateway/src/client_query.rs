@@ -18,13 +18,14 @@ use axum::{
 use futures::future::join_all;
 use lazy_static::lazy_static;
 use prost::bytes::Buf;
+use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
 use uuid::Uuid;
 
 use indexer_selection::{
-    actor::Update, BlockRequirements, Context as AgoraContext,
+    actor::Update, BlockRequirements, Candidate, Context as AgoraContext,
     IndexerError as IndexerSelectionError, IndexerErrorObservation, Indexing, InputError,
     Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
 };
@@ -448,6 +449,7 @@ async fn handle_client_query_inner(
     if available_indexings.is_empty() {
         return Err(Error::NoIndexers);
     }
+    let candidates = indexings_to_candidates(&deployments, available_indexings);
 
     let variables = payload
         .variables
@@ -575,7 +577,7 @@ async fn handle_client_query_inner(
             .isa_state
             .latest()
             .select_indexers(
-                &available_indexings,
+                &candidates,
                 &utility_params,
                 &mut context,
                 SELECTION_LIMIT as u8,
@@ -909,6 +911,34 @@ fn challenge_indexer_response(
             });
         }
     });
+}
+
+fn indexings_to_candidates(
+    deployments: &[Arc<Deployment>],
+    indexings: Vec<Indexing>,
+) -> Vec<Candidate> {
+    let versions: BTreeMap<&Version, DeploymentId> = deployments
+        .iter()
+        .filter_map(|deployment| Some((deployment.version.as_ref()?.as_ref(), deployment.id)))
+        .collect();
+    let deployment_versions_behind: BTreeMap<DeploymentId, usize> = versions
+        .into_iter()
+        .rev()
+        .enumerate()
+        .map(|(index, (_, deployment))| (deployment, index))
+        .collect();
+    indexings
+        .into_iter()
+        .map(|indexing| {
+            let versions_behind = *deployment_versions_behind
+                .get(&indexing.deployment)
+                .unwrap_or(&0) as u8;
+            Candidate {
+                indexing,
+                versions_behind,
+            }
+        })
+        .collect()
 }
 
 fn count_top_level_selection_sets(ctx: &AgoraContext) -> anyhow::Result<usize> {

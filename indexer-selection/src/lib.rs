@@ -42,6 +42,11 @@ use std::{
 // a context across an await. See https://github.com/rust-lang/rust/issues/71723
 pub type Context<'c> = cost_model::Context<'c, String>;
 
+pub struct Candidate {
+    pub indexing: Indexing,
+    pub versions_behind: u8,
+}
+
 #[derive(Clone, Debug)]
 pub struct Selection {
     pub indexing: Indexing,
@@ -157,6 +162,7 @@ pub struct UtilityParameters {
     pub budget: GRT,
     pub requirements: BlockRequirements,
     pub latest_block: u64,
+    pub versions_behind: ConcaveUtilityParameters,
     pub performance: ConcaveUtilityParameters,
     pub data_freshness: ConcaveUtilityParameters,
     pub economic_security: ConcaveUtilityParameters,
@@ -185,6 +191,11 @@ impl UtilityParameters {
             budget,
             requirements,
             latest_block,
+            // https://www.desmos.com/calculator/7gmnnuh6og
+            versions_behind: ConcaveUtilityParameters {
+                a: 1.0,
+                weight: 0.5,
+            },
             // 170cbcf3-db7f-404a-be13-2022d9142677
             performance: ConcaveUtilityParameters {
                 a: interp(1.1, 1.2, performance),
@@ -252,23 +263,28 @@ impl State {
 
     pub fn select_indexers<'a>(
         &self,
-        indexings: &'a [Indexing],
+        candidates: &'a [Candidate],
         params: &UtilityParameters,
         context: &mut Context<'_>,
         selection_limit: u8,
     ) -> Result<(Vec<Selection>, IndexerErrors<'a>), InputError> {
         let mut errors = IndexerErrors(BTreeMap::new());
         let mut available = Vec::<SelectionFactors>::new();
-        for indexing in indexings {
-            if let Some(allowed) = self.restricted_deployments.get(&indexing.deployment) {
-                if !allowed.contains(&indexing.indexer) {
-                    errors.add(IndexerError::Excluded, &indexing.indexer);
+        for candidate in candidates {
+            if let Some(allowed) = self
+                .restricted_deployments
+                .get(&candidate.indexing.deployment)
+            {
+                if !allowed.contains(&candidate.indexing.indexer) {
+                    errors.add(IndexerError::Excluded, &candidate.indexing.indexer);
                     continue;
                 }
             }
-            match self.selection_factors(*indexing, params, context, selection_limit) {
+            match self.selection_factors(candidate, params, context, selection_limit) {
                 Ok(factors) => available.push(factors),
-                Err(SelectionError::BadIndexer(err)) => errors.add(err, &indexing.indexer),
+                Err(SelectionError::BadIndexer(err)) => {
+                    errors.add(err, &candidate.indexing.indexer)
+                }
                 Err(SelectionError::BadInput(err)) => return Err(err),
             };
         }
@@ -318,18 +334,18 @@ impl State {
 
     fn selection_factors(
         &self,
-        indexing: Indexing,
+        candidate: &Candidate,
         params: &UtilityParameters,
         context: &mut Context<'_>,
         selection_limit: u8,
     ) -> Result<SelectionFactors, SelectionError> {
         let info = self
             .indexers
-            .get_unobserved(&indexing.indexer)
+            .get_unobserved(&candidate.indexing.indexer)
             .ok_or(IndexerError::NoStatus)?;
         let state = self
             .indexings
-            .get_unobserved(&indexing)
+            .get_unobserved(&candidate.indexing)
             .ok_or(IndexerError::NoStatus)?;
 
         let status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
@@ -373,8 +389,9 @@ impl State {
         .unwrap_or(NotNan::zero());
 
         Ok(SelectionFactors {
-            indexing,
+            indexing: candidate.indexing,
             url: info.url.clone(),
+            versions_behind: candidate.versions_behind,
             reliability,
             perf_success,
             perf_failure: state.perf_failure.expected_value(),

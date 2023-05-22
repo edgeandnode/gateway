@@ -15,6 +15,7 @@ use prelude::{
 pub struct SelectionFactors {
     pub indexing: Indexing,
     pub url: Url,
+    pub versions_behind: u8,
     pub reliability: f64,
     pub perf_success: f64,
     pub perf_failure: f64,
@@ -186,6 +187,9 @@ impl MetaIndexer<'_> {
         let p_success = ps.iter().sum::<f64>();
         debug_assert!((0.0..=1.0).contains(&p_success));
 
+        let versions_behind =
+            self.0.iter().map(|f| f.versions_behind as f64).sum::<f64>() / self.0.len() as f64;
+
         let factors = [
             reliability_utility(p_success).mul_weight(exploration),
             performance_utility(params.performance, perf_success as u32)
@@ -193,6 +197,9 @@ impl MetaIndexer<'_> {
             performance_utility(params.performance, perf_failure as u32)
                 .mul_weight(exploration * (1.0 - p_success)),
             params.economic_security.concave_utility(slashable_usd),
+            params
+                .versions_behind
+                .concave_utility(versions_behind.recip()),
             data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
             fee_utility(params.fee_weight, &self.fee(), &params.budget),
         ];
