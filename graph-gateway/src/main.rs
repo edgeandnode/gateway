@@ -36,7 +36,7 @@ use config::*;
 use eventuals::EventualExt as _;
 use fisherman_client::*;
 use geoip::GeoIP;
-use graph_subscriptions::TicketVerificationDomain;
+use graph_subscriptions::{subscription_tier::SubscriptionTiers, TicketVerificationDomain};
 use indexer_client::IndexerClient;
 use indexer_selection::{
     actor::{IndexerUpdate, Update},
@@ -392,7 +392,7 @@ async fn ip_rate_limit<B>(
 async fn handle_subscription_tiers(
     State(tiers): State<&'static SubscriptionTiers>,
 ) -> JsonResponse {
-    let response = serde_json::to_value(tiers).unwrap();
+    let response = serde_json::to_value(tiers.as_ref()).unwrap();
     json_response([], response)
 }
 
