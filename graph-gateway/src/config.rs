@@ -1,9 +1,10 @@
 use crate::chains::ethereum;
+use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
 use hdwallet::{self, KeyChain as _};
 use indexer_selection::SecretKey;
 use prelude::*;
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr, FromInto};
 use std::{collections::BTreeMap, path::PathBuf};
 
@@ -169,35 +170,5 @@ impl FromStr for SignerKey {
             // Convert between versions of secp256k1 lib.
             SecretKey::from_slice(signer_key.as_ref()).unwrap(),
         ))
-    }
-}
-
-#[derive(Debug, Default, Serialize)]
-pub struct SubscriptionTiers(Vec<SubscriptionTier>);
-
-#[serde_as]
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct SubscriptionTier {
-    /// Payment rate from the subcription contract.
-    #[serde_as(as = "DisplayFromStr")]
-    pub payment_rate: u128,
-    /// Maximum query rate allowed, in queries per minute.
-    pub queries_per_minute: u32,
-}
-
-impl From<Vec<SubscriptionTier>> for SubscriptionTiers {
-    fn from(mut tiers: Vec<SubscriptionTier>) -> Self {
-        tiers.sort_by_key(|t| t.payment_rate);
-        Self(tiers)
-    }
-}
-
-impl SubscriptionTiers {
-    pub fn tier_for_rate(&self, sub_rate: u128) -> SubscriptionTier {
-        self.0
-            .iter()
-            .find(|tier| tier.payment_rate <= sub_rate)
-            .cloned()
-            .unwrap_or_default()
     }
 }

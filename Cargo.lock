@@ -1363,7 +1363,7 @@ dependencies = [
 [[package]]
 name = "graph-subscriptions"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/subscription-payments?rev=8ca11d6#8ca11d6f12a60760e9098342b204719e413bcbf3"
+source = "git+https://github.com/edgeandnode/subscription-payments?rev=620a844#620a844f187e0aec3f17bffc16fb75c8dab50975"
 dependencies = [
  "anyhow",
  "base64 0.21.0",
