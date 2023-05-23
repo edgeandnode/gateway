@@ -113,7 +113,7 @@ pub async fn handle_query(
     let ray_id = headers.get("cf-ray").and_then(|value| value.to_str().ok());
     let query_id = ray_id.map(ToString::to_string).unwrap_or_else(query_id);
 
-    let auth = match (
+    let auth_input = match (
         params.get("api_key"),
         headers
             .get(header::AUTHORIZATION)
@@ -123,8 +123,10 @@ pub async fn handle_query(
         (None, Some(header)) => header.trim_start_matches("Bearer").trim(),
         (None, None) => "",
     };
-    tracing::debug!(%auth);
-    let auth = ctx.auth_handler.parse_token(auth).context("Invalid auth");
+    let auth = ctx
+        .auth_handler
+        .parse_token(auth_input)
+        .context("Invalid auth");
 
     let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
 
@@ -141,6 +143,9 @@ pub async fn handle_query(
         %query_id,
         graph_env = %ctx.graph_env_id,
     );
+    span.in_scope(|| {
+        tracing::debug!(%auth_input);
+    });
 
     let domain = headers
         .get(header::ORIGIN)
