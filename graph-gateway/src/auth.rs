@@ -91,7 +91,7 @@ impl AuthHandler {
                 .unwrap_or_default()
                 .get(input)
                 .map(|api_key| AuthToken::ApiKey(api_key.clone()))
-                .ok_or_else(|| anyhow!("Not found"));
+                .ok_or_else(|| anyhow!("API key not found"));
         }
 
         let domain = self
