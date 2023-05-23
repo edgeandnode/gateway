@@ -269,6 +269,6 @@ impl IpfsCache {
 
         let payload = ipfs.cat(&cid).await?;
         let metadata: Metadata = serde_json::from_str(&payload)?;
-        Ok(metadata.label.parse()?)
+        Ok(metadata.label.trim_start_matches('v').parse()?)
     }
 }
