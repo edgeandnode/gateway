@@ -1,8 +1,10 @@
 use crate::subgraph_client;
+use chrono::{DateTime, Utc};
 use eventuals::{self, EventualExt as _};
 use prelude::{anyhow::anyhow, *};
 use serde::Deserialize;
 use serde_json::json;
+use serde_with::serde_as;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -15,10 +17,14 @@ pub struct NetworkParams {
     pub slashing_percentage: PPM,
 }
 
+#[serde_as]
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Subgraph {
     pub id: SubgraphId,
     pub versions: Vec<SubgraphVersion>,
+    #[serde_as(as = "Option<serde_with::TimestampSeconds<i64>>")]
+    pub started_transfer_to_l2_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,19 +61,14 @@ pub struct Indexer {
 pub struct Client {
     subgraph_client: subgraph_client::Client,
     subgraphs: EventualWriter<Ptr<Vec<Subgraph>>>,
-    l2_migration_delay: Option<chrono::Duration>,
 }
 
 impl Client {
-    pub async fn create(
-        subgraph_client: subgraph_client::Client,
-        l2_migration_delay: Option<chrono::Duration>,
-    ) -> anyhow::Result<Data> {
+    pub async fn create(subgraph_client: subgraph_client::Client) -> anyhow::Result<Data> {
         let (subgraphs_tx, subgraphs_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
             subgraphs: subgraphs_tx,
-            l2_migration_delay,
         }));
 
         let network_params = client.lock().await.network_params().await?;
@@ -134,6 +135,7 @@ impl Client {
                 }
             ) {
                 id
+                startedTransferToL2At
                 versions(orderBy: version, orderDirection: asc) {
                     metadataHash
                     subgraphDeployment {
@@ -156,30 +158,6 @@ impl Client {
             .subgraph_client
             .paginated_query::<Subgraph>(query)
             .await?;
-
-        // TODO: apply migration delay when `startedTransferToL2` field is added.
-        // let now = chrono::Utc::now();
-        // let migrated_away = response
-        //     .iter()
-        //     .filter_map(|deployment| {
-        //         let l2_migration_delay = self.l2_migration_delay?;
-        //         // Subgraph deployments may be associated with multiple subgraphs. We only stop
-        //         // service to the subgraph deployment if all it's associated subgraphs have
-        //         // migrated. And we do so after the delay, starting from the latest
-        //         // `startedMigrationToL2At` timestamp of the associated subgraphs.
-        //         let latest_migration = deployment
-        //             .versions
-        //             .iter()
-        //             .map(|v| v.subgraph.started_migration_to_l2_at)
-        //             .collect::<Option<Vec<chrono::DateTime<Utc>>>>()?
-        //             .into_iter()
-        //             .max()?;
-        //         if latest_migration > (now - l2_migration_delay) {
-        //             return None;
-        //         }
-        //         Some(deployment.id)
-        //     })
-        //     .collect();
 
         if subgraphs.is_empty() {
             return Err("Discarding empty update (subgraph_deployments)".to_string());

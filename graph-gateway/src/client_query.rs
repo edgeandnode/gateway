@@ -25,6 +25,7 @@ use indexer_selection::{
     IndexerError as IndexerSelectionError, IndexerErrorObservation, Indexing, InputError,
     Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
 };
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use prelude::{
     anyhow::{anyhow, bail, Context as _},
@@ -128,12 +129,10 @@ pub async fn handle_query(
         .parse_token(auth_input)
         .context("Invalid auth");
 
+    let resolved_subgraph = resolve_subgraph(&ctx.network, &params).await;
     let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
 
-    if matches!(
-        &resolved_deployments,
-        Ok(deployments) if deployments.iter().all(|d| d.migrated_to_l2),
-    ) {
+    if matches!(&resolved_subgraph, Ok(subgraph) if subgraph.transferred_to_l2) {
         // TODO: forward query to L2 gateway
     }
 
@@ -209,6 +208,42 @@ pub async fn handle_query(
                 .body(serde_json::to_string(&body).unwrap())
                 .unwrap()
         }
+    }
+}
+
+async fn resolve_subgraph(
+    network: &GraphNetwork,
+    params: &BTreeMap<String, String>,
+) -> Result<Subgraph, Error> {
+    if let Some(id) = params.get("subgraph_id") {
+        let (id, _comparator) = id
+            .split_once('^')
+            .map(|(id, comparator)| (id, Some(comparator)))
+            .unwrap_or((id, None));
+        let subgraph_id =
+            SubgraphId::from_str(id).map_err(|_| Error::InvalidSubgraph(id.to_string()))?;
+        let subgraph = network
+            .subgraphs
+            .value_immediate()
+            .and_then(|sg| sg.get(&subgraph_id).cloned())
+            .ok_or_else(|| Error::SubgraphNotFound(subgraph_id))?;
+        Ok(subgraph)
+    } else if let Some(id) = params.get("subgraph_id") {
+        let deployment_id = DeploymentId::from_ipfs_hash(id)
+            .ok_or_else(|| Error::InvalidDeploymentId(id.clone()))?;
+
+        network
+            .subgraphs
+            .value_immediate()
+            .and_then(|subgraphs| {
+                subgraphs
+                    .values()
+                    .find_or_first(|sg| sg.deployments.iter().any(|dep| dep.id == deployment_id))
+                    .cloned()
+            })
+            .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))
+    } else {
+        Err(Error::InvalidSubgraph("".to_string()))
     }
 }
 
@@ -847,7 +882,6 @@ mod test {
                 version: version.map(|v| Arc::new(v.parse().unwrap())),
                 allocations: vec![],
                 subgraphs: BTreeSet::new(),
-                migrated_to_l2: false,
             })
         };
         let subgraph = Subgraph {
@@ -857,6 +891,7 @@ mod test {
                 deployment(deployment3, Some("1.0.0")),
                 deployment(deployment4, None),
             ],
+            started_transfer_to_l2_at: None,
         };
 
         let tests: Vec<(Option<&str>, Vec<DeploymentId>)> = vec![
