@@ -594,16 +594,17 @@ async fn handle_indexer_query(
     deterministic_query: String,
     latest_query_block: u64,
 ) -> Result<ResponsePayload, IndexerError> {
+    let indexing = selection.indexing;
+    let deployment = indexing.deployment.to_string();
+
     tracing::info!(
         target: reports::INDEXER_QUERY_TARGET,
+        %deployment,
         url = %selection.url,
         blocks_behind = selection.blocks_behind,
         fee_grt = selection.fee.as_f64() as f32,
         subgraph_chain = %ctx.deployment.manifest.network,
     );
-
-    let indexing = selection.indexing;
-    let deployment = indexing.deployment.to_string();
 
     let receipt = ctx
         .receipt_pools
