@@ -385,7 +385,11 @@ pub fn status<T>(result: &Result<T, client_query::Error>) -> (String, i32) {
     match result {
         Ok(_) => ("200 OK".to_string(), StatusCode::Success.into()),
         Err(err) => match err {
-            client_query::Error::Internal(_) => (err.to_string(), StatusCode::InternalError.into()),
+            client_query::Error::Internal(_)
+            | client_query::Error::L2GatewayRequestError(_)
+            | client_query::Error::L2GatewayResponseError(_) => {
+                (err.to_string(), StatusCode::InternalError.into())
+            }
             client_query::Error::InvalidAuth(_)
             | client_query::Error::InvalidDeploymentId(_)
             | client_query::Error::InvalidQuery(_)
@@ -451,7 +455,11 @@ pub fn legacy_status<T>(result: &Result<T, client_query::Error>) -> (String, u32
         Err(err) => match err {
             client_query::Error::BlockNotFound(_) => ("Unresolved block".to_string(), 604610595),
             client_query::Error::DeploymentNotFound(_) => (err.to_string(), 628859297),
-            client_query::Error::Internal(_) => ("Internal error".to_string(), 816601499),
+            client_query::Error::Internal(_)
+            | client_query::Error::L2GatewayRequestError(_)
+            | client_query::Error::L2GatewayResponseError(_) => {
+                ("Internal error".to_string(), 816601499)
+            }
             client_query::Error::InvalidAuth(_) => ("Invalid API key".to_string(), 888904173),
             client_query::Error::InvalidDeploymentId(_) => (err.to_string(), 19391651),
             client_query::Error::InvalidQuery(_) => ("Invalid query".to_string(), 595700117),
