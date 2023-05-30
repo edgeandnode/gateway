@@ -141,7 +141,7 @@ async fn main() {
         ExchangeRateProvider::Rpc(url) => exchange_rate::usd_to_grt(url).await.unwrap(),
     };
     update_from_eventual(
-        usd_to_grt,
+        usd_to_grt.clone(),
         update_writer.clone(),
         Update::USDToGRTConversion,
     );
@@ -240,6 +240,8 @@ async fn main() {
             as &'static FishermanClient
     });
 
+    tracing::info!("Waiting for exchange rate...");
+    usd_to_grt.value().await.unwrap();
     tracing::info!("Waiting for ISA setup...");
     update_writer.flush().await.unwrap();
 
