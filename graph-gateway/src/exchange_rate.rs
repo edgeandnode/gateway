@@ -56,7 +56,7 @@ async fn fetch_usd_to_grt(pool: &UniswapV3Pool<Provider<Http>>) -> Result<USD> {
     const USDC_DECIMALS: u8 = 6;
     // https://docs.uniswap.org/contracts/v3/reference/core/interfaces/pool/IUniswapV3PoolDerivedState#observe
     // token1/token0 -> GRT/USDC
-    let twap_seconds: u32 = 3600;
+    let twap_seconds: u32 = 60 * 20;
     let (tick_cumulatives, _) = pool.observe(vec![twap_seconds, 0]).await?;
     ensure!(tick_cumulatives.len() == 2);
     let tick = (tick_cumulatives[1] - tick_cumulatives[0]) / twap_seconds as i64;
