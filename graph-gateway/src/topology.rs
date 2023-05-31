@@ -105,14 +105,10 @@ impl GraphNetwork {
             .flatten()
             .collect();
 
-            let transferred_to_l2 = if let (Some(at), Some(delay)) =
-                (subgraph.started_transfer_to_l2_at, l2_transfer_delay)
-            {
-                Utc::now() - at > delay
-            } else {
-                false
-            };
-
+            let transferred_to_l2 = matches!(
+                (subgraph.started_transfer_to_l2_at, l2_transfer_delay),
+                (Some(at), Some(delay)) if Utc::now() - at > delay
+            );
             (
                 subgraph.id,
                 Subgraph {

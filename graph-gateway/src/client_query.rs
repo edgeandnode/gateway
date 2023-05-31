@@ -15,7 +15,6 @@ use axum::{
     http::{header, HeaderMap, Response, StatusCode},
 };
 use futures::future::join_all;
-use itertools::Itertools;
 use lazy_static::lazy_static;
 use prost::bytes::Buf;
 use serde::Deserialize;
@@ -141,11 +140,13 @@ pub async fn handle_query(
 
     // Forward query to L2 gateway if subgraph is transferred to L2
     let resolved_subgraph = resolve_subgraph(&ctx.network, &params).await;
-    if matches!(&resolved_subgraph, Ok(subgraph) if subgraph.transferred_to_l2) {
-        let l2_url = ctx
-            .l2_gateway
-            .as_ref()
-            .expect("L2 gateway URL not configured");
+    if ctx.l2_gateway.is_some()
+        && matches!(&resolved_subgraph, Ok(subgraph) if subgraph.transferred_to_l2)
+    {
+        // We validate the configuration correctness at startup: L2 transfer redirection requires
+        // the L2 gateway URL to be configured.
+        // be8f0ed1-262e-426f-877a-613368eed3ca
+        let l2_url = ctx.l2_gateway.as_ref().unwrap();
         return forward_request_to_l2(l2_url, &original_uri, &headers, &payload).await;
     }
 
@@ -298,7 +299,7 @@ async fn resolve_subgraph(
             .and_then(|sg| sg.get(&subgraph_id).cloned())
             .ok_or_else(|| Error::SubgraphNotFound(subgraph_id))?;
         Ok(subgraph)
-    } else if let Some(id) = params.get("subgraph_id") {
+    } else if let Some(id) = params.get("deployment_id") {
         let deployment_id = DeploymentId::from_ipfs_hash(id)
             .ok_or_else(|| Error::InvalidDeploymentId(id.clone()))?;
 
@@ -308,7 +309,7 @@ async fn resolve_subgraph(
             .and_then(|subgraphs| {
                 subgraphs
                     .values()
-                    .find_or_first(|sg| sg.deployments.iter().any(|dep| dep.id == deployment_id))
+                    .find(|sg| sg.deployments.iter().any(|dep| dep.id == deployment_id))
                     .cloned()
             })
             .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))

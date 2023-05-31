@@ -83,10 +83,10 @@ async fn main() {
         .unwrap();
 
     let config_repr = format!("{config:#?}");
-    tracing::debug!(config = %config_repr);
 
     // Validate the gateway configuration
     // L2 transfer redirection requires the L2 gateway URL to be configured
+    // be8f0ed1-262e-426f-877a-613368eed3ca
     if config.l2_transfer_delay_hours.is_some() && config.l2_gateway.is_none() {
         tracing::error!("L2 transfer delay is set but L2 gateway is not configured");
         return;
@@ -103,6 +103,7 @@ async fn main() {
 
     reports::init(kafka_client, config.log_json);
     tracing::info!("Graph gateway starting...");
+    tracing::debug!(config = %config_repr);
 
     let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
 
