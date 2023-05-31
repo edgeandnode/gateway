@@ -33,7 +33,7 @@ impl KafkaClient {
     }
 }
 
-pub fn init(kafka: &'static KafkaClient, log_json: bool) {
+pub fn init(kafka: &'static KafkaClient, log_json: bool, subscriptions_topic: Option<String>) {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::try_new("info,graph_gateway=debug").unwrap());
 
@@ -44,7 +44,11 @@ pub fn init(kafka: &'static KafkaClient, log_json: bool) {
             .with_current_span(false)
     });
 
-    let kafka_layer = KafkaLayer(kafka).with_filter(FilterFn::new(|metadata| {
+    let kafka_layer = KafkaLayer {
+        client: kafka,
+        subscriptions_topic,
+    }
+    .with_filter(FilterFn::new(|metadata| {
         (metadata.target() == CLIENT_QUERY_TARGET) || (metadata.target() == INDEXER_QUERY_TARGET)
     }));
 
@@ -56,7 +60,10 @@ pub fn init(kafka: &'static KafkaClient, log_json: bool) {
         .init();
 }
 
-struct KafkaLayer(&'static KafkaClient);
+struct KafkaLayer {
+    client: &'static KafkaClient,
+    subscriptions_topic: Option<String>,
+}
 
 impl<S> Layer<S> for KafkaLayer
 where
@@ -115,8 +122,10 @@ where
 
         let fields: Map<String, serde_json::Value> = extensions.remove().unwrap();
         match event.metadata().target() {
-            CLIENT_QUERY_TARGET => report_client_query(self.0, fields),
-            INDEXER_QUERY_TARGET => report_indexer_query(self.0, fields),
+            CLIENT_QUERY_TARGET => {
+                report_client_query(self.client, fields, self.subscriptions_topic.as_deref())
+            }
+            INDEXER_QUERY_TARGET => report_indexer_query(self.client, fields),
             _ => unreachable!("invalid event target for KafkaLayer"),
         }
     }
@@ -176,7 +185,11 @@ impl tracing_subscriber::field::Visit for CollectFields<'_> {
     }
 }
 
-fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Value>) {
+fn report_client_query(
+    kafka: &KafkaClient,
+    fields: Map<String, serde_json::Value>,
+    subscriptions_topic: Option<&str>,
+) {
     #[derive(Deserialize)]
     struct Fields {
         query_id: String,
@@ -227,7 +240,9 @@ fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Valu
     .unwrap();
     println!("{log}");
 
-    if let Some(ticket_payload) = fields.ticket_payload {
+    if let (Some(ticket_payload), Some(subscriptions_topic)) =
+        (fields.ticket_payload, subscriptions_topic)
+    {
         let payload = GatewaySubscriptionQueryResult {
             query_id: fields.query_id.clone(),
             status_code: fields.status_code,
@@ -241,10 +256,7 @@ fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Valu
             query_budget: fields.budget_grt,
             indexer_fees: fields.indexer_fees_grt,
         };
-        kafka.send(
-            "gateway_subscription_query_results",
-            &payload.encode_to_vec(),
-        );
+        kafka.send(subscriptions_topic, &payload.encode_to_vec());
     }
 
     // The following are maintained for backwards compatibility of existing data science
