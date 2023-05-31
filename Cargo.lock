@@ -1331,6 +1331,7 @@ dependencies = [
  "graph-subscriptions",
  "hdwallet",
  "hex",
+ "hyper",
  "indexer-selection",
  "itertools",
  "lazy_static",

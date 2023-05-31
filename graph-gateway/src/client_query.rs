@@ -1,9 +1,46 @@
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    sync::{
+        atomic::{self, AtomicUsize},
+        Arc,
+    },
+};
+
+use axum::body::Body;
+use axum::extract::OriginalUri;
+use axum::http::{Method, Request, Uri};
+use axum::{
+    body::Bytes,
+    extract::{Path, State},
+    http::{header, HeaderMap, Response, StatusCode},
+};
+use futures::future::join_all;
+use lazy_static::lazy_static;
+use prost::bytes::Buf;
+use serde::Deserialize;
+use serde_json::json;
+use serde_json::value::RawValue;
+use uuid::Uuid;
+
+use indexer_selection::{
+    actor::Update, BlockRequirements, Context as AgoraContext,
+    IndexerError as IndexerSelectionError, IndexerErrorObservation, Indexing, InputError,
+    Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
+};
+use prelude::{
+    anyhow::{anyhow, bail, Context as _},
+    buffer_queue::QueueWriter,
+    double_buffer::DoubleBufferReader,
+    graphql::graphql_parser::query::{OperationDefinition, SelectionSet},
+    url::Url,
+    DeploymentId, *,
+};
+
 use crate::{
     auth::{AuthHandler, AuthToken},
     block_constraints::{block_constraints, make_query_deterministic, BlockConstraint},
     chains::BlockCache,
     fisherman_client::{ChallengeOutcome, FishermanClient},
-    graphql_error_response,
     indexer_client::{Attestation, IndexerClient, IndexerError, ResponsePayload},
     metrics::{with_metric, METRICS},
     receipts::{ReceiptPools, ReceiptStatus},
@@ -13,38 +50,6 @@ use crate::{
         MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS, UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
     },
 };
-use axum::{
-    body::Bytes,
-    extract::{Path, State},
-    http::{header, HeaderMap, Response, StatusCode},
-    Json,
-};
-use futures::future::join_all;
-use indexer_selection::{
-    actor::Update, BlockRequirements, Context as AgoraContext,
-    IndexerError as IndexerSelectionError, IndexerErrorObservation, Indexing, InputError,
-    Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
-};
-use lazy_static::lazy_static;
-use prelude::{
-    anyhow::{anyhow, bail, Context as _},
-    buffer_queue::QueueWriter,
-    double_buffer::DoubleBufferReader,
-    graphql::graphql_parser::query::{OperationDefinition, SelectionSet},
-    url::Url,
-    DeploymentId, *,
-};
-use prost::bytes::Buf;
-use serde::Deserialize;
-use serde_json::value::RawValue;
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
-    sync::{
-        atomic::{self, AtomicUsize},
-        Arc,
-    },
-};
-use uuid::Uuid;
 
 fn query_id() -> String {
     lazy_static! {
@@ -79,6 +84,10 @@ pub enum Error {
     SubgraphChainNotSupported(String),
     #[error("Subgraph not found: {0}")]
     SubgraphNotFound(SubgraphId),
+    #[error("L2 gateway request failed: {0}")]
+    L2GatewayRequestError(#[from] hyper::Error),
+    #[error("L2 gateway response failed: {0}")]
+    L2GatewayResponseError(#[from] anyhow::Error),
 }
 
 #[derive(Clone)]
@@ -104,6 +113,7 @@ pub struct QueryBody {
 
 pub async fn handle_query(
     State(ctx): State<Context>,
+    OriginalUri(original_uri): OriginalUri,
     Path(params): Path<BTreeMap<String, String>>,
     headers: HeaderMap,
     payload: Bytes,
@@ -128,13 +138,16 @@ pub async fn handle_query(
         .parse_token(auth_input)
         .context("Invalid auth");
 
-    let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
-
-    if matches!(
-        &resolved_deployments,
-        Ok(deployments) if deployments.iter().all(|d| d.migrated_to_l2),
-    ) {
-        // TODO: forward query to L2 gateway
+    // Forward query to L2 gateway if subgraph is transferred to L2
+    let resolved_subgraph = resolve_subgraph(&ctx.network, &params).await;
+    if ctx.l2_gateway.is_some()
+        && matches!(&resolved_subgraph, Ok(subgraph) if subgraph.transferred_to_l2)
+    {
+        // We validate the configuration correctness at startup: L2 transfer redirection requires
+        // the L2 gateway URL to be configured.
+        // be8f0ed1-262e-426f-877a-613368eed3ca
+        let l2_url = ctx.l2_gateway.as_ref().unwrap();
+        return forward_request_to_l2(l2_url, &original_uri, &headers, &payload).await;
     }
 
     let span = tracing::info_span!(
@@ -153,6 +166,7 @@ pub async fn handle_query(
         .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
 
+    let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
     let result = match (auth, resolved_deployments) {
         (Ok(auth), Ok(deployments)) => {
             handle_client_query_inner(&ctx, deployments, payload, auth, domain)
@@ -188,7 +202,6 @@ pub async fn handle_query(
         );
     });
 
-    let response = Response::builder().header(header::CONTENT_TYPE, "application/json");
     match result {
         Ok(QueryOutcome {
             response: ResponsePayload { body, attestation },
@@ -198,17 +211,111 @@ pub async fn handle_query(
                 .as_ref()
                 .and_then(|attestation| serde_json::to_string(attestation).ok())
                 .unwrap_or_default();
-            response
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
                 .header("Graph-Attestation", attestation)
                 .body(body.to_string())
                 .unwrap()
         }
-        Err(err) => {
-            let (_, Json(body)) = graphql_error_response(err.to_string());
-            response
-                .body(serde_json::to_string(&body).unwrap())
-                .unwrap()
+        Err(err) => error_response(err),
+    }
+}
+
+async fn forward_request_to_l2(
+    l2_url: &Url,
+    original_uri: &Uri,
+    headers: &HeaderMap,
+    payload: &Bytes,
+) -> Response<String> {
+    // TODO: Share the hyper::client::Client instance in the state (to pool connections)
+    let client = hyper::client::Client::new();
+
+    let uri = {
+        let mut builder = Uri::builder();
+        builder = builder.scheme(l2_url.scheme());
+        if let Some(host) = l2_url.host_str() {
+            builder = builder.authority(host);
         }
+        if let Some(path_and_query) = original_uri.path_and_query() {
+            builder = builder.path_and_query(path_and_query.to_owned());
+        }
+        builder.build().unwrap()
+    };
+    tracing::info!(l2_forward_uri = %uri);
+
+    let req = {
+        let mut builder = Request::builder().method(Method::POST).uri(uri);
+        {
+            let req_headers = builder.headers_mut().unwrap();
+            *req_headers = headers.clone();
+        }
+        let body = hyper::Body::from(payload.clone());
+        builder.body(body).unwrap()
+    };
+
+    match client.request(req).await {
+        Ok(res) => match l2_response_into_response(res).await {
+            Ok(res) => res,
+            Err(err) => error_response(Error::L2GatewayResponseError(err)),
+        },
+        Err(err) => error_response(Error::L2GatewayRequestError(err)),
+    }
+}
+
+async fn l2_response_into_response(res: Response<Body>) -> anyhow::Result<Response<String>> {
+    let (parts, body) = res.into_parts();
+    let body = hyper::body::to_bytes(body).await?;
+    let body = String::from_utf8(body.to_vec())?;
+    Ok(Response::from_parts(parts, body))
+}
+
+fn graphql_error_response<S: ToString>(message: S) -> String {
+    let json_error = json!({"errors": [{"message": message.to_string()}]});
+    serde_json::to_string(&json_error).expect("failed to serialize error response")
+}
+
+fn error_response(err: Error) -> Response<String> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(graphql_error_response(err))
+        .unwrap()
+}
+
+async fn resolve_subgraph(
+    network: &GraphNetwork,
+    params: &BTreeMap<String, String>,
+) -> Result<Subgraph, Error> {
+    if let Some(id) = params.get("subgraph_id") {
+        let (id, _comparator) = id
+            .split_once('^')
+            .map(|(id, comparator)| (id, Some(comparator)))
+            .unwrap_or((id, None));
+        let subgraph_id =
+            SubgraphId::from_str(id).map_err(|_| Error::InvalidSubgraph(id.to_string()))?;
+        let subgraph = network
+            .subgraphs
+            .value_immediate()
+            .and_then(|sg| sg.get(&subgraph_id).cloned())
+            .ok_or_else(|| Error::SubgraphNotFound(subgraph_id))?;
+        Ok(subgraph)
+    } else if let Some(id) = params.get("deployment_id") {
+        let deployment_id = DeploymentId::from_ipfs_hash(id)
+            .ok_or_else(|| Error::InvalidDeploymentId(id.clone()))?;
+
+        network
+            .subgraphs
+            .value_immediate()
+            .and_then(|subgraphs| {
+                subgraphs
+                    .values()
+                    .find(|sg| sg.deployments.iter().any(|dep| dep.id == deployment_id))
+                    .cloned()
+            })
+            .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))
+    } else {
+        Err(Error::InvalidSubgraph("".to_string()))
     }
 }
 
@@ -817,10 +924,13 @@ fn count_top_level_selection_sets(ctx: &AgoraContext) -> anyhow::Result<usize> {
 
 #[cfg(test)]
 mod test {
-    use super::resolve_subgraph_versions;
-    use crate::topology::{Deployment, Manifest, Subgraph};
-    use prelude::*;
     use std::{collections::BTreeSet, sync::Arc};
+
+    use prelude::*;
+
+    use crate::topology::{Deployment, Manifest, Subgraph};
+
+    use super::resolve_subgraph_versions;
 
     #[test]
     fn resolving_subgraph_versions() {
@@ -847,7 +957,6 @@ mod test {
                 version: version.map(|v| Arc::new(v.parse().unwrap())),
                 allocations: vec![],
                 subgraphs: BTreeSet::new(),
-                migrated_to_l2: false,
             })
         };
         let subgraph = Subgraph {
@@ -857,6 +966,7 @@ mod test {
                 deployment(deployment3, Some("1.0.0")),
                 deployment(deployment4, None),
             ],
+            transferred_to_l2: false,
         };
 
         let tests: Vec<(Option<&str>, Vec<DeploymentId>)> = vec![

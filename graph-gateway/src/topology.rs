@@ -1,4 +1,5 @@
 use crate::{ipfs, network_subgraph};
+use chrono::Utc;
 use futures_util::future::join_all;
 use prelude::{anyhow::anyhow, eventuals::EventualExt as _, tokio::sync::RwLock, *};
 use serde::Deserialize;
@@ -20,6 +21,9 @@ pub struct GraphNetwork {
 #[derive(Clone)]
 pub struct Subgraph {
     pub deployments: Vec<Arc<Deployment>>,
+    /// Indicates that the subgraph has been transferred to L2, and should not be served
+    /// directly by this gateway.
+    pub transferred_to_l2: bool,
 }
 
 pub struct Deployment {
@@ -29,9 +33,6 @@ pub struct Deployment {
     pub allocations: Vec<Allocation>,
     /// A deployment may be associated with multiple subgraphs.
     pub subgraphs: BTreeSet<SubgraphId>,
-    /// Indicates that all associated subgraphs have been migrated to L2, and should not be served
-    /// directly by this gateway.
-    pub migrated_to_l2: bool,
 }
 
 pub struct Allocation {
@@ -56,6 +57,7 @@ impl GraphNetwork {
     pub async fn new(
         subgraphs: Eventual<Ptr<Vec<network_subgraph::Subgraph>>>,
         ipfs: Arc<ipfs::Client>,
+        l2_transfer_delay: Option<chrono::Duration>,
     ) -> Self {
         let cache: &'static RwLock<IpfsCache> = Box::leak(Box::new(RwLock::new(IpfsCache {
             ipfs,
@@ -64,7 +66,7 @@ impl GraphNetwork {
         })));
 
         let subgraphs = subgraphs.map(move |subgraphs| async move {
-            Ptr::new(Self::subgraphs(&subgraphs, cache).await)
+            Ptr::new(Self::subgraphs(&subgraphs, cache, l2_transfer_delay).await)
         });
         let deployments = subgraphs.clone().map(|subgraphs| async move {
             subgraphs
@@ -89,6 +91,7 @@ impl GraphNetwork {
     async fn subgraphs(
         subgraphs: &[network_subgraph::Subgraph],
         cache: &'static RwLock<IpfsCache>,
+        l2_transfer_delay: Option<chrono::Duration>,
     ) -> HashMap<SubgraphId, Subgraph> {
         join_all(subgraphs.iter().map(|subgraph| async move {
             let deployments = join_all(
@@ -101,7 +104,18 @@ impl GraphNetwork {
             .into_iter()
             .flatten()
             .collect();
-            (subgraph.id, Subgraph { deployments })
+
+            let transferred_to_l2 = matches!(
+                (subgraph.started_transfer_to_l2_at, l2_transfer_delay),
+                (Some(at), Some(delay)) if Utc::now() - at > delay
+            );
+            (
+                subgraph.id,
+                Subgraph {
+                    deployments,
+                    transferred_to_l2,
+                },
+            )
         }))
         .await
         .into_iter()
@@ -157,7 +171,6 @@ impl GraphNetwork {
             version,
             subgraphs,
             allocations,
-            migrated_to_l2: false, // TODO
         }))
     }
 }

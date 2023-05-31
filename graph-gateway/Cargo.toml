@@ -7,6 +7,7 @@ version = "13.3.0"
 axum = { version = "0.6.15", default-features = false, features = [
     "json",
     "tokio",
+    "original-uri"
 ] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 ethers = { version = "2.0.3", default-features = false, features = ["abigen"] }
@@ -43,6 +44,7 @@ tracing-subscriber = { version = "0.3.16", features = [
     "json",
     "parking_lot",
 ] }
+hyper = { version = "0.14.26", features = ["client", "http1", "http2"] }
 
 [dev-dependencies]
 regex = "1.5"
