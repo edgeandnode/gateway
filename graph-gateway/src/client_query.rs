@@ -242,6 +242,7 @@ async fn forward_request_to_l2(
         }
         builder.build().unwrap()
     };
+    tracing::info!(l2_forward_uri = %uri);
 
     let req = {
         let mut builder = Request::builder().method(Method::POST).uri(uri);
