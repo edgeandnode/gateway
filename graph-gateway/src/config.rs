@@ -75,6 +75,8 @@ pub struct Config {
     pub subscriptions_subgraph: Option<Url>,
     /// Subscriptions ticket for internal queries
     pub subscriptions_ticket: Option<String>,
+    /// Kafka topic to report subscription queries
+    pub subscriptions_topic: Option<String>,
     /// Subscription tiers
     #[serde(default)]
     #[serde_as(as = "FromInto<Vec<SubscriptionTier>>")]

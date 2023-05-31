@@ -101,7 +101,7 @@ async fn main() {
         }
     };
 
-    reports::init(kafka_client, config.log_json);
+    reports::init(kafka_client, config.log_json, config.subscriptions_topic);
     tracing::info!("Graph gateway starting...");
     tracing::debug!(config = %config_repr);
 
