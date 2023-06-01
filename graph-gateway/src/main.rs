@@ -319,10 +319,16 @@ async fn main() {
         )
         .with_state(client_query_ctx)
         .layer(
-            CorsLayer::new()
-                .allow_origin(cors::Any)
-                .allow_headers(cors::Any)
-                .allow_methods([http::Method::POST]),
+            // ServiceBuilder works by composing all layers into one such that they run top to
+            // bottom, and then the response would bubble back up through the layers in reverse.
+            tower::ServiceBuilder::new()
+                .layer(
+                    CorsLayer::new()
+                        .allow_origin(cors::Any)
+                        .allow_headers(cors::Any)
+                        .allow_methods([http::Method::POST]),
+                )
+                .layer(middleware::from_fn(client_query::legacy_auth_adapter)),
         );
 
     let router = Router::new()

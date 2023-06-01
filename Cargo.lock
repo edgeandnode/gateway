@@ -1352,6 +1352,7 @@ dependencies = [
  "simple-rate-limiter",
  "thiserror",
  "tiny-bip39",
+ "tokio",
  "tower",
  "tower-http",
  "tracing-subscriber",
