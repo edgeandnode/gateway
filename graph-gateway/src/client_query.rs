@@ -1056,7 +1056,7 @@ mod test {
             // Given
             let app = test_router();
 
-            let api_key = "ZWRnZWFuZG5vZGU"; // base64("edgedandnode")
+            let api_key = "deadbeefdeadbeefdeadbeefdeadbeef"; // 32 hex digits
             let auth_header = format!("Bearer {api_key}");
 
             let request = Request::builder()
@@ -1081,7 +1081,7 @@ mod test {
             // Given
             let app = test_router();
 
-            let api_key = "ZWRnZWFuZG5vZGU"; // base64("edgedandnode")
+            let api_key = "deadbeefdeadbeefdeadbeefdeadbeef"; // 32 hex digits
             let auth_header = format!("Bearer {api_key}");
 
             let request = Request::builder()
@@ -1105,7 +1105,7 @@ mod test {
             // Given
             let app = test_router();
 
-            let api_key = "ZWRnZWFuZG5vZGU"; // base64("edgedandnode")
+            let api_key = "deadbeefdeadbeefdeadbeefdeadbeef"; // 32 hex digits
             let auth_header = "Bearer 123";
 
             let request = Request::builder()
