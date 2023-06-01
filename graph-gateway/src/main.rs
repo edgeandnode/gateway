@@ -318,6 +318,7 @@ async fn main() {
             routing::post(client_query::handle_query),
         )
         .with_state(client_query_ctx)
+        .layer(middleware::from_fn(client_query::legacy_auth_adapter))
         .layer(
             CorsLayer::new()
                 .allow_origin(cors::Any)

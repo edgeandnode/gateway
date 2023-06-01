@@ -7,12 +7,14 @@ use std::{
 };
 
 use axum::body::Body;
-use axum::extract::OriginalUri;
-use axum::http::{Method, Request, Uri};
+use axum::extract::{OriginalUri, Path as PathExtractor};
+use axum::http::{HeaderValue, Method, Request, Uri};
+use axum::middleware::Next;
 use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{header, HeaderMap, Response, StatusCode},
+    RequestPartsExt,
 };
 use futures::future::join_all;
 use lazy_static::lazy_static;
@@ -36,6 +38,7 @@ use prelude::{
     DeploymentId, *,
 };
 
+use crate::subgraph_studio::api_keys;
 use crate::{
     auth::{AuthHandler, AuthToken},
     block_constraints::{block_constraints, make_query_deterministic, BlockConstraint},
@@ -123,16 +126,11 @@ pub async fn handle_query(
     let ray_id = headers.get("cf-ray").and_then(|value| value.to_str().ok());
     let query_id = ray_id.map(ToString::to_string).unwrap_or_else(query_id);
 
-    let auth_input = match (
-        params.get("api_key"),
-        headers
-            .get(header::AUTHORIZATION)
-            .and_then(|h| h.to_str().ok()),
-    ) {
-        (Some(param), _) => param,
-        (None, Some(header)) => header.trim_start_matches("Bearer").trim(),
-        (None, None) => "",
-    };
+    let auth_input = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .map(|header| header.trim_start_matches("Bearer").trim())
+        .unwrap_or("");
     let auth = ctx
         .auth_handler
         .parse_token(auth_input)
@@ -987,4 +985,38 @@ mod test {
             assert_eq!(resolved, expected);
         }
     }
+}
+
+/// This adapter middleware extracts the authorization token from the `api_key` path parameter,
+/// and adds it to the request in the `Authorization` header.
+///
+/// If the request already has an `Authorization` header, it is left unchanged.
+/// If the request does not have an `api_key` path parameter, it is left unchanged.
+///
+/// This is a temporary adapter middleware to allow legacy clients to use the new auth scheme.
+pub async fn legacy_auth_adapter<B>(
+    request: Request<B>,
+    next: Next<B>,
+) -> axum::response::Response {
+    // If the request already has an `Authorization` header, don't do anything
+    if request.headers().contains_key(header::AUTHORIZATION) {
+        return next.run(request).await;
+    }
+
+    let (mut parts, body) = request.into_parts();
+
+    // Extract the `api_key` from the path and add it to the Authorization header
+    if let Ok(Path(path)) = parts.extract::<Path<BTreeMap<String, String>>>().await {
+        if let Some(api_key) = path.get("api_key") {
+            parts.headers.insert(
+                header::AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {}", api_key)).unwrap(),
+            );
+        }
+    }
+
+    // reconstruct the request
+    let request = Request::from_parts(parts, body);
+
+    next.run(request).await
 }
