@@ -1,22 +1,24 @@
-use crate::{json_response, metrics::*, JsonResponse};
 use axum::{body::Bytes, extract::State, http::StatusCode};
-use indexer_selection::{
-    receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher},
-    SecretKey,
-};
 use lazy_static::lazy_static;
-use prelude::*;
 use primitive_types::U256;
 use secp256k1::{PublicKey, Secp256k1};
 use serde::{Deserialize, Deserializer};
 use serde_json::json;
+
+use indexer_selection::receipts::{
+    self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher,
+};
+use prelude::*;
+
+use crate::signer_key::SignerKey;
+use crate::{json_response, metrics::*, JsonResponse};
 
 lazy_static! {
     static ref SECP256K1: Secp256k1<secp256k1::All> = Secp256k1::new();
 }
 
 pub async fn handle_collect_receipts(
-    State(signer): State<SecretKey>,
+    State(signer): State<SignerKey>,
     payload: Bytes,
 ) -> Result<JsonResponse, (StatusCode, String)> {
     let _timer = METRICS.collect_receipts.duration.start_timer();
@@ -33,7 +35,7 @@ pub async fn handle_collect_receipts(
     }
 }
 
-fn process_oneshot_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonResponse, String> {
+fn process_oneshot_voucher(signer: &SignerKey, payload: &Bytes) -> Result<JsonResponse, String> {
     let (allocation_id, receipts) = parse_receipts(payload)?;
     let allocation_signer = PublicKey::from_secret_key(&SECP256K1, signer);
     let voucher = receipts_to_voucher(&allocation_id, &allocation_signer, signer, receipts)
@@ -60,7 +62,7 @@ fn process_oneshot_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonRe
 }
 
 pub async fn handle_partial_voucher(
-    State(signer): State<SecretKey>,
+    State(signer): State<SignerKey>,
     payload: Bytes,
 ) -> Result<JsonResponse, (StatusCode, String)> {
     let _timer = METRICS.partial_voucher.duration.start_timer();
@@ -77,7 +79,7 @@ pub async fn handle_partial_voucher(
     }
 }
 
-fn process_partial_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonResponse, String> {
+fn process_partial_voucher(signer: &SignerKey, payload: &Bytes) -> Result<JsonResponse, String> {
     let (allocation_id, receipts) = parse_receipts(payload)?;
     let allocation_signer = PublicKey::from_secret_key(&SECP256K1, signer);
     let partial_voucher =
@@ -107,7 +109,7 @@ fn process_partial_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonRe
 }
 
 pub async fn handle_voucher(
-    State(signer): State<SecretKey>,
+    State(signer): State<SignerKey>,
     payload: Bytes,
 ) -> Result<JsonResponse, (StatusCode, String)> {
     let _timer = METRICS.voucher.duration.start_timer();
@@ -124,7 +126,7 @@ pub async fn handle_voucher(
     }
 }
 
-fn process_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonResponse, String> {
+fn process_voucher(signer: &SignerKey, payload: &Bytes) -> Result<JsonResponse, String> {
     let request =
         serde_json::from_slice::<VoucherRequest>(payload).map_err(|err| err.to_string())?;
     let allocation_id = request.allocation;

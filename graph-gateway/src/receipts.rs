@@ -1,16 +1,19 @@
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
+
 pub use indexer_selection::receipts::QueryStatus as ReceiptStatus;
 use indexer_selection::{
     receipts::{BorrowFail, ReceiptPool},
-    Indexing, SecretKey,
+    Indexing,
 };
 use prelude::{
     tokio::sync::{Mutex, RwLock},
     *,
 };
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::Arc,
-};
+
+use crate::signer_key::SignerKey;
 
 #[derive(Default)]
 pub struct ReceiptPools {
@@ -59,7 +62,7 @@ impl ReceiptPools {
 
     pub async fn update_receipt_pool(
         &self,
-        signer: &SecretKey,
+        signer: &SignerKey,
         indexing: &Indexing,
         new_allocations: &HashMap<Address, GRT>,
     ) {
@@ -77,7 +80,7 @@ impl ReceiptPools {
         // Add new_allocations not present in allocations
         for id in new_allocations.keys() {
             if !pool.contains_allocation(id) {
-                pool.add_allocation(*signer, id.0);
+                pool.add_allocation(**signer, id.0);
             }
         }
     }

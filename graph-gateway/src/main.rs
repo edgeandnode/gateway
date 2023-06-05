@@ -1,3 +1,53 @@
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    env,
+    fs::read_to_string,
+    io::Write as _,
+    iter,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
+use anyhow::{self, anyhow};
+use axum::{
+    extract::{ConnectInfo, DefaultBodyLimit, State},
+    http::{self, header, status::StatusCode, HeaderMap, HeaderName, HeaderValue, Request},
+    middleware,
+    response::Response,
+    routing, Json, Router, Server,
+};
+use eventuals::EventualExt as _;
+use graph_subscriptions::{subscription_tier::SubscriptionTiers, TicketVerificationDomain};
+use prometheus::{self, Encoder as _};
+use serde_json::json;
+use simple_rate_limiter::RateLimiter;
+use tokio::spawn;
+use tower_http::cors::{self, CorsLayer};
+
+use auth::AuthHandler;
+use chains::*;
+use config::*;
+use fisherman_client::*;
+use geoip::GeoIP;
+use indexer_client::IndexerClient;
+use indexer_selection::{
+    actor::{IndexerUpdate, Update},
+    BlockStatus, IndexerInfo, Indexing,
+};
+use indexing::indexing_statuses;
+use indexing::IndexingStatus;
+use prelude::{
+    anyhow::Context,
+    buffer_queue::{self, QueueWriter},
+    *,
+};
+use price_automation::QueryBudgetFactors;
+use receipts::ReceiptPools;
+use reports::KafkaClient;
+use signer_key::SignerKey;
+use topology::{Allocation, Deployment, GraphNetwork};
+
 mod auth;
 mod block_constraints;
 mod chains;
@@ -14,6 +64,7 @@ mod network_subgraph;
 mod price_automation;
 mod receipts;
 mod reports;
+pub mod signer_key;
 mod subgraph_client;
 mod subgraph_studio;
 mod subscriptions;
@@ -21,54 +72,6 @@ mod subscriptions_subgraph;
 mod topology;
 mod unattestable_errors;
 mod vouchers;
-
-use anyhow::{self, anyhow};
-use auth::AuthHandler;
-use axum::{
-    extract::{ConnectInfo, DefaultBodyLimit, State},
-    http::{self, header, status::StatusCode, HeaderMap, HeaderName, HeaderValue, Request},
-    middleware,
-    response::Response,
-    routing, Json, Router, Server,
-};
-use chains::*;
-use config::*;
-use eventuals::EventualExt as _;
-use fisherman_client::*;
-use geoip::GeoIP;
-use graph_subscriptions::{subscription_tier::SubscriptionTiers, TicketVerificationDomain};
-use indexer_client::IndexerClient;
-use indexer_selection::{
-    actor::{IndexerUpdate, Update},
-    BlockStatus, IndexerInfo, Indexing,
-};
-use indexing::indexing_statuses;
-use indexing::IndexingStatus;
-use prelude::{
-    anyhow::Context,
-    buffer_queue::{self, QueueWriter},
-    *,
-};
-use price_automation::QueryBudgetFactors;
-use prometheus::{self, Encoder as _};
-use receipts::ReceiptPools;
-use reports::KafkaClient;
-use secp256k1::SecretKey;
-use serde_json::json;
-use simple_rate_limiter::RateLimiter;
-use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
-    env,
-    fs::read_to_string,
-    io::Write as _,
-    iter,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-use tokio::spawn;
-use topology::{Allocation, Deployment, GraphNetwork};
-use tower_http::cors::{self, CorsLayer};
 
 #[tokio::main]
 async fn main() {
@@ -138,7 +141,6 @@ async fn main() {
         })
         .collect::<HashMap<String, BlockCache>>();
     let block_caches: &'static HashMap<String, BlockCache> = Box::leak(Box::new(block_caches));
-    let signer_key = config.signer_key.0;
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -183,9 +185,11 @@ async fn main() {
     )
     .await;
     {
+        let signer_key = config.signer_key.clone();
         let update_writer = update_writer.clone();
         eventuals::join((network.deployments.clone(), indexing_statuses))
             .pipe_async(move |(deployments, indexing_statuses)| {
+                let signer_key = signer_key.clone();
                 let update_writer = update_writer.clone();
                 async move {
                     write_indexer_inputs(
@@ -337,17 +341,17 @@ async fn main() {
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/collect-receipts",
-            routing::post(vouchers::handle_collect_receipts).with_state(signer_key),
+            routing::post(vouchers::handle_collect_receipts).with_state(config.signer_key.clone()),
         )
         .route(
             "/partial-voucher",
             routing::post(vouchers::handle_partial_voucher)
-                .with_state(signer_key)
+                .with_state(config.signer_key.clone())
                 .layer(DefaultBodyLimit::max(3_000_000)),
         )
         .route(
             "/voucher",
-            routing::post(vouchers::handle_voucher).with_state(signer_key),
+            routing::post(vouchers::handle_voucher).with_state(config.signer_key.clone()),
         )
         // Temporary route. Will be replaced by gateway metadata (GSP).
         .route(
@@ -415,7 +419,7 @@ async fn handle_subscription_tiers(
 }
 
 async fn write_indexer_inputs(
-    signer: &SecretKey,
+    signer: &SignerKey,
     block_caches: &HashMap<String, BlockCache>,
     update_writer: &QueueWriter<Update>,
     receipt_pools: &ReceiptPools,

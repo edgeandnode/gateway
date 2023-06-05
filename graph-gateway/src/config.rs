@@ -1,12 +1,14 @@
-use crate::chains::ethereum;
+use std::{collections::BTreeMap, path::PathBuf};
+
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
-use hdwallet::{self, KeyChain as _};
-use indexer_selection::SecretKey;
-use prelude::*;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr, FromInto};
-use std::{collections::BTreeMap, path::PathBuf};
+
+use prelude::*;
+
+use crate::chains::ethereum;
+use crate::signer_key::SignerKey;
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
@@ -142,35 +144,5 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
             config.set(&k, &v);
         }
         config
-    }
-}
-
-pub struct SignerKey(pub SecretKey);
-
-impl fmt::Debug for SignerKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "SignerKey(..)")
-    }
-}
-
-impl FromStr for SignerKey {
-    type Err = anyhow::Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // Wallet seed zeroized on drop
-        let wallet_seed = bip39::Seed::new(
-            &bip39::Mnemonic::from_phrase(s, bip39::Language::English)?,
-            "",
-        );
-        let signer_key = hdwallet::DefaultKeyChain::new(
-            hdwallet::ExtendedPrivKey::with_seed(wallet_seed.as_bytes()).expect("Invalid mnemonic"),
-        )
-        .derive_private_key(key_path("scalar/allocations").into())
-        .expect("Failed to derive signer key")
-        .0
-        .private_key;
-        Ok(SignerKey(
-            // Convert between versions of secp256k1 lib.
-            SecretKey::from_slice(signer_key.as_ref()).unwrap(),
-        ))
     }
 }
