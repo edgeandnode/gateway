@@ -143,19 +143,16 @@ pub async fn handle_query(
         .as_ref()
         .ok()
         .and_then(|(_, s)| s.as_ref()?.l2_id);
-    match resolved_deployments {
-        Ok((deployments, _))
-            if subgraph.is_some() || deployments.iter().all(|d| d.transferred_to_l2) =>
-        {
-            // We validate the configuration correctness at startup: L2 transfer redirection
-            // requires the L2 gateway URL to be configured.
-            // be8f0ed1-262e-426f-877a-613368eed3ca
-            let l2_url = ctx.l2_gateway.as_ref().unwrap();
-            return forward_request_to_l2(l2_url, &original_uri, &headers, &payload, subgraph)
-                .await;
-        }
-        _ => (),
-    };
+    if matches!(
+        &resolved_deployments,
+        Ok((deployments, _)) if subgraph.is_some() || deployments.iter().all(|d| d.transferred_to_l2))
+    {
+        // We validate the configuration correctness at startup: L2 transfer redirection requires
+        // the L2 gateway URL to be configured.
+        // be8f0ed1-262e-426f-877a-613368eed3ca
+        let l2_url = ctx.l2_gateway.as_ref().unwrap();
+        return forward_request_to_l2(l2_url, &original_uri, &headers, &payload, subgraph).await;
+    }
 
     let span = tracing::info_span!(
         target: reports::CLIENT_QUERY_TARGET,
