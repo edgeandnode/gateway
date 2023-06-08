@@ -237,7 +237,23 @@ async fn forward_request_to_l2(
 ) -> Response<String> {
     // TODO: Share the hyper::client::Client instance in the state (to pool connections)
     let client = hyper::client::Client::new();
+    let request = rebuild_request_for_l2(l2_url, original_uri, headers, payload, l2_subgraph_id);
+    match client.request(request).await {
+        Ok(res) => match l2_response_into_response(res).await {
+            Ok(res) => res,
+            Err(err) => error_response(Error::L2GatewayResponseError(err)),
+        },
+        Err(err) => error_response(Error::L2GatewayRequestError(err)),
+    }
+}
 
+fn rebuild_request_for_l2(
+    l2_url: &Url,
+    original_uri: &Uri,
+    headers: &HeaderMap,
+    payload: &Bytes,
+    l2_subgraph_id: Option<SubgraphId>,
+) -> Request<Body> {
     let uri = {
         let mut builder = Uri::builder();
         builder = builder.scheme(l2_url.scheme());
@@ -260,23 +276,13 @@ async fn forward_request_to_l2(
     };
     tracing::info!(l2_forward_uri = %uri, %original_uri);
 
-    let req = {
-        let mut builder = Request::builder().method(Method::POST).uri(uri);
-        {
-            let req_headers = builder.headers_mut().unwrap();
-            *req_headers = headers.clone();
-        }
-        let body = hyper::Body::from(payload.clone());
-        builder.body(body).unwrap()
-    };
-
-    match client.request(req).await {
-        Ok(res) => match l2_response_into_response(res).await {
-            Ok(res) => res,
-            Err(err) => error_response(Error::L2GatewayResponseError(err)),
-        },
-        Err(err) => error_response(Error::L2GatewayRequestError(err)),
+    let mut builder = Request::builder().method(Method::POST).uri(uri);
+    {
+        let req_headers = builder.headers_mut().unwrap();
+        *req_headers = headers.clone();
     }
+    let body = hyper::body::Body::from(payload.clone());
+    builder.body(body).unwrap()
 }
 
 async fn l2_response_into_response(res: Response<Body>) -> anyhow::Result<Response<String>> {
@@ -1002,6 +1008,86 @@ mod test {
                 .collect();
             assert_eq!(resolved, expected);
         }
+    }
+
+    #[tokio::test]
+    async fn rebuild_request_for_l2() {
+        const L1_URL: &str = "https://gateway.thegraph.com";
+        const L2_URL: &str = "https://gateway-arbitrum.thegraph.com";
+        const DEPLOYMENT: &str = "QmdveVMs7nAvdBPxNoaMMAYgNcuSroneMctZDnZUgbPPP3";
+        const L1_SUBGRAPH: &str = "EMRitnR1t3drKrDQSmJMSmHBPB2sGotgZE12DzWNezDn";
+        const L2_SUBGRAPH: &str = "CVHoVSrdiiYvLcH4wocDCazJ1YuixHZ1SKt34UWmnQcC";
+
+        async fn check(
+            original: &Request<Bytes>,
+            expected: &Request<Bytes>,
+            l2_subgraph_id: Option<SubgraphId>,
+        ) {
+            let output = super::rebuild_request_for_l2(
+                &L2_URL.parse().unwrap(),
+                original.uri(),
+                original.headers(),
+                original.body(),
+                l2_subgraph_id,
+            );
+            assert_eq!(output.uri(), expected.uri());
+            assert_eq!(output.headers(), expected.headers());
+            let body = hyper::body::to_bytes(output.into_body()).await.unwrap();
+            assert_eq!(body, expected.body());
+        }
+
+        fn set_uri(request: &mut Request<Bytes>, replacement: String) {
+            let uri = request.uri_mut();
+            *uri = replacement.try_into().unwrap();
+        }
+
+        // test deployment route
+        let mut original: Request<Bytes> = Request::builder()
+            .uri(format!("{L1_URL}/deployments/id/{DEPLOYMENT}"))
+            .header("Authorization", "Bearer deadbeefdeadbeefdeadbeefdeadbeef")
+            .header("foo", "bar")
+            .body("{}".into())
+            .unwrap();
+        let mut expected: Request<Bytes> = Request::builder()
+            .uri(format!("{L2_URL}/deployments/id/{DEPLOYMENT}"))
+            .header("Authorization", "Bearer deadbeefdeadbeefdeadbeefdeadbeef")
+            .header("foo", "bar")
+            .body("{}".into())
+            .unwrap();
+        check(&original, &expected, None).await;
+
+        // test subgraph route
+        set_uri(
+            &mut original,
+            format!("{L1_URL}/subgraphs/id/{L1_SUBGRAPH}"),
+        );
+        set_uri(
+            &mut expected,
+            format!("{L2_URL}/subgraphs/id/{L2_SUBGRAPH}"),
+        );
+        check(&original, &expected, Some(L2_SUBGRAPH.parse().unwrap())).await;
+
+        // test subgraph route with API key prefix
+        set_uri(
+            &mut original,
+            format!("{L1_URL}/api/deadbeefdeadbeefdeadbeefdeadbeef/subgraphs/id/{L1_SUBGRAPH}"),
+        );
+        set_uri(
+            &mut expected,
+            format!("{L2_URL}/api/deadbeefdeadbeefdeadbeefdeadbeef/subgraphs/id/{L2_SUBGRAPH}"),
+        );
+        check(&original, &expected, Some(L2_SUBGRAPH.parse().unwrap())).await;
+
+        // test subgraph route with version constraint
+        set_uri(
+            &mut original,
+            format!("{L1_URL}/subgraphs/id/{L1_SUBGRAPH}^0.0.1"),
+        );
+        set_uri(
+            &mut expected,
+            format!("{L2_URL}/subgraphs/id/{L2_SUBGRAPH}^0.0.1"),
+        );
+        check(&original, &expected, Some(L2_SUBGRAPH.parse().unwrap())).await;
     }
 
     mod legacy_auth_adapter {
