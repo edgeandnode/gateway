@@ -138,6 +138,7 @@ impl Client {
                 }
             ) {
                 id
+                idOnL2
                 startedTransferToL2At
                 versions(orderBy: version, orderDirection: asc) {
                     metadataHash
@@ -152,6 +153,7 @@ impl Client {
                                 stakedTokens
                             }
                         }
+                        transferredToL2
                     }
                 }
             }
