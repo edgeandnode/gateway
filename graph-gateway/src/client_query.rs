@@ -135,17 +135,27 @@ pub async fn handle_query(
         .parse_token(auth_input)
         .context("Invalid auth");
 
-    // Forward query to L2 gateway if subgraph is transferred to L2
-    let resolved_subgraph = resolve_subgraph(&ctx.network, &params).await;
-    if ctx.l2_gateway.is_some()
-        && matches!(&resolved_subgraph, Ok(subgraph) if subgraph.transferred_to_l2)
-    {
-        // We validate the configuration correctness at startup: L2 transfer redirection requires
-        // the L2 gateway URL to be configured.
-        // be8f0ed1-262e-426f-877a-613368eed3ca
-        let l2_url = ctx.l2_gateway.as_ref().unwrap();
-        return forward_request_to_l2(l2_url, &original_uri, &headers, &payload).await;
-    }
+    let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
+    // Forward query to L2 gateway if subgraph has transferred to L2. On deployment queries, only
+    // forward when deployments also have no allocations. We only resolve a subgraph when a subgraph
+    // ID is given as a URL param.
+    let subgraph = resolved_deployments
+        .as_ref()
+        .ok()
+        .and_then(|(_, s)| s.as_ref()?.l2_id);
+    match resolved_deployments {
+        Ok((deployments, _))
+            if subgraph.is_some() || deployments.iter().all(|d| d.transferred_to_l2) =>
+        {
+            // We validate the configuration correctness at startup: L2 transfer redirection
+            // requires the L2 gateway URL to be configured.
+            // be8f0ed1-262e-426f-877a-613368eed3ca
+            let l2_url = ctx.l2_gateway.as_ref().unwrap();
+            return forward_request_to_l2(l2_url, &original_uri, &headers, &payload, subgraph)
+                .await;
+        }
+        _ => (),
+    };
 
     let span = tracing::info_span!(
         target: reports::CLIENT_QUERY_TARGET,
@@ -163,9 +173,8 @@ pub async fn handle_query(
         .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
 
-    let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
     let result = match (auth, resolved_deployments) {
-        (Ok(auth), Ok(deployments)) => {
+        (Ok(auth), Ok((deployments, _))) => {
             handle_client_query_inner(&ctx, deployments, payload, auth, domain)
                 .instrument(span.clone())
                 .await
@@ -224,6 +233,7 @@ async fn forward_request_to_l2(
     original_uri: &Uri,
     headers: &HeaderMap,
     payload: &Bytes,
+    l2_subgraph_id: Option<SubgraphId>,
 ) -> Response<String> {
     // TODO: Share the hyper::client::Client instance in the state (to pool connections)
     let client = hyper::client::Client::new();
@@ -234,12 +244,21 @@ async fn forward_request_to_l2(
         if let Some(host) = l2_url.host_str() {
             builder = builder.authority(host);
         }
-        if let Some(path_and_query) = original_uri.path_and_query() {
-            builder = builder.path_and_query(path_and_query.to_owned());
+        let mut path = original_uri.path().to_string();
+
+        // rewrite path of subgraph queries to the L2 subgraph ID.
+        if let (Some(l2_subgraph_id), Some(replace_start)) =
+            (l2_subgraph_id, path.find("subgraphs/id/"))
+        {
+            let replace_start = replace_start + "subgraphs/id/".len();
+            let replace_end = path.find('^').unwrap_or(path.len());
+            path.replace_range(replace_start..replace_end, &l2_subgraph_id.to_string());
         }
-        builder.build().unwrap()
+
+        // Note: original query fragment is dropped.
+        builder.path_and_query(path).build().unwrap()
     };
-    tracing::info!(l2_forward_uri = %uri);
+    tracing::info!(l2_forward_uri = %uri, %original_uri);
 
     let req = {
         let mut builder = Request::builder().method(Method::POST).uri(uri);
@@ -280,46 +299,10 @@ fn error_response(err: Error) -> Response<String> {
         .unwrap()
 }
 
-async fn resolve_subgraph(
-    network: &GraphNetwork,
-    params: &BTreeMap<String, String>,
-) -> Result<Subgraph, Error> {
-    if let Some(id) = params.get("subgraph_id") {
-        let (id, _comparator) = id
-            .split_once('^')
-            .map(|(id, comparator)| (id, Some(comparator)))
-            .unwrap_or((id, None));
-        let subgraph_id =
-            SubgraphId::from_str(id).map_err(|_| Error::InvalidSubgraph(id.to_string()))?;
-        let subgraph = network
-            .subgraphs
-            .value_immediate()
-            .and_then(|sg| sg.get(&subgraph_id).cloned())
-            .ok_or_else(|| Error::SubgraphNotFound(subgraph_id))?;
-        Ok(subgraph)
-    } else if let Some(id) = params.get("deployment_id") {
-        let deployment_id = DeploymentId::from_ipfs_hash(id)
-            .ok_or_else(|| Error::InvalidDeploymentId(id.clone()))?;
-
-        network
-            .subgraphs
-            .value_immediate()
-            .and_then(|subgraphs| {
-                subgraphs
-                    .values()
-                    .find(|sg| sg.deployments.iter().any(|dep| dep.id == deployment_id))
-                    .cloned()
-            })
-            .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))
-    } else {
-        Err(Error::InvalidSubgraph("".to_string()))
-    }
-}
-
 async fn resolve_subgraph_deployments(
     network: &GraphNetwork,
     params: &BTreeMap<String, String>,
-) -> Result<Vec<Arc<Deployment>>, Error> {
+) -> Result<(Vec<Arc<Deployment>>, Option<Subgraph>), Error> {
     if let Some(constraint) = params.get("subgraph_id") {
         let (id, comparator) = constraint
             .split_once('^')
@@ -338,15 +321,16 @@ async fn resolve_subgraph_deployments(
                     .map_err(|err| Error::InvalidSubgraph(err.to_string()))?,
             ),
         };
-        resolve_subgraph_versions(&subgraph, comparator)
-            .ok_or_else(|| Error::InvalidSubgraph("No matching deployments".to_string()))
+        let versions = resolve_subgraph_versions(&subgraph, comparator)
+            .ok_or_else(|| Error::InvalidSubgraph("No matching deployments".to_string()))?;
+        Ok((versions, Some(subgraph)))
     } else if let Some(id) = params.get("deployment_id") {
         let id = DeploymentId::from_ipfs_hash(id)
             .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))?;
         network
             .deployments
             .value_immediate()
-            .and_then(|deployments| Some(vec![deployments.get(&id)?.clone()]))
+            .and_then(|deployments| Some((vec![deployments.get(&id)?.clone()], None)))
             .ok_or_else(|| Error::DeploymentNotFound(id))
     } else {
         Err(Error::InvalidDeploymentId("".to_string()))
@@ -988,6 +972,7 @@ mod test {
                 version: version.map(|v| Arc::new(v.parse().unwrap())),
                 allocations: vec![],
                 subgraphs: BTreeSet::new(),
+                transferred_to_l2: false,
             })
         };
         let subgraph = Subgraph {
@@ -997,7 +982,7 @@ mod test {
                 deployment(deployment3, Some("1.0.0")),
                 deployment(deployment4, None),
             ],
-            transferred_to_l2: false,
+            l2_id: None,
         };
 
         let tests: Vec<(Option<&str>, Vec<DeploymentId>)> = vec![

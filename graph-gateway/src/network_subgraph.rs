@@ -23,6 +23,7 @@ pub struct NetworkParams {
 pub struct Subgraph {
     pub id: SubgraphId,
     pub versions: Vec<SubgraphVersion>,
+    pub id_on_l2: Option<SubgraphId>,
     #[serde_as(as = "Option<serde_with::TimestampSeconds<i64>>")]
     pub started_transfer_to_l2_at: Option<DateTime<Utc>>,
 }
@@ -35,11 +36,13 @@ pub struct SubgraphVersion {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SubgraphDeployment {
     #[serde(rename = "ipfsHash")]
     pub id: DeploymentId,
     #[serde(rename = "indexerAllocations")]
     pub allocations: Vec<Allocation>,
+    pub transferred_to_l2: bool,
 }
 
 #[derive(Debug, Deserialize)]
