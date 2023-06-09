@@ -21,9 +21,9 @@ pub struct GraphNetwork {
 #[derive(Clone)]
 pub struct Subgraph {
     pub deployments: Vec<Arc<Deployment>>,
-    /// Indicates that the subgraph has been transferred to L2, and should not be served
-    /// directly by this gateway.
-    pub transferred_to_l2: bool,
+    /// Indicates that the subgraph has been transferred to L2, and should not be served directly by
+    /// this gateway.
+    pub l2_id: Option<SubgraphId>,
 }
 
 pub struct Deployment {
@@ -33,6 +33,9 @@ pub struct Deployment {
     pub allocations: Vec<Allocation>,
     /// A deployment may be associated with multiple subgraphs.
     pub subgraphs: BTreeSet<SubgraphId>,
+    /// Indicates that the deployment should not be served directly by this gateway. This will
+    /// always be false when `allocations > 0`.
+    pub transferred_to_l2: bool,
 }
 
 pub struct Allocation {
@@ -93,7 +96,9 @@ impl GraphNetwork {
         cache: &'static RwLock<IpfsCache>,
         l2_transfer_delay: Option<chrono::Duration>,
     ) -> HashMap<SubgraphId, Subgraph> {
+        let now = Utc::now();
         join_all(subgraphs.iter().map(|subgraph| async move {
+            let id = subgraph.id;
             let deployments = join_all(
                 subgraph
                     .versions
@@ -104,18 +109,15 @@ impl GraphNetwork {
             .into_iter()
             .flatten()
             .collect();
-
-            let transferred_to_l2 = matches!(
-                (subgraph.started_transfer_to_l2_at, l2_transfer_delay),
-                (Some(at), Some(delay)) if Utc::now() - at > delay
-            );
-            (
-                subgraph.id,
-                Subgraph {
-                    deployments,
-                    transferred_to_l2,
-                },
-            )
+            let l2_id = match (
+                subgraph.started_transfer_to_l2_at,
+                l2_transfer_delay,
+                subgraph.id_on_l2,
+            ) {
+                (Some(at), Some(delay), Some(id)) if (now - at) > delay => Some(id),
+                _ => None,
+            };
+            (id, Subgraph { deployments, l2_id })
         }))
         .await
         .into_iter()
@@ -155,6 +157,8 @@ impl GraphNetwork {
                 })
             })
             .collect();
+        let transferred_to_l2 = version.subgraph_deployment.transferred_to_l2
+            && version.subgraph_deployment.allocations.is_empty();
 
         let metadata_hash = version
             .metadata_hash
@@ -171,6 +175,7 @@ impl GraphNetwork {
             version,
             subgraphs,
             allocations,
+            transferred_to_l2,
         }))
     }
 }
