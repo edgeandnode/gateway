@@ -6,9 +6,8 @@ use std::{
     },
 };
 
-use axum::body::Body;
 use axum::extract::OriginalUri;
-use axum::http::{HeaderValue, Method, Request, Uri};
+use axum::http::{HeaderValue, Request, Uri};
 use axum::middleware::Next;
 use axum::{
     body::Bytes,
@@ -87,9 +86,7 @@ pub enum Error {
     #[error("Subgraph not found: {0}")]
     SubgraphNotFound(SubgraphId),
     #[error("L2 gateway request failed: {0}")]
-    L2GatewayRequestError(#[from] hyper::Error),
-    #[error("L2 gateway response failed: {0}")]
-    L2GatewayResponseError(#[from] anyhow::Error),
+    L2GatewayError(anyhow::Error),
 }
 
 #[derive(Clone)]
@@ -151,7 +148,15 @@ pub async fn handle_query(
         // the L2 gateway URL to be configured.
         // be8f0ed1-262e-426f-877a-613368eed3ca
         let l2_url = ctx.l2_gateway.as_ref().unwrap();
-        return forward_request_to_l2(l2_url, &original_uri, &headers, &payload, subgraph).await;
+        return forward_request_to_l2(
+            &ctx.indexer_client.client,
+            l2_url,
+            &original_uri,
+            headers,
+            payload,
+            subgraph,
+        )
+        .await;
     }
 
     let span = tracing::info_span!(
@@ -226,31 +231,47 @@ pub async fn handle_query(
 }
 
 async fn forward_request_to_l2(
+    client: &reqwest::Client,
     l2_url: &Url,
     original_uri: &Uri,
-    headers: &HeaderMap,
-    payload: &Bytes,
+    headers: HeaderMap,
+    payload: Bytes,
     l2_subgraph_id: Option<SubgraphId>,
 ) -> Response<String> {
-    // TODO: Share the hyper::client::Client instance in the state (to pool connections)
-    let client = hyper::client::Client::new();
-    let request = rebuild_request_for_l2(l2_url, original_uri, headers, payload, l2_subgraph_id);
-    match client.request(request).await {
-        Ok(res) => match l2_response_into_response(res).await {
-            Ok(res) => res,
-            Err(err) => error_response(Error::L2GatewayResponseError(err)),
-        },
-        Err(err) => error_response(Error::L2GatewayRequestError(err)),
+    let request = rebuild_request_for_l2(
+        client,
+        l2_url,
+        original_uri,
+        headers,
+        payload,
+        l2_subgraph_id,
+    );
+    let response = match client.execute(request).await {
+        Ok(response) => response,
+        Err(err) => return error_response(Error::L2GatewayError(err.into())),
+    };
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = match response.text().await {
+        Ok(body) => body,
+        Err(err) => return error_response(Error::L2GatewayError(err.into())),
+    };
+    let mut response = Response::builder().status(status);
+    {
+        let headers_mut = response.headers_mut().unwrap();
+        *headers_mut = headers;
     }
+    response.body(body).unwrap()
 }
 
 fn rebuild_request_for_l2(
+    client: &reqwest::Client,
     l2_url: &Url,
     original_uri: &Uri,
-    headers: &HeaderMap,
-    payload: &Bytes,
+    headers: HeaderMap,
+    payload: Bytes,
     l2_subgraph_id: Option<SubgraphId>,
-) -> Request<Body> {
+) -> reqwest::Request {
     let uri = {
         let mut builder = Uri::builder();
         builder = builder.scheme(l2_url.scheme());
@@ -273,20 +294,12 @@ fn rebuild_request_for_l2(
     };
     tracing::info!(l2_forward_uri = %uri, %original_uri);
 
-    let mut builder = Request::builder().method(Method::POST).uri(uri);
-    {
-        let req_headers = builder.headers_mut().unwrap();
-        *req_headers = headers.clone();
-    }
-    let body = hyper::body::Body::from(payload.clone());
-    builder.body(body).unwrap()
-}
-
-async fn l2_response_into_response(res: Response<Body>) -> anyhow::Result<Response<String>> {
-    let (parts, body) = res.into_parts();
-    let body = hyper::body::to_bytes(body).await?;
-    let body = String::from_utf8(body.to_vec())?;
-    Ok(Response::from_parts(parts, body))
+    client
+        .post(uri.to_string())
+        .headers(headers)
+        .body(payload)
+        .build()
+        .unwrap()
 }
 
 fn graphql_error_response<S: ToString>(message: S) -> String {
@@ -942,13 +955,9 @@ pub async fn legacy_auth_adapter<B>(
 
 #[cfg(test)]
 mod test {
-    use std::{collections::BTreeSet, sync::Arc};
-
-    use prelude::*;
-
-    use crate::topology::{Deployment, Manifest, Subgraph};
-
     use super::*;
+    use crate::topology::{Deployment, Manifest, Subgraph};
+    use std::{collections::BTreeSet, sync::Arc};
 
     #[test]
     fn resolving_subgraph_versions() {
@@ -1014,81 +1023,89 @@ mod test {
         const DEPLOYMENT: &str = "QmdveVMs7nAvdBPxNoaMMAYgNcuSroneMctZDnZUgbPPP3";
         const L1_SUBGRAPH: &str = "EMRitnR1t3drKrDQSmJMSmHBPB2sGotgZE12DzWNezDn";
         const L2_SUBGRAPH: &str = "CVHoVSrdiiYvLcH4wocDCazJ1YuixHZ1SKt34UWmnQcC";
+        let client = reqwest::Client::new();
 
         async fn check(
             original: &Request<Bytes>,
-            expected: &Request<Bytes>,
+            expected: &reqwest::Request,
             l2_subgraph_id: Option<SubgraphId>,
         ) {
             let output = super::rebuild_request_for_l2(
+                &reqwest::Client::new(),
                 &L2_URL.parse().unwrap(),
                 original.uri(),
-                original.headers(),
-                original.body(),
+                original.headers().clone(),
+                original.body().clone(),
                 l2_subgraph_id,
             );
-            assert_eq!(output.uri(), expected.uri());
+            assert_eq!(output.url(), expected.url());
             assert_eq!(output.headers(), expected.headers());
-            let body = hyper::body::to_bytes(output.into_body()).await.unwrap();
-            assert_eq!(body, expected.body());
+            assert_eq!(
+                output.body().unwrap().as_bytes(),
+                expected.body().unwrap().as_bytes()
+            );
         }
 
-        fn set_uri(request: &mut Request<Bytes>, replacement: String) {
-            let uri = request.uri_mut();
-            *uri = replacement.try_into().unwrap();
+        fn update_test(
+            original: &mut Request<Bytes>,
+            original_replacement: String,
+            expected: &mut reqwest::Request,
+            expected_replacement: String,
+        ) {
+            let original_uri = original.uri_mut();
+            *original_uri = original_replacement.try_into().unwrap();
+            let expected_url = expected.url_mut();
+            *expected_url = expected_replacement.parse().unwrap();
         }
 
         // test deployment route
         let mut original: Request<Bytes> = Request::builder()
-            .uri(format!("{L1_URL}/deployments/id/{DEPLOYMENT}"))
+            .uri(format!("{L1_URL}/api/deployments/id/{DEPLOYMENT}"))
             .header("Authorization", "Bearer deadbeefdeadbeefdeadbeefdeadbeef")
             .header("foo", "bar")
             .body("{}".into())
             .unwrap();
-        let mut expected: Request<Bytes> = Request::builder()
-            .uri(format!("{L2_URL}/deployments/id/{DEPLOYMENT}"))
+        let mut expected: reqwest::Request = client
+            .post(format!("{L2_URL}/api/deployments/id/{DEPLOYMENT}"))
             .header("Authorization", "Bearer deadbeefdeadbeefdeadbeefdeadbeef")
             .header("foo", "bar")
-            .body("{}".into())
+            .body("{}")
+            .build()
             .unwrap();
         check(&original, &expected, None).await;
 
         // test subgraph route
-        set_uri(
+        update_test(
             &mut original,
-            format!("{L1_URL}/subgraphs/id/{L1_SUBGRAPH}"),
-        );
-        set_uri(
+            format!("{L1_URL}/api/subgraphs/id/{L1_SUBGRAPH}"),
             &mut expected,
-            format!("{L2_URL}/subgraphs/id/{L2_SUBGRAPH}"),
+            format!("{L2_URL}/api/subgraphs/id/{L2_SUBGRAPH}"),
         );
         check(&original, &expected, Some(L2_SUBGRAPH.parse().unwrap())).await;
 
         // test subgraph route with API key prefix
-        set_uri(
+        update_test(
             &mut original,
             format!("{L1_URL}/api/deadbeefdeadbeefdeadbeefdeadbeef/subgraphs/id/{L1_SUBGRAPH}"),
-        );
-        set_uri(
             &mut expected,
             format!("{L2_URL}/api/deadbeefdeadbeefdeadbeefdeadbeef/subgraphs/id/{L2_SUBGRAPH}"),
         );
         check(&original, &expected, Some(L2_SUBGRAPH.parse().unwrap())).await;
 
         // test subgraph route with version constraint
-        set_uri(
+        update_test(
             &mut original,
-            format!("{L1_URL}/subgraphs/id/{L1_SUBGRAPH}^0.0.1"),
-        );
-        set_uri(
+            format!("{L1_URL}/api/subgraphs/id/{L1_SUBGRAPH}^0.0.1"),
             &mut expected,
-            format!("{L2_URL}/subgraphs/id/{L2_SUBGRAPH}^0.0.1"),
+            format!("{L2_URL}/api/subgraphs/id/{L2_SUBGRAPH}^0.0.1"),
         );
         check(&original, &expected, Some(L2_SUBGRAPH.parse().unwrap())).await;
     }
 
     mod legacy_auth_adapter {
+        use axum::body::Body;
         use axum::http::header::AUTHORIZATION;
+        use axum::http::Method;
         use axum::routing::{get, post};
         use axum::{middleware, Router};
         use tower::ServiceExt;
