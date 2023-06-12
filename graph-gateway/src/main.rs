@@ -141,7 +141,7 @@ async fn main() {
     let signer_key = config.signer_key.0;
 
     let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(20))
         .build()
         .unwrap();
 
