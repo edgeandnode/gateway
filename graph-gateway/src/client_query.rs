@@ -139,11 +139,13 @@ pub async fn handle_query(
     let subgraph = resolved_deployments
         .as_ref()
         .ok()
-        .and_then(|(_, s)| s.as_ref()?.l2_id);
-    if matches!(
-        &resolved_deployments,
-        Ok((deployments, _)) if subgraph.is_some() || deployments.iter().all(|d| d.transferred_to_l2))
-    {
+        .and_then(|(_, s)| s.as_ref());
+    let l2_subgraph_id = subgraph.and_then(|s| s.l2_id);
+    let deployments_migrated = matches!(
+        resolved_deployments.as_ref(),
+        Ok((deployments, _)) if deployments.iter().all(|d| d.transferred_to_l2),
+    );
+    if l2_subgraph_id.is_some() || (subgraph.is_none() && deployments_migrated) {
         // We validate the configuration correctness at startup: L2 transfer redirection requires
         // the L2 gateway URL to be configured.
         // be8f0ed1-262e-426f-877a-613368eed3ca
@@ -154,7 +156,7 @@ pub async fn handle_query(
             &original_uri,
             headers,
             payload,
-            subgraph,
+            l2_subgraph_id,
         )
         .await;
     }
@@ -246,7 +248,11 @@ async fn forward_request_to_l2(
         payload,
         l2_subgraph_id,
     );
-    let response = match client.execute(request).await {
+    let response = match client
+        .execute(request)
+        .await
+        .and_then(|response| response.error_for_status())
+    {
         Ok(response) => response,
         Err(err) => return error_response(Error::L2GatewayError(err.into())),
     };
