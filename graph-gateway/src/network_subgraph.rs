@@ -24,7 +24,7 @@ pub struct Subgraph {
     pub id: SubgraphId,
     pub versions: Vec<SubgraphVersion>,
     pub id_on_l2: Option<SubgraphId>,
-    #[serde_as(as = "Option<serde_with::TimestampSeconds<i64>>")]
+    #[serde_as(as = "Option<serde_with::TimestampSeconds<String>>")]
     pub started_transfer_to_l2_at: Option<DateTime<Utc>>,
 }
 
