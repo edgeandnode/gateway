@@ -55,42 +55,47 @@ pub fn select_indexers<R: Rng>(
     // selection factors if they are over budget or don't meet freshness requirements. So they won't
     // pollute the set we're selecting from.
     let selection_limit = SELECTION_LIMIT.min(selection_limit as usize);
-    let mut selections = (ArrayVec::new(), 0.0);
-    let mut masks = ArrayVec::<[u8; 20], 20>::new();
-    // Calculate a sample limit using a "good enough" approximation of the binomial coefficient of
-    // `(factors.len(), SELECTION_LIMIT)` (AKA "n choose k").
-    let sample_limit = match factors.len() {
-        n if n <= selection_limit => 1,
-        n if n == (selection_limit + 1) => n,
-        n => (n - selection_limit) * 2,
-    }
-    .min(masks.capacity());
+    let mut masks: ArrayVec<[u8; 20], 16> = ArrayVec::new();
+    let sample_limit = factors.len().min(masks.capacity());
+    let mut selections: ArrayVec<&SelectionFactors, SELECTION_LIMIT> = ArrayVec::new();
+
+    // Find the best individual indexer out of some samples to start with.
     for _ in 0..sample_limit {
-        let mut meta_indexer = MetaIndexer(
-            factors
-                .choose_multiple_weighted(rng, selection_limit, |f| f.sybil)
-                .unwrap()
-                .collect(),
-        );
-        while (meta_indexer.fee() > params.budget) && !meta_indexer.0.is_empty() {
-            // The order of indexers from `choose_multiple_weighted` is unspecified and may not be
-            // shuffled. So we should remove a random entry.
-            let index = rng.gen_range(0..meta_indexer.0.len());
-            meta_indexer.0.remove(index);
+        let indexer = factors.choose_weighted(rng, |f| *f.sybil).unwrap();
+        if selections.is_empty() {
+            selections.push(indexer);
+        } else if indexer.expected_score > selections[0].expected_score {
+            selections[0] = indexer;
         }
-        // Don't bother scoring if we've already tried the same subset of indexers.
+    }
+    let mut combined_score = selections[0].expected_score;
+    // Sample some indexers and add them to the selected set if they increase the combined score.
+    for _ in 0..sample_limit {
+        if selections.len() == selection_limit {
+            break;
+        }
+        let candidate = factors.choose_weighted(rng, |f| *f.sybil).unwrap();
+        let mut meta_indexer = MetaIndexer(selections.clone());
+        meta_indexer.0.push(candidate);
+
+        // skip to next iteration if we've already checked this indexer combination.
         let mask = meta_indexer.mask();
-        if masks.iter().any(|m| m == &mask) {
+        if masks.contains(&mask) {
             continue;
         }
         masks.push(mask);
-        let score = meta_indexer.score(params);
-        if score > selections.1 {
-            selections = (meta_indexer.0, score);
+
+        let score = meta_indexer
+            .score(params)
+            .try_into()
+            .expect("NaN multi-selection score");
+        if score > combined_score {
+            combined_score = score;
+            selections.push(candidate);
         }
     }
+
     selections
-        .0
         .into_iter()
         .map(|f| Selection {
             indexing: f.indexing,
@@ -202,7 +207,7 @@ impl MetaIndexer<'_> {
         ];
         let score = weighted_product_model(factors);
 
-        tracing::warn!(
+        tracing::trace!(
             indexers = ?self.0.iter().map(|f| f.indexing.indexer).collect::<V<_>>(),
             score,
             ?factors,

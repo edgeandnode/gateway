@@ -1673,7 +1673,6 @@ dependencies = [
  "arrayvec 0.7.2",
  "cost-model",
  "eventuals",
- "itertools",
  "lazy_static",
  "num-traits",
  "ordered-float",
