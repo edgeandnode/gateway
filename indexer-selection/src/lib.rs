@@ -378,6 +378,7 @@ impl State {
             params,
             reliability,
             perf_success,
+            candidate.versions_behind,
             status.blocks_behind,
             slashable_usd,
             &fee,

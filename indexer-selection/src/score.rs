@@ -221,6 +221,7 @@ pub fn expected_individual_score(
     params: &UtilityParameters,
     reliability: f64,
     perf_success: f64,
+    versions_behind: u8,
     blocks_behind: u64,
     slashable_usd: f64,
     fee: &GRT,
@@ -229,6 +230,7 @@ pub fn expected_individual_score(
         reliability_utility(reliability),
         performance_utility(params.performance, perf_success as u32),
         params.economic_security.concave_utility(slashable_usd),
+        versions_behind_utility(versions_behind),
         data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
         fee_utility(params.fee_weight, fee, &params.budget),
     ])
