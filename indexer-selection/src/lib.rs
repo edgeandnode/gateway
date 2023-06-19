@@ -42,8 +42,8 @@ use std::{
 // a context across an await. See https://github.com/rust-lang/rust/issues/71723
 pub type Context<'c> = cost_model::Context<'c, String>;
 
-/// If an indexer's score is penalized such that it's score is below this proportion of the max
-/// indexer score, then the indexer will not be discarded from the set of indexers to select from.
+/// If an indexer's score is penalized such that it falls below this proportion of the max indexer
+/// score, then the indexer will be discarded from the set of indexers to select from.
 const MIN_SCORE_CUTOFF: f64 = 0.25;
 
 pub struct Candidate {
