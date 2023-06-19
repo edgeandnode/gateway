@@ -42,6 +42,10 @@ use std::{
 // a context across an await. See https://github.com/rust-lang/rust/issues/71723
 pub type Context<'c> = cost_model::Context<'c, String>;
 
+/// If an indexer's score is penalized such that it's score is below this proportion of the max
+/// indexer score, then the indexer will not be discarded from the set of indexers to select from.
+const MIN_SCORE_CUTOFF: f64 = 0.25;
+
 pub struct Candidate {
     pub indexing: Indexing,
     pub versions_behind: u8,
@@ -162,7 +166,6 @@ pub struct UtilityParameters {
     pub budget: GRT,
     pub requirements: BlockRequirements,
     pub latest_block: u64,
-    pub versions_behind: ConcaveUtilityParameters,
     pub performance: ConcaveUtilityParameters,
     pub data_freshness: ConcaveUtilityParameters,
     pub economic_security: ConcaveUtilityParameters,
@@ -191,11 +194,6 @@ impl UtilityParameters {
             budget,
             requirements,
             latest_block,
-            // https://www.desmos.com/calculator/7gmnnuh6og
-            versions_behind: ConcaveUtilityParameters {
-                a: 1.0,
-                weight: 0.5,
-            },
             // 170cbcf3-db7f-404a-be13-2022d9142677
             performance: ConcaveUtilityParameters {
                 a: interp(1.1, 1.2, performance),
@@ -309,18 +307,16 @@ impl State {
             .map(|factors| factors.expected_score)
             .max()
             .unwrap_or(NotNan::zero());
-        // Having a random score cutoff that is weighted toward 1 normalized to the highest score
-        // makes it so that we define our selection based on an expected score distribution, so that
-        // even if there are many bad indexers with lots of stake it may not adversely affect the
-        // result. This is important because an Indexer deployed on the other side of the world
-        // should not generally bring our expected score down below the minimum requirements set
-        // forth by this equation.
-        let mut score_cutoff: NotNan<f64> = NotNan::new(rng.gen()).unwrap();
-        // Near 0 and score is ignored (only stake matters). Near 1 score matters at ~ x^2
-        // (depending on the distribution of stake). Above that and things are getting crazy and
-        // we're exploiting the score strongly.
-        const SCORE_PREFERENCE: f64 = 0.25;
-        score_cutoff = max_score * (1.0 - score_cutoff.powf(SCORE_PREFERENCE));
+        // `select_indexers` discourages sybils by weighting it's selection based on the `sybil`
+        // value. Having a random score cutoff that is weighted toward 1 normalized to the highest
+        // score makes it so that we define our selection based on an expected score distribution,
+        // so that even if there are many bad indexers with lots of stake it may not adversely
+        // affect the result. This is important because an Indexer deployed on the other side of the
+        // world should not generally bring our expected score down below the minimum requirements
+        // set forth by this equation.
+        let mut score_cutoff: NotNan<f64> =
+            NotNan::new(rng.gen_range(MIN_SCORE_CUTOFF..1.0)).unwrap();
+        score_cutoff = max_score * score_cutoff;
         // Filter out indexers below the cutoff. This avoids a situation where most indexers have
         // terrible scores, only a few have good scores, and the good indexers are often passed over
         // in multi-selection.
