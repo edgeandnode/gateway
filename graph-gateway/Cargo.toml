@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "graph-gateway"
-version = "13.3.0"
+version = "13.4.0"
 
 [dependencies]
 axum = { version = "0.6.15", default-features = false, features = [
