@@ -21,6 +21,7 @@ pub struct GraphNetwork {
 #[derive(Clone)]
 pub struct Subgraph {
     pub deployments: Vec<Arc<Deployment>>,
+    pub id: SubgraphId,
     /// Indicates that the subgraph has been transferred to L2, and should not be served directly by
     /// this gateway.
     pub l2_id: Option<SubgraphId>,
@@ -117,7 +118,14 @@ impl GraphNetwork {
                 (Some(at), Some(delay), Some(id)) if (now - at) > delay => Some(id),
                 _ => None,
             };
-            (id, Subgraph { deployments, l2_id })
+            (
+                id,
+                Subgraph {
+                    deployments,
+                    id,
+                    l2_id,
+                },
+            )
         }))
         .await
         .into_iter()
