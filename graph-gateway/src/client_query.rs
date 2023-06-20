@@ -932,7 +932,8 @@ fn indexings_to_candidates(
         .map(|indexing| {
             let versions_behind = *deployment_versions_behind
                 .get(&indexing.deployment)
-                .unwrap_or(&0) as u8;
+                .unwrap_or(&0)
+                .min(&(u8::MAX as usize)) as u8;
             Candidate {
                 indexing,
                 versions_behind,
