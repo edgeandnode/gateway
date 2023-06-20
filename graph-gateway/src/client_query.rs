@@ -162,11 +162,22 @@ pub async fn handle_query(
         .await;
     }
 
+    // This is very useful for investigating gateway logs in production.
+    let selector = match &resolved_deployments {
+        Ok((_, Some(subgraph))) => subgraph.id.to_string(),
+        Ok((deployments, None)) => deployments
+            .iter()
+            .map(|d| d.id.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        Err(_) => "".to_string(),
+    };
     let span = tracing::info_span!(
         target: reports::CLIENT_QUERY_TARGET,
         "client_query",
         %query_id,
         graph_env = %ctx.graph_env_id,
+        selector,
     );
     span.in_scope(|| {
         tracing::debug!(%auth_input);
