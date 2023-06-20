@@ -3,6 +3,7 @@ use crate::{
     performance::performance_utility,
     utility::{weighted_product_model, UtilityFactor},
     BlockRequirements, ConcaveUtilityParameters, Indexing, Selection, UtilityParameters,
+    MIN_SCORE_CUTOFF,
 };
 use arrayvec::ArrayVec;
 use ordered_float::NotNan;
@@ -15,6 +16,7 @@ use prelude::{
 pub struct SelectionFactors {
     pub indexing: Indexing,
     pub url: Url,
+    pub versions_behind: u8,
     pub reliability: f64,
     pub perf_success: f64,
     pub perf_failure: f64,
@@ -53,42 +55,47 @@ pub fn select_indexers<R: Rng>(
     // selection factors if they are over budget or don't meet freshness requirements. So they won't
     // pollute the set we're selecting from.
     let selection_limit = SELECTION_LIMIT.min(selection_limit as usize);
-    let mut selections = (ArrayVec::new(), 0.0);
-    let mut masks = ArrayVec::<[u8; 20], 20>::new();
-    // Calculate a sample limit using a "good enough" approximation of the binomial coefficient of
-    // `(factors.len(), SELECTION_LIMIT)` (AKA "n choose k").
-    let sample_limit = match factors.len() {
-        n if n <= selection_limit => 1,
-        n if n == (selection_limit + 1) => n,
-        n => (n - selection_limit) * 2,
-    }
-    .min(masks.capacity());
+    let mut masks: ArrayVec<[u8; 20], 16> = ArrayVec::new();
+    let sample_limit = factors.len().min(masks.capacity());
+    let mut selections: ArrayVec<&SelectionFactors, SELECTION_LIMIT> = ArrayVec::new();
+
+    // Find the best individual indexer out of some samples to start with.
     for _ in 0..sample_limit {
-        let mut meta_indexer = MetaIndexer(
-            factors
-                .choose_multiple_weighted(rng, selection_limit, |f| f.sybil)
-                .unwrap()
-                .collect(),
-        );
-        while (meta_indexer.fee() > params.budget) && !meta_indexer.0.is_empty() {
-            // The order of indexers from `choose_multiple_weighted` is unspecified and may not be
-            // shuffled. So we should remove a random entry.
-            let index = rng.gen_range(0..meta_indexer.0.len());
-            meta_indexer.0.remove(index);
+        let indexer = factors.choose_weighted(rng, |f| *f.sybil).unwrap();
+        if selections.is_empty() {
+            selections.push(indexer);
+        } else if indexer.expected_score > selections[0].expected_score {
+            selections[0] = indexer;
         }
-        // Don't bother scoring if we've already tried the same subset of indexers.
+    }
+    let mut combined_score = selections[0].expected_score;
+    // Sample some indexers and add them to the selected set if they increase the combined score.
+    for _ in 0..sample_limit {
+        if selections.len() == selection_limit {
+            break;
+        }
+        let candidate = factors.choose_weighted(rng, |f| *f.sybil).unwrap();
+        let mut meta_indexer = MetaIndexer(selections.clone());
+        meta_indexer.0.push(candidate);
+
+        // skip to next iteration if we've already checked this indexer combination.
         let mask = meta_indexer.mask();
-        if masks.iter().any(|m| m == &mask) {
+        if masks.contains(&mask) {
             continue;
         }
         masks.push(mask);
-        let score = meta_indexer.score(params);
-        if score > selections.1 {
-            selections = (meta_indexer.0, score);
+
+        let score = meta_indexer
+            .score(params)
+            .try_into()
+            .expect("NaN multi-selection score");
+        if score > combined_score {
+            combined_score = score;
+            selections.push(candidate);
         }
     }
+
     selections
-        .0
         .into_iter()
         .map(|f| Selection {
             indexing: f.indexing,
@@ -180,6 +187,7 @@ impl MetaIndexer<'_> {
         // We use the max value of blocks behind to account for the possibility of incorrect
         // indexing statuses.
         let blocks_behind = self.0.iter().map(|f| f.blocks_behind).max().unwrap();
+        let versions_behind = self.0.iter().map(|f| f.versions_behind).max().unwrap();
         let min_last_use = self.0.iter().map(|f| f.last_use).max().unwrap();
 
         let exploration = exploration_weight(Instant::now().duration_since(min_last_use));
@@ -193,6 +201,7 @@ impl MetaIndexer<'_> {
             performance_utility(params.performance, perf_failure as u32)
                 .mul_weight(exploration * (1.0 - p_success)),
             params.economic_security.concave_utility(slashable_usd),
+            versions_behind_utility(versions_behind),
             data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
             fee_utility(params.fee_weight, &self.fee(), &params.budget),
         ];
@@ -212,6 +221,7 @@ pub fn expected_individual_score(
     params: &UtilityParameters,
     reliability: f64,
     perf_success: f64,
+    versions_behind: u8,
     blocks_behind: u64,
     slashable_usd: f64,
     fee: &GRT,
@@ -220,6 +230,7 @@ pub fn expected_individual_score(
         reliability_utility(reliability),
         performance_utility(params.performance, perf_success as u32),
         params.economic_security.concave_utility(slashable_usd),
+        versions_behind_utility(versions_behind),
         data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
         fee_utility(params.fee_weight, fee, &params.budget),
     ])
@@ -246,6 +257,13 @@ fn data_freshness_utility(
         }
     } else {
         params.concave_utility(1.0 / blocks_behind as f64)
+    }
+}
+
+fn versions_behind_utility(versions_behind: u8) -> UtilityFactor {
+    UtilityFactor {
+        utility: MIN_SCORE_CUTOFF.powi(versions_behind as i32),
+        weight: 1.0,
     }
 }
 

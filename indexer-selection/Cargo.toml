@@ -10,7 +10,6 @@ path = "bin/sim.rs"
 [dependencies]
 arrayvec = "0.7"
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "a85f774" }
-itertools = "0.10"
 lazy_static = "1.4"
 num-traits = "0.2"
 ordered-float = "3.0"

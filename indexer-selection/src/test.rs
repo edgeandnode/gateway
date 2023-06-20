@@ -1,8 +1,8 @@
 use crate::{
     actor::{process_updates, IndexerUpdate, Update},
     test_utils::default_cost_model,
-    BlockRequirements, BlockStatus, Context, IndexerError, IndexerErrors, IndexerInfo, Indexing,
-    IndexingStatus, InputError, Selection, UtilityParameters, SELECTION_LIMIT,
+    BlockRequirements, BlockStatus, Candidate, Context, IndexerError, IndexerErrors, IndexerInfo,
+    Indexing, IndexingStatus, InputError, Selection, UtilityParameters, SELECTION_LIMIT,
 };
 use num_traits::ToPrimitive as _;
 use prelude::{
@@ -288,16 +288,19 @@ async fn fuzz() {
         };
         println!("{:#?}", request);
         let mut context = Context::new(&request.query, "").unwrap();
-        let indexings: Vec<Indexing> = request
+        let candidates: Vec<Candidate> = request
             .indexers
             .iter()
-            .map(|indexer| Indexing {
-                indexer: *indexer,
-                deployment: request.deployment,
+            .map(|indexer| Candidate {
+                indexing: Indexing {
+                    indexer: *indexer,
+                    deployment: request.deployment,
+                },
+                versions_behind: 0,
             })
             .collect();
         let result = isa_state.latest().select_indexers(
-            &indexings,
+            &candidates,
             &request.params,
             &mut context,
             request.selection_limit,

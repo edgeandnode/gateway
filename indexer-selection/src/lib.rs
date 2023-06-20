@@ -42,6 +42,15 @@ use std::{
 // a context across an await. See https://github.com/rust-lang/rust/issues/71723
 pub type Context<'c> = cost_model::Context<'c, String>;
 
+/// If an indexer's score is penalized such that it falls below this proportion of the max indexer
+/// score, then the indexer will be discarded from the set of indexers to select from.
+const MIN_SCORE_CUTOFF: f64 = 0.25;
+
+pub struct Candidate {
+    pub indexing: Indexing,
+    pub versions_behind: u8,
+}
+
 #[derive(Clone, Debug)]
 pub struct Selection {
     pub indexing: Indexing,
@@ -252,23 +261,28 @@ impl State {
 
     pub fn select_indexers<'a>(
         &self,
-        indexings: &'a [Indexing],
+        candidates: &'a [Candidate],
         params: &UtilityParameters,
         context: &mut Context<'_>,
         selection_limit: u8,
     ) -> Result<(Vec<Selection>, IndexerErrors<'a>), InputError> {
         let mut errors = IndexerErrors(BTreeMap::new());
         let mut available = Vec::<SelectionFactors>::new();
-        for indexing in indexings {
-            if let Some(allowed) = self.restricted_deployments.get(&indexing.deployment) {
-                if !allowed.contains(&indexing.indexer) {
-                    errors.add(IndexerError::Excluded, &indexing.indexer);
+        for candidate in candidates {
+            if let Some(allowed) = self
+                .restricted_deployments
+                .get(&candidate.indexing.deployment)
+            {
+                if !allowed.contains(&candidate.indexing.indexer) {
+                    errors.add(IndexerError::Excluded, &candidate.indexing.indexer);
                     continue;
                 }
             }
-            match self.selection_factors(*indexing, params, context, selection_limit) {
+            match self.selection_factors(candidate, params, context, selection_limit) {
                 Ok(factors) => available.push(factors),
-                Err(SelectionError::BadIndexer(err)) => errors.add(err, &indexing.indexer),
+                Err(SelectionError::BadIndexer(err)) => {
+                    errors.add(err, &candidate.indexing.indexer)
+                }
                 Err(SelectionError::BadInput(err)) => return Err(err),
             };
         }
@@ -293,18 +307,16 @@ impl State {
             .map(|factors| factors.expected_score)
             .max()
             .unwrap_or(NotNan::zero());
-        // Having a random score cutoff that is weighted toward 1 normalized to the highest score
-        // makes it so that we define our selection based on an expected score distribution, so that
-        // even if there are many bad indexers with lots of stake it may not adversely affect the
-        // result. This is important because an Indexer deployed on the other side of the world
-        // should not generally bring our expected score down below the minimum requirements set
-        // forth by this equation.
-        let mut score_cutoff: NotNan<f64> = NotNan::new(rng.gen()).unwrap();
-        // Near 0 and score is ignored (only stake matters). Near 1 score matters at ~ x^2
-        // (depending on the distribution of stake). Above that and things are getting crazy and
-        // we're exploiting the score strongly.
-        const SCORE_PREFERENCE: f64 = 0.25;
-        score_cutoff = max_score * (1.0 - score_cutoff.powf(SCORE_PREFERENCE));
+        // `select_indexers` discourages sybils by weighting it's selection based on the `sybil`
+        // value. Having a random score cutoff that is weighted toward 1 normalized to the highest
+        // score makes it so that we define our selection based on an expected score distribution,
+        // so that even if there are many bad indexers with lots of stake it may not adversely
+        // affect the result. This is important because an Indexer deployed on the other side of the
+        // world should not generally bring our expected score down below the minimum requirements
+        // set forth by this equation.
+        let mut score_cutoff: NotNan<f64> =
+            NotNan::new(rng.gen_range(MIN_SCORE_CUTOFF..1.0)).unwrap();
+        score_cutoff = max_score * score_cutoff;
         // Filter out indexers below the cutoff. This avoids a situation where most indexers have
         // terrible scores, only a few have good scores, and the good indexers are often passed over
         // in multi-selection.
@@ -318,18 +330,18 @@ impl State {
 
     fn selection_factors(
         &self,
-        indexing: Indexing,
+        candidate: &Candidate,
         params: &UtilityParameters,
         context: &mut Context<'_>,
         selection_limit: u8,
     ) -> Result<SelectionFactors, SelectionError> {
         let info = self
             .indexers
-            .get_unobserved(&indexing.indexer)
+            .get_unobserved(&candidate.indexing.indexer)
             .ok_or(IndexerError::NoStatus)?;
         let state = self
             .indexings
-            .get_unobserved(&indexing)
+            .get_unobserved(&candidate.indexing)
             .ok_or(IndexerError::NoStatus)?;
 
         let status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
@@ -366,6 +378,7 @@ impl State {
             params,
             reliability,
             perf_success,
+            candidate.versions_behind,
             status.blocks_behind,
             slashable_usd,
             &fee,
@@ -373,8 +386,9 @@ impl State {
         .unwrap_or(NotNan::zero());
 
         Ok(SelectionFactors {
-            indexing,
+            indexing: candidate.indexing,
             url: info.url.clone(),
+            versions_behind: candidate.versions_behind,
             reliability,
             perf_success,
             perf_failure: state.perf_failure.expected_value(),
