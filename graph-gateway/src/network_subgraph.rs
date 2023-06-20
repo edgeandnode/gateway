@@ -42,6 +42,7 @@ pub struct SubgraphDeployment {
     pub id: DeploymentId,
     #[serde(rename = "indexerAllocations")]
     pub allocations: Vec<Allocation>,
+    #[serde(default)]
     pub transferred_to_l2: bool,
 }
 
@@ -64,14 +65,20 @@ pub struct Indexer {
 pub struct Client {
     subgraph_client: subgraph_client::Client,
     subgraphs: EventualWriter<Ptr<Vec<Subgraph>>>,
+    // TODO: remove when L2 subgraph transfer support is on mainnet network subgraphs
+    l2_transfer_support: bool,
 }
 
 impl Client {
-    pub async fn create(subgraph_client: subgraph_client::Client) -> anyhow::Result<Data> {
+    pub async fn create(
+        subgraph_client: subgraph_client::Client,
+        l2_transfer_support: bool,
+    ) -> anyhow::Result<Data> {
         let (subgraphs_tx, subgraphs_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
             subgraphs: subgraphs_tx,
+            l2_transfer_support,
         }));
 
         let network_params = client.lock().await.network_params().await?;
@@ -126,42 +133,51 @@ impl Client {
     async fn poll_subgraphs(&mut self) -> Result<(), String> {
         // TODO: `indexerAllocations(first: 500` is for the MIPs program. Under normal circumstances
         // we would not expect so many indexers per deployment.
-        let query = r#"
+        let query = format!(
+            r#"
             subgraphs(
                 block: $block
                 orderBy: id, orderDirection: asc
                 first: $first
-                where: {
+                where: {{
                     id_gt: $last
                     active: true
                     entityVersion: 2
-                }
-            ) {
+                }}
+            ) {{
                 id
-                idOnL2
-                startedTransferToL2At
-                versions(orderBy: version, orderDirection: asc) {
+                {}
+                {}
+                versions(orderBy: version, orderDirection: asc) {{
                     metadataHash
-                    subgraphDeployment {
+                    subgraphDeployment {{
                         ipfsHash
-                        indexerAllocations(first: 500, where: { status: Active }) {
+                        indexerAllocations(first: 500, where: {{ status: Active }}) {{
                             id
                             allocatedTokens
-                            indexer {
+                            indexer {{
                                 id
                                 url
                                 stakedTokens
-                            }
-                        }
-                        transferredToL2
-                    }
-                }
-            }
-        "#;
+                            }}
+                        }}
+                        {}
+                    }}
+                }}
+            }}
+        "#,
+            self.l2_transfer_support.then_some("idOnL2").unwrap_or(""),
+            self.l2_transfer_support
+                .then_some("startedTransferToL2At")
+                .unwrap_or(""),
+            self.l2_transfer_support
+                .then_some("transferredToL2")
+                .unwrap_or(""),
+        );
 
         let subgraphs = self
             .subgraph_client
-            .paginated_query::<Subgraph>(query)
+            .paginated_query::<Subgraph>(&query)
             .await?;
 
         if subgraphs.is_empty() {

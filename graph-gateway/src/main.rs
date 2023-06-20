@@ -160,9 +160,10 @@ async fn main() {
     let l2_transfer_delay = config
         .l2_transfer_delay_hours
         .map(|hours| chrono::Duration::hours(hours as i64));
-    let network_subgraph_data = network_subgraph::Client::create(network_subgraph_client)
-        .await
-        .unwrap();
+    let network_subgraph_data =
+        network_subgraph::Client::create(network_subgraph_client, config.l2_gateway.is_some())
+            .await
+            .unwrap();
 
     update_writer
         .write(Update::SlashingPercentage(
