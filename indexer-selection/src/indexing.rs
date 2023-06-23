@@ -58,7 +58,17 @@ impl BlockStatus {
 }
 
 impl IndexingState {
-    pub fn set_status(&mut self, status: IndexingStatus) {
+    pub fn set_status(&mut self, mut status: IndexingStatus) {
+        // As long as we haven't witnessed the indexer behind a reported block height, take the best
+        // value of `blocks_behind`. This is especially important for fast-moving chains to avoid
+        // indexers being thrown much further behind without any observation to justify that.
+        match (&self.status.block, &mut status.block) {
+            (Some(prev), Some(next)) if !prev.behind_reported_block => {
+                next.blocks_behind = next.blocks_behind.min(prev.blocks_behind);
+            }
+            _ => (),
+        };
+
         self.status = status;
     }
 
