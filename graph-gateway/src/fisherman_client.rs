@@ -1,8 +1,10 @@
-use crate::indexer_client::Attestation;
-use indexer_selection::Indexing;
-use prelude::*;
 use serde::Deserialize;
 use serde_json::json;
+
+use indexer_selection::Indexing;
+use prelude::*;
+
+use crate::indexer_client::Attestation;
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 pub enum ChallengeOutcome {

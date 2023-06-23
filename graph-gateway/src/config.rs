@@ -1,12 +1,15 @@
-use crate::chains::ethereum;
+use std::{collections::BTreeMap, path::PathBuf};
+
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
 use hdwallet::{self, KeyChain as _};
-use indexer_selection::SecretKey;
-use prelude::*;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr, FromInto};
-use std::{collections::BTreeMap, path::PathBuf};
+
+use indexer_selection::SecretKey;
+use prelude::*;
+
+use crate::chains::ethereum;
 
 #[serde_as]
 #[derive(Debug, Deserialize)]

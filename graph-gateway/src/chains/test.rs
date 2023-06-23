@@ -1,6 +1,7 @@
-use super::ClientMsg;
 use indexer_selection::UnresolvedBlock;
 use prelude::*;
+
+use super::ClientMsg;
 
 pub struct Provider {
     pub network: String,

@@ -1,74 +1,59 @@
-mod auth;
-mod block_constraints;
-mod chains;
-mod client_query;
-mod config;
-mod exchange_rate;
-mod fisherman_client;
-mod geoip;
-mod indexer_client;
-mod indexing;
-mod ipfs;
-mod metrics;
-mod network_subgraph;
-mod price_automation;
-mod receipts;
-mod reports;
-mod subgraph_client;
-mod subgraph_studio;
-mod subscriptions;
-mod subscriptions_subgraph;
-mod topology;
-mod unattestable_errors;
-mod vouchers;
-
-use anyhow::{self, anyhow};
-use auth::AuthHandler;
-use axum::{
-    extract::{ConnectInfo, DefaultBodyLimit, State},
-    http::{self, header, status::StatusCode, HeaderMap, HeaderName, HeaderValue, Request},
-    middleware,
-    response::Response,
-    routing, Json, Router, Server,
-};
-use chains::*;
-use config::*;
-use eventuals::EventualExt as _;
-use fisherman_client::*;
-use geoip::GeoIP;
-use graph_subscriptions::{subscription_tier::SubscriptionTiers, TicketVerificationDomain};
-use indexer_client::IndexerClient;
-use indexer_selection::{
-    actor::{IndexerUpdate, Update},
-    BlockStatus, IndexerInfo, Indexing,
-};
-use indexing::indexing_statuses;
-use indexing::IndexingStatus;
-use prelude::{
-    anyhow::Context,
-    buffer_queue::{self, QueueWriter},
-    *,
-};
-use price_automation::QueryBudgetFactors;
-use prometheus::{self, Encoder as _};
-use receipts::ReceiptPools;
-use reports::KafkaClient;
-use secp256k1::SecretKey;
-use serde_json::json;
-use simple_rate_limiter::RateLimiter;
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::hash_map::{Entry, HashMap},
+    collections::hash_set::HashSet,
     env,
     fs::read_to_string,
     io::Write as _,
-    iter,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+use anyhow::{self, anyhow, Context};
+use axum::{
+    extract::{ConnectInfo, DefaultBodyLimit, State},
+    http::{self, status::StatusCode, Request},
+    middleware,
+    response::Response,
+    routing, Router, Server,
+};
+use eventuals::EventualExt as _;
+use graph_subscriptions::{subscription_tier::SubscriptionTiers, TicketVerificationDomain};
+use prometheus::{self, Encoder as _};
+use secp256k1::SecretKey;
+use serde_json::json;
+use simple_rate_limiter::RateLimiter;
 use tokio::spawn;
-use topology::{Allocation, Deployment, GraphNetwork};
 use tower_http::cors::{self, CorsLayer};
+
+use buffer_queue::{self, QueueWriter};
+use graph_gateway::{
+    auth::AuthHandler,
+    chains::{ethereum, BlockCache},
+    client_query,
+    config::{Config, ExchangeRateProvider},
+    fisherman_client::FishermanClient,
+    geoip::GeoIP,
+    indexer_client::IndexerClient,
+    indexing::{indexing_statuses, IndexingStatus},
+    ipfs, network_subgraph,
+    price_automation::QueryBudgetFactors,
+    receipts::ReceiptPools,
+    reports,
+    reports::KafkaClient,
+    subgraph_client, subgraph_studio, subscriptions_subgraph,
+    topology::{Allocation, Deployment, GraphNetwork},
+    vouchers, JsonResponse,
+};
+use indexer_selection::{
+    actor::{IndexerUpdate, Update},
+    BlockStatus, IndexerInfo, Indexing,
+};
+use prelude::*;
+
+// Moving the `exchange_rate` module to `lib.rs` makes the doctests to fail during the compilation
+// step. This module is only used here, so let's keep it here for now.
+mod exchange_rate;
 
 #[tokio::main]
 async fn main() {
@@ -412,7 +397,7 @@ async fn handle_subscription_tiers(
     State(tiers): State<&'static SubscriptionTiers>,
 ) -> JsonResponse {
     let response = serde_json::to_value(tiers.as_ref()).unwrap();
-    json_response([], response)
+    graph_gateway::json_response([], response)
 }
 
 async fn write_indexer_inputs(
@@ -511,22 +496,6 @@ async fn handle_metrics() -> impl axum::response::IntoResponse {
     (StatusCode::OK, buffer)
 }
 
-pub type JsonResponse = (HeaderMap, Json<serde_json::Value>);
-
-pub fn json_response<H>(headers: H, payload: serde_json::Value) -> JsonResponse
-where
-    H: IntoIterator<Item = (HeaderName, HeaderValue)>,
-{
-    let headers = HeaderMap::from_iter(
-        iter::once((
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/json"),
-        ))
-        .chain(headers),
-    );
-    (headers, Json(payload))
-}
-
 fn graphql_error_response<S: ToString>(message: S) -> JsonResponse {
-    json_response([], json!({"errors": [{"message": message.to_string()}]}))
+    graph_gateway::json_response([], json!({"errors": [{"message": message.to_string()}]}))
 }

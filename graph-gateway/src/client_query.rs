@@ -992,9 +992,11 @@ pub async fn legacy_auth_adapter<B>(
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::topology::{Deployment, Manifest, Subgraph};
     use std::{collections::BTreeSet, sync::Arc};
+
+    use crate::topology::{Deployment, Manifest, Subgraph};
+
+    use super::*;
 
     #[test]
     fn resolving_subgraph_versions() {

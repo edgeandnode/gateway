@@ -1,10 +1,13 @@
-use super::ClientMsg;
-use crate::metrics::METRICS;
-use indexer_selection::UnresolvedBlock;
-use prelude::{tokio::time::interval, *};
 use reqwest;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
+
+use indexer_selection::UnresolvedBlock;
+use prelude::{tokio::time::interval, *};
+
+use crate::metrics::METRICS;
+
+use super::ClientMsg;
 
 #[derive(Debug)]
 pub struct Provider {

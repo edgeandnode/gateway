@@ -1,11 +1,14 @@
+use std::{collections::HashMap, sync::Arc};
+
+use eventuals::{self, EventualExt as _};
+use graph_subscriptions::subscription_tier::SubscriptionTiers;
+use tokio::sync::Mutex;
+
+use prelude::*;
+
 use crate::price_automation::VolumeEstimations;
 use crate::subgraph_client;
 use crate::subscriptions::{ActiveSubscription, Subscription};
-use eventuals::{self, EventualExt as _};
-use graph_subscriptions::subscription_tier::SubscriptionTiers;
-use prelude::*;
-use std::{collections::HashMap, sync::Arc};
-use tokio::sync::Mutex;
 
 pub struct Client {
     subgraph_client: subgraph_client::Client,

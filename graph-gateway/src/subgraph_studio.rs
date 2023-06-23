@@ -1,9 +1,12 @@
-use crate::price_automation::{VolumeEstimations, VolumeEstimator};
-use eventuals::{self, EventualExt as _};
-use prelude::*;
-use serde::Deserialize;
 use std::{collections::HashMap, error::Error, sync::Arc};
+
+use eventuals::{self, EventualExt as _};
+use serde::Deserialize;
 use tokio::sync::Mutex;
+
+use prelude::*;
+
+use crate::price_automation::{VolumeEstimations, VolumeEstimator};
 
 #[derive(Clone, Debug, Default)]
 pub struct APIKey {

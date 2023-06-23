@@ -1,6 +1,8 @@
-use prelude::*;
 use std::sync::Arc;
+
 use tokio::sync::Semaphore;
+
+use prelude::*;
 
 pub struct Client {
     client: reqwest::Client,
