@@ -81,11 +81,19 @@ impl IndexerClient {
             .send()
             .await
             .and_then(|response| response.error_for_status());
-        // We need to observe timeouts differently in the ISA, so we discriminate them here.
         let response = match result {
             Ok(response) => response,
+            // We need to observe timeouts differently in the ISA, so we discriminate them here.
             Err(err) if err.is_timeout() => return Err(IndexerError::Timeout),
-            Err(err) => return Err(IndexerError::Other(err.to_string())),
+            Err(err) => {
+                tracing::trace!(response_status = ?err.status());
+                return match err.status() {
+                    Some(status) if status.is_server_error() => {
+                        Err(IndexerError::UnattestableError)
+                    }
+                    _ => Err(IndexerError::Other(err.to_string())),
+                };
+            }
         };
         let response_status = response.status();
         tracing::trace!(%response_status);
