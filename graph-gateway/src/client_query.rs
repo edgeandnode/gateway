@@ -1042,6 +1042,9 @@ mod test {
                 deployment(deployment3, Some("1.0.0")),
                 deployment(deployment4, None),
             ],
+            id: "8dBE14bWuJkRGnhHdtcyfLHpp8VZTq8tq8SwSRoa2Lee"
+                .parse()
+                .unwrap(),
             l2_id: None,
         };
 
