@@ -60,3 +60,9 @@ docker build . \
   --build-arg "GH_TOKEN=${GH_TOKEN}" \
   -t edgeandnode/graph-gateway:latest
 ```
+
+## Running the gateway
+
+The gateway uses a single JSON configuration file, the path of which must be given as the first argument to the graph-gateway executable. e.g. `graph-gateway path/to/config.json`
+
+All possible fields for the config file are defined in [config.rs](graph-gateway/src/config.rs). And an example config file (in Jsonnet form) can be found [here](https://github.com/edgeandnode/local-network/blob/main/gateway/config.jsonnet).
