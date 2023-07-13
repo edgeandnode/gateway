@@ -33,7 +33,7 @@ use prelude::{epoch_cache::EpochCache, *};
 use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 use score::{expected_individual_score, ExpectedValue};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt::Display,
     sync::Arc,
 };
@@ -79,7 +79,6 @@ pub enum IndexerError {
     MissingRequiredBlock,
     QueryNotCosted,
     FeeTooHigh,
-    Excluded,
     NaN,
 }
 
@@ -220,8 +219,6 @@ pub struct State {
     pub network_params: NetworkParameters,
     indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
     indexings: EpochCache<Indexing, IndexingState, 2>,
-    // Restricted subgraphs only allow listed indexers, and ignore their stake.
-    pub restricted_deployments: Arc<HashMap<DeploymentId, HashSet<Address>>>,
 }
 
 #[derive(Debug)]
@@ -269,15 +266,6 @@ impl State {
         let mut errors = IndexerErrors(BTreeMap::new());
         let mut available = Vec::<SelectionFactors>::new();
         for candidate in candidates {
-            if let Some(allowed) = self
-                .restricted_deployments
-                .get(&candidate.indexing.deployment)
-            {
-                if !allowed.contains(&candidate.indexing.indexer) {
-                    errors.add(IndexerError::Excluded, &candidate.indexing.indexer);
-                    continue;
-                }
-            }
             match self.selection_factors(candidate, params, context, selection_limit) {
                 Ok(factors) => available.push(factors),
                 Err(SelectionError::BadIndexer(err)) => {
