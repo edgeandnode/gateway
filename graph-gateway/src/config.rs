@@ -25,12 +25,16 @@ pub struct Config {
     /// Total Gateway processes serving queries. This is used when approximating worldwide query
     /// volume.
     pub gateway_instance_count: u64,
+    /// GeoIP database path
     pub geoip_database: Option<PathBuf>,
     /// GeoIP blocked countries (ISO 3166-1 alpha-2 codes)
     #[serde(default)]
     pub geoip_blocked_countries: Vec<String>,
     /// Graph network environment identifier, inserted into Kafka messages
     pub graph_env_id: String,
+    /// Rounds of indexer selection and queries to attempt. Note that indexer queries have a 20s
+    /// timeout, so setting this to 5 for example would result in a 100s worst case response time
+    /// for a client query.
     pub indexer_selection_retry_limit: usize,
     /// IPFS endpoint with access to the subgraph files
     #[serde_as(as = "DisplayFromStr")]
@@ -47,11 +51,15 @@ pub struct Config {
     /// L2 gateway to forward client queries to after the transfer delay
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub l2_gateway: Option<Url>,
+    /// Minimum indexer software version that will receive queries
     #[serde_as(as = "DisplayFromStr")]
     pub min_indexer_version: Version,
+    /// Network subgraph query path
     #[serde_as(as = "DisplayFromStr")]
     pub network_subgraph: Url,
+    /// public API port
     pub port_api: u16,
+    /// private metrics port
     pub port_metrics: u16,
     pub query_budget_discount: f64,
     pub query_budget_scale: f64,
