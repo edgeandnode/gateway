@@ -1,14 +1,17 @@
-use crate::{
-    client_query,
-    indexer_client::{IndexerError, ResponsePayload},
-};
-use prelude::{tracing::span, *};
+use std::error::Error;
+
 use prost::Message as _;
 use rdkafka::error::KafkaResult;
 use serde::Deserialize;
 use serde_json::{json, Map};
-use std::error::Error;
 use tracing_subscriber::{filter::FilterFn, layer, prelude::*, registry, EnvFilter, Layer};
+
+use prelude::{tracing::span, *};
+
+use crate::{
+    client_query,
+    indexer_client::{IndexerError, ResponsePayload},
+};
 
 // TODO: integrate Prometheus metrics
 

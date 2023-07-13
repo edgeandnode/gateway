@@ -1,12 +1,15 @@
-use crate::subgraph_client;
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 use eventuals::{self, EventualExt as _};
-use prelude::{anyhow::anyhow, *};
 use serde::Deserialize;
 use serde_json::json;
 use serde_with::serde_as;
-use std::sync::Arc;
 use tokio::sync::Mutex;
+
+use prelude::{anyhow::anyhow, *};
+
+use crate::subgraph_client;
 
 pub struct Data {
     pub network_params: NetworkParams,

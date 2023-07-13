@@ -15,9 +15,10 @@
 // The magic values chosen were based off of 30 days hosted service volume taken on Feb 17, 2022
 // then tweaking until it looked like a fair distribution.
 
+use std::{collections::HashMap, hash::Hash, sync::Arc};
+
 use indexer_selection::{decay::*, impl_struct_decay};
 use prelude::{clock::*, tokio::sync::Mutex, *};
-use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 #[derive(Clone)]
 pub struct QueryBudgetFactors {

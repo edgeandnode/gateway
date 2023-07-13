@@ -1,12 +1,15 @@
-use crate::{ipfs, network_subgraph};
-use chrono::Utc;
-use futures_util::future::join_all;
-use prelude::{anyhow::anyhow, eventuals::EventualExt as _, tokio::sync::RwLock, *};
-use serde::Deserialize;
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
 };
+
+use chrono::Utc;
+use futures_util::future::join_all;
+use serde::Deserialize;
+
+use prelude::{anyhow::anyhow, eventuals::EventualExt as _, tokio::sync::RwLock, *};
+
+use crate::{ipfs, network_subgraph};
 
 /// Representation of the graph network being used to serve queries
 #[derive(Clone)]

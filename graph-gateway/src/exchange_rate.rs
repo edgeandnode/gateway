@@ -1,15 +1,17 @@
+use std::sync::Arc;
+
 use ethers::{
     abi::Address,
     prelude::{abigen, Http},
     providers::Provider,
 };
+
 use prelude::{
     anyhow::{anyhow, ensure, Result},
     eventuals::{self, EventualExt},
     tokio::sync::Mutex,
     tracing, Duration, Eventual, EventualWriter, UDecimal, Url, USD,
 };
-use std::sync::Arc;
 
 abigen!(
     UniswapV3Pool,

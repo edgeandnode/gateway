@@ -1,3 +1,8 @@
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
+
 pub use indexer_selection::receipts::QueryStatus as ReceiptStatus;
 use indexer_selection::{
     receipts::{BorrowFail, ReceiptPool},
@@ -6,10 +11,6 @@ use indexer_selection::{
 use prelude::{
     tokio::sync::{Mutex, RwLock},
     *,
-};
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::Arc,
 };
 
 #[derive(Default)]

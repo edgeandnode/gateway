@@ -1,22 +1,25 @@
-use crate::{
-    price_automation::QueryBudgetFactors,
-    subgraph_studio::{APIKey, IndexerPreferences, QueryStatus},
-    subscriptions::Subscription,
-    topology::Deployment,
-};
-use graph_subscriptions::{TicketPayload, TicketVerificationDomain};
-use prelude::{
-    anyhow::{anyhow, bail, ensure, Result},
-    eventuals::EventualExt as _,
-    tokio::sync::RwLock,
-    *,
-};
 use std::{
     collections::{HashMap, HashSet},
     sync::{
         atomic::{self, AtomicUsize},
         Arc,
     },
+};
+
+use graph_subscriptions::{TicketPayload, TicketVerificationDomain};
+
+use prelude::{
+    anyhow::{anyhow, bail, ensure, Result},
+    eventuals::EventualExt as _,
+    tokio::sync::RwLock,
+    *,
+};
+
+use crate::{
+    price_automation::QueryBudgetFactors,
+    subgraph_studio::{APIKey, IndexerPreferences, QueryStatus},
+    subscriptions::Subscription,
+    topology::Deployment,
 };
 
 pub struct AuthHandler {

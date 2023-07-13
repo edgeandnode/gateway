@@ -1,10 +1,12 @@
-pub mod ethereum;
-pub mod test;
+use std::collections::{BTreeSet, HashMap};
 
-use crate::{block_constraints::*, metrics::*};
 use indexer_selection::UnresolvedBlock;
 use prelude::{epoch_cache::EpochCache, tokio::time::interval, *};
-use std::collections::{BTreeSet, HashMap};
+
+use crate::{block_constraints::*, metrics::*};
+
+pub mod ethereum;
+pub mod test;
 
 pub trait Provider {
     fn network(&self) -> &str;

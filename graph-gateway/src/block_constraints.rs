@@ -1,5 +1,9 @@
-use indexer_selection::{Context, UnresolvedBlock};
+use std::collections::{BTreeMap, BTreeSet};
+
 use itertools::Itertools as _;
+use serde_json::{self, json};
+
+use indexer_selection::{Context, UnresolvedBlock};
 use prelude::graphql::graphql_parser::query::{
     Definition, Document, OperationDefinition, Selection, Text, Value,
 };
@@ -7,8 +11,6 @@ use prelude::{
     graphql::{IntoStaticValue as _, QueryVariables, StaticValue},
     *,
 };
-use serde_json::{self, json};
-use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {
@@ -228,8 +230,9 @@ fn parse_number<'c, T: Text<'c>>(
 mod tests {
     use std::iter::FromIterator;
 
-    use super::*;
     use prelude::test_utils::bytes_from_id;
+
+    use super::*;
 
     #[test]
     fn tests() {

@@ -1,8 +1,11 @@
-use crate::price_automation::VolumeEstimator;
-use chrono::{DateTime, NaiveDateTime, Utc};
-use prelude::{tokio::sync::Mutex, *};
-use serde::{de::Error, Deserialize, Deserializer};
 use std::sync::Arc;
+
+use chrono::{DateTime, NaiveDateTime, Utc};
+use serde::{de::Error, Deserialize, Deserializer};
+
+use prelude::{tokio::sync::Mutex, *};
+
+use crate::price_automation::VolumeEstimator;
 
 #[derive(Clone)]
 pub struct Subscription {

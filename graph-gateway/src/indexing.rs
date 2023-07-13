@@ -1,17 +1,20 @@
-use crate::geoip::GeoIP;
-use crate::subgraph_client::graphql_query;
-use crate::topology::{Allocation, Deployment, Indexer};
+use std::{collections::HashMap, net::IpAddr, sync::Arc};
+
 use eventuals::EventualExt as _;
 use futures::future::join_all;
-use indexer_selection::cost_model::CostModel;
-use indexer_selection::Indexing;
-use prelude::{epoch_cache::EpochCache, graphql, url::url::Host, *};
 use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
-use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::sync::Mutex;
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
+
+use indexer_selection::cost_model::CostModel;
+use indexer_selection::Indexing;
+use prelude::{epoch_cache::EpochCache, graphql, url::url::Host, *};
+
+use crate::geoip::GeoIP;
+use crate::subgraph_client::graphql_query;
+use crate::topology::{Allocation, Deployment, Indexer};
 
 pub struct IndexingStatus {
     pub chain: String,
