@@ -5,11 +5,11 @@ use std::{
     fs::read_to_string,
     io::Write as _,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
 };
 
-use anyhow::{self, anyhow, Context};
+use anyhow::{self, Context};
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, State},
     http::{self, status::StatusCode, Request},
@@ -91,16 +91,7 @@ async fn main() {
     tracing::info!("Graph gateway starting...");
     tracing::debug!(config = %config_repr);
 
-    let (isa_state, mut isa_writer) = double_buffer!(indexer_selection::State::default());
-
-    if let Some(path) = &config.restricted_deployments {
-        let restricted_deployments =
-            load_restricted_deployments(path).expect("Failed to load restricted deployments");
-        tracing::debug!(?restricted_deployments);
-        isa_writer
-            .update(|indexers| indexers.restricted_deployments = restricted_deployments.clone())
-            .await;
-    }
+    let (isa_state, isa_writer) = double_buffer!(indexer_selection::State::default());
 
     // Start the actor to manage updates
     let (update_writer, update_reader) = buffer_queue::pair();
@@ -351,23 +342,6 @@ async fn main() {
     .serve(router.into_make_service_with_connect_info::<SocketAddr>())
     .await
     .expect("Failed to start API server");
-}
-
-fn load_restricted_deployments(
-    path: &Path,
-) -> anyhow::Result<Arc<HashMap<DeploymentId, HashSet<Address>>>> {
-    read_to_string(path)?
-        .split('\n')
-        .filter(|l| l.trim_end() != "")
-        .map(|line| {
-            let mut csv = line.split_terminator(',');
-            let deployment = csv.next()?.parse().ok()?;
-            let indexers = csv.map(|i| i.parse().ok()).collect::<Option<_>>()?;
-            Some((deployment, indexers))
-        })
-        .collect::<Option<_>>()
-        .map(Arc::new)
-        .ok_or(anyhow!("malformed payload"))
 }
 
 fn update_from_eventual<V, F>(eventual: Eventual<V>, writer: QueueWriter<Update>, f: F)

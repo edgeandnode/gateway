@@ -155,7 +155,7 @@ impl Client {
                     metadataHash
                     subgraphDeployment {{
                         ipfsHash
-                        indexerAllocations(first: 500, where: {{ status: Active }}) {{
+                        indexerAllocations(first: 100, where: {{ status: Active }}) {{
                             id
                             allocatedTokens
                             indexer {{

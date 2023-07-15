@@ -63,7 +63,6 @@ pub struct Config {
     pub port_metrics: u16,
     pub query_budget_discount: f64,
     pub query_budget_scale: f64,
-    pub restricted_deployments: Option<PathBuf>,
     /// Mnemonic for voucher signing
     #[serde_as(as = "DisplayFromStr")]
     pub signer_key: SignerKey,
