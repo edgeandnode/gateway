@@ -133,6 +133,7 @@ impl Client {
         })
     }
 
+    #[allow(clippy::obfuscated_if_else)]
     async fn poll_subgraphs(&mut self) -> Result<(), String> {
         // TODO: `indexerAllocations(first: 500` is for the MIPs program. Under normal circumstances
         // we would not expect so many indexers per deployment.

@@ -421,7 +421,6 @@ pub fn status<T>(result: &Result<T, client_query::Error>) -> (String, i32) {
     }
 }
 
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct GatewaySubscriptionQueryResult {
     /// Set to the value of the CF-Ray header, otherwise a generated UUID
