@@ -118,6 +118,7 @@ impl<K: Hash + Eq> Drop for VolumeEstimations<K> {
 }
 
 impl<K: Hash + Eq + ToOwned<Owned = K>> VolumeEstimations<K> {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let decay_list = Arc::new(parking_lot::Mutex::new(Some(Vec::new())));
         let result = Self {
