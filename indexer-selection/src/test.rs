@@ -265,7 +265,7 @@ impl Topology {
 
 #[tokio::test]
 async fn fuzz() {
-    init_tracing(false);
+    // init_tracing(false);
 
     let seed = env::vars()
         .find(|(k, _)| k == "TEST_SEED")
@@ -273,14 +273,6 @@ async fn fuzz() {
         .unwrap_or(thread_rng().next_u64());
     println!("TEST_SEED={}", seed);
     let mut rng = SmallRng::seed_from_u64(seed);
-
-    let (isa_state, isa_writer) = double_buffer!(crate::State::default());
-    let (mut update_writer, update_reader) = buffer_queue::pair();
-    spawn(async move {
-        process_updates(isa_writer, update_reader).await;
-        panic!("ISA actor stopped");
-    });
-
     let config = Config {
         blocks: 0..=5,
         indexers: 0..=3,
@@ -289,6 +281,13 @@ async fn fuzz() {
     };
 
     for _ in 0..100 {
+        let (isa_state, isa_writer) = double_buffer!(crate::State::default());
+        let (mut update_writer, update_reader) = buffer_queue::pair();
+        spawn(async move {
+            process_updates(isa_writer, update_reader).await;
+            panic!("ISA actor stopped");
+        });
+
         let topology = Topology::gen(&mut rng, &config, &mut update_writer).await;
         println!("{:#?}", topology);
         let request = match topology.gen_request(&mut rng) {
@@ -315,7 +314,6 @@ async fn fuzz() {
             &mut context,
             request.selection_limit,
         );
-        println!("{:#?}", result);
         if let Err(err) = topology.check(&request, &result) {
             println!("{}", err);
             println!("TEST_SEED={}", seed);
