@@ -265,6 +265,8 @@ impl Topology {
 
 #[tokio::test]
 async fn fuzz() {
+    init_tracing(false);
+
     let seed = env::vars()
         .find(|(k, _)| k == "TEST_SEED")
         .and_then(|(_, v)| v.parse::<u64>().ok())
@@ -307,6 +309,7 @@ async fn fuzz() {
             })
             .collect();
         let result = isa_state.latest().select_indexers(
+            &mut rng,
             &candidates,
             &request.params,
             &mut context,
@@ -315,6 +318,7 @@ async fn fuzz() {
         println!("{:#?}", result);
         if let Err(err) = topology.check(&request, &result) {
             println!("{}", err);
+            println!("TEST_SEED={}", seed);
             panic!("check failed!");
         }
     }

@@ -30,7 +30,7 @@ use crate::{
 };
 use num_traits::Zero as _;
 use prelude::{epoch_cache::EpochCache, *};
-use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
+use rand::{prelude::SmallRng, Rng as _};
 use score::{expected_individual_score, ExpectedValue};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -144,7 +144,7 @@ pub struct Indexing {
 
 #[derive(Default, Debug, Eq, PartialEq)]
 pub struct BlockRequirements {
-    /// Range of blocks specified in the query
+    /// Range of blocks specified in the query, inclusive.
     pub range: Option<(u64, u64)>,
     /// If true, the query has an unspecified block which means the query benefits from syncing as
     /// far in the future as possible.
@@ -256,8 +256,15 @@ impl State {
         self.indexings.apply(|sf| sf.decay());
     }
 
+    // We use a small-state PRNG (xoroshiro256++) here instead of StdRng (ChaCha12).
+    // `select_indexers` does not require the protections provided by a CSPRNG. The Xoroshiro++
+    // algorithm provides high statistical quality while reducing the runtime of selection
+    // consumed by generating ranom numbers from 4% to 2% at the time of writing.
+    //
+    // See also: https://docs.rs/rand/latest/rand/rngs/struct.SmallRng.html
     pub fn select_indexers<'a>(
         &self,
+        rng: &mut SmallRng,
         candidates: &'a [Candidate],
         params: &UtilityParameters,
         context: &mut Context<'_>,
@@ -274,14 +281,6 @@ impl State {
                 Err(SelectionError::BadInput(err)) => return Err(err),
             };
         }
-
-        // We use a small-state PRNG (xoroshiro256++) here instead of StdRng (ChaCha12).
-        // `select_indexers` does not require the protections provided by a CSPRNG. The Xoroshiro++
-        // algorithm provides high statistical quality while reducing the runtime of selection
-        // consumed by generating ranom numbers from 4% to 2% at the time of writing.
-        //
-        // See also: https://docs.rs/rand/latest/rand/rngs/struct.SmallRng.html
-        let mut rng = SmallRng::from_entropy();
 
         if tracing::enabled!(tracing::Level::TRACE) {
             tracing::trace!(?available);
@@ -311,7 +310,7 @@ impl State {
         tracing::debug!(score_cutoff = *score_cutoff);
         available.retain(|factors| factors.expected_score >= score_cutoff);
 
-        let mut selections = select_indexers(&mut rng, params, &available, selection_limit);
+        let mut selections = select_indexers(rng, params, &available, selection_limit);
         selections.truncate(selection_limit as usize);
         Ok((selections, errors))
     }
@@ -340,6 +339,7 @@ impl State {
         if info.stake == GRT::zero() {
             return Err(IndexerError::NoStake.into());
         }
+
         let slashable = self
             .network_params
             .slashable_usd(info.stake)

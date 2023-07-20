@@ -34,6 +34,7 @@ use prelude::{
     buffer_queue::QueueWriter,
     double_buffer::DoubleBufferReader,
     graphql::graphql_parser::query::{OperationDefinition, SelectionSet},
+    rand::{rngs::SmallRng, SeedableRng as _},
     url::Url,
     DeploymentId, *,
 };
@@ -527,6 +528,8 @@ async fn handle_client_query_inner(
         settings.indexer_preferences.price_efficiency,
     );
 
+    let mut rng = SmallRng::from_entropy();
+
     let mut total_indexer_queries = 0;
     // Used to track how many times an indexer failed to resolve a block. This may indicate that
     // our latest block has been uncled.
@@ -569,6 +572,7 @@ async fn handle_client_query_inner(
             .isa_state
             .latest()
             .select_indexers(
+                &mut rng,
                 &candidates,
                 &utility_params,
                 &mut context,
