@@ -530,7 +530,7 @@ async fn handle_client_query_inner(
     let mut total_indexer_queries = 0;
     // Used to track how many times an indexer failed to resolve a block. This may indicate that
     // our latest block has been uncled.
-    let mut latest_unresolved: u64 = 0;
+    let mut latest_unresolved: u32 = 0;
 
     for retry in 0..ctx.indexer_selection_retry_limit {
         let last_retry = retry == (ctx.indexer_selection_retry_limit - 1);
@@ -625,14 +625,13 @@ async fn handle_client_query_inner(
                 response_time: Duration::default(),
             };
 
-            let latest_query_block = match block_cache
-                .latest(selection.blocks_behind + latest_unresolved)
-                .await
-            {
-                Ok(latest_query_block) => latest_query_block,
-                Err(_) if !last_retry => continue,
-                Err(unresolved) => return Err(Error::BlockNotFound(unresolved)),
-            };
+            let backoff = 2_u64.pow(latest_unresolved * 2) * block_cache.block_rate_hz as u64;
+            let latest_query_block =
+                match block_cache.latest(selection.blocks_behind + backoff).await {
+                    Ok(latest_query_block) => latest_query_block,
+                    Err(_) if !last_retry => continue,
+                    Err(unresolved) => return Err(Error::BlockNotFound(unresolved)),
+                };
             let deterministic_query =
                 make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)
                     .ok_or_else(|| {
