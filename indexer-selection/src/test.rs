@@ -18,7 +18,7 @@ use prelude::{
     *,
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env,
     ops::RangeInclusive,
     sync::Arc,
@@ -204,6 +204,13 @@ impl Topology {
             .fold(GRT::zero(), |sum, fee| sum + fee);
         ensure!(fees <= request.params.budget);
 
+        let indexers_dedup = request
+            .indexers
+            .iter()
+            .copied()
+            .collect::<BTreeSet<Address>>();
+        ensure!(indexers_dedup.len() == request.indexers.len());
+
         let mut expected_errors = IndexerErrors(BTreeMap::new());
         for indexer in &request.indexers {
             let info = self.indexers.get(indexer).unwrap();
@@ -308,7 +315,7 @@ async fn fuzz() {
         println!("{:#?}", result);
         if let Err(err) = topology.check(&request, &result) {
             println!("{}", err);
-            break;
+            panic!("check failed!");
         }
     }
 }
