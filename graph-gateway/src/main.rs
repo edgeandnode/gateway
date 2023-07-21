@@ -162,6 +162,7 @@ async fn main() {
     .await;
     {
         let update_writer = update_writer.clone();
+        let indexing_statuses = indexing_statuses.clone();
         eventuals::join((network.deployments.clone(), indexing_statuses))
             .pipe_async(move |(deployments, indexing_statuses)| {
                 let update_writer = update_writer.clone();
@@ -240,6 +241,7 @@ async fn main() {
         graph_env_id: config.graph_env_id.clone(),
         auth_handler,
         network,
+        indexing_statuses,
         fisherman_client,
         block_caches,
         observations: update_writer,

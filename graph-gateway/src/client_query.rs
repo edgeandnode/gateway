@@ -44,6 +44,7 @@ use crate::{
     chains::BlockCache,
     fisherman_client::{ChallengeOutcome, FishermanClient},
     indexer_client::{Attestation, IndexerClient, IndexerError, ResponsePayload},
+    indexing::IndexingStatus,
     metrics::{with_metric, METRICS},
     receipts::{ReceiptPools, ReceiptStatus},
     reports,
@@ -100,6 +101,7 @@ pub struct Context {
     pub l2_gateway: Option<Url>,
     pub block_caches: &'static HashMap<String, BlockCache>,
     pub network: GraphNetwork,
+    pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
     pub receipt_pools: &'static ReceiptPools,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
@@ -608,6 +610,21 @@ async fn handle_client_query_inner(
                 .as_f64() as f32,
         );
 
+        let mut backoff = 2_u64.pow(latest_unresolved);
+        if latest_unresolved > 2 {
+            let statuses = ctx.indexing_statuses.value_immediate().unwrap();
+            let mut reported_blocks: Vec<u64> = selections
+                .iter()
+                .filter_map(|s| statuses.get(&s.indexing))
+                .map(|s| s.block.number)
+                .collect();
+            reported_blocks.sort();
+            backoff += reported_blocks
+                .get(reported_blocks.len() / 2)
+                .map(|n| latest_block.number - *n)
+                .unwrap_or(0);
+        }
+
         let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
             let deployment = deployments
@@ -625,7 +642,6 @@ async fn handle_client_query_inner(
                 response_time: Duration::default(),
             };
 
-            let backoff = 2_u64.pow(latest_unresolved * 2) * block_cache.block_rate_hz as u64;
             let latest_query_block =
                 match block_cache.latest(selection.blocks_behind + backoff).await {
                     Ok(latest_query_block) => latest_query_block,
