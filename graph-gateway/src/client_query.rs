@@ -45,6 +45,7 @@ use crate::{
     chains::BlockCache,
     fisherman_client::{ChallengeOutcome, FishermanClient},
     indexer_client::{Attestation, IndexerClient, IndexerError, ResponsePayload},
+    indexing::IndexingStatus,
     metrics::{with_metric, METRICS},
     receipts::{ReceiptPools, ReceiptStatus},
     reports,
@@ -101,6 +102,7 @@ pub struct Context {
     pub l2_gateway: Option<Url>,
     pub block_caches: &'static HashMap<String, BlockCache>,
     pub network: GraphNetwork,
+    pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
     pub receipt_pools: &'static ReceiptPools,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
@@ -533,7 +535,7 @@ async fn handle_client_query_inner(
     let mut total_indexer_queries = 0;
     // Used to track how many times an indexer failed to resolve a block. This may indicate that
     // our latest block has been uncled.
-    let mut latest_unresolved: u64 = 0;
+    let mut latest_unresolved: u32 = 0;
 
     for retry in 0..ctx.indexer_selection_retry_limit {
         let last_retry = retry == (ctx.indexer_selection_retry_limit - 1);
@@ -612,6 +614,21 @@ async fn handle_client_query_inner(
                 .as_f64() as f32,
         );
 
+        let mut backoff = 2_u64.pow(latest_unresolved);
+        if latest_unresolved > 2 {
+            let statuses = ctx.indexing_statuses.value_immediate().unwrap();
+            let mut reported_blocks: Vec<u64> = selections
+                .iter()
+                .filter_map(|s| statuses.get(&s.indexing))
+                .map(|s| s.block.number)
+                .collect();
+            reported_blocks.sort();
+            backoff += reported_blocks
+                .get(reported_blocks.len() / 2)
+                .map(|n| latest_block.number - *n)
+                .unwrap_or(0);
+        }
+
         let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
             let deployment = deployments
@@ -629,14 +646,12 @@ async fn handle_client_query_inner(
                 response_time: Duration::default(),
             };
 
-            let latest_query_block = match block_cache
-                .latest(selection.blocks_behind + latest_unresolved)
-                .await
-            {
-                Ok(latest_query_block) => latest_query_block,
-                Err(_) if !last_retry => continue,
-                Err(unresolved) => return Err(Error::BlockNotFound(unresolved)),
-            };
+            let latest_query_block =
+                match block_cache.latest(selection.blocks_behind + backoff).await {
+                    Ok(latest_query_block) => latest_query_block,
+                    Err(_) if !last_retry => continue,
+                    Err(unresolved) => return Err(Error::BlockNotFound(unresolved)),
+                };
             let deterministic_query =
                 make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)
                     .ok_or_else(|| {
