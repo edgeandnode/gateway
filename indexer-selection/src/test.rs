@@ -18,7 +18,7 @@ use prelude::{
     *,
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env,
     ops::RangeInclusive,
     sync::Arc,
@@ -204,6 +204,13 @@ impl Topology {
             .fold(GRT::zero(), |sum, fee| sum + fee);
         ensure!(fees <= request.params.budget);
 
+        let indexers_dedup = request
+            .indexers
+            .iter()
+            .copied()
+            .collect::<BTreeSet<Address>>();
+        ensure!(indexers_dedup.len() == request.indexers.len());
+
         let mut expected_errors = IndexerErrors(BTreeMap::new());
         for indexer in &request.indexers {
             let info = self.indexers.get(indexer).unwrap();
@@ -258,20 +265,14 @@ impl Topology {
 
 #[tokio::test]
 async fn fuzz() {
+    // init_tracing(false);
+
     let seed = env::vars()
         .find(|(k, _)| k == "TEST_SEED")
         .and_then(|(_, v)| v.parse::<u64>().ok())
         .unwrap_or(thread_rng().next_u64());
     println!("TEST_SEED={}", seed);
     let mut rng = SmallRng::seed_from_u64(seed);
-
-    let (isa_state, isa_writer) = double_buffer!(crate::State::default());
-    let (mut update_writer, update_reader) = buffer_queue::pair();
-    spawn(async move {
-        process_updates(isa_writer, update_reader).await;
-        panic!("ISA actor stopped");
-    });
-
     let config = Config {
         blocks: 0..=5,
         indexers: 0..=3,
@@ -280,6 +281,13 @@ async fn fuzz() {
     };
 
     for _ in 0..100 {
+        let (isa_state, isa_writer) = double_buffer!(crate::State::default());
+        let (mut update_writer, update_reader) = buffer_queue::pair();
+        spawn(async move {
+            process_updates(isa_writer, update_reader).await;
+            panic!("ISA actor stopped");
+        });
+
         let topology = Topology::gen(&mut rng, &config, &mut update_writer).await;
         println!("{:#?}", topology);
         let request = match topology.gen_request(&mut rng) {
@@ -300,15 +308,16 @@ async fn fuzz() {
             })
             .collect();
         let result = isa_state.latest().select_indexers(
+            &mut rng,
             &candidates,
             &request.params,
             &mut context,
             request.selection_limit,
         );
-        println!("{:#?}", result);
         if let Err(err) = topology.check(&request, &result) {
             println!("{}", err);
-            break;
+            println!("TEST_SEED={}", seed);
+            panic!("check failed!");
         }
     }
 }

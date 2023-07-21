@@ -102,7 +102,7 @@ pub async fn simulate(
         let mut context = Context::new("{ a }", "").unwrap();
         let t0 = Instant::now();
         let (mut selections, _) = isa
-            .select_indexers(&candidates, params, &mut context, selection_limit)
+            .select_indexers(&mut rng, &candidates, params, &mut context, selection_limit)
             .unwrap();
         results.avg_selection_seconds += Instant::now().duration_since(t0).as_secs_f64();
 

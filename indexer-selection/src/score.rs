@@ -55,8 +55,7 @@ pub fn select_indexers<R: Rng>(
     // selection factors if they are over budget or don't meet freshness requirements. So they won't
     // pollute the set we're selecting from.
     let selection_limit = SELECTION_LIMIT.min(selection_limit as usize);
-    let mut masks: ArrayVec<[u8; 20], 16> = ArrayVec::new();
-    let sample_limit = factors.len().min(masks.capacity());
+    let sample_limit = factors.len().min(16);
     let mut selections: ArrayVec<&SelectionFactors, SELECTION_LIMIT> = ArrayVec::new();
 
     // Find the best individual indexer out of some samples to start with.
@@ -78,12 +77,13 @@ pub fn select_indexers<R: Rng>(
         let mut meta_indexer = MetaIndexer(selections.clone());
         meta_indexer.0.push(candidate);
 
-        // skip to next iteration if we've already checked this indexer combination.
-        let mask = meta_indexer.mask();
-        if masks.contains(&mask) {
+        // skip to next iteration if we've already checked this indexer selection.
+        if selections
+            .iter()
+            .any(|s| s.indexing.indexer == candidate.indexing.indexer)
+        {
             continue;
         }
-        masks.push(mask);
 
         let score = meta_indexer
             .score(params)
@@ -109,16 +109,6 @@ pub fn select_indexers<R: Rng>(
 impl MetaIndexer<'_> {
     fn fee(&self) -> GRT {
         self.0.iter().map(|f| f.fee).sum()
-    }
-
-    fn mask(&self) -> [u8; 20] {
-        let mut mask = [0u8; 20];
-        for indexer in self.0.iter().map(|f| &f.indexing.indexer) {
-            for i in 0..mask.len() {
-                mask[i] |= indexer[i];
-            }
-        }
-        mask
     }
 
     fn score(&self, params: &UtilityParameters) -> f64 {
