@@ -27,8 +27,22 @@ pub const UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS: [&str; 18] = [
 // Note: The linked PRs may be merged. But these must still be special-cased unless the minimum
 // indexer version includes these fixes.
 #[rustfmt::skip]
-pub const MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS: [&str; 3] = [
+pub const MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS: [&str; 4] = [
     "Null value resolved for non-null field",     // NonNullError (https://github.com/graphprotocol/graph-node/pull/3507)
     "Failed to decode",                           // ValueParseError (https://github.com/graphprotocol/graph-node/pull/4278)
     "Failed to coerce value",                     // EnumCoercionError, ScalarCoercionError (https://github.com/graphprotocol/graph-node/pull/4278)
+    "Child filters can not be nested",            // StoreError (https://github.com/graphprotocol/graph-node/issues/4775)
 ];
+
+pub fn miscategorized_unattestable(error: &str) -> bool {
+    let unattestable = UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS
+        .iter()
+        .any(|err| error.contains(err));
+    unattestable && !miscategorized_attestable(error)
+}
+
+pub fn miscategorized_attestable(error: &str) -> bool {
+    MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS
+        .iter()
+        .any(|err| error.contains(err))
+}

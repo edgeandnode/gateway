@@ -50,9 +50,7 @@ use crate::{
     receipts::{ReceiptPools, ReceiptStatus},
     reports,
     topology::{Deployment, GraphNetwork, Subgraph},
-    unattestable_errors::{
-        MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS, UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS,
-    },
+    unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
 };
 
 fn query_id() -> String {
@@ -836,10 +834,7 @@ async fn handle_indexer_query_inner(
     }
 
     for error in &indexer_errors {
-        if UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS
-            .iter()
-            .any(|err| error.contains(err))
-        {
+        if miscategorized_unattestable(error) {
             let _ = ctx.observations.write(Update::Penalty {
                 indexing: selection.indexing,
                 weight: 35,
@@ -858,10 +853,7 @@ async fn handle_indexer_query_inner(
         // TODO: This is a temporary hack to handle errors that were previously miscategorized as
         // unattestable in graph-node.
         for error in &indexer_errors {
-            if MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS
-                .iter()
-                .any(|err| error.contains(err))
-            {
+            if miscategorized_attestable(error) {
                 return Ok(response.payload);
             }
         }
