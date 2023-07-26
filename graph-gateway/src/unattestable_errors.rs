@@ -2,7 +2,7 @@
 // from getting to users.
 // Derived from https://github.com/graphprotocol/graph-node/blob/master/graph/src/data/query/error.rs
 #[rustfmt::skip]
-pub const UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS: [&str; 18] = [
+pub const UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS: [&str; 22] = [
     "Non-list value resolved for list field",     // ListValueError
     "Failed to get entities from store:",         // ResolveEntitiesError
     "argument must be between 0 and",             // RangeArgumentsError
@@ -22,6 +22,12 @@ pub const UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS: [&str; 18] = [
     "invalid subgraph manifest file",             // InvalidSubgraphManifest
     "is larger than the allowed limit of",        // ResultTooBig
                                                   // TODO: ValidationError
+
+    // graph-node features
+    "\"block__timestamp\" does not exist",                                       // v0.28.0
+    "Invalid value provided for argument `orderBy`: Enum(\"block__timestamp\")", // v0.28.0
+    "ield \"and\" is not defined by type",                                       // v0.30.0
+    "ield \"or\" is not defined by type",                                        // v0.30.0
 ];
 
 // Note: The linked PRs may be merged. But these must still be special-cased unless the minimum
