@@ -13,6 +13,8 @@ pub mod config;
 pub mod fisherman_client;
 pub mod geoip;
 pub mod indexer_client;
+pub mod indexers_blocklist;
+pub mod indexers_status;
 pub mod indexing;
 pub mod ipfs;
 pub mod metrics;

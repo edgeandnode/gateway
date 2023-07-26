@@ -24,7 +24,10 @@ static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 use serde::Deserialize;
 use siphasher::sip::SipHasher24;
-use std::{hash::{Hash, Hasher as _}, time::SystemTime};
+use std::{
+    hash::{Hash, Hasher as _},
+    time::SystemTime,
+};
 use tracing_subscriber::{self, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub fn init_tracing(json: bool) {

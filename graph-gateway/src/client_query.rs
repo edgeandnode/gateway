@@ -101,6 +101,7 @@ pub struct Context {
     pub block_caches: &'static HashMap<String, BlockCache>,
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
+    pub indexers_blocklist: Eventual<Ptr<Vec<Address>>>,
     pub receipt_pools: &'static ReceiptPools,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
@@ -427,10 +428,19 @@ async fn handle_client_query_inner(
         .iter()
         .flat_map(|deployment| {
             let id = deployment.id;
-            deployment.indexers.iter().map(move |indexer| Indexing {
-                indexer: indexer.id,
-                deployment: id,
-            })
+            deployment
+                .indexers
+                .iter()
+                .filter(|indexer| {
+                    // Filter out indexers that are blocked
+                    ctx.indexers_blocklist
+                        .value_immediate()
+                        .map_or(true, |blocklist| !blocklist.contains(&indexer.id))
+                })
+                .map(move |indexer| Indexing {
+                    indexer: indexer.id,
+                    deployment: id,
+                })
         })
         .collect::<BTreeSet<Indexing>>()
         .into_iter()

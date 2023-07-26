@@ -70,7 +70,7 @@ async fn update_statuses(
     client: reqwest::Client,
     deployments: &HashMap<DeploymentId, Arc<Deployment>>,
 ) {
-    let indexers: Vec<&Indexer> = deployments
+    let indexers: Vec<&Arc<Indexer>> = deployments
         .values()
         .flat_map(|deployment| &deployment.indexers)
         .collect();
@@ -126,7 +126,7 @@ async fn update_indexer(
     apply_geoblocking(&mut locked_actor, indexer).await?;
     drop(locked_actor);
 
-    query_status(actor, &client, indexer)
+    query_indexing_statuses(actor, &client, indexer)
         .await
         .map_err(|err| format!("IndexerStatusError({err})"))
 }
@@ -173,12 +173,12 @@ async fn apply_geoblocking(actor: &mut Actor, indexer: &Indexer) -> Result<(), S
     result
 }
 
-async fn query_status(
+async fn query_indexing_statuses(
     actor: &'static Mutex<Actor>,
     client: &reqwest::Client,
     indexer: &Indexer,
 ) -> Result<Vec<(Indexing, IndexingStatus)>, String> {
-    let status_url = indexer.url.join("status").map_err(|err| err.to_string())?;
+    let status_url = indexer.status_url();
     let status_query = json!({ "query": r#"{
             indexingStatuses(subgraphs: []) {
                 subgraph
@@ -189,13 +189,12 @@ async fn query_status(
                 }
             }
         }"# });
-    let statuses =
-        graphql_query::<IndexerStatusResponse>(client, status_url.into(), &status_query, None)
-            .await?
-            .unpack()?
-            .indexing_statuses;
+    let statuses = graphql_query::<IndexerStatusResponse>(client, status_url, &status_query, None)
+        .await?
+        .unpack()?
+        .indexing_statuses;
 
-    let cost_url = indexer.url.join("cost").map_err(|err| err.to_string())?;
+    let cost_url = indexer.cost_url();
     let deployments = statuses
         .iter()
         .map(|stat| stat.subgraph.to_string())
@@ -210,12 +209,11 @@ async fn query_status(
         }"#,
         "variables": { "deployments": deployments },
     });
-    let cost_models =
-        graphql_query::<CostModelResponse>(client, cost_url.into(), &cost_query, None)
-            .await
-            .and_then(graphql::http::Response::unpack)
-            .map(|cost_models| cost_models.cost_models)
-            .unwrap_or_default();
+    let cost_models = graphql_query::<CostModelResponse>(client, cost_url, &cost_query, None)
+        .await
+        .and_then(graphql::http::Response::unpack)
+        .map(|cost_models| cost_models.cost_models)
+        .unwrap_or_default();
 
     let mut actor = actor.lock().await;
     let mut cost_models = cost_models
