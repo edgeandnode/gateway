@@ -118,7 +118,8 @@ impl Client {
             .post(rpc.0)
             .json(&body)
             .send()
-            .await?
+            .await
+            .and_then(|response| response.error_for_status())?
             .json::<APIResult<APIBlockHead>>()
             .await
             .map(|APIResult { result }| BlockHead {
