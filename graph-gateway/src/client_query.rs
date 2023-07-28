@@ -612,6 +612,14 @@ async fn handle_client_query_inner(
                 .as_f64() as f32,
         );
 
+        // The gateway's current strategy for predicting is optimized for keeping responses close to chain head. We've
+        // seen instances where indexers are stuck far behind chain head, potentially due to IPFS data availability
+        // issues. The gateway's predictions are not cutting it in these scenarios where `blocks_behind` values are
+        // constantly increasing. This adds an exponential backoff to the latest_block input to indexer selection when
+        // retries are necessary due to indexers failing to resolve the requested block hash. This also adds a more
+        // aggressive fallback based on the reported block statuses of available indexers. This is not an ideal
+        // solution, since it adds more complexity to one of the most complex interactions in the gateway. I intend to
+        // completely rework this soon. But it will likely require support on the indexer side.
         let mut backoff = 2_u64.pow(latest_unresolved);
         if latest_unresolved > 2 {
             let statuses = ctx.indexing_statuses.value_immediate().unwrap();
