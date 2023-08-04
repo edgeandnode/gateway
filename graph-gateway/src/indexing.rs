@@ -14,7 +14,7 @@ use prelude::{epoch_cache::EpochCache, graphql, url::url::Host, *};
 
 use crate::geoip::GeoIP;
 use crate::subgraph_client::graphql_query;
-use crate::topology::{Allocation, Deployment, Indexer};
+use crate::topology::{Deployment, Indexer};
 
 pub struct IndexingStatus {
     pub chain: String,
@@ -70,13 +70,12 @@ async fn update_statuses(
     client: reqwest::Client,
     deployments: &HashMap<DeploymentId, Arc<Deployment>>,
 ) {
-    let indexers: HashMap<Address, &Indexer> = deployments
+    let indexers: Vec<&Indexer> = deployments
         .values()
-        .flat_map(|deployment| &deployment.allocations)
-        .map(|Allocation { indexer, .. }| (indexer.id, indexer))
+        .flat_map(|deployment| &deployment.indexers)
         .collect();
 
-    let statuses = join_all(indexers.values().map(move |indexer| {
+    let statuses = join_all(indexers.iter().map(move |indexer| {
         let client = client.clone();
         async move {
             match update_indexer(actor, client, indexer).await {
