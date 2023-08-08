@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use graph_subscriptions::{TicketPayload, TicketVerificationDomain};
+use graph_subscriptions::TicketPayload;
 
 use prelude::{
     anyhow::{anyhow, bail, ensure, Result},
@@ -28,7 +28,6 @@ pub struct AuthHandler {
     pub special_api_keys: HashSet<String>,
     pub api_key_payment_required: bool,
     pub subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
-    pub subscriptions_verification_domain: Option<TicketVerificationDomain>,
     pub subscription_query_counters: RwLock<HashMap<Address, AtomicUsize>>,
 }
 
@@ -52,7 +51,6 @@ impl AuthHandler {
         special_api_keys: HashSet<String>,
         api_key_payment_required: bool,
         subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
-        subscriptions_verification_domain: Option<TicketVerificationDomain>,
     ) -> &'static Self {
         let handler: &'static Self = Box::leak(Box::new(Self {
             query_budget_factors,
@@ -60,7 +58,6 @@ impl AuthHandler {
             special_api_keys,
             api_key_payment_required,
             subscriptions,
-            subscriptions_verification_domain,
             subscription_query_counters: RwLock::default(),
         }));
 
@@ -97,11 +94,7 @@ impl AuthHandler {
                 .ok_or_else(|| anyhow!("API key not found"));
         }
 
-        let domain = self
-            .subscriptions_verification_domain
-            .as_ref()
-            .ok_or_else(|| anyhow!("Subscriptions not supported"))?;
-        let (payload, _) = TicketPayload::from_ticket_base64(domain, input)?;
+        let (payload, _) = TicketPayload::from_ticket_base64(input)?;
 
         let user = Address(payload.user().0);
         let subscription = self

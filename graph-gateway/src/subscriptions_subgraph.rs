@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 
 use prelude::*;
 
+use crate::config::SubscriptionsContract;
 use crate::price_automation::VolumeEstimations;
 use crate::subgraph_client;
 use crate::subscriptions::{ActiveSubscription, Subscription};
@@ -14,35 +15,36 @@ pub struct Client {
     subgraph_client: subgraph_client::Client,
     tiers: &'static SubscriptionTiers,
     subscriptions_usage: VolumeEstimations<Address>,
-    owner_subscription: Option<(Address, Subscription)>,
+    owner_subscriptions: Vec<(Address, Subscription)>,
     subscriptions: EventualWriter<Ptr<HashMap<Address, Subscription>>>,
 }
 
 impl Client {
     pub fn create(
         subgraph_client: subgraph_client::Client,
-        owner: Option<Address>,
         tiers: &'static SubscriptionTiers,
+        contracts: Vec<SubscriptionsContract>,
     ) -> Eventual<Ptr<HashMap<Address, Subscription>>> {
-        let owner_subscription = owner.map(|owner| {
-            (
-                owner,
-                Subscription {
+        let owner_subscriptions: Vec<(Address, Subscription)> = contracts
+            .iter()
+            .map(|contract| {
+                let sub = Subscription {
                     queries_per_minute: u32::MAX,
                     // TODO: query for authorized signers for owner.
                     signers: vec![],
                     usage: Arc::default(),
-                },
-            )
-        });
+                };
+                (contract.owner, sub)
+            })
+            .collect();
 
         let (mut subscriptions_tx, subscriptions_rx) = Eventual::new();
-        subscriptions_tx.write(Ptr::new(owner_subscription.clone().into_iter().collect()));
+        subscriptions_tx.write(Ptr::new(owner_subscriptions.iter().cloned().collect()));
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
             tiers,
             subscriptions_usage: VolumeEstimations::new(),
-            owner_subscription,
+            owner_subscriptions,
             subscriptions: subscriptions_tx,
         }));
 
@@ -117,7 +119,7 @@ impl Client {
                 };
                 (user.id, sub)
             })
-            .chain(self.owner_subscription.clone())
+            .chain(self.owner_subscriptions.clone())
             .collect();
         self.subscriptions.write(Ptr::new(subscriptions_map));
 
