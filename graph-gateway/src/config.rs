@@ -74,23 +74,8 @@ pub struct Config {
     /// Subgraph studio admin url
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub studio_url: Option<Url>,
-    /// Subscriptions contract chain ID
-    pub subscriptions_chain_id: Option<u64>,
-    /// Subscriptions contract address
-    pub subscriptions_contract: Option<Address>,
-    /// Subscriptions contract owner
-    pub subscriptions_owner: Option<Address>,
-    /// Subscriptions contract subgraph URL
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    pub subscriptions_subgraph: Option<Url>,
-    /// Subscriptions ticket for internal queries
-    pub subscriptions_ticket: Option<String>,
-    /// Kafka topic to report subscription queries
-    pub subscriptions_topic: Option<String>,
-    /// Subscription tiers
-    #[serde(default)]
-    #[serde_as(as = "FromInto<Vec<SubscriptionTier>>")]
-    pub subscription_tiers: SubscriptionTiers,
+    /// Subscriptions configuration
+    pub subscriptions: Option<Subscriptions>,
 }
 
 #[serde_as]
@@ -183,4 +168,29 @@ impl FromStr for SignerKey {
             SecretKey::from_slice(signer_key.as_ref()).unwrap(),
         ))
     }
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize)]
+pub struct Subscriptions {
+    /// Configuration per subscriptions contract
+    pub contracts: Vec<SubscriptionsContract>,
+    /// Kafka topic to report subscription queries
+    pub kafka_topic: Option<String>,
+    /// Subscriptions subgraph URL
+    #[serde_as(as = "DisplayFromStr")]
+    pub subgraph: Url,
+    /// Subscriptions ticket for internal queries
+    pub ticket: Option<String>,
+    /// Subscription tiers
+    #[serde(default)]
+    #[serde_as(as = "FromInto<Vec<SubscriptionTier>>")]
+    pub tiers: SubscriptionTiers,
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize)]
+pub struct SubscriptionsContract {
+    /// contract owner
+    pub owner: Address,
 }

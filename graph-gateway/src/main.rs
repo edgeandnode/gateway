@@ -18,7 +18,7 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::EventualExt as _;
-use graph_subscriptions::{subscription_tier::SubscriptionTiers, TicketVerificationDomain};
+use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use serde_json::json;
@@ -87,7 +87,14 @@ async fn main() {
         }
     };
 
-    reports::init(kafka_client, config.log_json, config.subscriptions_topic);
+    reports::init(
+        kafka_client,
+        config.log_json,
+        config
+            .subscriptions
+            .as_ref()
+            .and_then(|s| s.kafka_topic.clone()),
+    );
     tracing::info!("Graph gateway starting...");
     tracing::debug!(config = %config_repr);
 
@@ -186,29 +193,22 @@ async fn main() {
         None => Eventual::from_value(Ptr::default()),
     };
 
+    let subscription_tiers = config.subscriptions.as_ref().map(|s| s.tiers.clone());
     let subscription_tiers: &'static SubscriptionTiers =
-        Box::leak(Box::new(config.subscription_tiers));
+        Box::leak(Box::new(subscription_tiers.unwrap_or_default()));
 
-    let subscriptions = match config.subscriptions_subgraph {
+    let subscriptions = match config.subscriptions {
         None => Eventual::from_value(Ptr::default()),
-        Some(subgraph_endpoint) => subscriptions_subgraph::Client::create(
+        Some(subscriptions) => subscriptions_subgraph::Client::create(
             subgraph_client::Client::new(
                 http_client.clone(),
-                subgraph_endpoint,
-                config.subscriptions_ticket,
+                subscriptions.subgraph,
+                subscriptions.ticket,
             ),
-            config.subscriptions_owner,
             subscription_tiers,
+            subscriptions.contracts,
         ),
     };
-    let subscriptions_domain_separator =
-        match (config.subscriptions_chain_id, config.subscriptions_contract) {
-            (Some(chain_id), Some(contract)) => Some(TicketVerificationDomain {
-                contract: contract.0.into(),
-                chain_id: chain_id.into(),
-            }),
-            (_, _) => None,
-        };
     let auth_handler = AuthHandler::create(
         QueryBudgetFactors {
             scale: config.query_budget_scale,
@@ -219,7 +219,6 @@ async fn main() {
         HashSet::from_iter(config.special_api_keys),
         config.api_key_payment_required,
         subscriptions,
-        subscriptions_domain_separator,
     );
 
     let fisherman_client = config.fisherman.map(|url| {

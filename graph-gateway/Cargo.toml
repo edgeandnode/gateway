@@ -13,7 +13,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 ethers = { version = "2.0.3", default-features = false, features = ["abigen"] }
 futures = "0.3"
 futures-util = "0.3"
-graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "620a844" }
+graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "47c4e9e" }
 hdwallet = "0.3"
 hex = "0.4"
 indexer-selection = { path = "../indexer-selection" }
