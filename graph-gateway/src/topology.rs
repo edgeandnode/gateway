@@ -34,9 +34,7 @@ pub struct Deployment {
     pub id: DeploymentId,
     pub manifest: Arc<Manifest>,
     pub version: Option<Arc<semver::Version>>,
-    /// An indexer may have multiple active allocations on a deployment. We collapse them into a single logical
-    /// allocation using the largest allocation ID and sum of the allocated tokens.
-    pub indexers: Vec<Indexer>,
+    pub allocations: Vec<Allocation>,
     /// A deployment may be associated with multiple subgraphs.
     pub subgraphs: BTreeSet<SubgraphId>,
     /// Indicates that the deployment should not be served directly by this gateway. This will
@@ -44,12 +42,16 @@ pub struct Deployment {
     pub transferred_to_l2: bool,
 }
 
+pub struct Allocation {
+    pub id: Address,
+    pub allocated_tokens: GRT,
+    pub indexer: Indexer,
+}
+
 pub struct Indexer {
     pub id: Address,
     pub url: Url,
     pub staked_tokens: GRT,
-    pub largest_allocation: Address,
-    pub allocated_tokens: GRT,
 }
 
 pub struct Manifest {
@@ -150,40 +152,22 @@ impl GraphNetwork {
             })
             .map(|subgraph| subgraph.id)
             .collect();
-
-        // extract indexer info from each allocation
-        let allocations: Vec<Indexer> = version
+        let allocations = version
             .subgraph_deployment
             .allocations
             .iter()
             .filter_map(|allocation| {
-                Some(Indexer {
-                    id: allocation.indexer.id,
-                    url: allocation.indexer.url.as_ref()?.parse().ok()?,
-                    staked_tokens: allocation.indexer.staked_tokens.change_precision(),
-                    largest_allocation: allocation.id,
+                Some(Allocation {
+                    id: allocation.id,
                     allocated_tokens: allocation.allocated_tokens.change_precision(),
+                    indexer: Indexer {
+                        id: allocation.indexer.id,
+                        url: allocation.indexer.url.as_ref()?.parse().ok()?,
+                        staked_tokens: allocation.indexer.staked_tokens.change_precision(),
+                    },
                 })
             })
             .collect();
-        // TODO: remove need for itertools here: https://github.com/rust-lang/rust/issues/80552
-        use itertools::Itertools as _;
-        let indexers: Vec<Indexer> = allocations
-            .into_iter()
-            .map(|indexer| (*indexer.id, indexer))
-            .into_group_map()
-            .into_iter()
-            .filter_map(|(_, allocations)| {
-                let total_allocation: GRT = allocations.iter().map(|a| a.allocated_tokens).sum();
-                let max_allocation = allocations.iter().map(|a| a.allocated_tokens).max()?;
-                let mut indexer = allocations
-                    .into_iter()
-                    .find(|a| a.allocated_tokens == max_allocation)?;
-                indexer.allocated_tokens = total_allocation;
-                Some(indexer)
-            })
-            .collect();
-
         let transferred_to_l2 = version.subgraph_deployment.transferred_to_l2
             && version.subgraph_deployment.allocations.is_empty();
 
@@ -201,7 +185,7 @@ impl GraphNetwork {
             manifest,
             version,
             subgraphs,
-            indexers,
+            allocations,
             transferred_to_l2,
         }))
     }

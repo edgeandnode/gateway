@@ -42,7 +42,7 @@ use graph_gateway::{
     reports,
     reports::KafkaClient,
     subgraph_client, subgraph_studio, subscriptions_subgraph,
-    topology::{Deployment, GraphNetwork, Indexer},
+    topology::{Allocation, Deployment, GraphNetwork},
     vouchers, JsonResponse,
 };
 use indexer_selection::{
@@ -386,17 +386,17 @@ async fn write_indexer_inputs(
 ) {
     tracing::info!(
         deployments = deployments.len(),
-        indexings = deployments
+        allocations = deployments
             .values()
-            .map(|d| d.indexers.len())
+            .map(|d| d.allocations.len())
             .sum::<usize>(),
         indexing_statuses = indexing_statuses.len(),
     );
 
     let mut indexers: HashMap<Address, IndexerUpdate> = deployments
         .values()
-        .flat_map(|deployment| &deployment.indexers)
-        .map(|indexer| {
+        .flat_map(|deployment| &deployment.allocations)
+        .map(|Allocation { indexer, .. }| {
             let update = IndexerUpdate {
                 info: Arc::new(IndexerInfo {
                     stake: indexer.staked_tokens,
@@ -426,14 +426,14 @@ async fn write_indexer_inputs(
         let allocations: HashMap<Address, GRT> = deployments
             .get(&indexing.deployment)
             .into_iter()
-            .flat_map(|deployment| &deployment.indexers)
-            .filter(|indexer| indexer.id == indexing.indexer)
+            .flat_map(|deployment| &deployment.allocations)
+            .filter(|Allocation { indexer, .. }| indexer.id == indexing.indexer)
             .map(
-                |Indexer {
-                     largest_allocation,
+                |Allocation {
+                     id,
                      allocated_tokens,
                      ..
-                 }| (*largest_allocation, *allocated_tokens),
+                 }| (*id, *allocated_tokens),
             )
             .collect();
 
