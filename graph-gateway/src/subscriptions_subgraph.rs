@@ -6,7 +6,6 @@ use tokio::sync::Mutex;
 
 use prelude::*;
 
-use crate::config::SubscriptionsContract;
 use crate::price_automation::VolumeEstimations;
 use crate::subgraph_client;
 use crate::subscriptions::{ActiveSubscription, Subscription};
@@ -23,18 +22,18 @@ impl Client {
     pub fn create(
         subgraph_client: subgraph_client::Client,
         tiers: &'static SubscriptionTiers,
-        contracts: Vec<SubscriptionsContract>,
+        contract_owners: Vec<Address>,
     ) -> Eventual<Ptr<HashMap<Address, Subscription>>> {
-        let owner_subscriptions: Vec<(Address, Subscription)> = contracts
+        // TODO: query contract owners and authorized signers from subrgaph
+        let owner_subscriptions: Vec<(Address, Subscription)> = contract_owners
             .iter()
-            .map(|contract| {
+            .map(|owner| {
                 let sub = Subscription {
                     queries_per_minute: u32::MAX,
-                    // TODO: query for authorized signers for owner.
                     signers: vec![],
                     usage: Arc::default(),
                 };
-                (contract.owner, sub)
+                (*owner, sub)
             })
             .collect();
 

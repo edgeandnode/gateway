@@ -206,7 +206,7 @@ async fn main() {
                 subscriptions.ticket,
             ),
             subscription_tiers,
-            subscriptions.contracts,
+            subscriptions.contract_owners,
         ),
     };
     let auth_handler = AuthHandler::create(
