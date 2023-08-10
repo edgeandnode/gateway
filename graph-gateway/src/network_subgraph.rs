@@ -135,8 +135,7 @@ impl Client {
 
     #[allow(clippy::obfuscated_if_else)]
     async fn poll_subgraphs(&mut self) -> Result<(), String> {
-        // TODO: `indexerAllocations(first: 500` is for the MIPs program. Under normal circumstances
-        // we would not expect so many indexers per deployment.
+        // last allocation is latest by indexing: 9936786a-e286-45f3-9190-8409d8389e88
         let query = format!(
             r#"
             subgraphs(
@@ -156,7 +155,11 @@ impl Client {
                     metadataHash
                     subgraphDeployment {{
                         ipfsHash
-                        indexerAllocations(first: 100, where: {{ status: Active }}) {{
+                        indexerAllocations(
+                            first: 100
+                            orderBy: createdAt, orderDirection: asc
+                            where: {{ status: Active }}
+                        ) {{
                             id
                             allocatedTokens
                             indexer {{

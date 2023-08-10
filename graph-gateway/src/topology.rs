@@ -173,12 +173,10 @@ impl GraphNetwork {
             .map(|indexer| (*indexer.id, indexer))
             .into_group_map()
             .into_iter()
-            .filter_map(|(_, allocations)| {
+            .filter_map(|(_, mut allocations)| {
                 let total_allocation: GRT = allocations.iter().map(|a| a.allocated_tokens).sum();
-                let max_allocation = allocations.iter().map(|a| a.allocated_tokens).max()?;
-                let mut indexer = allocations
-                    .into_iter()
-                    .find(|a| a.allocated_tokens == max_allocation)?;
+                // last allocation is latest: 9936786a-e286-45f3-9190-8409d8389e88
+                let mut indexer = allocations.pop()?;
                 indexer.allocated_tokens = total_allocation;
                 Some(indexer)
             })
