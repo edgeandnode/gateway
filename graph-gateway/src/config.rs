@@ -10,6 +10,7 @@ use indexer_selection::SecretKey;
 use prelude::*;
 
 use crate::chains::ethereum;
+use crate::poi::ProofOfIndexingInfo;
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
@@ -76,6 +77,11 @@ pub struct Config {
     pub studio_url: Option<Url>,
     /// Subscriptions configuration
     pub subscriptions: Option<Subscriptions>,
+    /// POI blocklist
+    #[serde(default)]
+    pub poi_blocklist: Vec<ProofOfIndexingInfo>,
+    /// POI blocklist update interval in minutes (default: 20 minutes)
+    pub poi_blocklist_update_interval: Option<u64>,
 }
 
 #[serde_as]

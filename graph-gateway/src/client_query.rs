@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
@@ -102,6 +103,7 @@ pub struct Context {
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
     pub receipt_signer: &'static ReceiptSigner,
+    pub indexings_blocklist: Eventual<Ptr<HashSet<Indexing>>>,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
 }
@@ -425,14 +427,27 @@ async fn handle_client_query_inner(
         .await
         .map_err(Error::InvalidAuth)?;
 
+    let blocklist = ctx
+        .indexings_blocklist
+        .value_immediate()
+        .unwrap_or_default();
+
     let available_indexings: Vec<Indexing> = deployments
         .iter()
-        .flat_map(|deployment| {
+        .flat_map(move |deployment| {
             let id = deployment.id;
-            deployment.indexers.iter().map(move |indexer| Indexing {
-                indexer: indexer.id,
-                deployment: id,
-            })
+            let blocklist = blocklist.clone();
+            deployment
+                .indexers
+                .iter()
+                .map(move |indexer| Indexing {
+                    indexer: indexer.id,
+                    deployment: id,
+                })
+                .filter(move |indexing| {
+                    // Filter out indexings that are blocked
+                    !blocklist.contains(indexing)
+                })
         })
         .collect::<BTreeSet<Indexing>>()
         .into_iter()
