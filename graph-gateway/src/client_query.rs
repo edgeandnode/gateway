@@ -427,13 +427,10 @@ async fn handle_client_query_inner(
         .iter()
         .flat_map(|deployment| {
             let id = deployment.id;
-            deployment
-                .allocations
-                .iter()
-                .map(move |allocation| Indexing {
-                    indexer: allocation.indexer.id,
-                    deployment: id,
-                })
+            deployment.indexers.iter().map(move |indexer| Indexing {
+                indexer: indexer.id,
+                deployment: id,
+            })
         })
         .collect::<BTreeSet<Indexing>>()
         .into_iter()
@@ -1032,7 +1029,7 @@ mod test {
                     min_block: 0,
                 }),
                 version: version.map(|v| Arc::new(v.parse().unwrap())),
-                allocations: vec![],
+                indexers: vec![],
                 subgraphs: BTreeSet::new(),
                 transferred_to_l2: false,
             })
