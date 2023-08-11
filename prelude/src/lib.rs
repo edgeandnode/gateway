@@ -6,12 +6,9 @@ use std::{
 
 use serde::Deserialize;
 use siphasher::sip::SipHasher24;
-use tokio::{
-    self,
-    time::{Duration, Instant},
-};
+use tokio::time::{Duration, Instant};
 use toolshed::bytes::Bytes32;
-use tracing_subscriber::{self, layer::SubscriberExt as _, util::SubscriberInitExt as _};
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub use crate::decimal::*;
 
