@@ -42,7 +42,7 @@ use graph_gateway::{
     reports,
     reports::KafkaClient,
     subgraph_client, subgraph_studio, subscriptions_subgraph,
-    topology::{Deployment, GraphNetwork, Indexer},
+    topology::{Deployment, GraphNetwork},
     vouchers, JsonResponse,
 };
 use indexer_selection::{
@@ -428,13 +428,7 @@ async fn write_indexer_inputs(
             .into_iter()
             .flat_map(|deployment| &deployment.indexers)
             .filter(|indexer| indexer.id == indexing.indexer)
-            .map(
-                |Indexer {
-                     largest_allocation,
-                     allocated_tokens,
-                     ..
-                 }| (*largest_allocation, *allocated_tokens),
-            )
+            .map(|indexer| (indexer.largest_allocation, indexer.allocated_tokens))
             .collect();
 
         receipt_pools

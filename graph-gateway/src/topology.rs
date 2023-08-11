@@ -5,6 +5,7 @@ use std::{
 
 use chrono::Utc;
 use futures_util::future::join_all;
+use itertools::Itertools;
 use serde::Deserialize;
 
 use prelude::{anyhow::anyhow, eventuals::EventualExt as _, tokio::sync::RwLock, *};
@@ -16,6 +17,7 @@ use crate::{ipfs, network_subgraph};
 pub struct GraphNetwork {
     pub subgraphs: Eventual<Ptr<HashMap<SubgraphId, Subgraph>>>,
     pub deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
+    pub indexers: Eventual<Ptr<HashMap<Address, Arc<Indexer>>>>,
 }
 
 /// In an effort to keep the ownership structure a simple tree, this only contains the info required
@@ -36,12 +38,18 @@ pub struct Deployment {
     pub version: Option<Arc<semver::Version>>,
     /// An indexer may have multiple active allocations on a deployment. We collapse them into a single logical
     /// allocation using the largest allocation ID and sum of the allocated tokens.
-    pub indexers: Vec<Indexer>,
+    pub indexers: Vec<Arc<Indexer>>,
     /// A deployment may be associated with multiple subgraphs.
     pub subgraphs: BTreeSet<SubgraphId>,
     /// Indicates that the deployment should not be served directly by this gateway. This will
     /// always be false when `allocations > 0`.
     pub transferred_to_l2: bool,
+}
+
+pub struct Allocation {
+    pub id: Address,
+    pub allocated_tokens: GRT,
+    pub indexer: Arc<Indexer>,
 }
 
 pub struct Indexer {
@@ -50,6 +58,20 @@ pub struct Indexer {
     pub staked_tokens: GRT,
     pub largest_allocation: Address,
     pub allocated_tokens: GRT,
+}
+
+impl Indexer {
+    pub fn cost_url(&self) -> Url {
+        // Indexer URLs are validated when they are added to the network, so this should never fail.
+        // 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
+        self.url.join("cost").unwrap().into()
+    }
+
+    pub fn status_url(&self) -> Url {
+        // Indexer URLs are validated when they are added to the network, so this should never fail.
+        // 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
+        self.url.join("status").unwrap().into()
+    }
 }
 
 pub struct Manifest {
@@ -70,9 +92,13 @@ impl GraphNetwork {
             metadata: HashMap::new(),
         })));
 
+        // Create a lookup table for subgraphs, keyed by their ID.
+        // Invalid URL indexers are filtered out. See: 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
         let subgraphs = subgraphs.map(move |subgraphs| async move {
             Ptr::new(Self::subgraphs(&subgraphs, cache, l2_transfer_delay).await)
         });
+
+        // Create a lookup table for deployments, keyed by their ID (which is also their IPFS hash).
         let deployments = subgraphs.clone().map(|subgraphs| async move {
             subgraphs
                 .values()
@@ -82,14 +108,26 @@ impl GraphNetwork {
                 .into()
         });
 
+        // Create a lookup table for indexers, keyed by their ID (which is also their address).
+        let indexers = subgraphs.clone().map(|subgraphs| async move {
+            subgraphs
+                .values()
+                .flat_map(|subgraph| &subgraph.deployments)
+                .flat_map(|deployment| &deployment.indexers)
+                .map(|indexer| (indexer.id, indexer.clone()))
+                .collect::<HashMap<Address, Arc<Indexer>>>()
+                .into()
+        });
+
         // Return only after eventuals have values, to avoid serving client queries prematurely.
-        if deployments.value().await.is_err() {
+        if deployments.value().await.is_err() || indexers.value().await.is_err() {
             panic!("Failed to await Graph network topology");
         }
 
         Self {
             subgraphs,
             deployments,
+            indexers,
         }
     }
 
@@ -152,26 +190,28 @@ impl GraphNetwork {
             .collect();
 
         // extract indexer info from each allocation
-        let allocations: Vec<Indexer> = version
+        let indexers = version
             .subgraph_deployment
             .allocations
             .iter()
             .filter_map(|allocation| {
-                Some(Indexer {
-                    id: allocation.indexer.id,
-                    url: allocation.indexer.url.as_ref()?.parse().ok()?,
-                    staked_tokens: allocation.indexer.staked_tokens.change_precision(),
-                    largest_allocation: allocation.id,
-                    allocated_tokens: allocation.allocated_tokens.change_precision(),
-                })
+                // If indexer URL parsing fails, the allocation is ignored (filtered out).
+                // 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
+                let url = allocation.indexer.url.as_ref()?.parse().ok()?;
+
+                let id = allocation.indexer.id;
+                Some((
+                    id,
+                    Indexer {
+                        id,
+                        url,
+                        staked_tokens: allocation.indexer.staked_tokens.change_precision(),
+                        largest_allocation: allocation.id,
+                        allocated_tokens: allocation.allocated_tokens.change_precision(),
+                    },
+                ))
             })
-            .collect();
-        // TODO: remove need for itertools here: https://github.com/rust-lang/rust/issues/80552
-        use itertools::Itertools as _;
-        let indexers: Vec<Indexer> = allocations
-            .into_iter()
-            .map(|indexer| (*indexer.id, indexer))
-            .into_group_map()
+            .into_group_map() // TODO: remove need for itertools here: https://github.com/rust-lang/rust/issues/80552
             .into_iter()
             .filter_map(|(_, mut allocations)| {
                 let total_allocation: GRT = allocations.iter().map(|a| a.allocated_tokens).sum();
@@ -180,6 +220,7 @@ impl GraphNetwork {
                 indexer.allocated_tokens = total_allocation;
                 Some(indexer)
             })
+            .map(Arc::new)
             .collect();
 
         let transferred_to_l2 = version.subgraph_deployment.transferred_to_l2
