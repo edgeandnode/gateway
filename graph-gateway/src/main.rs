@@ -20,7 +20,6 @@ use axum::{
 use eventuals::EventualExt as _;
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use prometheus::{self, Encoder as _};
-use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
 use tokio::spawn;
@@ -38,7 +37,7 @@ use graph_gateway::{
     indexing::{indexing_statuses, IndexingStatus},
     ipfs, network_subgraph,
     price_automation::QueryBudgetFactors,
-    receipts::ReceiptPools,
+    receipts::ReceiptSigner,
     reports,
     reports::KafkaClient,
     subgraph_client, subgraph_studio, subscriptions_subgraph,
@@ -152,7 +151,8 @@ async fn main() {
         ))
         .unwrap();
 
-    let receipt_pools: &'static ReceiptPools = Box::leak(Box::default());
+    let receipt_signer: &'static ReceiptSigner =
+        Box::leak(Box::new(ReceiptSigner::new(signer_key)));
 
     let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
     let network = GraphNetwork::new(network_subgraph_data.subgraphs, ipfs, l2_transfer_delay).await;
@@ -172,10 +172,9 @@ async fn main() {
                 let update_writer = update_writer.clone();
                 async move {
                     write_indexer_inputs(
-                        &signer_key,
                         block_caches,
                         &update_writer,
-                        receipt_pools,
+                        receipt_signer,
                         &deployments,
                         &indexing_statuses,
                     )
@@ -241,7 +240,7 @@ async fn main() {
         fisherman_client,
         block_caches,
         observations: update_writer,
-        receipt_pools,
+        receipt_signer,
         isa_state,
     };
 
@@ -374,10 +373,9 @@ async fn handle_subscription_tiers(
 }
 
 async fn write_indexer_inputs(
-    signer: &SecretKey,
     block_caches: &HashMap<String, BlockCache>,
     update_writer: &QueueWriter<Update>,
-    receipt_pools: &ReceiptPools,
+    receipt_signer: &ReceiptSigner,
     deployments: &HashMap<DeploymentId, Arc<Deployment>>,
     indexing_statuses: &HashMap<Indexing, IndexingStatus>,
 ) {
@@ -391,6 +389,7 @@ async fn write_indexer_inputs(
     );
 
     let mut indexings: HashMap<Indexing, indexer_selection::IndexingStatus> = HashMap::new();
+    let mut allocations: HashMap<Indexing, Address> = HashMap::new();
     let mut latest_blocks: HashMap<String, u64> = HashMap::new();
     for (deployment, indexer) in deployments.values().flat_map(|deployment| {
         let deployment_id = deployment.id;
@@ -428,26 +427,11 @@ async fn write_indexer_inputs(
                 min_block: status.min_block,
             }),
         };
+        allocations.insert(indexing, indexer.largest_allocation);
         indexings.insert(indexing, update);
     }
+    receipt_signer.update_allocations(allocations).await;
     let _ = update_writer.write(Update::Indexings(indexings));
-
-    // Prior attempts to put this in the prior loop caused the compiler to give up.
-    for (deployment_id, deployment) in deployments {
-        for indexer in &deployment.indexers {
-            // TODO: cleanup receipt pool update
-            receipt_pools
-                .update_receipt_pool(
-                    signer,
-                    &Indexing {
-                        indexer: indexer.id,
-                        deployment: *deployment_id,
-                    },
-                    &HashMap::from_iter([(indexer.largest_allocation, indexer.allocated_tokens)]),
-                )
-                .await;
-        }
-    }
 }
 
 async fn handle_metrics() -> impl axum::response::IntoResponse {
