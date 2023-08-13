@@ -45,10 +45,7 @@ use graph_gateway::{
     topology::{Deployment, GraphNetwork},
     vouchers, JsonResponse,
 };
-use indexer_selection::{
-    actor::{IndexerUpdate, Update},
-    BlockStatus, IndexerInfo, Indexing,
-};
+use indexer_selection::{actor::Update, BlockStatus, Indexing};
 use prelude::*;
 
 // Moving the `exchange_rate` module to `lib.rs` makes the doctests to fail during the compilation
@@ -393,28 +390,24 @@ async fn write_indexer_inputs(
         indexing_statuses = indexing_statuses.len(),
     );
 
-    let mut indexers: HashMap<Address, IndexerUpdate> = deployments
-        .values()
-        .flat_map(|deployment| &deployment.indexers)
-        .map(|indexer| {
-            let update = IndexerUpdate {
-                info: Arc::new(IndexerInfo {
-                    stake: indexer.staked_tokens,
-                    url: indexer.url.clone(),
-                }),
-                indexings: HashMap::new(),
-            };
-            (indexer.id, update)
-        })
-        .collect();
-
-    let mut latest_blocks = HashMap::<String, u64>::new();
-    for (indexing, status) in indexing_statuses {
-        let indexer = match indexers.get_mut(&indexing.indexer) {
-            Some(indexer) => indexer,
+    let mut indexings: HashMap<Indexing, indexer_selection::IndexingStatus> = HashMap::new();
+    let mut latest_blocks: HashMap<String, u64> = HashMap::new();
+    for (deployment, indexer) in deployments.values().flat_map(|deployment| {
+        let deployment_id = deployment.id;
+        deployment
+            .indexers
+            .iter()
+            .map(move |indexer| (deployment_id, indexer))
+    }) {
+        let indexing = Indexing {
+            indexer: indexer.id,
+            deployment,
+        };
+        let status = match indexing_statuses.get(&indexing) {
+            Some(status) => status,
             None => continue,
         };
-        let latest = match latest_blocks.entry(status.chain.clone()) {
+        let latest_block = match latest_blocks.entry(status.chain.clone()) {
             Entry::Occupied(entry) => *entry.get(),
             Entry::Vacant(entry) => *entry.insert(
                 block_caches
@@ -423,34 +416,38 @@ async fn write_indexer_inputs(
                     .unwrap_or(0),
             ),
         };
-        let allocations: HashMap<Address, GRT> = deployments
-            .get(&indexing.deployment)
-            .into_iter()
-            .flat_map(|deployment| &deployment.indexers)
-            .filter(|indexer| indexer.id == indexing.indexer)
-            .map(|indexer| (indexer.largest_allocation, indexer.allocated_tokens))
-            .collect();
-
-        receipt_pools
-            .update_receipt_pool(signer, indexing, &allocations)
-            .await;
-
-        indexer.indexings.insert(
-            indexing.deployment,
-            indexer_selection::IndexingStatus {
-                allocations: Arc::new(allocations),
-                cost_model: status.cost_model.clone(),
-                block: Some(BlockStatus {
-                    reported_number: status.block.number,
-                    blocks_behind: latest.saturating_sub(status.block.number),
-                    behind_reported_block: false,
-                    min_block: status.min_block,
-                }),
-            },
-        );
+        let update = indexer_selection::IndexingStatus {
+            url: indexer.url.clone(),
+            stake: indexer.staked_tokens,
+            allocation: indexer.allocated_tokens,
+            cost_model: status.cost_model.clone(),
+            block: Some(BlockStatus {
+                reported_number: status.block.number,
+                blocks_behind: latest_block.saturating_sub(status.block.number),
+                behind_reported_block: false,
+                min_block: status.min_block,
+            }),
+        };
+        indexings.insert(indexing, update);
     }
+    let _ = update_writer.write(Update::Indexings(indexings));
 
-    let _ = update_writer.write(Update::Indexers(indexers));
+    // Prior attempts to put this in the prior loop caused the compiler to give up.
+    for (deployment_id, deployment) in deployments {
+        for indexer in &deployment.indexers {
+            // TODO: cleanup receipt pool update
+            receipt_pools
+                .update_receipt_pool(
+                    signer,
+                    &Indexing {
+                        indexer: indexer.id,
+                        deployment: *deployment_id,
+                    },
+                    &HashMap::from_iter([(indexer.largest_allocation, indexer.allocated_tokens)]),
+                )
+                .await;
+        }
+    }
 }
 
 async fn handle_metrics() -> impl axum::response::IntoResponse {
