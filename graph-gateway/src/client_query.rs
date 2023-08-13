@@ -47,7 +47,7 @@ use crate::{
     indexer_client::{Attestation, IndexerClient, IndexerError, ResponsePayload},
     indexing::IndexingStatus,
     metrics::{with_metric, METRICS},
-    receipts::{ReceiptPools, ReceiptStatus},
+    receipts::{ReceiptSigner, ReceiptStatus},
     reports,
     topology::{Deployment, GraphNetwork, Subgraph},
     unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
@@ -101,7 +101,7 @@ pub struct Context {
     pub block_caches: &'static HashMap<String, BlockCache>,
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
-    pub receipt_pools: &'static ReceiptPools,
+    pub receipt_signer: &'static ReceiptSigner,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
 }
@@ -642,7 +642,7 @@ async fn handle_client_query_inner(
             let indexer_query_context = IndexerQueryContext {
                 indexer_client: ctx.indexer_client.clone(),
                 fisherman_client: ctx.fisherman_client,
-                receipt_pools: ctx.receipt_pools,
+                receipt_signer: ctx.receipt_signer,
                 observations: ctx.observations.clone(),
                 deployment,
                 latest_block: latest_block.number,
@@ -707,7 +707,7 @@ async fn handle_client_query_inner(
 struct IndexerQueryContext {
     pub indexer_client: IndexerClient,
     pub fisherman_client: Option<&'static FishermanClient>,
-    pub receipt_pools: &'static ReceiptPools,
+    pub receipt_signer: &'static ReceiptSigner,
     pub observations: QueueWriter<Update>,
     pub deployment: Arc<Deployment>,
     pub latest_block: u64,
@@ -733,8 +733,8 @@ async fn handle_indexer_query(
     );
 
     let receipt = ctx
-        .receipt_pools
-        .commit(&selection.indexing, selection.fee)
+        .receipt_signer
+        .create_receipt(&selection.indexing, selection.fee)
         .await
         .map_err(|_| IndexerError::NoAllocation);
 
@@ -773,8 +773,8 @@ async fn handle_indexer_query(
             Err(IndexerErrorObservation::Timeout) => ReceiptStatus::Unknown,
             Err(_) => ReceiptStatus::Failure,
         };
-        ctx.receipt_pools
-            .release(&indexing, &receipt, receipt_status)
+        ctx.receipt_signer
+            .record_receipt(&indexing, &receipt, receipt_status)
             .await;
     }
 
