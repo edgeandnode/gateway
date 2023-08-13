@@ -6,7 +6,6 @@ use prelude::{
 };
 use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 use rand_distr::Normal;
-use std::sync::Arc;
 
 pub struct IndexerCharacteristics {
     pub address: Address,
@@ -52,22 +51,12 @@ pub async fn simulate(
             indexer: characteristics.address,
             deployment,
         };
-        isa.indexers.insert(
-            indexing.indexer,
-            Arc::new(IndexerInfo {
-                url: "http://localhost".parse().unwrap(),
-                stake: characteristics.stake,
-            }),
-        );
-        let allocations = Arc::new(
-            [(Address::default(), characteristics.allocation)]
-                .into_iter()
-                .collect(),
-        );
         isa.insert_indexing(
             indexing,
             IndexingStatus {
-                allocations,
+                url: "http://localhost".parse().unwrap(),
+                stake: characteristics.stake,
+                allocation: characteristics.allocation,
                 cost_model: Some(Ptr::new(default_cost_model(characteristics.fee))),
                 block: Some(BlockStatus {
                     reported_number: params

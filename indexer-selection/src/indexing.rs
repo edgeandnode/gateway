@@ -3,7 +3,6 @@ use crate::{
     Context, CostModel, IndexerErrorObservation, SelectionError,
 };
 use prelude::*;
-use std::{collections::HashMap, sync::Arc};
 
 pub struct IndexingState {
     pub status: IndexingStatus,
@@ -13,10 +12,10 @@ pub struct IndexingState {
     pub last_use: Instant,
 }
 
-impl Default for IndexingState {
-    fn default() -> Self {
+impl IndexingState {
+    pub fn new(status: IndexingStatus) -> Self {
         Self {
-            status: IndexingStatus::default(),
+            status,
             reliability: ISADecayBuffer::default(),
             perf_success: ISADecayBuffer::default(),
             perf_failure: ISADecayBuffer::default(),
@@ -25,9 +24,11 @@ impl Default for IndexingState {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct IndexingStatus {
-    pub allocations: Arc<HashMap<Address, GRT>>,
+    pub url: Url,
+    pub stake: GRT,
+    pub allocation: GRT,
     pub cost_model: Option<Ptr<CostModel>>,
     pub block: Option<BlockStatus>,
 }
@@ -58,7 +59,7 @@ impl BlockStatus {
 }
 
 impl IndexingState {
-    pub fn set_status(&mut self, mut status: IndexingStatus) {
+    pub fn update_status(&mut self, mut status: IndexingStatus) {
         // As long as we haven't witnessed the indexer behind a reported block height, take the best
         // value of `blocks_behind`. This is especially important for fast-moving chains to avoid
         // indexers being thrown much further behind without any observation to justify that.
@@ -130,14 +131,6 @@ impl IndexingState {
         reliability.decay();
         perf_success.decay();
         perf_failure.decay();
-    }
-
-    pub fn total_allocation(&self) -> GRT {
-        self.status
-            .allocations
-            .iter()
-            .map(|(_, size)| size)
-            .fold(GRT::zero(), |sum, size| sum + *size)
     }
 
     pub fn fee(

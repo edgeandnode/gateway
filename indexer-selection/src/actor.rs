@@ -1,10 +1,10 @@
-use crate::{IndexerErrorObservation, IndexerInfo, Indexing, IndexingStatus, State};
+use crate::{IndexerErrorObservation, Indexing, IndexingStatus, State};
 use prelude::*;
 use prelude::{
     buffer_queue::{Event, QueueReader},
     double_buffer::DoubleBufferWriter,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 use tokio::{
     select,
     time::{sleep_until, Duration, Instant},
@@ -14,7 +14,7 @@ use tokio::{
 pub enum Update {
     USDToGRTConversion(GRT),
     SlashingPercentage(PPM),
-    Indexers(HashMap<Address, IndexerUpdate>),
+    Indexings(HashMap<Indexing, IndexingStatus>),
     QueryObservation {
         indexing: Indexing,
         duration: Duration,
@@ -24,12 +24,6 @@ pub enum Update {
         indexing: Indexing,
         weight: u8,
     },
-}
-
-#[derive(Debug)]
-pub struct IndexerUpdate {
-    pub info: Arc<IndexerInfo>,
-    pub indexings: HashMap<DeploymentId, IndexingStatus>,
 }
 
 pub async fn process_updates(
@@ -76,18 +70,10 @@ pub fn apply_state_update(state: &mut State, update: &Update) {
             tracing::info!(%slashing_percentage);
             state.network_params.slashing_percentage = Some(*slashing_percentage);
         }
-        Update::Indexers(indexers) => {
-            for (indexer, indexer_update) in indexers {
-                state.indexers.insert(*indexer, indexer_update.info.clone());
-                for (deployment, status) in &indexer_update.indexings {
-                    let indexing = Indexing {
-                        indexer: *indexer,
-                        deployment: *deployment,
-                    };
-                    state.insert_indexing(indexing, status.clone());
-                }
+        Update::Indexings(indexings) => {
+            for (indexing, update) in indexings {
+                state.insert_indexing(*indexing, update.clone());
             }
-            state.indexers.increment_epoch();
             state.indexings.increment_epoch();
         }
         Update::QueryObservation {

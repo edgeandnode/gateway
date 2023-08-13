@@ -1,8 +1,8 @@
 use crate::{
-    actor::{process_updates, IndexerUpdate, Update},
+    actor::{process_updates, Update},
     test_utils::default_cost_model,
-    BlockRequirements, BlockStatus, Candidate, Context, IndexerError, IndexerErrors, IndexerInfo,
-    Indexing, IndexingStatus, InputError, Selection, UtilityParameters, SELECTION_LIMIT,
+    BlockRequirements, BlockStatus, Candidate, Context, IndexerError, IndexerErrors, Indexing,
+    IndexingStatus, InputError, Selection, UtilityParameters, SELECTION_LIMIT,
 };
 use num_traits::ToPrimitive as _;
 use prelude::{
@@ -21,7 +21,6 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env,
     ops::RangeInclusive,
-    sync::Arc,
 };
 
 #[derive(Clone)]
@@ -37,7 +36,6 @@ struct Topology {
     usd_to_grt_conversion: GRT,
     slashing_percentage: PPM,
     blocks: Vec<BlockPointer>,
-    indexers: HashMap<Address, Arc<IndexerInfo>>,
     deployments: HashSet<DeploymentId>,
     indexings: HashMap<Indexing, IndexingStatus>,
 }
@@ -57,9 +55,6 @@ impl Topology {
         config: &Config,
         update_writer: &mut QueueWriter<Update>,
     ) -> Self {
-        let indexers = (0..rng.gen_range(config.indexers.clone()))
-            .map(|id| (Address(bytes_from_id(id)), Self::gen_indexer_info(rng)))
-            .collect();
         let deployments = (0..rng.gen_range(config.deployments.clone()))
             .map(|id| DeploymentId(bytes_from_id(id)))
             .collect();
@@ -70,13 +65,12 @@ impl Topology {
             })
             .collect::<Vec<BlockPointer>>();
         let indexings = (0..rng.gen_range(config.indexings.clone()))
-            .filter_map(|_| Self::gen_indexing(rng, &blocks, &indexers, &deployments))
+            .filter_map(|_| Self::gen_indexing(rng, config, &blocks, &deployments))
             .collect();
         let state = Self {
             usd_to_grt_conversion: "1.0".parse().unwrap(),
             slashing_percentage: "0.1".parse().unwrap(),
             blocks,
-            indexers,
             deployments,
             indexings,
         };
@@ -88,54 +82,27 @@ impl Topology {
             .write(Update::SlashingPercentage(state.slashing_percentage))
             .unwrap();
         update_writer
-            .write(Update::Indexers(
-                state
-                    .indexers
-                    .iter()
-                    .map(|(indexer, info)| {
-                        (
-                            *indexer,
-                            IndexerUpdate {
-                                info: info.clone(),
-                                indexings: state
-                                    .indexings
-                                    .iter()
-                                    .filter(|(indexing, _)| &indexing.indexer == indexer)
-                                    .map(|(indexing, status)| (indexing.deployment, status.clone()))
-                                    .collect(),
-                            },
-                        )
-                    })
-                    .collect(),
-            ))
+            .write(Update::Indexings(state.indexings.clone()))
             .unwrap();
 
         update_writer.flush().await.unwrap();
         state
     }
 
-    fn gen_indexer_info(rng: &mut SmallRng) -> Arc<IndexerInfo> {
-        Arc::new(IndexerInfo {
-            url: "http://localhost:8000".parse().unwrap(),
-            stake: Self::gen_grt(rng, &[0.0, 50e3, 100e3, 150e3]),
-        })
-    }
-
     fn gen_indexing(
         rng: &mut SmallRng,
+        config: &Config,
         blocks: &[BlockPointer],
-        indexers: &HashMap<Address, Arc<IndexerInfo>>,
         deployments: &HashSet<DeploymentId>,
     ) -> Option<(Indexing, IndexingStatus)> {
         let indexing = Indexing {
-            indexer: *indexers.iter().choose(rng)?.0,
+            indexer: Address(bytes_from_id(rng.gen_range(config.indexers.clone()))),
             deployment: *deployments.iter().choose(rng)?,
         };
         let status = IndexingStatus {
-            allocations: Arc::new(HashMap::from_iter([(
-                Address(bytes_from_id(0)),
-                "1".parse().unwrap(),
-            )])),
+            url: "http://localhost:8000".parse().unwrap(),
+            stake: Self::gen_grt(rng, &[0.0, 50e3, 100e3, 150e3]),
+            allocation: "1".parse().unwrap(),
             cost_model: Some(Ptr::new(default_cost_model(Self::gen_grt(
                 rng,
                 &[0.0, 0.1, 1.0, 2.0],
@@ -213,7 +180,6 @@ impl Topology {
 
         let mut expected_errors = IndexerErrors(BTreeMap::new());
         for indexer in &request.indexers {
-            let info = self.indexers.get(indexer).unwrap();
             let status = self
                 .indexings
                 .get(&Indexing {
@@ -221,11 +187,6 @@ impl Topology {
                     deployment: request.deployment,
                 })
                 .unwrap();
-            let total_allocation = status
-                .allocations
-                .iter()
-                .map(|(_, size)| size)
-                .fold(GRT::zero(), |sum, size| sum + *size);
             let required_block = request.params.requirements.range.map(|(_, n)| n);
             let fee = status
                 .cost_model
@@ -243,9 +204,9 @@ impl Topology {
                 set_err(IndexerError::MissingRequiredBlock);
             } else if status.block.is_none() {
                 set_err(IndexerError::NoStatus);
-            } else if info.stake == GRT::zero() {
+            } else if status.stake == GRT::zero() {
                 set_err(IndexerError::NoStake);
-            } else if total_allocation == GRT::zero() {
+            } else if status.allocation == GRT::zero() {
                 set_err(IndexerError::NoAllocation);
             } else if fee > request.params.budget.as_f64() {
                 set_err(IndexerError::FeeTooHigh);

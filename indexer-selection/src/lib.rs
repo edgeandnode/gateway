@@ -35,7 +35,6 @@ use score::{expected_individual_score, ExpectedValue};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt::Display,
-    sync::Arc,
 };
 
 // We have to use `String` instead of `&'c str` here because of compiler bug triggered when holding
@@ -217,22 +216,16 @@ impl UtilityParameters {
 #[derive(Default)]
 pub struct State {
     pub network_params: NetworkParameters,
-    indexers: EpochCache<Address, Arc<IndexerInfo>, 2>,
     indexings: EpochCache<Indexing, IndexingState, 2>,
-}
-
-#[derive(Debug)]
-pub struct IndexerInfo {
-    pub url: Url,
-    pub stake: GRT,
 }
 
 impl State {
     pub fn insert_indexing(&mut self, indexing: Indexing, status: IndexingStatus) {
-        let state = self
-            .indexings
-            .get_or_insert(indexing, |_| IndexingState::default());
-        state.set_status(status);
+        if let Some(entry) = self.indexings.get_mut(&indexing) {
+            entry.update_status(status);
+        } else {
+            self.indexings.insert(indexing, IndexingState::new(status));
+        }
     }
 
     pub fn observe_query(
@@ -322,27 +315,23 @@ impl State {
         context: &mut Context<'_>,
         selection_limit: u8,
     ) -> Result<SelectionFactors, SelectionError> {
-        let info = self
-            .indexers
-            .get_unobserved(&candidate.indexing.indexer)
-            .ok_or(IndexerError::NoStatus)?;
         let state = self
             .indexings
             .get_unobserved(&candidate.indexing)
             .ok_or(IndexerError::NoStatus)?;
 
-        let status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
-        if !status.meets_requirements(&params.requirements, params.latest_block) {
+        let block_status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
+        if !block_status.meets_requirements(&params.requirements, params.latest_block) {
             return Err(IndexerError::MissingRequiredBlock.into());
         }
 
-        if info.stake == GRT::zero() {
+        if state.status.stake == GRT::zero() {
             return Err(IndexerError::NoStake.into());
         }
 
         let slashable = self
             .network_params
-            .slashable_usd(info.stake)
+            .slashable_usd(state.status.stake)
             .ok_or(InputError::MissingNetworkParams)?;
 
         let fee = indexer_fee(
@@ -353,8 +342,7 @@ impl State {
             selection_limit,
         )?;
 
-        let allocation = state.total_allocation();
-        if allocation == GRT::zero() {
+        if state.status.allocation == GRT::zero() {
             return Err(IndexerError::NoAllocation.into());
         }
 
@@ -367,7 +355,7 @@ impl State {
             reliability,
             perf_success,
             candidate.versions_behind,
-            status.blocks_behind,
+            block_status.blocks_behind,
             slashable_usd,
             &fee,
         ))
@@ -375,17 +363,17 @@ impl State {
 
         Ok(SelectionFactors {
             indexing: candidate.indexing,
-            url: info.url.clone(),
+            url: state.status.url.clone(),
             versions_behind: candidate.versions_behind,
             reliability,
             perf_success,
             perf_failure: state.perf_failure.expected_value(),
-            blocks_behind: status.blocks_behind,
+            blocks_behind: block_status.blocks_behind,
             slashable_usd,
             expected_score,
             fee,
             last_use: state.last_use,
-            sybil: sybil(&allocation)?,
+            sybil: sybil(&state.status.allocation)?,
         })
     }
 }
