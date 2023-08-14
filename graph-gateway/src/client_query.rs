@@ -143,10 +143,12 @@ pub async fn handle_query(
         .ok()
         .and_then(|(_, s)| s.as_ref());
     let l2_subgraph_id = subgraph.and_then(|s| s.l2_id);
-    let deployments_migrated = matches!(
-        resolved_deployments.as_ref(),
-        Ok((deployments, _)) if deployments.iter().all(|d| d.transferred_to_l2),
-    );
+    let deployments_migrated = ctx.l2_gateway.is_some()
+        && matches!(
+            resolved_deployments.as_ref(),
+            Ok((deployments, _)) if deployments.iter().all(|d| d.indexers.is_empty()),
+        );
+
     if l2_subgraph_id.is_some() || (subgraph.is_none() && deployments_migrated) {
         // We validate the configuration correctness at startup: L2 transfer redirection requires
         // the L2 gateway URL to be configured.
