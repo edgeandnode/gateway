@@ -61,7 +61,7 @@ impl ReceiptSigner {
                 legacy_pool.remove_allocation(&old_allocation);
             }
             // add allocation, if not already present
-            if legacy_pool.contains_allocation(&allocation) {
+            if !legacy_pool.contains_allocation(&allocation) {
                 legacy_pool.add_allocation(self.signer_key, *allocation);
             }
         }
