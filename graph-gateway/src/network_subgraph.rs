@@ -144,8 +144,8 @@ impl Client {
                 first: $first
                 where: {{
                     id_gt: $last
-                    active: true
                     entityVersion: 2
+                    {}
                 }}
             ) {{
                 id
@@ -173,6 +173,9 @@ impl Client {
                 }}
             }}
         "#,
+            self.l2_transfer_support
+                .then_some("")
+                .unwrap_or("active: true"),
             self.l2_transfer_support.then_some("idOnL2").unwrap_or(""),
             self.l2_transfer_support
                 .then_some("startedTransferToL2At")
