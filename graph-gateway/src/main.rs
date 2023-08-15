@@ -26,6 +26,7 @@ use tokio::spawn;
 use tower_http::cors::{self, CorsLayer};
 
 use buffer_queue::{self, QueueWriter};
+use graph_gateway::indexings_blocklist::indexings_blocklist;
 use graph_gateway::{
     auth::AuthHandler,
     chains::{ethereum, BlockCache},
@@ -35,7 +36,7 @@ use graph_gateway::{
     geoip::GeoIP,
     indexer_client::IndexerClient,
     indexing::{indexing_statuses, IndexingStatus},
-    ipfs, network_subgraph,
+    indexings_blocklist, ipfs, network_subgraph,
     price_automation::QueryBudgetFactors,
     receipts::ReceiptSigner,
     reports,
@@ -157,6 +158,29 @@ async fn main() {
     let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
     let network = GraphNetwork::new(network_subgraph_data.subgraphs, ipfs, l2_transfer_delay).await;
 
+    // Indexer blocklist
+    // Periodically check the defective POIs list against the network indexers and update the
+    // indexers blocklist accordingly.
+    let indexings_blocklist = if !config.poi_blocklist.is_empty() {
+        let pois = config.poi_blocklist.clone();
+        let update_interval = config
+            .poi_blocklist_update_interval
+            .map_or(indexings_blocklist::DEFAULT_UPDATE_INTERVAL, |min| {
+                Duration::from_secs(min * 60)
+            });
+
+        indexings_blocklist(
+            http_client.clone(),
+            network.deployments.clone(),
+            network.indexers.clone(),
+            pois,
+            update_interval,
+        )
+        .await
+    } else {
+        Eventual::from_value(Ptr::default())
+    };
+
     let indexing_statuses = indexing_statuses(
         network.deployments.clone(),
         http_client.clone(),
@@ -164,6 +188,7 @@ async fn main() {
         geoip,
     )
     .await;
+
     {
         let update_writer = update_writer.clone();
         let indexing_statuses = indexing_statuses.clone();
@@ -237,6 +262,7 @@ async fn main() {
         auth_handler,
         network,
         indexing_statuses,
+        indexings_blocklist,
         fisherman_client,
         block_caches,
         observations: update_writer,

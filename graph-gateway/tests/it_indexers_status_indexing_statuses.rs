@@ -4,7 +4,6 @@ use assert_matches::assert_matches;
 use tokio::time::timeout;
 
 use graph_gateway::indexers_status::indexing_statuses::client;
-use graph_gateway::indexers_status::indexing_statuses::IndexingStatusesQuery;
 use prelude::{reqwest, DeploymentId};
 
 /// Test utility function to create a valid `DeploymentId` with an arbitrary deployment id/ipfs hash.
@@ -20,7 +19,6 @@ async fn query_indexer_indexing_statuses() {
         .parse()
         .expect("Invalid status url");
 
-    let query = IndexingStatusesQuery;
     let test_deployment = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
 
     //// When
@@ -31,7 +29,7 @@ async fn query_indexer_indexing_statuses() {
 
     //// Then
     assert_matches!(response, Ok(resp) => {
-        assert!(!resp.indexing_statuses.is_empty())
-        assert!(resp.indexing_statuses.iter().any(|status| status.subgraph == test_deployment))
+        assert!(!resp.indexing_statuses.is_empty());
+        assert!(resp.indexing_statuses.iter().any(|status| status.subgraph == test_deployment));
     });
 }
