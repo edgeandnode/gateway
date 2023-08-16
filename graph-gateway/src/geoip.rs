@@ -2,8 +2,6 @@ use std::{net::IpAddr, path::Path};
 
 use maxminddb::{geoip2, MaxMindDBError, Reader};
 
-use prelude::*;
-
 pub struct GeoIP {
     reader: Reader<Vec<u8>>,
     blocked_countries: Vec<String>,

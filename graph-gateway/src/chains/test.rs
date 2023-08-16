@@ -1,5 +1,7 @@
+use tokio::sync::mpsc;
+
 use indexer_selection::UnresolvedBlock;
-use prelude::*;
+use prelude::{BlockHead, BlockPointer};
 
 use super::ClientMsg;
 

@@ -1,9 +1,16 @@
+use std::time::Duration;
+
 use reqwest;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
+use tokio::sync::mpsc;
+use tokio::time::interval;
+use toolshed::bytes::Bytes32;
+use toolshed::url::Url;
+use tracing::Instrument;
 
 use indexer_selection::UnresolvedBlock;
-use prelude::{tokio::time::interval, *};
+use prelude::{BlockHead, BlockPointer};
 
 use crate::metrics::METRICS;
 

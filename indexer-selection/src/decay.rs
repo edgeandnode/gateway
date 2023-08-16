@@ -1,4 +1,4 @@
-use prelude::*;
+use std::time::Duration;
 
 /// DecayBuffer approximates a histogram of data points over time to inform a prediction. Data
 /// points are collected in the first (current) bin. Each call to `decay` rotates the bins to the
@@ -137,10 +137,13 @@ macro_rules! impl_struct_decay {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::test_utils::assert_within;
-    use arrayvec::ArrayVec;
     use std::iter;
+
+    use arrayvec::ArrayVec;
+
+    use crate::test_utils::assert_within;
+
+    use super::*;
 
     struct Model<const F: usize, const D: u16>(Vec<f64>);
 

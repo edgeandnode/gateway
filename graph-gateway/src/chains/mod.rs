@@ -1,7 +1,15 @@
 use std::collections::{BTreeSet, HashMap};
+use std::time::Duration;
+
+use eventuals::{Eventual, EventualWriter};
+use tokio::sync::{mpsc, oneshot};
+use tokio::time::interval;
+use toolshed::bytes::Bytes32;
+use tracing::Instrument;
 
 use indexer_selection::UnresolvedBlock;
-use prelude::{epoch_cache::EpochCache, tokio::time::interval, *};
+use prelude::epoch_cache::EpochCache;
+use prelude::{BlockHead, BlockPointer};
 
 use crate::{block_constraints::*, metrics::*};
 

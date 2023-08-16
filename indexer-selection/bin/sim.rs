@@ -1,9 +1,11 @@
+use std::io::{stdin, BufRead as _};
+
 use anyhow::Result;
+
 use indexer_selection::{
     simulation::*, test_utils::gen_blocks, BlockRequirements, Selection, UtilityParameters,
 };
 use prelude::*;
-use std::io::{stdin, BufRead as _};
 
 #[tokio::main]
 async fn main() -> Result<()> {

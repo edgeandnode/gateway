@@ -1,7 +1,11 @@
-use crate::{utility::UtilityFactor, Context, IndexerError, InputError, SelectionError};
-use cost_model::{CostError, CostModel};
-use prelude::*;
 use std::convert::TryFrom;
+
+use cost_model::{CostError, CostModel};
+use eventuals::Ptr;
+
+use prelude::{GRTWei, GRT};
+
+use crate::{utility::UtilityFactor, Context, IndexerError, InputError, SelectionError};
 
 // TODO: We need to rethink both of the following functions.
 // - We have been treating fees as having relatively low importance to prioritize network health
@@ -142,9 +146,11 @@ pub fn indexer_fee(
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::test_utils::{assert_within, default_cost_model};
     use prelude::test_utils::BASIC_QUERY;
+
+    use crate::test_utils::{assert_within, default_cost_model};
+
+    use super::*;
 
     #[test]
     fn test() {

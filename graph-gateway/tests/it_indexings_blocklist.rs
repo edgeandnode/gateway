@@ -1,10 +1,10 @@
 use std::time::Duration;
 
 use tokio::time::timeout;
+use toolshed::bytes::{Address, DeploymentId};
 
 use graph_gateway::indexings_blocklist::check_indexer_pois;
 use graph_gateway::poi::{ProofOfIndexing, ProofOfIndexingInfo};
-use prelude::{reqwest, Address, DeploymentId};
 
 /// Test utility function to create a valid `ProofOfIndexingInfo` with an zeros POI.
 fn zero_poi() -> ProofOfIndexing {

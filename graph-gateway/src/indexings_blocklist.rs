@@ -1,13 +1,14 @@
+use eventuals::{Eventual, EventualExt, Ptr};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use itertools::Itertools;
 use tokio::sync::Mutex;
+use toolshed::bytes::{Address, DeploymentId};
+use toolshed::url::Url;
 
 use indexer_selection::Indexing;
-use prelude::eventuals::{self, Eventual, EventualExt, Ptr};
-use prelude::{reqwest, tokio, Address, DeploymentId, Url};
 
 use crate::indexers_status::public_poi::client;
 use crate::poi::ProofOfIndexingInfo;

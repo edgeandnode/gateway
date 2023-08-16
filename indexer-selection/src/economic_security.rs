@@ -26,8 +26,9 @@ impl NetworkParameters {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::{test_utils::*, utility::ConcaveUtilityParameters};
+
+    use super::*;
 
     #[test]
     fn two_usd_to_grt() {

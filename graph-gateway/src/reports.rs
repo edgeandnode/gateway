@@ -1,12 +1,14 @@
 use std::error::Error;
+use std::fmt;
 
 use prost::Message as _;
 use rdkafka::error::KafkaResult;
 use serde::Deserialize;
 use serde_json::{json, Map};
+use tracing::span;
 use tracing_subscriber::{filter::FilterFn, layer, prelude::*, registry, EnvFilter, Layer};
 
-use prelude::{tracing::span, *};
+use prelude::{sip24_hash, unix_timestamp};
 
 use crate::{
     client_query,

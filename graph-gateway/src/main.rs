@@ -1,3 +1,4 @@
+use std::time::Duration;
 use std::{
     collections::hash_map::{Entry, HashMap},
     collections::hash_set::HashSet,
@@ -17,15 +18,15 @@ use axum::{
     response::Response,
     routing, Router, Server,
 };
-use eventuals::EventualExt as _;
+use eventuals::{Eventual, EventualExt as _, Ptr};
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use prometheus::{self, Encoder as _};
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
 use tokio::spawn;
+use toolshed::bytes::{Address, DeploymentId};
 use tower_http::cors::{self, CorsLayer};
 
-use buffer_queue::{self, QueueWriter};
 use graph_gateway::indexings_blocklist::indexings_blocklist;
 use graph_gateway::{
     auth::AuthHandler,
@@ -46,7 +47,8 @@ use graph_gateway::{
     vouchers, JsonResponse,
 };
 use indexer_selection::{actor::Update, BlockStatus, Indexing};
-use prelude::*;
+use prelude::buffer_queue::QueueWriter;
+use prelude::{buffer_queue, double_buffer};
 
 // Moving the `exchange_rate` module to `lib.rs` makes the doctests to fail during the compilation
 // step. This module is only used here, so let's keep it here for now.

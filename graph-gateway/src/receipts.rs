@@ -3,15 +3,15 @@ use std::{
     sync::Arc,
 };
 
+use tokio::sync::{Mutex, RwLock};
+use toolshed::bytes::Address;
+
 pub use indexer_selection::receipts::QueryStatus as ReceiptStatus;
 use indexer_selection::{
     receipts::{BorrowFail, ReceiptPool},
     Indexing, SecretKey,
 };
-use prelude::{
-    tokio::sync::{Mutex, RwLock},
-    *,
-};
+use prelude::GRT;
 
 pub struct ReceiptSigner {
     // TODO: When legacy (non-TAP) Scalar is removed, this should contain the only owned reference

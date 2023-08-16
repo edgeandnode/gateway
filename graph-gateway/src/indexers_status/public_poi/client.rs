@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use itertools::Itertools;
-
-use prelude::{anyhow, reqwest, DeploymentId, Url};
+use toolshed::bytes::DeploymentId;
+use toolshed::url::Url;
 
 use crate::indexers_status::graphql;
 use crate::indexers_status::public_poi::query;
