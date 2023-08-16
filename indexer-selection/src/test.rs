@@ -1,26 +1,27 @@
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::env;
+use std::ops::RangeInclusive;
+
+use anyhow::{bail, ensure};
+use eventuals::Ptr;
+use num_traits::ToPrimitive as _;
+use rand::{
+    rngs::SmallRng,
+    seq::{IteratorRandom, SliceRandom},
+    thread_rng, Rng, RngCore as _, SeedableRng as _,
+};
+use tokio::spawn;
+use toolshed::bytes::{Address, Bytes32, DeploymentId};
+
+use prelude::buffer_queue::QueueWriter;
+use prelude::test_utils::bytes_from_id;
+use prelude::{buffer_queue, double_buffer, BlockPointer, GRT, PPM};
+
 use crate::{
     actor::{process_updates, Update},
     test_utils::default_cost_model,
     BlockRequirements, BlockStatus, Candidate, Context, IndexerError, IndexerErrors, Indexing,
     IndexingStatus, InputError, Selection, UtilityParameters, SELECTION_LIMIT,
-};
-use num_traits::ToPrimitive as _;
-use prelude::{
-    anyhow::{bail, ensure},
-    buffer_queue::QueueWriter,
-    rand::{
-        rngs::SmallRng,
-        seq::{IteratorRandom, SliceRandom},
-        thread_rng, Rng, RngCore as _, SeedableRng as _,
-    },
-    test_utils::*,
-    tokio::spawn,
-    *,
-};
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    env,
-    ops::RangeInclusive,
 };
 
 #[derive(Clone)]

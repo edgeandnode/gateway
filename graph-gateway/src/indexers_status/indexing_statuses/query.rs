@@ -1,7 +1,6 @@
 use indoc::indoc;
 use serde::Deserialize;
-
-use prelude::{Bytes32, DeploymentId};
+use toolshed::bytes::{Bytes32, DeploymentId};
 
 use crate::indexers_status::graphql::IntoGraphqlQuery;
 

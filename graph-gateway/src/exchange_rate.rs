@@ -1,17 +1,17 @@
 use std::sync::Arc;
+use std::time::Duration;
 
+use anyhow::{anyhow, ensure};
 use ethers::{
     abi::Address,
     prelude::{abigen, Http},
     providers::Provider,
 };
+use eventuals::{Eventual, EventualExt, EventualWriter};
+use tokio::sync::Mutex;
+use toolshed::url::Url;
 
-use prelude::{
-    anyhow::{anyhow, ensure, Result},
-    eventuals::{self, EventualExt},
-    tokio::sync::Mutex,
-    tracing, Duration, Eventual, EventualWriter, UDecimal, Url, USD,
-};
+use prelude::{UDecimal, USD};
 
 abigen!(
     UniswapV3Pool,
@@ -19,7 +19,7 @@ abigen!(
     event_derives(serde::Deserialize, serde::Serialize);
 );
 
-pub async fn usd_to_grt(provider: Url) -> Result<Eventual<USD>> {
+pub async fn usd_to_grt(provider: Url) -> anyhow::Result<Eventual<USD>> {
     // https://info.uniswap.org/#/pools/0x4d1fb02fa84eda35881902e8e0fdacc3a873398b
     let uniswap_v3_pool: Address = "0x4d1Fb02fa84EdA35881902e8E0fdacC3a873398B"
         .parse()
@@ -53,7 +53,7 @@ pub async fn usd_to_grt(provider: Url) -> Result<Eventual<USD>> {
     Ok(reader)
 }
 
-async fn fetch_usd_to_grt(pool: &UniswapV3Pool<Provider<Http>>) -> Result<USD> {
+async fn fetch_usd_to_grt(pool: &UniswapV3Pool<Provider<Http>>) -> anyhow::Result<USD> {
     const GRT_DECIMALS: u8 = 18;
     const USDC_DECIMALS: u8 = 6;
     // https://docs.uniswap.org/contracts/v3/reference/core/interfaces/pool/IUniswapV3PoolDerivedState#observe

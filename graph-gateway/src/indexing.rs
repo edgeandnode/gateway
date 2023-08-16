@@ -1,16 +1,21 @@
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 
-use eventuals::EventualExt as _;
+use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
 use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::Mutex;
+use toolshed::bytes::{Address, Bytes32, DeploymentId};
+use toolshed::graphql;
+use toolshed::url::url::Host;
+use toolshed::url::Url;
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 
 use indexer_selection::cost_model::CostModel;
 use indexer_selection::Indexing;
-use prelude::{epoch_cache::EpochCache, graphql, url::url::Host, *};
+use prelude::epoch_cache::EpochCache;
+use prelude::BlockPointer;
 
 use crate::geoip::GeoIP;
 use crate::subgraph_client::graphql_query;

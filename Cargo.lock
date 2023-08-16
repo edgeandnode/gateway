@@ -1118,6 +1118,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e2ce894d53b295cf97b05685aa077950ff3e8541af83217fc720a6437169f8"
 
 [[package]]
+name = "faster-hex"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9042d281a5eec0f2387f8c3ea6c4514e2cf2732c90a85aaf383b761ee3b290d"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1153,9 +1162,9 @@ dependencies = [
 
 [[package]]
 name = "flate2"
-version = "1.0.26"
+version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b9429470923de8e8cbd4d2dc513535400b4b3fef0319fb5c4e1f520a7bef743"
+checksum = "c6c98ee8095e9d1dcbf2fcc6d95acccb90d1c81db1e44725c6a984b1dbdfb010"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
@@ -1371,10 +1380,13 @@ dependencies = [
 name = "graph-gateway"
 version = "13.4.1"
 dependencies = [
+ "anyhow",
  "assert_matches",
  "axum",
  "chrono",
  "ethers",
+ "eventuals",
+ "faster-hex 0.8.0",
  "futures",
  "futures-util",
  "graph-subscriptions",
@@ -1391,8 +1403,10 @@ dependencies = [
  "primitive-types",
  "prometheus",
  "prost",
+ "rand",
  "rdkafka",
  "regex",
+ "reqwest",
  "secp256k1 0.24.3",
  "semver",
  "serde",
@@ -1403,8 +1417,10 @@ dependencies = [
  "thiserror",
  "tiny-bip39",
  "tokio",
+ "toolshed",
  "tower",
  "tower-http",
+ "tracing",
  "tracing-subscriber",
  "trust-dns-resolver",
  "uuid 1.4.1",
@@ -1717,6 +1733,7 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 name = "indexer-selection"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
  "arrayvec 0.7.4",
  "cost-model",
  "eventuals",
@@ -1724,10 +1741,14 @@ dependencies = [
  "ordered-float",
  "permutation",
  "prelude",
+ "rand",
  "rand_distr",
  "receipts",
  "secp256k1 0.24.3",
  "siphasher",
+ "tokio",
+ "toolshed",
+ "tracing",
 ]
 
 [[package]]
@@ -2457,16 +2478,12 @@ name = "prelude"
 version = "0.0.1"
 dependencies = [
  "anyhow",
- "eventuals",
  "primitive-types",
- "rand",
- "reqwest",
  "serde",
  "siphasher",
  "snmalloc-rs",
  "tokio",
  "toolshed",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -3664,7 +3681,7 @@ source = "git+https://github.com/edgeandnode/toolshed?tag=v0.1.3#64d083ada34a63c
 dependencies = [
  "anyhow",
  "bs58",
- "faster-hex",
+ "faster-hex 0.6.1",
  "firestorm",
  "graphql-parser",
  "serde",

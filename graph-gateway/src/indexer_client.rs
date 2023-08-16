@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use toolshed::bytes::Bytes32;
 
 use indexer_selection::{Selection, UnresolvedBlock};
-use prelude::*;
 
 #[derive(Debug)]
 pub struct IndexerResponse {

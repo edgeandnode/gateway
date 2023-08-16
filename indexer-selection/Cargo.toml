@@ -8,16 +8,22 @@ name = "sim"
 path = "bin/sim.rs"
 
 [dependencies]
+anyhow.workspace = true
 arrayvec = "0.7"
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "a85f774" }
+eventuals.workspace = true
 num-traits = "0.2"
 ordered-float = "3.0"
 permutation = "0.4"
 prelude = { path = "../prelude" }
+rand.workspace = true
 rand_distr = "0.4"
 receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "89a821c" }
 secp256k1 = { version = "0.24", default-features = false }
-siphasher = "0.3"
+siphasher.workspace = true
+tokio.workspace = true
+toolshed.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
-eventuals = { version = "0.6.7", features = ["trace"] }
+eventuals = { workspace = true, features = ["trace"] }

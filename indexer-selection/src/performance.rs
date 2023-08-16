@@ -1,3 +1,6 @@
+use std::f64::consts::E;
+use std::time::Duration;
+
 use crate::{
     decay::{Decay, ISADecayBuffer},
     impl_struct_decay,
@@ -5,8 +8,6 @@ use crate::{
     utility::UtilityFactor,
     ConcaveUtilityParameters,
 };
-use prelude::*;
-use std::f64::consts::E;
 
 // https://www.desmos.com/calculator/y2t5704v6a
 // 170cbcf3-db7f-404a-be13-2022d9142677

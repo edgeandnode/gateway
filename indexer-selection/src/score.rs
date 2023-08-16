@@ -1,15 +1,17 @@
+use std::time::{Duration, Instant};
+
+use arrayvec::ArrayVec;
+use ordered_float::NotNan;
+use prelude::GRT;
+use rand::{prelude::SliceRandom as _, Rng};
+use toolshed::url::Url;
+
 use crate::{
     fee::fee_utility,
     performance::performance_utility,
     utility::{weighted_product_model, UtilityFactor},
     BlockRequirements, ConcaveUtilityParameters, Indexing, Selection, UtilityParameters,
     MIN_SCORE_CUTOFF,
-};
-use arrayvec::ArrayVec;
-use ordered_float::NotNan;
-use prelude::{
-    rand::{prelude::SliceRandom as _, Rng},
-    *,
 };
 
 #[derive(Debug)]

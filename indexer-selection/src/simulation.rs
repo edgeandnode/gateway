@@ -1,11 +1,20 @@
-use crate::{test_utils::default_cost_model, *};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
 use anyhow::Result;
-use prelude::{
-    test_utils::{bytes_from_id, init_test_tracing},
-    *,
-};
+use eventuals::Ptr;
 use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 use rand_distr::Normal;
+use toolshed::bytes::{Address, DeploymentId};
+
+use prelude::test_utils::{bytes_from_id, init_test_tracing};
+use prelude::GRT;
+
+use crate::test_utils::default_cost_model;
+use crate::{
+    BlockStatus, Candidate, Context, IndexerErrorObservation, Indexing, IndexingStatus, Selection,
+    State, UtilityParameters,
+};
 
 pub struct IndexerCharacteristics {
     pub address: Address,
@@ -37,7 +46,7 @@ pub async fn simulate(
     init_test_tracing();
 
     let deployment = DeploymentId(bytes_from_id(1));
-    let mut results = simulation::Results {
+    let mut results = Results {
         client_queries: 10_000,
         ..Default::default()
     };

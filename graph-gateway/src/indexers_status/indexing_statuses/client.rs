@@ -1,4 +1,4 @@
-use prelude::{anyhow, reqwest, Url};
+use toolshed::url::Url;
 
 use crate::indexers_status::graphql;
 use crate::indexers_status::indexing_statuses::query;

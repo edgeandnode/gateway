@@ -1,4 +1,6 @@
 use std::collections::HashSet;
+use std::str::FromStr;
+use std::time::{Duration, Instant};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
@@ -7,6 +9,7 @@ use std::{
     },
 };
 
+use anyhow::{anyhow, bail, Context as _};
 use axum::extract::OriginalUri;
 use axum::http::{HeaderValue, Request, Uri};
 use axum::middleware::Next;
@@ -16,13 +19,21 @@ use axum::{
     http::{header, HeaderMap, Response, StatusCode},
     RequestPartsExt,
 };
+use eventuals::{Eventual, Ptr};
 use futures::future::join_all;
 use lazy_static::lazy_static;
 use prost::bytes::Buf;
+use rand::{rngs::SmallRng, SeedableRng as _};
 use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
+use tokio::sync::mpsc;
+use toolshed::bytes::{Address, DeploymentId, SubgraphId};
+use toolshed::graphql;
+use toolshed::graphql::graphql_parser::query::{OperationDefinition, SelectionSet};
+use toolshed::url::Url;
+use tracing::Instrument;
 use uuid::Uuid;
 
 use indexer_selection::{
@@ -31,13 +42,7 @@ use indexer_selection::{
     Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
 };
 use prelude::{
-    anyhow::{anyhow, bail, Context as _},
-    buffer_queue::QueueWriter,
-    double_buffer::DoubleBufferReader,
-    graphql::graphql_parser::query::{OperationDefinition, SelectionSet},
-    rand::{rngs::SmallRng, SeedableRng as _},
-    url::Url,
-    DeploymentId, *,
+    buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, BlockPointer, GRT,
 };
 
 use crate::{

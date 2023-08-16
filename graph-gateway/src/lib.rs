@@ -3,8 +3,6 @@ use std::iter;
 use axum::Json;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 
-use prelude::*;
-
 pub mod auth;
 pub mod block_constraints;
 pub mod chains;

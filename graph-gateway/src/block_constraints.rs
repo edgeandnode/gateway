@@ -2,15 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use itertools::Itertools as _;
 use serde_json::{self, json};
-
-use indexer_selection::{Context, UnresolvedBlock};
-use prelude::graphql::graphql_parser::query::{
+use toolshed::bytes::Bytes32;
+use toolshed::graphql::graphql_parser::query::{
     Definition, Document, OperationDefinition, Selection, Text, Value,
 };
-use prelude::{
-    graphql::{IntoStaticValue as _, QueryVariables, StaticValue},
-    *,
-};
+use toolshed::graphql::{IntoStaticValue as _, QueryVariables, StaticValue};
+
+use indexer_selection::{Context, UnresolvedBlock};
+use prelude::BlockPointer;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {

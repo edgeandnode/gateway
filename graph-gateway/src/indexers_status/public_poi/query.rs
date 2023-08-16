@@ -1,8 +1,8 @@
 use indoc::indoc;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-
-use prelude::{anyhow, bytes_wrapper, faster_hex, DeploymentId};
+use toolshed::bytes::DeploymentId;
+use toolshed::bytes_wrapper;
 
 use crate::indexers_status::graphql::IntoGraphqlQuery;
 

@@ -1,3 +1,4 @@
+use std::time::Duration;
 use std::{
     collections::{HashMap, HashSet},
     sync::{
@@ -6,14 +7,13 @@ use std::{
     },
 };
 
+use anyhow::{anyhow, bail, ensure, Result};
+use eventuals::{Eventual, EventualExt, Ptr};
 use graph_subscriptions::TicketPayload;
+use tokio::sync::RwLock;
+use toolshed::bytes::{Address, DeploymentId, SubgraphId};
 
-use prelude::{
-    anyhow::{anyhow, bail, ensure, Result},
-    eventuals::EventualExt as _,
-    tokio::sync::RwLock,
-    *,
-};
+use prelude::USD;
 
 use crate::{
     price_automation::QueryBudgetFactors,

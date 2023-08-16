@@ -1,14 +1,17 @@
-use crate::{IndexerErrorObservation, Indexing, IndexingStatus, State};
+use std::collections::HashMap;
+
+use tokio::{
+    select,
+    time::{sleep_until, Duration, Instant},
+};
+
 use prelude::*;
 use prelude::{
     buffer_queue::{Event, QueueReader},
     double_buffer::DoubleBufferWriter,
 };
-use std::collections::HashMap;
-use tokio::{
-    select,
-    time::{sleep_until, Duration, Instant},
-};
+
+use crate::{IndexerErrorObservation, Indexing, IndexingStatus, State};
 
 #[derive(Debug)]
 pub enum Update {
