@@ -1,0 +1,43 @@
+on: [push]
+
+name: Continuous Integration
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  RUSTFLAGS: "-C link-arg=-fuse-ld=lld -D warnings"
+  GH_USER: ${{ github.repository_owner }}
+  GH_TOKEN: ${{ secrets.GH_PRIVATE_TOKEN }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: check-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Prepare
+        run: |
+          git config --global credential.helper store
+          git config --global --replace-all url.https://github.com/.insteadOf ssh://git@github.com/
+          git config --global --add url.https://github.com/.insteadOf git@github.com:
+          mkdir ~/.cargo && echo "[net]\ngit-fetch-with-cli = true" > ~/.cargo/config.toml
+          (echo url=https://github.com; echo "username=${GH_USER}"; echo "password=${GH_TOKEN}"; echo ) | git credential approve
+          sudo apt-get install -y lld librdkafka-dev libsasl2-dev
+
+      - run: cargo check
+      - run: cargo test -- --nocapture
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy -- -D warnings
