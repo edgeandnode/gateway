@@ -97,7 +97,7 @@ impl IndexingState {
     }
 
     fn observe_indexing_behind(&mut self, latest_query_block: u64, latest_block: u64) {
-        let mut status = match &mut self.status.block {
+        let status = match &mut self.status.block {
             Some(status) => status,
             None => return,
         };
