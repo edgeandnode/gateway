@@ -6,10 +6,12 @@ use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::Mutex;
-use toolshed::bytes::{Address, Bytes32, DeploymentId};
-use toolshed::graphql;
-use toolshed::url::url::Host;
-use toolshed::url::Url;
+use toolshed::{
+    bytes::{Address, DeploymentId},
+    graphql,
+    url::url::Host,
+    url::Url,
+};
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 
 use indexer_selection::cost_model::CostModel;
@@ -18,6 +20,7 @@ use prelude::epoch_cache::EpochCache;
 use prelude::BlockPointer;
 
 use crate::geoip::GeoIP;
+use crate::indexers_status::indexing_statuses::{client, IndexingStatusResponse};
 use crate::subgraph_client::graphql_query;
 use crate::topology::Deployment;
 
@@ -177,6 +180,18 @@ async fn apply_geoblocking(actor: &mut Actor, url: &Url) -> Result<(), String> {
     result
 }
 
+/// Convenience wrapper method around [`client::send_indexing_statuses_query`] to map the result
+/// types to the expected by [`query_status`] method.
+async fn query_indexer_for_indexing_statuses(
+    client: reqwest::Client,
+    status_url: Url,
+) -> Result<Vec<IndexingStatusResponse>, String> {
+    client::send_indexing_statuses_query(client, status_url)
+        .await
+        .map_err(|err| err.to_string())
+        .map(|res| res.indexing_statuses)
+}
+
 async fn query_status(
     actor: &'static Mutex<Actor>,
     client: &reqwest::Client,
@@ -184,21 +199,7 @@ async fn query_status(
     url: Url,
 ) -> Result<Vec<(Indexing, IndexingStatus)>, String> {
     let status_url = url.join("status").map_err(|err| err.to_string())?;
-    let status_query = json!({ "query": r#"{
-            indexingStatuses(subgraphs: []) {
-                subgraph
-                chains {
-                    network
-                    latestBlock { number hash }
-                    earliestBlock { number hash }
-                }
-            }
-        }"# });
-    let statuses =
-        graphql_query::<IndexerStatusResponse>(client, status_url.into(), &status_query, None)
-            .await?
-            .unpack()?
-            .indexing_statuses;
+    let statuses = query_indexer_for_indexing_statuses(client.clone(), status_url.into()).await?;
 
     let cost_url = url.join("cost").map_err(|err| err.to_string())?;
     let deployments = statuses
@@ -299,27 +300,6 @@ struct CostModelSource {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct IndexerStatusResponse {
-    indexing_statuses: Vec<IndexingStatusResponse>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct IndexingStatusResponse {
-    subgraph: DeploymentId,
-    chains: Vec<ChainStatus>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ChainStatus {
-    network: String,
-    latest_block: Option<BlockStatus>,
-    earliest_block: Option<BlockStatus>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct CostModelResponse {
     cost_models: Vec<CostModelSourceResponse>,
 }
@@ -329,12 +309,6 @@ struct CostModelSourceResponse {
     deployment: DeploymentId,
     model: String,
     variables: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct BlockStatus {
-    number: String,
-    hash: Bytes32,
 }
 
 #[derive(Deserialize)]
