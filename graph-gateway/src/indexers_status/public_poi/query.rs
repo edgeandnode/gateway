@@ -1,16 +1,14 @@
+use alloy_primitives::{BlockNumber, B256};
 use indoc::indoc;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-use toolshed::bytes::DeploymentId;
-use toolshed::bytes_wrapper;
+use toolshed::thegraph::DeploymentId;
 
 use crate::indexers_status::graphql::IntoGraphqlQuery;
 
 pub const MAX_REQUESTS_PER_QUERY: usize = 10;
 
-pub type BlockNumber = u64;
-
-bytes_wrapper!(pub, ProofOfIndexing, 32, "HexStr");
+pub type ProofOfIndexing = B256;
 
 #[derive(Clone, Debug)]
 pub struct PublicProofOfIndexingQuery {
@@ -166,7 +164,7 @@ mod tests {
                             }
                         }
                     ]
-                }"# 
+                }"#
             };
 
             //// When

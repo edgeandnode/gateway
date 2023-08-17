@@ -1,5 +1,7 @@
-use primitive_types::U256;
 use std::{cmp::Ordering, fmt, iter, ops, str};
+
+// TODO: replace with alloy-primitives::U256
+use primitive_types::U256;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ParseStrError {

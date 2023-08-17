@@ -1,13 +1,12 @@
 use std::str::FromStr;
 
+use alloy_primitives::{Address, FixedBytes};
 use axum::{body::Bytes, extract::State, http::StatusCode};
 use lazy_static::lazy_static;
 use primitive_types::U256;
 use secp256k1::{PublicKey, Secp256k1};
 use serde::{Deserialize, Deserializer};
 use serde_json::json;
-use toolshed::bytes::Address;
-use toolshed::bytes_wrapper;
 
 use indexer_selection::{
     receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher},
@@ -45,13 +44,13 @@ fn process_oneshot_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonRe
     let voucher = receipts_to_voucher(&allocation_id, &allocation_signer, signer, receipts)
         .map_err(|err| err.to_string())?;
     tracing::info!(
-        allocation = %Address(allocation_id),
+        allocation = %Address::from(allocation_id),
         receipts_size = receipts.len(),
         fees = %voucher.fees.to_string(),
         "collect receipts request",
     );
     // Don't allow more than 10M GRT in a single collection
-    if voucher.fees > U256::from(10000000000000000000000000u128) {
+    if voucher.fees > U256::from(10000000000000000000000000_u128) {
         tracing::error!(excessive_voucher_fees = %voucher.fees);
         return Err("Voucher value too large".into());
     }
@@ -90,7 +89,7 @@ fn process_partial_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonRe
         receipts_to_partial_voucher(&allocation_id, &allocation_signer, signer, receipts)
             .map_err(|err| err.to_string())?;
     tracing::info!(
-        allocation = %Address(allocation_id),
+        allocation = %Address::from(allocation_id),
         receipts_size = receipts.len(),
         fees = %partial_voucher.voucher.fees.to_string(),
         "partial voucher request",
@@ -139,15 +138,15 @@ fn process_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonResponse, 
         .into_iter()
         .map(|pv| receipts::PartialVoucher {
             voucher: receipts::Voucher {
-                allocation_id: *allocation_id,
+                allocation_id: allocation_id.into(),
                 fees: pv.fees,
-                signature: pv.signature,
+                signature: pv.signature.into(),
             },
             receipt_id_min: *pv.receipt_id_min,
             receipt_id_max: *pv.receipt_id_max,
         })
         .collect::<Vec<receipts::PartialVoucher>>();
-    let voucher = combine_partial_vouchers(&allocation_id, signer, &partial_vouchers)
+    let voucher = combine_partial_vouchers(&allocation_id.0, signer, &partial_vouchers)
         .map_err(|err| err.to_string())?;
     tracing::info!(
         allocation = %allocation_id,
@@ -188,23 +187,15 @@ struct VoucherRequest {
 
 #[derive(Deserialize)]
 struct PartialVoucher {
-    #[serde(deserialize_with = "deserialize_signature")]
-    signature: [u8; 65],
+    signature: Signature,
     #[serde(deserialize_with = "deserialize_u256")]
     fees: U256,
     receipt_id_min: ReceiptID,
     receipt_id_max: ReceiptID,
 }
 
-bytes_wrapper!(pub, ReceiptID, 15, "HexStr");
-
-fn deserialize_signature<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[u8; 65], D::Error> {
-    let input: &str = Deserialize::deserialize(deserializer)?;
-    let mut signature = [0u8; 65];
-    let offset = if input.starts_with("0x") { 2 } else { 0 };
-    hex::decode_to_slice(&input[offset..], &mut signature).map_err(serde::de::Error::custom)?;
-    Ok(signature)
-}
+type Signature = FixedBytes<65>;
+type ReceiptID = FixedBytes<15>;
 
 fn deserialize_u256<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, D::Error> {
     let input: &str = Deserialize::deserialize(deserializer)?;

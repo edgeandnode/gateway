@@ -1,10 +1,10 @@
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
+use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use tokio::sync::Mutex;
-use toolshed::bytes::Address;
 
 use prelude::unix_timestamp;
 

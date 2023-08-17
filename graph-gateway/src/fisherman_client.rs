@@ -1,6 +1,6 @@
+use alloy_primitives::Address;
 use serde::Deserialize;
 use serde_json::json;
-use toolshed::bytes::Address;
 use toolshed::url::Url;
 
 use indexer_selection::Indexing;

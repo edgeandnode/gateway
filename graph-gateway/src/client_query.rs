@@ -9,6 +9,7 @@ use std::{
     },
 };
 
+use alloy_primitives::Address;
 use anyhow::{anyhow, bail, Context as _};
 use axum::extract::OriginalUri;
 use axum::http::{HeaderValue, Request, Uri};
@@ -29,9 +30,9 @@ use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
 use tokio::sync::mpsc;
-use toolshed::bytes::{Address, DeploymentId, SubgraphId};
 use toolshed::graphql;
 use toolshed::graphql::graphql_parser::query::{OperationDefinition, SelectionSet};
+use toolshed::thegraph::{BlockPointer, DeploymentId, SubgraphId};
 use toolshed::url::Url;
 use tracing::Instrument;
 use uuid::Uuid;
@@ -41,9 +42,7 @@ use indexer_selection::{
     IndexerError as IndexerSelectionError, IndexerErrorObservation, Indexing, InputError,
     Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
 };
-use prelude::{
-    buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, BlockPointer, GRT,
-};
+use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
 
 use crate::{
     auth::{AuthHandler, AuthToken},
@@ -350,8 +349,9 @@ async fn resolve_subgraph_deployments(
             .ok_or_else(|| Error::InvalidSubgraph("No matching deployments".to_string()))?;
         Ok((versions, Some(subgraph)))
     } else if let Some(id) = params.get("deployment_id") {
-        let id = DeploymentId::from_ipfs_hash(id)
-            .ok_or_else(|| Error::InvalidDeploymentId(id.to_string()))?;
+        let id: DeploymentId = id
+            .parse()
+            .map_err(|_| Error::InvalidDeploymentId(id.to_string()))?;
         network
             .deployments
             .value_immediate()
@@ -826,8 +826,7 @@ async fn handle_indexer_query_inner(
         hist.observe(ctx.response_time.as_millis() as f64)
     });
 
-    let mut allocation = Address([0; 20]);
-    allocation.0.copy_from_slice(&receipt[0..20]);
+    let allocation = Address::from_slice(&receipt[0..20]);
 
     tracing::info!(
         target: reports::INDEXER_QUERY_TARGET,

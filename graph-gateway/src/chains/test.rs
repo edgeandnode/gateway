@@ -1,7 +1,9 @@
 use tokio::sync::mpsc;
 
 use indexer_selection::UnresolvedBlock;
-use prelude::{BlockHead, BlockPointer};
+use toolshed::thegraph::BlockPointer;
+
+use crate::chains::BlockHead;
 
 use super::ClientMsg;
 

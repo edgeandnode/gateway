@@ -5,13 +5,14 @@ use std::{
     fmt::Display,
 };
 
+use alloy_primitives::{Address, BlockHash, BlockNumber};
 pub use cost_model::{self, CostModel};
 use num_traits::Zero as _;
 pub use ordered_float::NotNan;
 use rand::{prelude::SmallRng, Rng as _};
 pub use receipts;
 pub use secp256k1::SecretKey;
-use toolshed::bytes::{Address, Bytes32, DeploymentId};
+use toolshed::thegraph::{BlockPointer, DeploymentId};
 use toolshed::url::Url;
 
 use prelude::{epoch_cache::EpochCache, *};
@@ -119,8 +120,8 @@ impl From<BorrowFail> for IndexerError {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum UnresolvedBlock {
-    WithHash(Bytes32),
-    WithNumber(u64),
+    WithHash(BlockHash),
+    WithNumber(BlockNumber),
 }
 
 impl UnresolvedBlock {

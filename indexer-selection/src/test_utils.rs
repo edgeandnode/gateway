@@ -1,10 +1,11 @@
 use std::hash::{Hash as _, Hasher as _};
 
+use alloy_primitives::Address;
 use siphasher::sip::SipHasher24;
-use toolshed::bytes::{Address, DeploymentId};
 
 use prelude::test_utils::bytes_from_id;
 use prelude::GRT;
+use toolshed::thegraph::DeploymentId;
 
 use crate::{BlockPointer, CostModel};
 
@@ -37,5 +38,5 @@ pub fn test_allocation_id(indexer: &Address, deployment: &DeploymentId) -> Addre
     let mut hasher = SipHasher24::default();
     indexer.hash(&mut hasher);
     deployment.hash(&mut hasher);
-    Address(bytes_from_id(hasher.finish() as usize))
+    bytes_from_id(hasher.finish() as usize).into()
 }

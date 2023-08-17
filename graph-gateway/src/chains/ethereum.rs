@@ -1,20 +1,19 @@
 use std::time::Duration;
 
+use alloy_primitives::BlockHash;
 use reqwest;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
 use tokio::sync::mpsc;
 use tokio::time::interval;
-use toolshed::bytes::Bytes32;
-use toolshed::url::Url;
+use toolshed::{thegraph::BlockPointer, url::Url};
 use tracing::Instrument;
 
 use indexer_selection::UnresolvedBlock;
-use prelude::{BlockHead, BlockPointer};
 
 use crate::metrics::METRICS;
 
-use super::ClientMsg;
+use super::{BlockHead, ClientMsg};
 
 #[derive(Debug)]
 pub struct Provider {
@@ -147,11 +146,11 @@ struct APIResult<T> {
 
 #[derive(Debug, Deserialize)]
 struct APIBlockHead {
-    hash: Bytes32,
+    hash: BlockHash,
     #[serde(deserialize_with = "deserialize_u64")]
     number: u64,
     #[serde(default)]
-    uncles: Vec<Bytes32>,
+    uncles: Vec<BlockHash>,
 }
 
 fn deserialize_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>

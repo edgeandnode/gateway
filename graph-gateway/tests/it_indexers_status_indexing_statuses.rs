@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use assert_matches::assert_matches;
 use tokio::time::timeout;
-use toolshed::bytes::DeploymentId;
+use toolshed::thegraph::DeploymentId;
 
 use graph_gateway::indexers_status::indexing_statuses::client;
 

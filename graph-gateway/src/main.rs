@@ -10,6 +10,7 @@ use std::{
     sync::Arc,
 };
 
+use alloy_primitives::Address;
 use anyhow::{self, Context};
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, State},
@@ -24,7 +25,7 @@ use prometheus::{self, Encoder as _};
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
 use tokio::spawn;
-use toolshed::bytes::{Address, DeploymentId};
+use toolshed::thegraph::DeploymentId;
 use tower_http::cors::{self, CorsLayer};
 
 use graph_gateway::indexings_blocklist::indexings_blocklist;

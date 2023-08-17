@@ -2,9 +2,8 @@ use axum::http::{header, HeaderMap, HeaderValue};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, value::RawValue, Value};
 use toolshed::graphql::http::Response;
+use toolshed::thegraph::BlockPointer;
 use toolshed::url::Url;
-
-use prelude::BlockPointer;
 
 pub struct Client {
     http_client: reqwest::Client,

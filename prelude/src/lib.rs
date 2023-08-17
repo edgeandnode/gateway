@@ -1,13 +1,10 @@
-use std::cmp::Ordering;
 use std::{
     hash::{Hash, Hasher as _},
     time::SystemTime,
 };
 
-use serde::Deserialize;
 use siphasher::sip::SipHasher24;
 use tokio::time::{Duration, Instant};
-use toolshed::bytes::Bytes32;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub use crate::decimal::*;
@@ -79,28 +76,4 @@ impl<const P: u8> serde::Serialize for UDecimal<P> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&self.to_string())
     }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct BlockPointer {
-    pub number: u64,
-    pub hash: Bytes32,
-}
-
-impl PartialOrd for BlockPointer {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BlockPointer {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.number.cmp(&other.number)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BlockHead {
-    pub block: BlockPointer,
-    pub uncles: Vec<Bytes32>,
 }

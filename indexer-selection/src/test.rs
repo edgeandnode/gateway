@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 use std::ops::RangeInclusive;
 
+use alloy_primitives::Address;
 use anyhow::{bail, ensure};
 use eventuals::Ptr;
 use num_traits::ToPrimitive as _;
@@ -11,11 +12,11 @@ use rand::{
     thread_rng, Rng, RngCore as _, SeedableRng as _,
 };
 use tokio::spawn;
-use toolshed::bytes::{Address, Bytes32, DeploymentId};
 
 use prelude::buffer_queue::QueueWriter;
 use prelude::test_utils::bytes_from_id;
-use prelude::{buffer_queue, double_buffer, BlockPointer, GRT, PPM};
+use prelude::{buffer_queue, double_buffer, GRT, PPM};
+use toolshed::thegraph::{BlockPointer, DeploymentId};
 
 use crate::{
     actor::{process_updates, Update},
@@ -57,12 +58,12 @@ impl Topology {
         update_writer: &mut QueueWriter<Update>,
     ) -> Self {
         let deployments = (0..rng.gen_range(config.deployments.clone()))
-            .map(|id| DeploymentId(bytes_from_id(id)))
+            .map(|id| DeploymentId(bytes_from_id(id).into()))
             .collect();
         let blocks = (0..rng.gen_range(config.blocks.clone()))
             .map(|id| BlockPointer {
                 number: id as u64,
-                hash: Bytes32(bytes_from_id(id)),
+                hash: bytes_from_id(id).into(),
             })
             .collect::<Vec<BlockPointer>>();
         let indexings = (0..rng.gen_range(config.indexings.clone()))
@@ -97,7 +98,7 @@ impl Topology {
         deployments: &HashSet<DeploymentId>,
     ) -> Option<(Indexing, IndexingStatus)> {
         let indexing = Indexing {
-            indexer: Address(bytes_from_id(rng.gen_range(config.indexers.clone()))),
+            indexer: bytes_from_id(rng.gen_range(config.indexers.clone())).into(),
             deployment: *deployments.iter().choose(rng)?,
         };
         let status = IndexingStatus {
@@ -172,11 +173,7 @@ impl Topology {
             .fold(GRT::zero(), |sum, fee| sum + fee);
         ensure!(fees <= request.params.budget);
 
-        let indexers_dedup = request
-            .indexers
-            .iter()
-            .copied()
-            .collect::<BTreeSet<Address>>();
+        let indexers_dedup: BTreeSet<Address> = request.indexers.iter().copied().collect();
         ensure!(indexers_dedup.len() == request.indexers.len());
 
         let mut expected_errors = IndexerErrors(BTreeMap::new());

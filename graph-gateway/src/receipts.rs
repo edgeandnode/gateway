@@ -3,8 +3,8 @@ use std::{
     sync::Arc,
 };
 
+use alloy_primitives::Address;
 use tokio::sync::{Mutex, RwLock};
-use toolshed::bytes::Address;
 
 pub use indexer_selection::receipts::QueryStatus as ReceiptStatus;
 use indexer_selection::{
@@ -56,13 +56,13 @@ impl ReceiptSigner {
             for old_allocation in legacy_pool
                 .addresses()
                 .into_iter()
-                .filter(|a| a != &*allocation)
+                .filter(|a| a != *allocation)
             {
                 legacy_pool.remove_allocation(&old_allocation);
             }
             // add allocation, if not already present
             if !legacy_pool.contains_allocation(&allocation) {
-                legacy_pool.add_allocation(self.signer_key, *allocation);
+                legacy_pool.add_allocation(self.signer_key, allocation.into());
             }
         }
     }

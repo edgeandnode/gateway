@@ -1,19 +1,13 @@
 use std::collections::HashMap;
 
+use alloy_primitives::BlockNumber;
 use itertools::Itertools;
-use toolshed::bytes::DeploymentId;
+use toolshed::thegraph::DeploymentId;
 use toolshed::url::Url;
 
 use crate::indexers_status::graphql;
 use crate::indexers_status::public_poi::query;
-use crate::poi::{BlockNumber, ProofOfIndexing};
-
-// To convert from query OI type into `poi` module POI types.
-impl From<query::ProofOfIndexing> for ProofOfIndexing {
-    fn from(value: query::ProofOfIndexing) -> Self {
-        Self(value.0)
-    }
-}
+use crate::poi::ProofOfIndexing;
 
 pub async fn send_public_poi_query(
     client: reqwest::Client,
@@ -56,7 +50,7 @@ pub async fn send_public_poi_queries_and_merge_results(
         .flat_map(|response| response.public_proofs_of_indexing)
         .filter_map(|response| {
             // If the response is missing the POI field, skip it.
-            let poi = response.proof_of_indexing?.into();
+            let poi = response.proof_of_indexing?;
             Some(((response.deployment, response.block.number), poi))
         })
         .collect::<HashMap<_, _>>();
