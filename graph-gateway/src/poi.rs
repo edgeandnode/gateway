@@ -1,9 +1,7 @@
-use toolshed::bytes::DeploymentId;
-use toolshed::bytes_wrapper;
+use alloy_primitives::{BlockNumber, B256};
+use toolshed::thegraph::DeploymentId;
 
-bytes_wrapper!(pub, ProofOfIndexing, 32, "HexStr");
-
-pub type BlockNumber = u64;
+pub type ProofOfIndexing = B256;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Deserialize)]
 pub struct ProofOfIndexingInfo {

@@ -1,10 +1,11 @@
 use std::time::Duration;
 use std::{collections::HashMap, error::Error, sync::Arc};
 
+use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use serde::Deserialize;
 use tokio::sync::Mutex;
-use toolshed::bytes::{Address, DeploymentId, SubgraphId};
+use toolshed::thegraph::{DeploymentId, SubgraphId};
 use toolshed::url::Url;
 
 use prelude::USD;
@@ -126,7 +127,7 @@ impl Client {
                     deployments: api_key
                         .deployments
                         .into_iter()
-                        .filter_map(|id| DeploymentId::from_ipfs_hash(&id))
+                        .filter_map(|id| id.parse::<DeploymentId>().ok())
                         .collect(),
                     domains: api_key
                         .domains

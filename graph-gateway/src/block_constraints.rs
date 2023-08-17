@@ -1,22 +1,22 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use alloy_primitives::{BlockHash, BlockNumber};
 use itertools::Itertools as _;
 use serde_json::{self, json};
-use toolshed::bytes::Bytes32;
 use toolshed::graphql::graphql_parser::query::{
     Definition, Document, OperationDefinition, Selection, Text, Value,
 };
 use toolshed::graphql::{IntoStaticValue as _, QueryVariables, StaticValue};
 
 use indexer_selection::{Context, UnresolvedBlock};
-use prelude::BlockPointer;
+use toolshed::thegraph::BlockPointer;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {
     Unconstrained,
-    Hash(Bytes32),
-    Number(u64),
-    NumberGTE(u64),
+    Hash(BlockHash),
+    Number(BlockNumber),
+    NumberGTE(BlockNumber),
 }
 
 impl BlockConstraint {
@@ -147,7 +147,7 @@ pub fn make_query_deterministic(
     .ok()
 }
 
-fn deterministic_block<'c>(hash: &Bytes32) -> Value<'c, String> {
+fn deterministic_block<'c>(hash: &BlockHash) -> Value<'c, String> {
     Value::Object(BTreeMap::from_iter([(
         "hash".to_string(),
         Value::String(hash.to_string()),
@@ -192,7 +192,7 @@ fn parse_hash<'c, T: Text<'c>>(
     hash: &Value<'c, T>,
     variables: &QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
-) -> Option<Bytes32> {
+) -> Option<BlockHash> {
     match hash {
         Value::String(hash) => hash.parse().ok(),
         Value::Variable(name) => match variables
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn tests() {
         use BlockConstraint::*;
-        let hash = Bytes32::from(bytes_from_id(54321));
+        let hash: BlockHash = bytes_from_id(54321).into();
         let tests = [
             ("{ a }", Some(vec![Unconstrained])),
             ("{ a(abc:true) }", Some(vec![Unconstrained])),

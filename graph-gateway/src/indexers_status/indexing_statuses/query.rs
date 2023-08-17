@@ -1,6 +1,9 @@
+use std::borrow::Cow;
+
+use alloy_primitives::BlockHash;
 use indoc::indoc;
-use serde::Deserialize;
-use toolshed::bytes::{Bytes32, DeploymentId};
+use serde::{Deserialize, Deserializer};
+use toolshed::thegraph::DeploymentId;
 
 use crate::indexers_status::graphql::IntoGraphqlQuery;
 
@@ -47,7 +50,19 @@ pub struct ChainStatus {
 #[derive(Debug, Deserialize)]
 pub struct BlockStatus {
     pub number: String,
-    pub hash: Bytes32,
+    #[serde(deserialize_with = "deserialize_bad_hex")]
+    pub hash: BlockHash,
+}
+
+fn deserialize_bad_hex<'de, D>(deserializer: D) -> Result<BlockHash, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = Cow::<str>::deserialize(deserializer)?;
+    if s == "0x0" {
+        return Ok(BlockHash::ZERO);
+    }
+    s.parse().map_err(serde::de::Error::custom)
 }
 
 #[cfg(test)]
@@ -63,29 +78,29 @@ mod tests {
             let response = indoc! {
                 r#"{
                     "indexingStatuses": [
-                        { 
-                            "subgraph": "QmZTy9EJHu8rfY9QbEk3z1epmmvh5XHhT2Wqhkfbyt8k9Z", 
+                        {
+                            "subgraph": "QmZTy9EJHu8rfY9QbEk3z1epmmvh5XHhT2Wqhkfbyt8k9Z",
                             "chains": [
-                                { 
-                                    "network": "rinkeby", 
+                                {
+                                    "network": "rinkeby",
                                     "latestBlock": {
-                                        "number": "10164818", 
-                                        "hash": "0xaa94881130ba16c28cc90a5a880b117bdc90b6b11e9cde0c78804cdb93cc9e85" 
+                                        "number": "10164818",
+                                        "hash": "0xaa94881130ba16c28cc90a5a880b117bdc90b6b11e9cde0c78804cdb93cc9e85"
                                     },
                                     "earliestBlock": {
-                                        "number": "7559999", 
-                                        "hash": "0x0000000000000000000000000000000000000000000000000000000000000000" 
+                                        "number": "7559999",
+                                        "hash": "0x0"
                                     }
                                 }
-                            ] 
-                        }, 
-                        { 
-                            "subgraph": "QmSLQfPFcz2pKRJZUH16Sk26EFpRgdxTYGnMiKvWgKRM2a", 
+                            ]
+                        },
+                        {
+                            "subgraph": "QmSLQfPFcz2pKRJZUH16Sk26EFpRgdxTYGnMiKvWgKRM2a",
                             "chains": [
-                                { 
+                                {
                                     "network": "rinkeby"
                                 }
-                            ] 
+                            ]
                         }
                     ]
                 }"#

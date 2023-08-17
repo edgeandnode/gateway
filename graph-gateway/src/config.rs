@@ -2,12 +2,12 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
+use alloy_primitives::Address;
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
 use hdwallet::{self, KeyChain as _};
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr, FromInto};
-use toolshed::bytes::Address;
 use toolshed::url::Url;
 
 use indexer_selection::SecretKey;
@@ -173,6 +173,7 @@ impl FromStr for SignerKey {
         .expect("Failed to derive signer key")
         .0
         .private_key;
+        // TODO: just use ethers/alloy?
         Ok(SignerKey(
             // Convert between versions of secp256k1 lib.
             SecretKey::from_slice(signer_key.as_ref()).unwrap(),

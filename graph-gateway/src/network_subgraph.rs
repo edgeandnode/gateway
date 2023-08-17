@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use alloy_primitives::Address;
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
@@ -8,7 +9,7 @@ use serde::Deserialize;
 use serde_json::json;
 use serde_with::serde_as;
 use tokio::sync::Mutex;
-use toolshed::bytes::{Address, DeploymentId, SubgraphId};
+use toolshed::thegraph::{DeploymentId, SubgraphId};
 
 use prelude::{GRTWei, PPM};
 

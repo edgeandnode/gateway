@@ -1,12 +1,13 @@
 use std::time::Duration;
 
+use alloy_primitives::BlockNumber;
 use assert_matches::assert_matches;
 use tokio::time::timeout;
-use toolshed::bytes::DeploymentId;
+use toolshed::thegraph::DeploymentId;
 
 use graph_gateway::indexers_status::public_poi::client;
 use graph_gateway::indexers_status::public_poi::{
-    BlockNumber, PublicProofOfIndexingQuery, PublicProofOfIndexingRequest, MAX_REQUESTS_PER_QUERY,
+    PublicProofOfIndexingQuery, PublicProofOfIndexingRequest, MAX_REQUESTS_PER_QUERY,
 };
 
 /// Test utility function to create a valid `DeploymentId` with an arbitrary deployment id/ipfs hash.

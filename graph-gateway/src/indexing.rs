@@ -1,23 +1,19 @@
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 
+use alloy_primitives::Address;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
 use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::Mutex;
-use toolshed::{
-    bytes::{Address, DeploymentId},
-    graphql,
-    url::url::Host,
-    url::Url,
-};
+use toolshed::thegraph::BlockPointer;
+use toolshed::{graphql, thegraph::DeploymentId, url::url::Host, url::Url};
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 
 use indexer_selection::cost_model::CostModel;
 use indexer_selection::Indexing;
 use prelude::epoch_cache::EpochCache;
-use prelude::BlockPointer;
 
 use crate::geoip::GeoIP;
 use crate::indexers_status::indexing_statuses::{client, IndexingStatusResponse};

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use alloy_primitives::B256;
 use serde::{Deserialize, Serialize};
-use toolshed::bytes::Bytes32;
 
 use indexer_selection::{Selection, UnresolvedBlock};
 
@@ -45,14 +45,14 @@ pub struct IndexerResponsePayload {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Attestation {
     #[serde(rename = "requestCID")]
-    pub request_cid: Bytes32,
+    pub request_cid: B256,
     #[serde(rename = "responseCID")]
-    pub response_cid: Bytes32,
+    pub response_cid: B256,
     #[serde(rename = "subgraphDeploymentID")]
-    pub deployment: Bytes32,
+    pub deployment: B256,
     pub v: u8,
-    pub r: Bytes32,
-    pub s: Bytes32,
+    pub r: B256,
+    pub s: B256,
 }
 
 #[derive(Clone)]

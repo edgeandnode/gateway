@@ -3,9 +3,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use alloy_primitives::Address;
 use itertools::Itertools;
 use tokio::sync::Mutex;
-use toolshed::bytes::{Address, DeploymentId};
+use toolshed::thegraph::DeploymentId;
 use toolshed::url::Url;
 
 use indexer_selection::Indexing;

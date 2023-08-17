@@ -7,11 +7,12 @@ use std::{
     },
 };
 
+use alloy_primitives::Address;
 use anyhow::{anyhow, bail, ensure, Result};
 use eventuals::{Eventual, EventualExt, Ptr};
 use graph_subscriptions::TicketPayload;
 use tokio::sync::RwLock;
-use toolshed::bytes::{Address, DeploymentId, SubgraphId};
+use toolshed::thegraph::{DeploymentId, SubgraphId};
 
 use prelude::USD;
 
@@ -96,7 +97,7 @@ impl AuthHandler {
 
         let (payload, _) = TicketPayload::from_ticket_base64(input)?;
 
-        let user = Address(payload.user().0);
+        let user: Address = payload.user().0.into();
         let subscription = self
             .subscriptions
             .value_immediate()
@@ -105,7 +106,7 @@ impl AuthHandler {
             .cloned()
             .ok_or_else(|| anyhow!("Subscription not found for user {}", user))?;
 
-        let signer = Address(payload.signer.0);
+        let signer: Address = payload.signer.0.into();
         ensure!(
             (signer == user) || subscription.signers.contains(&signer),
             "Signer {} not authorized for user {}",
@@ -193,7 +194,7 @@ impl AuthHandler {
             AuthToken::ApiKey(_) => return Ok(()),
             AuthToken::Ticket(payload, subscription) => (payload, subscription),
         };
-        let user = Address(ticket_payload.user().0);
+        let user: Address = ticket_payload.user().0.into();
         let counters = match self.subscription_query_counters.try_read() {
             Ok(counters) => counters,
             // Just skip if we can't acquire the read lock. This is a relaxed operation anyway.

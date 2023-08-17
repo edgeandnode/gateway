@@ -1,7 +1,8 @@
 use std::time::Duration;
 
+use alloy_primitives::Address;
 use tokio::time::timeout;
-use toolshed::bytes::{Address, DeploymentId};
+use toolshed::thegraph::DeploymentId;
 
 use graph_gateway::indexings_blocklist::check_indexer_pois;
 use graph_gateway::poi::{ProofOfIndexing, ProofOfIndexingInfo};

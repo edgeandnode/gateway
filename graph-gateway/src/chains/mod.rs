@@ -1,20 +1,26 @@
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
+use alloy_primitives::{BlockHash, BlockNumber};
 use eventuals::{Eventual, EventualWriter};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::interval;
-use toolshed::bytes::Bytes32;
+use toolshed::thegraph::BlockPointer;
 use tracing::Instrument;
 
 use indexer_selection::UnresolvedBlock;
 use prelude::epoch_cache::EpochCache;
-use prelude::{BlockHead, BlockPointer};
 
 use crate::{block_constraints::*, metrics::*};
 
 pub mod ethereum;
 pub mod test;
+
+#[derive(Debug, Clone)]
+pub struct BlockHead {
+    pub block: BlockPointer,
+    pub uncles: Vec<BlockHash>,
+}
 
 pub trait Provider {
     fn network(&self) -> &str;
@@ -105,8 +111,8 @@ struct Actor {
     client_tx: mpsc::UnboundedSender<UnresolvedBlock>,
     notify_rx: mpsc::UnboundedReceiver<ClientMsg>,
     chain_head_broadcast_tx: EventualWriter<BlockPointer>,
-    number_to_hash: EpochCache<u64, Bytes32, 2>,
-    hash_to_number: EpochCache<Bytes32, u64, 2>,
+    number_to_hash: EpochCache<BlockNumber, BlockHash, 2>,
+    hash_to_number: EpochCache<BlockHash, BlockNumber, 2>,
     pending: HashMap<UnresolvedBlock, Vec<oneshot::Sender<Result<BlockPointer, UnresolvedBlock>>>>,
 }
 
