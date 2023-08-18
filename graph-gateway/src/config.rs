@@ -3,8 +3,9 @@ use std::time::Duration;
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 use alloy_primitives::Address;
+use ethers::signers::coins_bip39::English;
+use ethers::signers::MnemonicBuilder;
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
-use hdwallet::{self, KeyChain as _};
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr, FromInto};
@@ -161,23 +162,11 @@ impl fmt::Debug for SignerKey {
 impl FromStr for SignerKey {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // Wallet seed zeroized on drop
-        let wallet_seed = bip39::Seed::new(
-            &bip39::Mnemonic::from_phrase(s, bip39::Language::English)?,
-            "",
-        );
-        let signer_key = hdwallet::DefaultKeyChain::new(
-            hdwallet::ExtendedPrivKey::with_seed(wallet_seed.as_bytes()).expect("Invalid mnemonic"),
-        )
-        .derive_private_key(key_path("scalar/allocations").into())
-        .expect("Failed to derive signer key")
-        .0
-        .private_key;
-        // TODO: just use ethers/alloy?
-        Ok(SignerKey(
-            // Convert between versions of secp256k1 lib.
-            SecretKey::from_slice(signer_key.as_ref()).unwrap(),
-        ))
+        let wallet = MnemonicBuilder::<English>::default()
+            .phrase(s)
+            .derivation_path(&key_path("scalar/allocations"))?
+            .build()?;
+        Ok(Self(SecretKey::from_slice(&wallet.signer().to_bytes())?))
     }
 }
 

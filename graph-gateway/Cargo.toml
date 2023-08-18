@@ -18,7 +18,6 @@ faster-hex = "0.8.0"
 futures = "0.3"
 futures-util = "0.3"
 graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "47c4e9e" }
-hdwallet = "0.4.1"
 hex = "0.4"
 indexer-selection = { path = "../indexer-selection" }
 indoc = "2.0.3"
@@ -41,7 +40,6 @@ serde_with = { version = "3.1", features = ["chrono_0_4"] }
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 thiserror = "1.0.40"
-tiny-bip39 = "1.0"
 tokio.workspace = true
 toolshed.workspace = true
 tower = "0.4.13"
