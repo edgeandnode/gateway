@@ -586,7 +586,7 @@ checksum = "e496a50fda8aacccc86d7529e2c1e0892dbd0f898a6b5645b5561b89c3210efa"
 [[package]]
 name = "cost-model"
 version = "0.1.0"
-source = "git+https://github.com/graphprotocol/agora?rev=bb481f9#bb481f9c8af2f55dfd0189fe051b1535d7a35ed0"
+source = "git+https://github.com/graphprotocol/agora?rev=d5b2256#d5b22565701a3093864dc49fe5765ad6d767a82e"
 dependencies = [
  "firestorm",
  "fraction",
@@ -3760,8 +3760,8 @@ dependencies = [
 
 [[package]]
 name = "toolshed"
-version = "0.2.0"
-source = "git+https://github.com/edgeandnode/toolshed?tag=v0.2.0#6cdc28368725f3bc8c9bdf0b8e1494aeaff79082"
+version = "0.2.1"
+source = "git+https://github.com/edgeandnode/toolshed?tag=v0.2.1#9f0e8f5e62fe6173c4e7a9a1f3000d68ff44262d"
 dependencies = [
  "alloy-primitives",
  "bs58 0.5.0",
