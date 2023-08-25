@@ -8,7 +8,7 @@ name = "sim"
 path = "bin/sim.rs"
 
 [dependencies]
-cost-model = { git = "https://github.com/graphprotocol/agora", rev = "bb481f9" }
+cost-model = { git = "https://github.com/graphprotocol/agora", rev = "d5b2256" }
 anyhow.workspace = true
 arrayvec = "0.7"
 alloy-primitives.workspace = true
