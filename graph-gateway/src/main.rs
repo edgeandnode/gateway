@@ -330,7 +330,7 @@ async fn main() {
                     CorsLayer::new()
                         .allow_origin(cors::Any)
                         .allow_headers(cors::Any)
-                        .allow_methods([http::Method::POST]),
+                        .allow_methods([http::Method::OPTIONS, http::Method::POST]),
                 )
                 .layer(middleware::from_fn(client_query::legacy_auth_adapter)),
         );
