@@ -96,7 +96,9 @@ impl IndexingState {
                 self.perf_failure.current_mut().observe(duration);
                 match err {
                     IndexerErrorObservation::Other => (),
-                    IndexerErrorObservation::Timeout => self.reliability.current_mut().penalize(50),
+                    IndexerErrorObservation::Timeout | IndexerErrorObservation::BadAttestation => {
+                        self.reliability.current_mut().penalize(30)
+                    }
                     IndexerErrorObservation::IndexingBehind {
                         latest_query_block,
                         latest_block,

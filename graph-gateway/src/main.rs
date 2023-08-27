@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, U256};
 use anyhow::{self, Context};
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, State},
@@ -20,6 +20,7 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
+use graph_gateway::attestation;
 use graph_gateway::budgets::Budgeter;
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use prometheus::{self, Encoder as _};
@@ -35,7 +36,6 @@ use graph_gateway::{
     chains::{ethereum, BlockCache},
     client_query,
     config::{Config, ExchangeRateProvider},
-    fisherman_client::FishermanClient,
     geoip::GeoIP,
     indexer_client::IndexerClient,
     indexing::{indexing_statuses, IndexingStatus},
@@ -70,7 +70,7 @@ async fn main() {
     let config_repr = format!("{config:#?}");
 
     // Instantiate the Kafka client
-    let kafka_client = match KafkaClient::new(&config.kafka.into()) {
+    let kafka_client: &'static KafkaClient = match KafkaClient::new(&config.kafka.into()) {
         Ok(kafka_client) => Box::leak(Box::new(kafka_client)),
         Err(kafka_client_err) => {
             tracing::error!(%kafka_client_err);
@@ -145,6 +145,12 @@ async fn main() {
 
     let receipt_signer: &'static ReceiptSigner =
         Box::leak(Box::new(ReceiptSigner::new(signer_key)));
+    let attestation_verifier: &'static attestation::Verifier =
+        Box::leak(Box::new(attestation::Verifier::new(
+            U256::from_str_radix(&config.attestations.chain_id, 10)
+                .expect("failed to parse attestations.chain_id"),
+            config.attestations.dispute_manager,
+        )));
 
     let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
     let network = GraphNetwork::new(network_subgraph_data.subgraphs, ipfs).await;
@@ -233,11 +239,6 @@ async fn main() {
         .expect("invalid query_fees_target");
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
-    let fisherman_client = config.fisherman.map(|url| {
-        Box::leak(Box::new(FishermanClient::new(http_client.clone(), url)))
-            as &'static FishermanClient
-    });
-
     tracing::info!("Waiting for exchange rate...");
     usd_to_grt.value().await.unwrap();
     tracing::info!("Waiting for ISA setup...");
@@ -249,16 +250,17 @@ async fn main() {
         indexer_client: IndexerClient {
             client: http_client.clone(),
         },
+        kafka_client,
         graph_env_id: config.graph_env_id.clone(),
         auth_handler,
         budgeter,
         network,
         indexing_statuses,
         indexings_blocklist,
-        fisherman_client,
         block_caches,
         observations: update_writer,
         receipt_signer,
+        attestation_verifier,
         isa_state,
     };
 

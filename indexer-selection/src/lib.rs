@@ -104,6 +104,7 @@ pub enum IndexerErrorObservation {
         latest_query_block: u64,
         latest_block: u64,
     },
+    BadAttestation,
     Other,
 }
 

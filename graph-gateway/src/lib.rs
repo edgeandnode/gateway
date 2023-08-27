@@ -3,13 +3,13 @@ use std::iter;
 use axum::Json;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 
+pub mod attestation;
 pub mod auth;
 pub mod block_constraints;
 pub mod budgets;
 pub mod chains;
 pub mod client_query;
 pub mod config;
-pub mod fisherman_client;
 pub mod geoip;
 pub mod indexer_client;
 pub mod indexers_status;
