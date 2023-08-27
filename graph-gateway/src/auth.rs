@@ -183,7 +183,7 @@ impl AuthHandler {
                 .flat_map(|s| s.split(','))
                 .collect(),
         };
-        tracing::debug!(%domain, ?allowed_domains);
+        tracing::debug!(?allowed_domains);
         let allow_domain =
             allowed_domains.is_empty() || is_domain_authorized(&allowed_domains, domain);
         ensure!(allow_domain, "Domain not authorized by user");

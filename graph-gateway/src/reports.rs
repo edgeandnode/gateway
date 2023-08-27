@@ -214,6 +214,7 @@ fn report_client_query(
         indexer_fees_grt: Option<f32>,
         query: Option<String>,
         variables: Option<String>,
+        domain: Option<String>,
     }
     let fields = match serde_json::from_value::<Fields>(fields.into()) {
         Ok(fields) => fields,
@@ -260,6 +261,7 @@ fn report_client_query(
             query_count: fields.query_count,
             query_budget: fields.budget_grt,
             indexer_fees: fields.indexer_fees_grt,
+            domain: fields.domain.filter(|d| !d.is_empty()),
         };
         kafka.send(subscriptions_topic, &payload.encode_to_vec());
     }
@@ -452,6 +454,8 @@ pub struct GatewaySubscriptionQueryResult {
     pub query_budget: Option<f32>,
     #[prost(float, optional, tag = "11")]
     pub indexer_fees: Option<f32>,
+    #[prost(string, optional, tag = "12")]
+    pub domain: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, prost::Enumeration)]
