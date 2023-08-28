@@ -828,10 +828,7 @@ async fn handle_indexer_query_inner(
 
     let allocation = Address::from_slice(&receipt[0..20]);
 
-    tracing::info!(
-        target: reports::INDEXER_QUERY_TARGET,
-        allocation = format!("{:?}", allocation),
-    );
+    tracing::info!(target: reports::INDEXER_QUERY_TARGET, ?allocation);
 
     let response = result?;
     if response.status != StatusCode::OK.as_u16() {
