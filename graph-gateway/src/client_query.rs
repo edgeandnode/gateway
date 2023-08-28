@@ -414,7 +414,7 @@ async fn handle_client_query_inner(
     match &auth {
         AuthToken::ApiKey(api_key) => tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
-            user_address = %api_key.user_address,
+            user_address = ?api_key.user_address,
             api_key = %api_key.key,
         ),
         AuthToken::Ticket(payload, _) => tracing::info!(
@@ -691,7 +691,7 @@ async fn handle_client_query_inner(
             let span = tracing::info_span!(
                 target: reports::INDEXER_QUERY_TARGET,
                 "indexer_query",
-                indexer = %selection.indexing.indexer,
+                indexer = ?selection.indexing.indexer,
             );
             tokio::spawn(
                 async move {
@@ -828,10 +828,7 @@ async fn handle_indexer_query_inner(
 
     let allocation = Address::from_slice(&receipt[0..20]);
 
-    tracing::info!(
-        target: reports::INDEXER_QUERY_TARGET,
-        allocation = allocation.to_string(),
-    );
+    tracing::info!(target: reports::INDEXER_QUERY_TARGET, ?allocation);
 
     let response = result?;
     if response.status != StatusCode::OK.as_u16() {
