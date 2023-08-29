@@ -5,6 +5,7 @@ use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 
 pub mod auth;
 pub mod block_constraints;
+pub mod budgets;
 pub mod chains;
 pub mod client_query;
 pub mod config;
@@ -18,7 +19,6 @@ pub mod ipfs;
 pub mod metrics;
 pub mod network_subgraph;
 pub mod poi;
-pub mod price_automation;
 pub mod receipts;
 pub mod reports;
 pub mod subgraph_client;

@@ -39,7 +39,6 @@ use graph_gateway::{
     indexer_client::IndexerClient,
     indexing::{indexing_statuses, IndexingStatus},
     indexings_blocklist, ipfs, network_subgraph,
-    price_automation::QueryBudgetFactors,
     receipts::ReceiptSigner,
     reports,
     reports::KafkaClient,
@@ -222,11 +221,6 @@ async fn main() {
         ),
     };
     let auth_handler = AuthHandler::create(
-        QueryBudgetFactors {
-            scale: config.query_budget_scale,
-            discount: config.query_budget_discount,
-            processes: config.gateway_instance_count as f64,
-        },
         api_keys,
         HashSet::from_iter(config.special_api_keys),
         config.api_key_payment_required,

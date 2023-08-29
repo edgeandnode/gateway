@@ -24,7 +24,6 @@ indoc = "2.0.3"
 itertools = "0.11"
 lazy_static = "1.4"
 maxminddb = "0.23"
-parking_lot = "0.12.0"
 prelude = { path = "../prelude" }
 primitive-types = "0.12.1"
 prometheus = { version = "0.13", default-features = false }

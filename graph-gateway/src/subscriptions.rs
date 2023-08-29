@@ -1,18 +1,13 @@
 use std::str::FromStr;
-use std::sync::Arc;
 
 use alloy_primitives::Address;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{de::Error, Deserialize, Deserializer};
-use tokio::sync::Mutex;
-
-use crate::price_automation::VolumeEstimator;
 
 #[derive(Clone)]
 pub struct Subscription {
     pub signers: Vec<Address>,
     pub queries_per_minute: u32,
-    pub usage: Arc<Mutex<VolumeEstimator>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

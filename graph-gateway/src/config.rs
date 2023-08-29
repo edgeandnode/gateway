@@ -28,9 +28,6 @@ pub struct Config {
     /// Fisherman RPC for challenges
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub fisherman: Option<Url>,
-    /// Total Gateway processes serving queries. This is used when approximating worldwide query
-    /// volume.
-    pub gateway_instance_count: u64,
     /// GeoIP database path
     pub geoip_database: Option<PathBuf>,
     /// GeoIP blocked countries (ISO 3166-1 alpha-2 codes)
@@ -65,8 +62,6 @@ pub struct Config {
     pub port_api: u16,
     /// private metrics port
     pub port_metrics: u16,
-    pub query_budget_discount: f64,
-    pub query_budget_scale: f64,
     /// Mnemonic for voucher signing
     #[serde_as(as = "DisplayFromStr")]
     pub signer_key: SignerKey,

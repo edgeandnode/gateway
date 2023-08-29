@@ -516,7 +516,16 @@ async fn handle_client_query_inner(
     .map_err(Error::InvalidQuery)?
     .max(1) as u64;
 
-    let settings = ctx.auth_handler.query_settings(&auth, query_count).await;
+    // For budgeting purposes, pick the latest deployment. Otherwise pick the first.
+    let budget_deployment = deployments
+        .iter()
+        .max_by_key(|d| d.version.as_ref())
+        .map(|d| d.id)
+        .unwrap_or_else(|| deployments[0].id);
+    let settings = ctx
+        .auth_handler
+        .query_settings(&auth, &budget_deployment, query_count)
+        .await;
     let budget: GRT = ctx
         .isa_state
         .latest()
