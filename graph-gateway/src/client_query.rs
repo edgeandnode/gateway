@@ -25,7 +25,6 @@ use futures::future::join_all;
 use lazy_static::lazy_static;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
-use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -38,7 +37,7 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 use indexer_selection::{
-    actor::Update, BlockRequirements, Candidate, Context as AgoraContext,
+    actor::Update, BlockRequirements, Context as AgoraContext,
     IndexerError as IndexerSelectionError, IndexerErrorObservation, Indexing, InputError,
     Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
 };
@@ -437,7 +436,7 @@ async fn handle_client_query_inner(
         .value_immediate()
         .unwrap_or_default();
 
-    let available_indexings: Vec<Indexing> = deployments
+    let candidates: Vec<Indexing> = deployments
         .iter()
         .flat_map(move |deployment| {
             let id = deployment.id;
@@ -457,11 +456,10 @@ async fn handle_client_query_inner(
         .collect::<BTreeSet<Indexing>>()
         .into_iter()
         .collect();
-    tracing::info!(available_indexings = available_indexings.len());
-    if available_indexings.is_empty() {
+    tracing::info!(candidates = candidates.len());
+    if candidates.is_empty() {
         return Err(Error::NoIndexers);
     }
-    let candidates = indexings_to_candidates(&deployments, available_indexings);
 
     let variables = payload
         .variables
@@ -937,35 +935,6 @@ fn challenge_indexer_response(
             });
         }
     });
-}
-
-fn indexings_to_candidates(
-    deployments: &[Arc<Deployment>],
-    indexings: Vec<Indexing>,
-) -> Vec<Candidate> {
-    let versions: BTreeMap<&Version, DeploymentId> = deployments
-        .iter()
-        .filter_map(|deployment| Some((deployment.version.as_ref()?.as_ref(), deployment.id)))
-        .collect();
-    let deployment_versions_behind: BTreeMap<DeploymentId, usize> = versions
-        .into_iter()
-        .rev()
-        .enumerate()
-        .map(|(index, (_, deployment))| (deployment, index))
-        .collect();
-    indexings
-        .into_iter()
-        .map(|indexing| {
-            let versions_behind = *deployment_versions_behind
-                .get(&indexing.deployment)
-                .unwrap_or(&0)
-                .min(&(u8::MAX as usize)) as u8;
-            Candidate {
-                indexing,
-                versions_behind,
-            }
-        })
-        .collect()
 }
 
 fn count_top_level_selection_sets(ctx: &AgoraContext) -> anyhow::Result<usize> {

@@ -9,12 +9,13 @@ use rand_distr::Normal;
 
 use prelude::test_utils::{bytes_from_id, init_test_tracing};
 use prelude::GRT;
+use semver::Version;
 use toolshed::thegraph::DeploymentId;
 
 use crate::test_utils::default_cost_model;
 use crate::{
-    BlockStatus, Candidate, Context, IndexerErrorObservation, Indexing, IndexingStatus, Selection,
-    State, UtilityParameters,
+    BlockStatus, Context, IndexerErrorObservation, Indexing, IndexingStatus, Selection, State,
+    UtilityParameters,
 };
 
 pub struct IndexerCharacteristics {
@@ -76,18 +77,16 @@ pub async fn simulate(
                     behind_reported_block: false,
                     min_block: None,
                 }),
+                version: Some(Version::new(0, 0, 0).into()),
             },
         );
     }
 
-    let candidates: Vec<Candidate> = characteristics
+    let candidates: Vec<Indexing> = characteristics
         .iter()
-        .map(|c| Candidate {
-            indexing: Indexing {
-                indexer: c.address,
-                deployment,
-            },
-            versions_behind: 0,
+        .map(|c| Indexing {
+            indexer: c.address,
+            deployment,
         })
         .collect();
     let characteristics: HashMap<&Address, &IndexerCharacteristics> =
