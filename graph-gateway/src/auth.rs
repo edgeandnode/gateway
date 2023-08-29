@@ -11,25 +11,22 @@ use alloy_primitives::Address;
 use anyhow::{anyhow, bail, ensure, Result};
 use eventuals::{Eventual, EventualExt, Ptr};
 use graph_subscriptions::TicketPayload;
+use prelude::USD;
 use tokio::sync::RwLock;
 use toolshed::thegraph::{DeploymentId, SubgraphId};
 
-use prelude::USD;
-
-use crate::{
-    price_automation::QueryBudgetFactors,
-    subgraph_studio::{APIKey, IndexerPreferences, QueryStatus},
-    subscriptions::Subscription,
-    topology::Deployment,
-};
+use crate::budgets::Budgeter;
+use crate::subgraph_studio::{APIKey, IndexerPreferences, QueryStatus};
+use crate::subscriptions::Subscription;
+use crate::topology::Deployment;
 
 pub struct AuthHandler {
-    pub query_budget_factors: QueryBudgetFactors,
     pub api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     pub special_api_keys: HashSet<String>,
     pub api_key_payment_required: bool,
     pub subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
     pub subscription_query_counters: RwLock<HashMap<Address, AtomicUsize>>,
+    pub budgeter: &'static Budgeter,
 }
 
 #[derive(Debug)]
@@ -47,19 +44,18 @@ pub enum AuthToken {
 
 impl AuthHandler {
     pub fn create(
-        query_budget_factors: QueryBudgetFactors,
         api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
         special_api_keys: HashSet<String>,
         api_key_payment_required: bool,
         subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
     ) -> &'static Self {
         let handler: &'static Self = Box::leak(Box::new(Self {
-            query_budget_factors,
             api_keys,
             special_api_keys,
             api_key_payment_required,
             subscriptions,
             subscription_query_counters: RwLock::default(),
+            budgeter: Budgeter::new(),
         }));
 
         // Reset counters every minute.
@@ -221,20 +217,13 @@ impl AuthHandler {
         Ok(())
     }
 
-    pub async fn query_settings(&self, token: &AuthToken, query_count: u64) -> QuerySettings {
-        // This has to run even if we don't use the budget because it updates the query volume
-        // estimate. This is important in the case that the user switches back to automated volume
-        // discounting. Otherwise it will look like there is a long period of inactivity which would
-        // increase the price.
-        let budget = {
-            match token {
-                AuthToken::ApiKey(api_key) => api_key.usage.lock().await,
-                AuthToken::Ticket(_, sub) => sub.usage.lock().await,
-            }
-            .budget_for_queries(query_count, &self.query_budget_factors)
-        };
-
-        let mut budget = USD::try_from(budget).unwrap();
+    pub async fn query_settings(
+        &self,
+        token: &AuthToken,
+        deployment: &DeploymentId,
+        query_count: u64,
+    ) -> QuerySettings {
+        let mut budget = self.budgeter.estimate_budget(deployment, query_count).await;
         if let AuthToken::ApiKey(api_key) = token {
             if let Some(max_budget) = api_key.max_budget {
                 // Security: Consumers can and will set their budget to unreasonably high values.

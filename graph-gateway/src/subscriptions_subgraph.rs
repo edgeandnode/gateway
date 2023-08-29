@@ -4,18 +4,15 @@ use std::{collections::HashMap, sync::Arc};
 use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
+use prelude::unix_timestamp;
 use tokio::sync::Mutex;
 
-use prelude::unix_timestamp;
-
-use crate::price_automation::VolumeEstimations;
 use crate::subgraph_client;
 use crate::subscriptions::{ActiveSubscription, Subscription};
 
 pub struct Client {
     subgraph_client: subgraph_client::Client,
     tiers: &'static SubscriptionTiers,
-    subscriptions_usage: VolumeEstimations<Address>,
     owner_subscriptions: Vec<(Address, Subscription)>,
     subscriptions: EventualWriter<Ptr<HashMap<Address, Subscription>>>,
 }
@@ -33,7 +30,6 @@ impl Client {
                 let sub = Subscription {
                     queries_per_minute: u32::MAX,
                     signers: vec![],
-                    usage: Arc::default(),
                 };
                 (*owner, sub)
             })
@@ -44,7 +40,6 @@ impl Client {
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
             tiers,
-            subscriptions_usage: VolumeEstimations::new(),
             owner_subscriptions,
             subscriptions: subscriptions_tx,
         }));
@@ -116,7 +111,6 @@ impl Client {
                 let sub = Subscription {
                     signers: signers.collect(),
                     queries_per_minute: tier.queries_per_minute,
-                    usage: self.subscriptions_usage.get(&user.id),
                 };
                 (user.id, sub)
             })

@@ -1,16 +1,12 @@
-use std::time::Duration;
 use std::{collections::HashMap, error::Error, sync::Arc};
 
 use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
+use prelude::USD;
 use serde::Deserialize;
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time::Duration};
 use toolshed::thegraph::{DeploymentId, SubgraphId};
 use toolshed::url::Url;
-
-use prelude::USD;
-
-use crate::price_automation::{VolumeEstimations, VolumeEstimator};
 
 #[derive(Clone, Debug, Default)]
 pub struct APIKey {
@@ -25,7 +21,6 @@ pub struct APIKey {
     pub subgraphs: Vec<SubgraphId>,
     pub domains: Vec<String>,
     pub indexer_preferences: IndexerPreferences,
-    pub usage: Arc<Mutex<VolumeEstimator>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
@@ -59,7 +54,6 @@ pub fn api_keys(
         client,
         url,
         auth,
-        api_key_usage: VolumeEstimations::new(),
         api_keys_writer: writer,
     })));
     eventuals::timer(Duration::from_secs(30))
@@ -78,7 +72,6 @@ struct Client {
     client: reqwest::Client,
     url: Url,
     auth: String,
-    api_key_usage: VolumeEstimations<i64>,
     api_keys_writer: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
 }
 
@@ -111,7 +104,6 @@ impl Client {
                     }
                 }
                 let api_key = APIKey {
-                    usage: self.api_key_usage.get(&api_key.id),
                     id: api_key.id,
                     key: api_key.key,
                     is_subsidized: api_key.is_subsidized,
