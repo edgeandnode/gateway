@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -15,7 +16,7 @@ pub use secp256k1::SecretKey;
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 use toolshed::url::Url;
 
-use prelude::{epoch_cache::EpochCache, *};
+use prelude::*;
 use score::{expected_individual_score, ExpectedValue};
 
 pub use crate::{
@@ -223,7 +224,7 @@ impl UtilityParameters {
 #[derive(Default)]
 pub struct State {
     pub network_params: NetworkParameters,
-    indexings: EpochCache<Indexing, IndexingState, 2>,
+    indexings: HashMap<Indexing, IndexingState>,
 }
 
 impl State {
@@ -253,7 +254,9 @@ impl State {
     }
 
     pub fn decay(&mut self) {
-        self.indexings.apply(|sf| sf.decay());
+        for indexing in self.indexings.values_mut() {
+            indexing.decay();
+        }
     }
 
     // We use a small-state PRNG (xoroshiro256++) here instead of StdRng (ChaCha12).
@@ -324,7 +327,7 @@ impl State {
     ) -> Result<SelectionFactors, SelectionError> {
         let state = self
             .indexings
-            .get_unobserved(&candidate.indexing)
+            .get(&candidate.indexing)
             .ok_or(IndexerError::NoStatus)?;
 
         let block_status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;

@@ -77,7 +77,6 @@ pub fn apply_state_update(state: &mut State, update: &Update) {
             for (indexing, update) in indexings {
                 state.insert_indexing(*indexing, update.clone());
             }
-            state.indexings.increment_epoch();
         }
         Update::QueryObservation {
             indexing,
