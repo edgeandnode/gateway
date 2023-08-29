@@ -1781,6 +1781,7 @@ dependencies = [
  "rand_distr",
  "receipts",
  "secp256k1",
+ "semver",
  "siphasher",
  "tokio",
  "toolshed",

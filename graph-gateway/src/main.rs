@@ -421,15 +421,14 @@ async fn write_indexer_inputs(
     let mut allocations: HashMap<Indexing, Address> = HashMap::new();
     let mut latest_blocks: HashMap<String, u64> = HashMap::new();
     for (deployment, indexer) in deployments.values().flat_map(|deployment| {
-        let deployment_id = deployment.id;
         deployment
             .indexers
             .iter()
-            .map(move |indexer| (deployment_id, indexer))
+            .map(move |indexer| (deployment.as_ref(), indexer.as_ref()))
     }) {
         let indexing = Indexing {
             indexer: indexer.id,
-            deployment,
+            deployment: deployment.id,
         };
         let status = match indexing_statuses.get(&indexing) {
             Some(status) => status,
@@ -455,6 +454,7 @@ async fn write_indexer_inputs(
                 behind_reported_block: false,
                 min_block: status.min_block,
             }),
+            version: deployment.version.clone(),
         };
         allocations.insert(indexing, indexer.largest_allocation);
         indexings.insert(indexing, update);

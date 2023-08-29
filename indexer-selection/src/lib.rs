@@ -13,6 +13,7 @@ pub use ordered_float::NotNan;
 use rand::{prelude::SmallRng, Rng as _};
 pub use receipts;
 pub use secp256k1::SecretKey;
+use semver::Version;
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 use toolshed::url::Url;
 
@@ -52,11 +53,6 @@ pub type Context<'c> = cost_model::Context<'c, String>;
 /// If an indexer's score is penalized such that it falls below this proportion of the max indexer
 /// score, then the indexer will be discarded from the set of indexers to select from.
 const MIN_SCORE_CUTOFF: f64 = 0.25;
-
-pub struct Candidate {
-    pub indexing: Indexing,
-    pub versions_behind: u8,
-}
 
 #[derive(Clone, Debug)]
 pub struct Selection {
@@ -268,19 +264,25 @@ impl State {
     pub fn select_indexers<'a>(
         &self,
         rng: &mut SmallRng,
-        candidates: &'a [Candidate],
+        candidates: &'a [Indexing],
         params: &UtilityParameters,
         context: &mut Context<'_>,
         selection_limit: u8,
     ) -> Result<(Vec<Selection>, IndexerErrors<'a>), InputError> {
         let mut errors = IndexerErrors(BTreeMap::new());
         let mut available = Vec::<SelectionFactors>::new();
+
+        // Normalize versions to be relative to the best candidate.
+        let mut versions: Vec<&Version> = candidates
+            .iter()
+            .filter_map(|i| self.indexings.get(i)?.status.version.as_deref())
+            .collect();
+        versions.sort();
+
         for candidate in candidates {
-            match self.selection_factors(candidate, params, context, selection_limit) {
+            match self.selection_factors(candidate, params, context, selection_limit, &versions) {
                 Ok(factors) => available.push(factors),
-                Err(SelectionError::BadIndexer(err)) => {
-                    errors.add(err, &candidate.indexing.indexer)
-                }
+                Err(SelectionError::BadIndexer(err)) => errors.add(err, &candidate.indexer),
                 Err(SelectionError::BadInput(err)) => return Err(err),
             };
         }
@@ -320,14 +322,15 @@ impl State {
 
     fn selection_factors(
         &self,
-        candidate: &Candidate,
+        candidate: &Indexing,
         params: &UtilityParameters,
         context: &mut Context<'_>,
         selection_limit: u8,
+        sorted_versions: &[&Version],
     ) -> Result<SelectionFactors, SelectionError> {
         let state = self
             .indexings
-            .get(&candidate.indexing)
+            .get(candidate)
             .ok_or(IndexerError::NoStatus)?;
 
         let block_status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
@@ -360,11 +363,18 @@ impl State {
         let perf_success = state.perf_success.expected_value();
         let slashable_usd = slashable.as_f64();
 
+        let version: Option<&Version> = state.status.version.as_deref();
+        let versions_behind = version
+            .and_then(|v| sorted_versions.iter().rev().position(|x| *x == v))
+            .unwrap_or(0)
+            .try_into()
+            .unwrap_or(u8::MAX);
+
         let expected_score = NotNan::new(expected_individual_score(
             params,
             reliability,
             perf_success,
-            candidate.versions_behind,
+            versions_behind,
             block_status.blocks_behind,
             slashable_usd,
             &fee,
@@ -372,9 +382,9 @@ impl State {
         .unwrap_or(NotNan::zero());
 
         Ok(SelectionFactors {
-            indexing: candidate.indexing,
+            indexing: *candidate,
             url: state.status.url.clone(),
-            versions_behind: candidate.versions_behind,
+            versions_behind,
             reliability,
             perf_success,
             perf_failure: state.perf_failure.expected_value(),

@@ -11,6 +11,7 @@ use rand::{
     seq::{IteratorRandom, SliceRandom},
     thread_rng, Rng, RngCore as _, SeedableRng as _,
 };
+use semver::Version;
 use tokio::spawn;
 
 use prelude::buffer_queue::QueueWriter;
@@ -18,11 +19,12 @@ use prelude::test_utils::bytes_from_id;
 use prelude::{buffer_queue, double_buffer, GRT, PPM};
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 
+use crate::actor::{process_updates, Update};
+use crate::test_utils::default_cost_model;
 use crate::{
-    actor::{process_updates, Update},
-    test_utils::default_cost_model,
-    BlockRequirements, BlockStatus, Candidate, Context, IndexerError, IndexerErrors, Indexing,
-    IndexingStatus, InputError, Selection, UtilityParameters, SELECTION_LIMIT,
+    BlockRequirements, BlockStatus, Context, IndexerError, IndexerErrors, Indexing, IndexingState,
+    IndexingStatus, InputError, NetworkParameters, Selection, State, UtilityParameters,
+    SELECTION_LIMIT,
 };
 
 #[derive(Clone)]
@@ -49,6 +51,30 @@ struct Request {
     params: UtilityParameters,
     query: String,
     selection_limit: u8,
+}
+
+fn base_indexing_status() -> IndexingStatus {
+    IndexingStatus {
+        url: "http://localhost:8000".parse().unwrap(),
+        stake: "1".parse().unwrap(),
+        allocation: "1".parse().unwrap(),
+        cost_model: None,
+        block: Some(BlockStatus {
+            reported_number: 0,
+            blocks_behind: 0,
+            behind_reported_block: false,
+            min_block: None,
+        }),
+        version: Some(Version::new(0, 0, 0).into()),
+    }
+}
+
+fn utiliy_params(
+    budget: GRT,
+    requirements: BlockRequirements,
+    latest_block: u64,
+) -> UtilityParameters {
+    UtilityParameters::new(budget, requirements, latest_block, 0.1, 0.0, 0.0, 0.0, 0.0)
 }
 
 impl Topology {
@@ -102,9 +128,7 @@ impl Topology {
             deployment: *deployments.iter().choose(rng)?,
         };
         let status = IndexingStatus {
-            url: "http://localhost:8000".parse().unwrap(),
             stake: Self::gen_grt(rng, &[0.0, 50e3, 100e3, 150e3]),
-            allocation: "1".parse().unwrap(),
             cost_model: Some(Ptr::new(default_cost_model(Self::gen_grt(
                 rng,
                 &[0.0, 0.1, 1.0, 2.0],
@@ -115,6 +139,7 @@ impl Topology {
                 behind_reported_block: false,
                 min_block: None,
             }),
+            ..base_indexing_status()
         };
         Some((indexing, status))
     }
@@ -137,18 +162,13 @@ impl Topology {
                 .filter(|indexing| indexing.deployment == deployment)
                 .map(|indexing| indexing.indexer)
                 .collect(),
-            params: UtilityParameters::new(
+            params: utiliy_params(
                 "1.0".parse().unwrap(),
                 BlockRequirements {
                     range: required_block.map(|b| (0, b)),
                     has_latest: required_block.is_some() && rng.gen_bool(0.5),
                 },
                 self.blocks.last()?.number,
-                0.1,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
             ),
             query: "{ entities { id } }".to_string(),
             selection_limit: rng.gen_range(1..=SELECTION_LIMIT) as u8,
@@ -240,7 +260,7 @@ async fn fuzz() {
     };
 
     for _ in 0..100 {
-        let (isa_state, isa_writer) = double_buffer!(crate::State::default());
+        let (isa_state, isa_writer) = double_buffer!(State::default());
         let (mut update_writer, update_reader) = buffer_queue::pair();
         spawn(async move {
             process_updates(isa_writer, update_reader).await;
@@ -255,15 +275,12 @@ async fn fuzz() {
         };
         println!("{:#?}", request);
         let mut context = Context::new(&request.query, "").unwrap();
-        let candidates: Vec<Candidate> = request
+        let candidates: Vec<Indexing> = request
             .indexers
             .iter()
-            .map(|indexer| Candidate {
-                indexing: Indexing {
-                    indexer: *indexer,
-                    deployment: request.deployment,
-                },
-                versions_behind: 0,
+            .map(|indexer| Indexing {
+                indexer: *indexer,
+                deployment: request.deployment,
             })
             .collect();
         let result = isa_state.latest().select_indexers(
@@ -279,4 +296,73 @@ async fn fuzz() {
             panic!("check failed!");
         }
     }
+}
+
+/// All else being equal, select candidates indexing lower subgraph versions.
+#[test]
+fn favor_higher_version() {
+    let mut rng = SmallRng::from_entropy();
+    let mut gen_version = || {
+        Version::new(
+            rng.gen_range(0..3),
+            rng.gen_range(0..3),
+            rng.gen_range(0..3),
+        )
+    };
+
+    let candidates: Vec<Indexing> = (0..2)
+        .into_iter()
+        .map(|i| Indexing {
+            indexer: bytes_from_id(0).into(),
+            deployment: DeploymentId(bytes_from_id(i).into()),
+        })
+        .collect();
+    let mut versions = [gen_version(), gen_version()];
+    if versions[0] == versions[1] {
+        versions[1].major += 1;
+    }
+
+    let mut state = State {
+        network_params: NetworkParameters {
+            usd_to_grt_conversion: Some("1".parse().unwrap()),
+            slashing_percentage: Some("0.1".parse().unwrap()),
+        },
+        indexings: HashMap::from_iter([]),
+    };
+    state.indexings.insert(
+        candidates[0],
+        IndexingState::new(IndexingStatus {
+            version: Some(versions[0].clone().into()),
+            ..base_indexing_status()
+        }),
+    );
+    state.indexings.insert(
+        candidates[1],
+        IndexingState::new(IndexingStatus {
+            version: Some(versions[1].clone().into()),
+            ..base_indexing_status()
+        }),
+    );
+
+    let params = utiliy_params(
+        "1".parse().unwrap(),
+        BlockRequirements {
+            range: None,
+            has_latest: true,
+        },
+        1,
+    );
+    let mut context = Context::new("{ a { b } }", "").unwrap();
+    let result = state.select_indexers(&mut rng, &candidates, &params, &mut context, 1);
+
+    println!("{:#?}", candidates);
+    println!("{:#?}", versions);
+    println!("{:#?}", result);
+
+    let max_version = versions.iter().max().unwrap();
+    let index = versions.iter().position(|v| v == max_version).unwrap();
+    let expected = candidates[index];
+
+    let selection = result.unwrap().0[0].indexing;
+    assert_eq!(selection, expected);
 }
