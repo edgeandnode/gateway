@@ -402,7 +402,7 @@ async fn handle_client_query_inner(
         .last()
         .map(|deployment| deployment.manifest.network.clone())
         .ok_or_else(|| Error::InvalidSubgraph("No matching deployments".to_string()))?;
-    tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain);
+    tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain, domain);
     // Make sure we only select from deployments indexing the same chain. This simplifies dealing
     // with block constraints later.
     deployments.retain(|deployment| deployment.manifest.network == subgraph_chain);
