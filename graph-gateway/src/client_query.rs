@@ -140,34 +140,30 @@ pub async fn handle_query(
         .context("Invalid auth");
 
     let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
-    // Forward query to L2 gateway if subgraph has transferred to L2. On deployment queries, only
-    // forward when deployments also have no allocations. We only resolve a subgraph when a subgraph
-    // ID is given as a URL param.
+    // We only resolve a subgraph when a subgraph ID is given as a URL param.
     let subgraph = resolved_deployments
         .as_ref()
         .ok()
         .and_then(|(_, s)| s.as_ref());
-    let l2_subgraph_id = subgraph.and_then(|s| s.l2_id);
-    let deployments_migrated = ctx.l2_gateway.is_some()
-        && matches!(
-            resolved_deployments.as_ref(),
-            Ok((deployments, _)) if deployments.iter().all(|d| d.indexers.is_empty()),
-        );
 
-    if l2_subgraph_id.is_some() || (subgraph.is_none() && deployments_migrated) {
-        // We validate the configuration correctness at startup: L2 transfer redirection requires
-        // the L2 gateway URL to be configured.
-        // be8f0ed1-262e-426f-877a-613368eed3ca
-        let l2_url = ctx.l2_gateway.as_ref().unwrap();
-        return forward_request_to_l2(
-            &ctx.indexer_client.client,
-            l2_url,
-            &original_uri,
-            headers,
-            payload,
-            l2_subgraph_id,
-        )
-        .await;
+    if let Some(l2_url) = ctx.l2_gateway.as_ref() {
+        // Forward query to L2 gateway if it's marked as transferred & there are no allocations.
+        // abf62a6d-c071-4507-b528-ddc8e250127a
+        let transferred_to_l2 = matches!(
+            resolved_deployments.as_ref(),
+            Ok((deployments, _)) if deployments.iter().all(|d| d.transferred_to_l2),
+        );
+        if transferred_to_l2 {
+            return forward_request_to_l2(
+                &ctx.indexer_client.client,
+                l2_url,
+                &original_uri,
+                headers,
+                payload,
+                subgraph.and_then(|s| s.l2_id),
+            )
+            .await;
+        }
     }
 
     // This is very useful for investigating gateway logs in production.
