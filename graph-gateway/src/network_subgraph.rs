@@ -3,15 +3,12 @@ use std::time::Duration;
 
 use alloy_primitives::Address;
 use anyhow::anyhow;
-use chrono::{DateTime, Utc};
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
+use prelude::{GRTWei, PPM};
 use serde::Deserialize;
 use serde_json::json;
-use serde_with::serde_as;
 use tokio::sync::Mutex;
 use toolshed::thegraph::{DeploymentId, SubgraphId};
-
-use prelude::{GRTWei, PPM};
 
 use crate::subgraph_client;
 
@@ -24,15 +21,12 @@ pub struct NetworkParams {
     pub slashing_percentage: PPM,
 }
 
-#[serde_as]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Subgraph {
     pub id: SubgraphId,
-    pub versions: Vec<SubgraphVersion>,
     pub id_on_l2: Option<SubgraphId>,
-    #[serde_as(as = "Option<serde_with::TimestampSeconds<String>>")]
-    pub started_transfer_to_l2_at: Option<DateTime<Utc>>,
+    pub versions: Vec<SubgraphVersion>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,7 +148,6 @@ impl Client {
             ) {{
                 id
                 {}
-                {}
                 versions(orderBy: version, orderDirection: asc) {{
                     metadataHash
                     subgraphDeployment {{
@@ -181,9 +174,6 @@ impl Client {
                 .then_some("")
                 .unwrap_or("active: true"),
             self.l2_transfer_support.then_some("idOnL2").unwrap_or(""),
-            self.l2_transfer_support
-                .then_some("startedTransferToL2At")
-                .unwrap_or(""),
             self.l2_transfer_support
                 .then_some("transferredToL2")
                 .unwrap_or(""),

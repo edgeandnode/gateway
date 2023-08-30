@@ -3,16 +3,14 @@ use std::sync::Arc;
 
 use alloy_primitives::{Address, B256};
 use anyhow::anyhow;
-use chrono::Utc;
 use eventuals::{Eventual, EventualExt, Ptr};
 use futures_util::future::join_all;
 use itertools::Itertools;
+use prelude::GRT;
 use serde::Deserialize;
 use tokio::sync::RwLock;
 use toolshed::thegraph::{DeploymentId, SubgraphId};
 use toolshed::url::Url;
-
-use prelude::GRT;
 
 use crate::{ipfs, network_subgraph};
 
@@ -88,7 +86,6 @@ impl GraphNetwork {
     pub async fn new(
         subgraphs: Eventual<Ptr<Vec<network_subgraph::Subgraph>>>,
         ipfs: Arc<ipfs::Client>,
-        l2_transfer_delay: Option<chrono::Duration>,
     ) -> Self {
         let cache: &'static RwLock<IpfsCache> = Box::leak(Box::new(RwLock::new(IpfsCache {
             ipfs,
@@ -99,7 +96,7 @@ impl GraphNetwork {
         // Create a lookup table for subgraphs, keyed by their ID.
         // Invalid URL indexers are filtered out. See: 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
         let subgraphs = subgraphs.map(move |subgraphs| async move {
-            Ptr::new(Self::subgraphs(&subgraphs, cache, l2_transfer_delay).await)
+            Ptr::new(Self::subgraphs(&subgraphs, cache).await)
         });
 
         // Create a lookup table for deployments, keyed by their ID (which is also their IPFS hash).
@@ -138,9 +135,7 @@ impl GraphNetwork {
     async fn subgraphs(
         subgraphs: &[network_subgraph::Subgraph],
         cache: &'static RwLock<IpfsCache>,
-        l2_transfer_delay: Option<chrono::Duration>,
     ) -> HashMap<SubgraphId, Subgraph> {
-        let now = Utc::now();
         join_all(subgraphs.iter().map(|subgraph| async move {
             let id = subgraph.id;
             let deployments = join_all(
@@ -153,22 +148,12 @@ impl GraphNetwork {
             .into_iter()
             .flatten()
             .collect();
-            let l2_id = match (
-                subgraph.started_transfer_to_l2_at,
-                l2_transfer_delay,
-                subgraph.id_on_l2,
-            ) {
-                (Some(at), Some(delay), Some(id)) if (now - at) > delay => Some(id),
-                _ => None,
-            };
-            (
+            let subgraph = Subgraph {
+                deployments,
                 id,
-                Subgraph {
-                    deployments,
-                    id,
-                    l2_id,
-                },
-            )
+                l2_id: subgraph.id_on_l2,
+            };
+            (id, subgraph)
         }))
         .await
         .into_iter()
