@@ -69,15 +69,6 @@ async fn main() {
 
     let config_repr = format!("{config:#?}");
 
-    // Validate the L2 transfer support configuration
-    // be8f0ed1-262e-426f-877a-613368eed3ca
-    if !matches!(
-        (&config.l2_transfer_delay_hours, &config.l2_gateway),
-        (Some(_), Some(_)) | (None, None),
-    ) {
-        panic!("l2_transfer_delay_hours & l2_gateway are both required if either are set");
-    }
-
     // Instantiate the Kafka client
     let kafka_client = match KafkaClient::new(&config.kafka.into()) {
         Ok(kafka_client) => Box::leak(Box::new(kafka_client)),
@@ -141,9 +132,6 @@ async fn main() {
 
     let network_subgraph_client =
         subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone(), None);
-    let l2_transfer_delay = config
-        .l2_transfer_delay_hours
-        .map(|hours| chrono::Duration::hours(hours as i64));
     let network_subgraph_data =
         network_subgraph::Client::create(network_subgraph_client, config.l2_gateway.is_some())
             .await
@@ -159,7 +147,7 @@ async fn main() {
         Box::leak(Box::new(ReceiptSigner::new(signer_key)));
 
     let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
-    let network = GraphNetwork::new(network_subgraph_data.subgraphs, ipfs, l2_transfer_delay).await;
+    let network = GraphNetwork::new(network_subgraph_data.subgraphs, ipfs).await;
 
     // Indexer blocklist
     // Periodically check the defective POIs list against the network indexers and update the
