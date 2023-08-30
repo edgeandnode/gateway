@@ -311,7 +311,6 @@ fn favor_higher_version() {
     };
 
     let candidates: Vec<Indexing> = (0..2)
-        .into_iter()
         .map(|i| Indexing {
             indexer: bytes_from_id(0).into(),
             deployment: DeploymentId(bytes_from_id(i).into()),

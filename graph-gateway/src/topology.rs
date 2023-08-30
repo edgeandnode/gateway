@@ -227,6 +227,7 @@ impl GraphNetwork {
             .map(Arc::new)
             .collect();
 
+        // abf62a6d-c071-4507-b528-ddc8e250127a
         let transferred_to_l2 = version.subgraph_deployment.transferred_to_l2
             && version.subgraph_deployment.allocations.is_empty();
 
