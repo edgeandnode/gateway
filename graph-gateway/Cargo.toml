@@ -29,7 +29,7 @@ primitive-types = "0.12.1"
 prometheus = { version = "0.13", default-features = false }
 prost = "0.11.8"
 rand.workspace = true
-rdkafka = { version = "0.33", features = ["gssapi-vendored", "tracing"] }
+rdkafka = { version = "0.34", features = ["gssapi-vendored", "tracing"] }
 reqwest.workspace = true
 secp256k1.workspace = true
 semver = "1.0"
@@ -49,7 +49,7 @@ tracing-subscriber = { version = "0.3.16", features = [
     "json",
     "parking_lot",
 ] }
-trust-dns-resolver = "0.22"
+trust-dns-resolver = "0.23.0"
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
 
 [dev-dependencies]
