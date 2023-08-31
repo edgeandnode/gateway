@@ -507,14 +507,9 @@ async fn handle_client_query_inner(
         )));
     }
 
-    let query_count = match &auth {
-        AuthToken::Ticket(_, _) => count_top_level_selection_sets(&context),
-        // Maintain old (incorrect) behavior for studio API keys. This is not consistent with how
-        // Agora counts queries, but we want to avoid price shocks for now.
-        AuthToken::ApiKey(_) => Ok(context.operations.len()),
-    }
-    .map_err(Error::InvalidQuery)?
-    .max(1) as u64;
+    let query_count = count_top_level_selection_sets(&context)
+        .map_err(Error::InvalidQuery)?
+        .max(1) as u64;
 
     // For budgeting purposes, pick the latest deployment. Otherwise pick the first.
     let budget_deployment = deployments
