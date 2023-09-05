@@ -23,6 +23,7 @@ use axum::{
 use eventuals::{Eventual, Ptr};
 use futures::future::join_all;
 use lazy_static::lazy_static;
+use prelude::USD;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
@@ -43,6 +44,7 @@ use indexer_selection::{
 };
 use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
 
+use crate::budgets::{self, Budgeter};
 use crate::{
     auth::{AuthHandler, AuthToken},
     block_constraints::{block_constraints, make_query_deterministic, BlockConstraint},
@@ -100,6 +102,7 @@ pub struct Context {
     pub fisherman_client: Option<&'static FishermanClient>,
     pub graph_env_id: String,
     pub auth_handler: &'static AuthHandler,
+    pub budgeter: &'static Budgeter,
     pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,
     pub block_caches: &'static HashMap<String, BlockCache>,
@@ -507,30 +510,35 @@ async fn handle_client_query_inner(
         )));
     }
 
-    let query_count = count_top_level_selection_sets(&context)
+    let user_settings = ctx.auth_handler.query_settings(&auth).await;
+
+    let budget_query_count = count_top_level_selection_sets(&context)
         .map_err(Error::InvalidQuery)?
         .max(1) as u64;
-
     // For budgeting purposes, pick the latest deployment. Otherwise pick the first.
     let budget_deployment = deployments
         .iter()
         .max_by_key(|d| d.version.as_ref())
         .map(|d| d.id)
         .unwrap_or_else(|| deployments[0].id);
-    let settings = ctx
-        .auth_handler
-        .query_settings(&auth, &budget_deployment, query_count)
-        .await;
+    let mut budget: USD = ctx.budgeter.budget(&budget_deployment, budget_query_count);
+    if let Some(user_budget) = user_settings.budget {
+        // Security: Consumers can and will set their budget to unreasonably high values.
+        // This `.min` prevents the budget from being set far beyond what it would be
+        // automatically. The reason this is important is because sometimes queries are
+        // subsidized and we would be at-risk to allow arbitrarily high values.
+        budget = user_budget.min(budget * USD::try_from(10_u64).unwrap());
+        // TOOD: budget = user_budget.max(budget * USD::try_from(0.1_f64).unwrap());
+    }
     let budget: GRT = ctx
         .isa_state
         .latest()
         .network_params
-        .usd_to_grt(settings.budget)
+        .usd_to_grt(budget)
         .ok_or_else(|| Error::Internal(anyhow!("Missing exchange rate")))?;
-
     tracing::info!(
         target: reports::CLIENT_QUERY_TARGET,
-        query_count,
+        query_count = budget_query_count,
         budget_grt = budget.as_f64() as f32,
     );
 
@@ -539,15 +547,16 @@ async fn handle_client_query_inner(
         block_requirements,
         0, // 170cbcf3-db7f-404a-be13-2022d9142677
         block_cache.block_rate_hz,
-        settings.indexer_preferences.performance,
-        settings.indexer_preferences.data_freshness,
-        settings.indexer_preferences.economic_security,
-        settings.indexer_preferences.price_efficiency,
+        user_settings.indexer_preferences.performance,
+        user_settings.indexer_preferences.data_freshness,
+        user_settings.indexer_preferences.economic_security,
+        user_settings.indexer_preferences.price_efficiency,
     );
 
     let mut rng = SmallRng::from_entropy();
 
     let mut total_indexer_queries = 0;
+    let mut total_indexer_fees = GRT::zero();
     // Used to track how many times an indexer failed to resolve a block. This may indicate that
     // our latest block has been uncled.
     let mut latest_unresolved: u32 = 0;
@@ -632,13 +641,10 @@ async fn handle_client_query_inner(
             )));
         }
 
+        total_indexer_fees += selections.iter().map(|s| s.fee).sum();
         tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
-            indexer_fees_grt = selections
-                .iter()
-                .map(|s| &s.fee)
-                .fold(GRT::zero(), |sum, fee| sum + *fee)
-                .as_f64() as f32,
+            indexer_fees_grt = total_indexer_fees.as_f64() as f32,
         );
 
         // The gateway's current strategy for predicting is optimized for keeping responses close to chain head. We've
@@ -722,9 +728,23 @@ async fn handle_client_query_inner(
         }
         for _ in 0..selections_len {
             match outcome_rx.recv().await {
-                Some(Ok(outcome)) => return Ok(outcome),
                 Some(Err(IndexerError::UnresolvedBlock)) => latest_unresolved += 1,
                 Some(Err(_)) | None => (),
+                Some(Ok(outcome)) => {
+                    let total_indexer_fees: USD = ctx
+                        .isa_state
+                        .latest()
+                        .network_params
+                        .grt_to_usd(total_indexer_fees)
+                        .unwrap();
+                    let _ = ctx.budgeter.feedback.send(budgets::Feedback {
+                        deployment: budget_deployment,
+                        fees: total_indexer_fees,
+                        query_count: budget_query_count,
+                    });
+
+                    return Ok(outcome);
+                }
             };
         }
     }

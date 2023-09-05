@@ -20,6 +20,7 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
+use graph_gateway::budgets::Budgeter;
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use prometheus::{self, Encoder as _};
 use serde_json::json;
@@ -226,6 +227,11 @@ async fn main() {
         config.api_key_payment_required,
         subscriptions,
     );
+    let query_fees_target = config
+        .query_fees_target
+        .try_into()
+        .expect("invalid query_fees_target");
+    let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
     let fisherman_client = config.fisherman.map(|url| {
         Box::leak(Box::new(FishermanClient::new(http_client.clone(), url)))
@@ -245,6 +251,7 @@ async fn main() {
         },
         graph_env_id: config.graph_env_id.clone(),
         auth_handler,
+        budgeter,
         network,
         indexing_statuses,
         indexings_blocklist,

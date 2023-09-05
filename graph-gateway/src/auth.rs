@@ -15,7 +15,6 @@ use prelude::USD;
 use tokio::sync::RwLock;
 use toolshed::thegraph::{DeploymentId, SubgraphId};
 
-use crate::budgets::Budgeter;
 use crate::subgraph_studio::{APIKey, IndexerPreferences, QueryStatus};
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
@@ -26,12 +25,11 @@ pub struct AuthHandler {
     pub api_key_payment_required: bool,
     pub subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
     pub subscription_query_counters: RwLock<HashMap<Address, AtomicUsize>>,
-    pub budgeter: &'static Budgeter,
 }
 
 #[derive(Debug)]
-pub struct QuerySettings {
-    pub budget: USD,
+pub struct UserSettings {
+    pub budget: Option<USD>,
     pub indexer_preferences: IndexerPreferences,
 }
 
@@ -55,7 +53,6 @@ impl AuthHandler {
             api_key_payment_required,
             subscriptions,
             subscription_query_counters: RwLock::default(),
-            budgeter: Budgeter::new(),
         }));
 
         // Reset counters every minute.
@@ -217,29 +214,16 @@ impl AuthHandler {
         Ok(())
     }
 
-    pub async fn query_settings(
-        &self,
-        token: &AuthToken,
-        deployment: &DeploymentId,
-        query_count: u64,
-    ) -> QuerySettings {
-        let mut budget = self.budgeter.estimate_budget(deployment, query_count).await;
-        if let AuthToken::ApiKey(api_key) = token {
-            if let Some(max_budget) = api_key.max_budget {
-                // Security: Consumers can and will set their budget to unreasonably high values.
-                // This `.min` prevents the budget from being set far beyond what it would be
-                // automatically. The reason this is important is because sometimes queries are
-                // subsidized and we would be at-risk to allow arbitrarily high values.
-                budget = max_budget.min(budget * USD::try_from(10_u64).unwrap());
-            }
-        }
-
+    pub async fn query_settings(&self, token: &AuthToken) -> UserSettings {
+        let budget = match token {
+            AuthToken::ApiKey(api_key) => api_key.max_budget,
+            _ => None,
+        };
         let indexer_preferences = match token {
             AuthToken::ApiKey(api_key) => api_key.indexer_preferences.clone(),
             AuthToken::Ticket(_, _) => IndexerPreferences::default(),
         };
-
-        QuerySettings {
+        UserSettings {
             budget,
             indexer_preferences,
         }
