@@ -614,6 +614,18 @@ async fn handle_client_query_inner(
                 .map(|(k, v)| (k, v.len()))
                 .filter(|(_, l)| *l > 0)
                 .collect::<BTreeMap<&IndexerSelectionError, usize>>();
+
+            // Double the budget & retry if there is any indexer requesting a higher fee.
+            if !last_retry && isa_errors.contains_key(&IndexerSelectionError::FeeTooHigh) {
+                utility_params.budget = utility_params.budget * GRT::try_from(2_u64).unwrap();
+                tracing::info!(
+                    target: reports::CLIENT_QUERY_TARGET,
+                    budget_grt = budget.as_f64() as f32,
+                    "increase_budget"
+                );
+                continue;
+            }
+
             return Err(Error::NoSuitableIndexer(anyhow!(
                 "Indexer selection errors: {:?}",
                 isa_errors
