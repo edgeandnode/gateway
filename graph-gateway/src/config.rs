@@ -22,8 +22,6 @@ use crate::poi::ProofOfIndexingInfo;
 pub struct Config {
     /// Respect the payment state of API keys (disable for testnets)
     pub api_key_payment_required: bool,
-    /// Target for indexer fees paid per query
-    pub query_fees_target: f64,
     pub chains: Vec<Chain>,
     /// Ethereum RPC provider, or fixed exchange rate for testing
     pub exchange_rate_provider: ExchangeRateProvider,
@@ -60,10 +58,17 @@ pub struct Config {
     /// Network subgraph query path
     #[serde_as(as = "DisplayFromStr")]
     pub network_subgraph: Url,
+    /// POI blocklist
+    #[serde(default)]
+    pub poi_blocklist: Vec<ProofOfIndexingInfo>,
+    /// POI blocklist update interval in minutes (default: 20 minutes)
+    pub poi_blocklist_update_interval: Option<u64>,
     /// public API port
     pub port_api: u16,
     /// private metrics port
     pub port_metrics: u16,
+    /// Target for indexer fees paid per query
+    pub query_fees_target: f64,
     /// Mnemonic for voucher signing
     #[serde_as(as = "DisplayFromStr")]
     pub signer_key: SignerKey,
@@ -77,11 +82,6 @@ pub struct Config {
     pub studio_url: Option<Url>,
     /// Subscriptions configuration
     pub subscriptions: Option<Subscriptions>,
-    /// POI blocklist
-    #[serde(default)]
-    pub poi_blocklist: Vec<ProofOfIndexingInfo>,
-    /// POI blocklist update interval in minutes (default: 20 minutes)
-    pub poi_blocklist_update_interval: Option<u64>,
 }
 
 #[serde_as]
