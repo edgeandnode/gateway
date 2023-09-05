@@ -1,91 +1,140 @@
 use std::collections::HashMap;
 
-use eventuals::EventualExt;
+use eventuals::{Eventual, EventualWriter, Ptr};
 use indexer_selection::{
     decay::{Decay, FastDecayBuffer},
     impl_struct_decay,
 };
 use prelude::USD;
 use tokio::{
-    sync::{Mutex, RwLock},
-    time::{Duration, Instant},
+    select, spawn,
+    sync::mpsc,
+    time::{interval, Duration, Instant},
 };
 use toolshed::thegraph::DeploymentId;
 
 pub struct Budgeter {
-    query_volume: RwLock<HashMap<DeploymentId, Mutex<VolumeEstimator>>>,
+    pub feedback: mpsc::UnboundedSender<Feedback>,
+    pub budgets: Eventual<Ptr<HashMap<DeploymentId, USD>>>,
+    query_fees_target: USD,
+}
+
+pub struct Feedback {
+    pub deployment: DeploymentId,
+    pub fees: USD,
+    pub query_count: u64,
 }
 
 impl Budgeter {
-    pub fn new() -> &'static Self {
-        let query_volume = RwLock::default();
-        let budgeter: &'static Self = Box::leak(Self { query_volume }.into());
-
-        eventuals::timer(Duration::from_secs(120))
-            .pipe_async(|_| async {
-                let query_volume = budgeter.query_volume.read().await;
-                for estimator in query_volume.values() {
-                    estimator.lock().await.decay(Instant::now());
-                }
-            })
-            .forever();
-
-        budgeter
-    }
-
-    pub async fn estimate_budget(&self, deployment: &DeploymentId, query_count: u64) -> USD {
-        let monthly_volume = self.estimate_volume(deployment, query_count).await;
-
-        // We're currenty "automated volume discounting" which assigns each deployment a different
-        // query budget based on their estimated global query volume. The generalized equation for
-        // the price is:
-        //
-        //     scale / ((volume + offset) ^ discount)
-        //
-        // Where:
-        //  * volume: The estimated count of queries over a 30 day period
-        //  * offset: A query volume increase so that the differences are less extreme toward 0
-        //  * discount: How much discount to apply. As this approaches 0.0, all queries are priced
-        //    the same regardless of volume. As this approaches 1.0, all API keys will pay the same
-        //    amount regardless of volume.
-        //  * scale: Moves the price up or down linearly.
-        //
-        // The magic values chosen were based off of 30 days hosted service volume taken on
-        // 2022-02-17, and then tweaking until it looked like a fair distribution.
-        //
-        // TODO: target global average price per query
-        const SCALE: f64 = 1.4;
-        const DISCOUNT: f64 = 0.49;
-        const OFFSET: u64 = 500;
-        const PROCESSES: u64 = 4;
-        let budget = SCALE / ((monthly_volume * PROCESSES + OFFSET) as f64).powf(DISCOUNT);
-        USD::try_from(budget).unwrap()
-    }
-
-    async fn estimate_volume(&self, deployment: &DeploymentId, query_count: u64) -> u64 {
-        // Note that we are making no attempt to ever remove a volume estimator when the deployment
-        // is no longer used.
-
-        // optimistic read & update
-        let query_volume = self.query_volume.read().await;
-        if let Some(estimator) = query_volume.get(deployment) {
-            let mut estimator = estimator.lock().await;
-            estimator.add_queries(query_count);
-            return estimator.monthly_volume_estimate(Instant::now()) as u64;
+    pub fn new(query_fees_target: USD) -> Self {
+        let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
+        let (budgets_tx, budgets_rx) = Eventual::new();
+        Actor::create(feedback_rx, budgets_tx, query_fees_target);
+        Self {
+            feedback: feedback_tx,
+            budgets: budgets_rx,
+            query_fees_target,
         }
-        drop(query_volume);
-        // insert with write lock (note that multiple writers might get here)
-        let mut query_volume = self.query_volume.write().await;
-        query_volume
-            .entry(*deployment)
-            .or_insert_with(|| VolumeEstimator::new(Instant::now()).into());
-        drop(query_volume);
-        // read & update
-        let query_volume = self.query_volume.read().await;
-        let mut estimator = query_volume.get(deployment).unwrap().lock().await;
-        estimator.add_queries(query_count);
-        estimator.monthly_volume_estimate(Instant::now()) as u64
     }
+
+    pub fn budget(&self, deployment: &DeploymentId, query_count: u64) -> USD {
+        let budget = self
+            .budgets
+            .value_immediate()
+            .and_then(|budgets| budgets.get(deployment).copied())
+            .unwrap_or(self.query_fees_target);
+        budget * USD::try_from(query_count).unwrap()
+    }
+}
+
+struct Actor {
+    feedback: mpsc::UnboundedReceiver<Feedback>,
+    budgets: EventualWriter<Ptr<HashMap<DeploymentId, USD>>>,
+    volume_estimators: HashMap<DeploymentId, VolumeEstimator>,
+    query_fees_target: USD,
+    recent_fees: USD,
+    recent_query_count: u64,
+}
+
+impl Actor {
+    fn create(
+        feedback: mpsc::UnboundedReceiver<Feedback>,
+        budgets: EventualWriter<Ptr<HashMap<DeploymentId, USD>>>,
+        query_fees_target: USD,
+    ) {
+        let mut actor = Actor {
+            feedback,
+            budgets,
+            volume_estimators: HashMap::default(),
+            query_fees_target,
+            recent_fees: USD::zero(),
+            recent_query_count: 0,
+        };
+        let mut decay_timer = interval(Duration::from_secs(120));
+        let mut budget_timer = interval(Duration::from_secs(1));
+        spawn(async move {
+            loop {
+                select! {
+                    _ = decay_timer.tick() => actor.decay(),
+                    Some(msg) = actor.feedback.recv() => actor.feedback(msg),
+                    _ = budget_timer.tick() => actor.revise_budget(),
+                }
+            }
+        });
+    }
+
+    fn decay(&mut self) {
+        let now = Instant::now();
+        for estimator in self.volume_estimators.values_mut() {
+            estimator.decay(now);
+        }
+    }
+
+    fn feedback(&mut self, feedback: Feedback) {
+        self.volume_estimators
+            .entry(feedback.deployment)
+            .or_insert_with(|| VolumeEstimator::new(Instant::now()))
+            .add_queries(feedback.query_count);
+
+        self.recent_fees += feedback.fees;
+        self.recent_query_count += feedback.query_count;
+    }
+
+    fn revise_budget(&mut self) {
+        let surplus = self
+            .query_fees_target
+            .saturating_sub(self.recent_fees / USD::try_from(self.recent_query_count).unwrap());
+        self.recent_fees = USD::zero();
+        self.recent_query_count = 0;
+
+        let now = Instant::now();
+        let budgets = self
+            .volume_estimators
+            .iter()
+            .map(|(deployment, volume_estimator)| {
+                let volume = volume_estimator.monthly_volume_estimate(now) as u64;
+                let budget = volume_discount(volume, self.query_fees_target) + surplus;
+                (*deployment, budget)
+            })
+            .collect();
+
+        self.budgets.write(Ptr::new(budgets));
+    }
+}
+
+fn volume_discount(monthly_volume: u64, target: USD) -> USD {
+    // Discount the budget, based on a generalized logistic function. We apply little to no discount
+    // between 0 and ~10E3 queries per month. And we limit the discount to a minimum budget of
+    // 10E-6 USD. This 10E-6 USD comes from some back-of-the-napkin calculations based on hosted
+    // service costs attributable to serving queries in June 2023.
+    // https://www.desmos.com/calculator/awtbdpoehu
+    let b_min = 10e-6;
+    let b_max = target.as_f64();
+    let m: f64 = 1e5;
+    let z: f64 = 0.35;
+    let v = monthly_volume as f64;
+    let budget = b_min + ((b_max - b_min) * m.powf(z)) / (v + m).powf(z);
+    budget.try_into().unwrap()
 }
 
 struct VolumeEstimator {

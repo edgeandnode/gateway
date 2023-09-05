@@ -22,6 +22,8 @@ use crate::poi::ProofOfIndexingInfo;
 pub struct Config {
     /// Respect the payment state of API keys (disable for testnets)
     pub api_key_payment_required: bool,
+    /// Target for indexer fees paid per query
+    pub query_fees_target: f64,
     pub chains: Vec<Chain>,
     /// Ethereum RPC provider, or fixed exchange rate for testing
     pub exchange_rate_provider: ExchangeRateProvider,
