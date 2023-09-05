@@ -113,7 +113,9 @@ impl Actor {
             .iter()
             .map(|(deployment, volume_estimator)| {
                 let volume = volume_estimator.monthly_volume_estimate(now) as u64;
-                let budget = volume_discount(volume, self.query_fees_target) + surplus;
+                let mut budget = volume_discount(volume, self.query_fees_target) + surplus;
+                // limit budget to 100x target
+                budget = budget.min(self.query_fees_target * USD::try_from(100_u64).unwrap());
                 (*deployment, budget)
             })
             .collect();
