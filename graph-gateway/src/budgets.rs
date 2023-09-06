@@ -101,9 +101,9 @@ impl Actor {
     }
 
     fn revise_budget(&mut self) {
-        let surplus = self
-            .query_fees_target
-            .saturating_sub(self.recent_fees / USD::try_from(self.recent_query_count).unwrap());
+        let surplus = self.query_fees_target.saturating_sub(
+            self.recent_fees / USD::try_from(self.recent_query_count.max(1)).unwrap(),
+        );
         self.recent_fees = USD::zero();
         self.recent_query_count = 0;
 
