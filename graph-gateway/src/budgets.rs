@@ -13,6 +13,8 @@ use tokio::{
 };
 use toolshed::thegraph::DeploymentId;
 
+use crate::metrics::METRICS;
+
 pub struct Budgeter {
     pub feedback: mpsc::UnboundedSender<Feedback>,
     pub budgets: Eventual<Ptr<HashMap<DeploymentId, USD>>>,
@@ -159,6 +161,7 @@ impl Controller {
         // `recent_query_fees` is the process variable.
         let recent_query_fees =
             self.recent_fees / USD::try_from(self.recent_query_count.max(1)).unwrap();
+        METRICS.avg_query_fees.set(recent_query_fees.as_f64());
         self.recent_fees = USD::zero();
         self.recent_query_count = 0;
         // This is effectively a PID controller with just an integral term.

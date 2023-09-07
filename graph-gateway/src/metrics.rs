@@ -1,9 +1,9 @@
 use lazy_static::lazy_static;
 use prometheus::{
     core::{MetricVec, MetricVecBuilder},
-    register_histogram, register_histogram_vec, register_int_counter, register_int_counter_vec,
-    register_int_gauge_vec, Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec,
-    IntGaugeVec,
+    register_gauge, register_histogram, register_histogram_vec, register_int_counter,
+    register_int_counter_vec, register_int_gauge_vec, Gauge, Histogram, HistogramTimer,
+    HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
 };
 
 lazy_static! {
@@ -12,6 +12,7 @@ lazy_static! {
 
 pub struct Metrics {
     pub client_query: ResponseMetricVecs,
+    pub avg_query_fees: Gauge,
     pub indexer_query: ResponseMetricVecs,
     pub collect_receipts: ResponseMetrics,
     pub partial_voucher: ResponseMetrics,
@@ -31,6 +32,11 @@ impl Metrics {
                 "client query",
                 &["deployment"],
             ),
+            avg_query_fees: register_gauge!(
+                "gw_avg_query_fees",
+                "average indexer fees per query, in USD"
+            )
+            .unwrap(),
             indexer_query: ResponseMetricVecs::new(
                 "gw_indexer_query",
                 "indexer query",
