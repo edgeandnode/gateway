@@ -13,6 +13,12 @@ use tokio::{
 };
 use toolshed::thegraph::DeploymentId;
 
+use crate::metrics::METRICS;
+
+/// The minimum budget output for volume discounting, in USD. This 10e-6 number comes from some back-of-the-napkin
+/// calculations based on hosted service costs attributable to serving queries in June 2023.
+const MIN_BUDGET_USD: f64 = 10e-6;
+
 pub struct Budgeter {
     pub feedback: mpsc::UnboundedSender<Feedback>,
     pub budgets: Eventual<Ptr<HashMap<DeploymentId, USD>>>,
@@ -27,6 +33,8 @@ pub struct Feedback {
 
 impl Budgeter {
     pub fn new(query_fees_target: USD) -> Self {
+        // 52fcdb5f-8557-4ebb-968d-46e7756aa63f
+        assert!(query_fees_target.as_f64() >= MIN_BUDGET_USD);
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
         let (budgets_tx, budgets_rx) = Eventual::new();
         Actor::create(feedback_rx, budgets_tx, query_fees_target);
@@ -51,9 +59,7 @@ struct Actor {
     feedback: mpsc::UnboundedReceiver<Feedback>,
     budgets: EventualWriter<Ptr<HashMap<DeploymentId, USD>>>,
     volume_estimators: HashMap<DeploymentId, VolumeEstimator>,
-    query_fees_target: USD,
-    recent_fees: USD,
-    recent_query_count: u64,
+    controller: Controller,
 }
 
 impl Actor {
@@ -66,9 +72,7 @@ impl Actor {
             feedback,
             budgets,
             volume_estimators: HashMap::default(),
-            query_fees_target,
-            recent_fees: USD::zero(),
-            recent_query_count: 0,
+            controller: Controller::new(query_fees_target),
         };
         let mut decay_timer = interval(Duration::from_secs(120));
         let mut budget_timer = interval(Duration::from_secs(1));
@@ -91,31 +95,27 @@ impl Actor {
     }
 
     fn feedback(&mut self, feedback: Feedback) {
+        self.controller
+            .add_queries(feedback.fees, feedback.query_count);
         self.volume_estimators
             .entry(feedback.deployment)
             .or_insert_with(|| VolumeEstimator::new(Instant::now()))
             .add_queries(feedback.query_count);
-
-        self.recent_fees += feedback.fees;
-        self.recent_query_count += feedback.query_count;
     }
 
     fn revise_budget(&mut self) {
-        let surplus = self.query_fees_target.saturating_sub(
-            self.recent_fees / USD::try_from(self.recent_query_count.max(1)).unwrap(),
-        );
-        self.recent_fees = USD::zero();
-        self.recent_query_count = 0;
-
+        let target = self.controller.target_query_fees;
+        let surplus = self.controller.surplus();
+        tracing::debug!(budget_surplus = %surplus);
         let now = Instant::now();
         let budgets = self
             .volume_estimators
             .iter()
             .map(|(deployment, volume_estimator)| {
                 let volume = volume_estimator.monthly_volume_estimate(now) as u64;
-                let mut budget = volume_discount(volume, self.query_fees_target) + surplus;
+                let mut budget = volume_discount(volume, target) + surplus;
                 // limit budget to 100x target
-                budget = budget.min(self.query_fees_target * USD::try_from(100_u64).unwrap());
+                budget = budget.min(target * USD::try_from(100_u64).unwrap());
                 (*deployment, budget)
             })
             .collect();
@@ -126,17 +126,55 @@ impl Actor {
 
 fn volume_discount(monthly_volume: u64, target: USD) -> USD {
     // Discount the budget, based on a generalized logistic function. We apply little to no discount
-    // between 0 and ~10E3 queries per month. And we limit the discount to a minimum budget of
-    // 10E-6 USD. This 10E-6 USD comes from some back-of-the-napkin calculations based on hosted
-    // service costs attributable to serving queries in June 2023.
+    // between 0 and ~10e3 queries per month. And we limit the discount to a minimum budget of
+    // 10E-6 USD.
     // https://www.desmos.com/calculator/awtbdpoehu
-    let b_min = 10e-6;
+    let b_min = MIN_BUDGET_USD;
     let b_max = target.as_f64();
     let m: f64 = 1e5;
     let z: f64 = 0.35;
     let v = monthly_volume as f64;
     let budget = b_min + ((b_max - b_min) * m.powf(z)) / (v + m).powf(z);
+    // 52fcdb5f-8557-4ebb-968d-46e7756aa63f
     budget.try_into().unwrap()
+}
+
+/// State for the control loop targeting `recent_query_fees`.
+struct Controller {
+    target_query_fees: USD,
+    recent_fees: USD,
+    recent_query_count: u64,
+    error_history: [USD; 10],
+}
+
+impl Controller {
+    fn new(target_query_fees: USD) -> Self {
+        Self {
+            target_query_fees,
+            recent_fees: USD::zero(),
+            recent_query_count: 0,
+            error_history: <[USD; 10]>::default(),
+        }
+    }
+
+    fn add_queries(&mut self, fees: USD, query_count: u64) {
+        self.recent_fees += fees;
+        self.recent_query_count += query_count;
+    }
+
+    fn surplus(&mut self) -> USD {
+        // Consider this a control system where `target_query_fees` is the setpoint, and
+        // `recent_query_fees` is the process variable.
+        let recent_query_fees =
+            self.recent_fees / USD::try_from(self.recent_query_count.max(1)).unwrap();
+        METRICS.avg_query_fees.set(recent_query_fees.as_f64());
+        self.recent_fees = USD::zero();
+        self.recent_query_count = 0;
+        // This is effectively a PID controller with just an integral term.
+        self.error_history.rotate_left(1);
+        self.error_history[0] = self.target_query_fees.saturating_sub(recent_query_fees);
+        self.error_history.iter().copied().sum()
+    }
 }
 
 struct VolumeEstimator {
