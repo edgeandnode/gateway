@@ -15,6 +15,10 @@ use toolshed::thegraph::DeploymentId;
 
 use crate::metrics::METRICS;
 
+/// The minimum budget output for volume discounting, in USD. This 10e-6 number comes from some back-of-the-napkin
+/// calculations based on hosted service costs attributable to serving queries in June 2023.
+const MIN_BUDGET_USD: f64 = 10e-6;
+
 pub struct Budgeter {
     pub feedback: mpsc::UnboundedSender<Feedback>,
     pub budgets: Eventual<Ptr<HashMap<DeploymentId, USD>>>,
@@ -29,6 +33,8 @@ pub struct Feedback {
 
 impl Budgeter {
     pub fn new(query_fees_target: USD) -> Self {
+        // 52fcdb5f-8557-4ebb-968d-46e7756aa63f
+        assert!(query_fees_target.as_f64() >= MIN_BUDGET_USD);
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
         let (budgets_tx, budgets_rx) = Eventual::new();
         Actor::create(feedback_rx, budgets_tx, query_fees_target);
@@ -120,16 +126,16 @@ impl Actor {
 
 fn volume_discount(monthly_volume: u64, target: USD) -> USD {
     // Discount the budget, based on a generalized logistic function. We apply little to no discount
-    // between 0 and ~10E3 queries per month. And we limit the discount to a minimum budget of
-    // 10E-6 USD. This 10E-6 USD comes from some back-of-the-napkin calculations based on hosted
-    // service costs attributable to serving queries in June 2023.
+    // between 0 and ~10e3 queries per month. And we limit the discount to a minimum budget of
+    // 10E-6 USD.
     // https://www.desmos.com/calculator/awtbdpoehu
-    let b_min = 10e-6;
+    let b_min = MIN_BUDGET_USD;
     let b_max = target.as_f64();
     let m: f64 = 1e5;
     let z: f64 = 0.35;
     let v = monthly_volume as f64;
     let budget = b_min + ((b_max - b_min) * m.powf(z)) / (v + m).powf(z);
+    // 52fcdb5f-8557-4ebb-968d-46e7756aa63f
     budget.try_into().unwrap()
 }
 
