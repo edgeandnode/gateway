@@ -168,53 +168,7 @@ pub struct UtilityParameters {
     pub budget: GRT,
     pub requirements: BlockRequirements,
     pub latest_block: u64,
-    pub performance: ConcaveUtilityParameters,
-    pub data_freshness: ConcaveUtilityParameters,
-    pub economic_security: ConcaveUtilityParameters,
-    pub fee_weight: f64,
-}
-
-impl UtilityParameters {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        budget: GRT,
-        requirements: BlockRequirements,
-        latest_block: u64,
-        block_rate_hz: f64,
-        performance: f64,
-        data_freshness: f64,
-        economic_security: f64,
-        fee_weight: f64,
-    ) -> Self {
-        fn interp(lo: f64, hi: f64, preference: f64) -> f64 {
-            if !(0.0..=1.0).contains(&preference) {
-                return lo;
-            }
-            lo + ((hi - lo) * preference)
-        }
-        Self {
-            budget,
-            requirements,
-            latest_block,
-            // 170cbcf3-db7f-404a-be13-2022d9142677
-            performance: ConcaveUtilityParameters {
-                a: interp(1.1, 1.2, performance),
-                weight: interp(1.0, 1.5, performance),
-            },
-            // 9f6c6cb0-0e49-4bc4-848e-22a1599af45b
-            data_freshness: ConcaveUtilityParameters {
-                a: 32.0 * block_rate_hz,
-                weight: interp(1.0, 2.0, data_freshness),
-            },
-            // https://www.desmos.com/calculator/g7t53e70lf
-            economic_security: ConcaveUtilityParameters {
-                a: interp(8e-4, 4e-4, economic_security),
-                weight: interp(1.0, 1.5, economic_security),
-            },
-            // 3534cc5a-f562-48ce-ac7a-88737c80698b
-            fee_weight: interp(1.0, 2.0, fee_weight),
-        }
-    }
+    pub block_rate_hz: f64,
 }
 
 #[derive(Default)]
@@ -350,7 +304,6 @@ impl State {
         let fee = indexer_fee(
             &state.status.cost_model,
             context,
-            params.fee_weight,
             &params.budget,
             selection_limit,
         )?;

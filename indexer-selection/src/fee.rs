@@ -19,6 +19,9 @@ use crate::{utility::UtilityFactor, Context, IndexerError, InputError, Selection
 /// (5_f64.sqrt() - 1.0) / 2.0
 const S: f64 = 0.6180339887498949;
 
+// 7a3da342-c049-4ab0-8058-91880491b442
+const WEIGHT: f64 = 0.5;
+
 /// Constraints for the utility function `u(fee)`:
 ///   - u(0) = 1, u(budget + 1 GRTWei) = 0, and u is continuous within this input range. We want to
 ///     avoid a discontinuity at the budget where a 1 GRTWei difference in the fee suddenly sends
@@ -70,9 +73,9 @@ const S: f64 = 0.6180339887498949;
 /// - It seems that assuming mostly rational Indexers and a medium sized pool,
 ///   the Consumer may expect to pay ~55-75% of the maximum budget.
 
-/// https://www.desmos.com/calculator/wnffyb9edh
-/// 3534cc5a-f562-48ce-ac7a-88737c80698b
-pub fn fee_utility(weight: f64, fee: &GRT, budget: &GRT) -> UtilityFactor {
+// https://www.desmos.com/calculator/wnffyb9edh
+// 7a3da342-c049-4ab0-8058-91880491b442
+pub fn fee_utility(fee: &GRT, budget: &GRT) -> UtilityFactor {
     // Any fee over budget has zero utility.
     if *fee > *budget {
         return UtilityFactor::one(0.0);
@@ -83,7 +86,10 @@ pub fn fee_utility(weight: f64, fee: &GRT, budget: &GRT) -> UtilityFactor {
     // Set minimum utility, since small negative utility can result from loss of precision when the
     // fee approaches the budget.
     utility = utility.max(1e-18);
-    UtilityFactor { utility, weight }
+    UtilityFactor {
+        utility,
+        weight: 0.5,
+    }
 }
 
 /// Indexers set their fees using cost models. However, indexers currently take a "lazy" approach to
@@ -95,8 +101,8 @@ pub fn fee_utility(weight: f64, fee: &GRT, budget: &GRT) -> UtilityFactor {
 /// function to `fee * utility`. Solving for the correct revenue maximizing value is complex and
 /// recursive (since the revenue maximizing fee depends on the utility of all other indexers which
 /// itself depends on their revenue maximizing fee... ad infinitum).
-fn min_optimal_fee(weight: f64, budget: &GRT) -> GRT {
-    let w = weight;
+fn min_optimal_fee(budget: &GRT) -> GRT {
+    let w = WEIGHT;
     let mut min_rate = (4.0 * S.powi(2) * w + w.powi(2) - 2.0 * w + 1.0).sqrt();
     min_rate = (min_rate - 2.0 * S.powi(2) - w + 1.0) / (2.0 * S);
     *budget * GRT::try_from(min_rate).unwrap()
@@ -105,7 +111,6 @@ fn min_optimal_fee(weight: f64, budget: &GRT) -> GRT {
 pub fn indexer_fee(
     cost_model: &Option<Ptr<CostModel>>,
     context: &mut Context<'_>,
-    weight: f64,
     budget: &GRT,
     max_indexers: u8,
 ) -> Result<GRT, SelectionError> {
@@ -134,7 +139,7 @@ pub fn indexer_fee(
     }
 
     let budget = *budget / GRT::try_from(max_indexers).unwrap();
-    let min_optimal_fee = min_optimal_fee(weight, &budget);
+    let min_optimal_fee = min_optimal_fee(&budget);
     // If their fee is less than the min optimal, lerp between them so that
     // indexers are rewarded for being closer.
     if fee < min_optimal_fee {
@@ -158,11 +163,10 @@ mod test {
         let mut context = Context::new(BASIC_QUERY, "").unwrap();
         // Expected values based on https://www.desmos.com/calculator/kxd4kpjxi5
         let tests = [(0.01, 0.0), (0.02, 0.27304), (0.1, 0.50615), (1.0, 0.55769)];
-        let weight = 0.5;
         for (budget, expected_utility) in tests {
             let budget = budget.to_string().parse::<GRT>().unwrap();
-            let fee = indexer_fee(&cost_model, &mut context, weight, &budget, 1).unwrap();
-            let utility = fee_utility(weight, &fee, &budget);
+            let fee = indexer_fee(&cost_model, &mut context, &budget, 1).unwrap();
+            let utility = fee_utility(&fee, &budget);
             let utility = utility.utility.powf(utility.weight);
             assert!(fee >= "0.01".parse::<GRT>().unwrap());
             assert_within(utility, expected_utility, 0.0001);

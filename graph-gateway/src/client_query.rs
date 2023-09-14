@@ -542,16 +542,13 @@ async fn handle_client_query_inner(
         budget_grt = budget.as_f64() as f32,
     );
 
-    let mut utility_params = UtilityParameters::new(
+    let mut utility_params = UtilityParameters {
         budget,
-        block_requirements,
-        0, // 170cbcf3-db7f-404a-be13-2022d9142677
-        block_cache.block_rate_hz,
-        user_settings.indexer_preferences.performance,
-        user_settings.indexer_preferences.data_freshness,
-        user_settings.indexer_preferences.economic_security,
-        user_settings.indexer_preferences.price_efficiency,
-    );
+        requirements: block_requirements,
+        // 170cbcf3-db7f-404a-be13-2022d9142677
+        latest_block: 0,
+        block_rate_hz: block_cache.block_rate_hz,
+    };
 
     let mut rng = SmallRng::from_entropy();
 

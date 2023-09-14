@@ -188,14 +188,12 @@ impl MetaIndexer<'_> {
 
         let factors = [
             reliability_utility(p_success).mul_weight(exploration),
-            performance_utility(params.performance, perf_success as u32)
-                .mul_weight(exploration * p_success),
-            performance_utility(params.performance, perf_failure as u32)
-                .mul_weight(exploration * (1.0 - p_success)),
-            params.economic_security.concave_utility(slashable_usd),
+            performance_utility(perf_success as u32).mul_weight(exploration * p_success),
+            performance_utility(perf_failure as u32).mul_weight(exploration * (1.0 - p_success)),
+            economic_security_utility(slashable_usd),
             versions_behind_utility(versions_behind),
-            data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
-            fee_utility(params.fee_weight, &self.fee(), &params.budget),
+            data_freshness_utility(params.block_rate_hz, &params.requirements, blocks_behind),
+            fee_utility(&self.fee(), &params.budget),
         ];
         let score = weighted_product_model(factors);
 
@@ -220,12 +218,21 @@ pub fn expected_individual_score(
 ) -> f64 {
     weighted_product_model([
         reliability_utility(reliability),
-        performance_utility(params.performance, perf_success as u32),
-        params.economic_security.concave_utility(slashable_usd),
+        performance_utility(perf_success as u32),
+        economic_security_utility(slashable_usd),
         versions_behind_utility(versions_behind),
-        data_freshness_utility(params.data_freshness, &params.requirements, blocks_behind),
-        fee_utility(params.fee_weight, fee, &params.budget),
+        data_freshness_utility(params.block_rate_hz, &params.requirements, blocks_behind),
+        fee_utility(fee, &params.budget),
     ])
+}
+
+// https://www.desmos.com/calculator/dxgonxuihk
+fn economic_security_utility(slashable_usd: f64) -> UtilityFactor {
+    ConcaveUtilityParameters {
+        a: 4e-4,
+        weight: 1.5,
+    }
+    .concave_utility(slashable_usd)
 }
 
 /// https://www.desmos.com/calculator/plpijnbvhu
@@ -233,22 +240,26 @@ fn reliability_utility(p_success: f64) -> UtilityFactor {
     UtilityFactor::one(p_success.powi(7))
 }
 
-/// https://www.desmos.com/calculator/6unqha22hp
-/// 9f6c6cb0-0e49-4bc4-848e-22a1599af45b
+/// https://www.desmos.com/calculator/mioowuofsj
 fn data_freshness_utility(
-    params: ConcaveUtilityParameters,
+    block_rate_hz: f64,
     requirements: &BlockRequirements,
     blocks_behind: u64,
 ) -> UtilityFactor {
+    let weight = 2.0;
     // Add utility if the latest block is requested. Otherwise, data freshness is not a utility,
     // but a binary of minimum block. Note that it can be both.
     if !requirements.has_latest || (blocks_behind == 0) {
         UtilityFactor {
             utility: 1.0,
-            weight: params.weight,
+            weight,
         }
     } else {
-        params.concave_utility(1.0 / blocks_behind as f64)
+        ConcaveUtilityParameters {
+            a: 32.0 * block_rate_hz,
+            weight,
+        }
+        .concave_utility(1.0 / blocks_behind as f64)
     }
 }
 

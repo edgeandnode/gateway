@@ -20,7 +20,6 @@ pub struct APIKey {
     pub deployments: Vec<DeploymentId>,
     pub subgraphs: Vec<SubgraphId>,
     pub domains: Vec<String>,
-    pub indexer_preferences: IndexerPreferences,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
@@ -30,15 +29,6 @@ pub enum QueryStatus {
     Inactive,
     Active,
     ServiceShutoff,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct IndexerPreferences {
-    pub freshness_requirements: f64,
-    pub performance: f64,
-    pub data_freshness: f64,
-    pub economic_security: f64,
-    pub price_efficiency: f64,
 }
 
 pub fn api_keys(
@@ -89,20 +79,6 @@ impl Client {
             .api_keys
             .into_iter()
             .filter_map(|api_key| {
-                let mut indexer_preferences = IndexerPreferences::default();
-                for preference in api_key.indexer_preferences {
-                    match preference.name.as_str() {
-                        "Fastest speed" => indexer_preferences.performance = preference.weight,
-                        "Lowest price" => indexer_preferences.price_efficiency = preference.weight,
-                        "Data freshness" => indexer_preferences.data_freshness = preference.weight,
-                        "Economic security" => {
-                            indexer_preferences.economic_security = preference.weight
-                        }
-                        unexpected_indexer_preference_name => {
-                            tracing::warn!(%unexpected_indexer_preference_name)
-                        }
-                    }
-                }
                 let api_key = APIKey {
                     id: api_key.id,
                     key: api_key.key,
@@ -126,7 +102,6 @@ impl Client {
                         .into_iter()
                         .map(|domain| domain.domain)
                         .collect(),
-                    indexer_preferences,
                 };
                 Some((api_key.key.clone(), Arc::new(api_key)))
             })
@@ -152,19 +127,11 @@ struct GatewayApiKey {
     query_status: QueryStatus,
     max_budget: Option<f64>,
     #[serde(default)]
-    indexer_preferences: Vec<GatewayIndexerPreference>,
-    #[serde(default)]
     subgraphs: Vec<GatewaySubgraph>,
     #[serde(default)]
     deployments: Vec<String>,
     #[serde(default)]
     domains: Vec<GatewayDomain>,
-}
-
-#[derive(Deserialize)]
-struct GatewayIndexerPreference {
-    name: String,
-    weight: f64,
 }
 
 #[derive(Deserialize)]

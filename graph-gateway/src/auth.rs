@@ -15,7 +15,7 @@ use prelude::USD;
 use tokio::sync::RwLock;
 use toolshed::thegraph::{DeploymentId, SubgraphId};
 
-use crate::subgraph_studio::{APIKey, IndexerPreferences, QueryStatus};
+use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
 
@@ -30,7 +30,6 @@ pub struct AuthHandler {
 #[derive(Debug)]
 pub struct UserSettings {
     pub budget: Option<USD>,
-    pub indexer_preferences: IndexerPreferences,
 }
 
 pub enum AuthToken {
@@ -219,14 +218,7 @@ impl AuthHandler {
             AuthToken::ApiKey(api_key) => api_key.max_budget,
             _ => None,
         };
-        let indexer_preferences = match token {
-            AuthToken::ApiKey(api_key) => api_key.indexer_preferences.clone(),
-            AuthToken::Ticket(_, _) => IndexerPreferences::default(),
-        };
-        UserSettings {
-            budget,
-            indexer_preferences,
-        }
+        UserSettings { budget }
     }
 }
 
