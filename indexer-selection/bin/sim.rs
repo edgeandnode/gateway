@@ -42,16 +42,12 @@ async fn main() -> Result<()> {
         gen_blocks(&(0..last_block).collect::<Vec<u64>>())
     };
     let latest_block = blocks.last().unwrap().number;
-    let params = UtilityParameters::new(
+    let params = UtilityParameters {
         budget,
-        freshness_requirements,
+        requirements: freshness_requirements,
         latest_block,
-        0.1,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-    );
+        block_rate_hz: 0.1,
+    };
 
     println!("label,indexer,detail,selections,fees");
     eprintln!("| selection limit | total fees (GRT) | avg. latency (ms) | avg. blocks behind | avg. indexers selected | avg. selection time (ms) |");

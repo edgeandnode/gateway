@@ -74,7 +74,12 @@ fn utiliy_params(
     requirements: BlockRequirements,
     latest_block: u64,
 ) -> UtilityParameters {
-    UtilityParameters::new(budget, requirements, latest_block, 0.1, 0.0, 0.0, 0.0, 0.0)
+    UtilityParameters {
+        budget,
+        requirements,
+        latest_block,
+        block_rate_hz: 0.1,
+    }
 }
 
 impl Topology {
