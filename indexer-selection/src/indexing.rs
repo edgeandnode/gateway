@@ -89,7 +89,6 @@ impl IndexingState {
         result: Result<(), IndexerErrorObservation>,
     ) {
         self.last_use = self.last_use.max(Instant::now() - duration);
-        self.reliability.current_mut().observe(result.is_ok());
         match result {
             Ok(()) => self.perf_success.current_mut().observe(duration),
             Err(err) => {
@@ -100,10 +99,16 @@ impl IndexingState {
                     IndexerErrorObservation::IndexingBehind {
                         latest_query_block,
                         latest_block,
-                    } => self.observe_indexing_behind(latest_query_block, latest_block),
+                    } => {
+                        self.observe_indexing_behind(latest_query_block, latest_block);
+                        // Avoid negative impact on reliability score resulting from our predictions
+                        // of the indexer's block status.
+                        return;
+                    }
                 };
             }
         };
+        self.reliability.current_mut().observe(result.is_ok());
     }
 
     fn observe_indexing_behind(&mut self, latest_query_block: u64, latest_block: u64) {
