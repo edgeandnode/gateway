@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use alloy_primitives::B256;
+use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use indexer_selection::{Selection, UnresolvedBlock};
@@ -21,7 +22,7 @@ pub struct ResponsePayload {
 pub enum IndexerError {
     NoAllocation,
     NoAttestation,
-    UnattestableError,
+    UnattestableError(StatusCode),
     Timeout,
     UnexpectedPayload,
     UnresolvedBlock,
@@ -91,7 +92,7 @@ impl IndexerClient {
                 tracing::trace!(response_status = ?err.status());
                 return match err.status() {
                     Some(status) if status.is_server_error() => {
-                        Err(IndexerError::UnattestableError)
+                        Err(IndexerError::UnattestableError(status))
                     }
                     _ => Err(IndexerError::Other(err.to_string())),
                 };
