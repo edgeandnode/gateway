@@ -890,7 +890,7 @@ async fn handle_indexer_query_inner(
                 weight: 35,
             });
             tracing::info!(%error, "penalizing for unattestable error");
-            return Err(IndexerError::UnattestableError);
+            return Err(IndexerError::UnattestableError(StatusCode::OK));
         }
     }
 

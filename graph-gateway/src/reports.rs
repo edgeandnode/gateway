@@ -500,7 +500,7 @@ pub fn indexer_attempt_status_code(result: &Result<ResponsePayload, IndexerError
         // prefix 0x0, followed by the HTTP status code
         Ok(_) => (0x0, 200_u32.to_be()),
         Err(IndexerError::NoAttestation) => (0x1, 0x0),
-        Err(IndexerError::UnattestableError) => (0x2, 0x0),
+        Err(IndexerError::UnattestableError(_)) => (0x2, 0x0),
         Err(IndexerError::Timeout) => (0x3, 0x0),
         Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
         Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
