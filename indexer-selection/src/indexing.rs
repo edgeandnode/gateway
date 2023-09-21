@@ -99,8 +99,13 @@ impl IndexingState {
                     IndexerErrorObservation::IndexingBehind {
                         latest_query_block,
                         latest_block,
+                        reported_block,
                     } => {
-                        self.observe_indexing_behind(latest_query_block, latest_block);
+                        self.observe_indexing_behind(
+                            latest_block,
+                            latest_query_block,
+                            reported_block,
+                        );
                         // Avoid negative impact on reliability score resulting from our predictions
                         // of the indexer's block status.
                         return;
@@ -111,23 +116,29 @@ impl IndexingState {
         self.reliability.current_mut().observe(result.is_ok());
     }
 
-    fn observe_indexing_behind(&mut self, latest_query_block: u64, latest_block: u64) {
+    fn observe_indexing_behind(
+        &mut self,
+        latest_block: u64,
+        latest_query_block: u64,
+        reported_block: Option<u64>,
+    ) {
         let status = match &mut self.status.block {
             Some(status) => status,
             None => return,
         };
-        let blocks_behind = match latest_block.checked_sub(latest_query_block) {
-            Some(blocks_behind) => blocks_behind,
-            None => return,
-        };
-        if (latest_query_block <= status.reported_number) && !status.behind_reported_block {
-            self.reliability.current_mut().penalize(130);
+        let blocks_behind =
+            match latest_block.checked_sub(reported_block.unwrap_or(latest_query_block)) {
+                Some(blocks_behind) => blocks_behind,
+                None => return,
+            };
+        if (latest_query_block < status.reported_number) && !status.behind_reported_block {
+            self.reliability.current_mut().penalize(100);
             // Only apply this harsh penaly once, until the reported status is updated.
             status.behind_reported_block = true;
         }
-        // They are at least one block behind the assumed status (this will usually be the case).
-        // In some cases for timing issues they may have already reported they are even farther
-        // behind, so we assume the worst of the two.
+        // The indexer is at least one block behind the assumed status (this will often be the
+        // case). They may have already reported they are even farther behind, so we assume the
+        // worst of the two.
         status.blocks_behind = status.blocks_behind.max(blocks_behind + 1);
     }
 

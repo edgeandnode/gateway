@@ -101,8 +101,12 @@ impl From<IndexerError> for SelectionError {
 pub enum IndexerErrorObservation {
     Timeout,
     IndexingBehind {
-        latest_query_block: u64,
+        /// Chain head prior to indexer selection execution
         latest_block: u64,
+        /// Latest block used for the indexer query
+        latest_query_block: u64,
+        /// Latest block indexed at the time of query execution, reported by indexer
+        reported_block: Option<u64>,
     },
     Other,
 }
