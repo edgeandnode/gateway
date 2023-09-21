@@ -45,12 +45,14 @@ use indexer_selection::{
 use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
 
 use crate::budgets::{self, Budgeter};
+use crate::indexer_client::{
+    check_block_error, Attestation, IndexerClient, IndexerError, ResponsePayload,
+};
 use crate::{
     auth::{AuthHandler, AuthToken},
     block_constraints::{block_constraints, make_query_deterministic, BlockConstraint},
     chains::BlockCache,
     fisherman_client::{ChallengeOutcome, FishermanClient},
-    indexer_client::{Attestation, IndexerClient, IndexerError, ResponsePayload},
     indexing::IndexingStatus,
     metrics::{with_metric, METRICS},
     receipts::{ReceiptSigner, ReceiptStatus},
@@ -725,7 +727,7 @@ async fn handle_client_query_inner(
         }
         for _ in 0..selections_len {
             match outcome_rx.recv().await {
-                Some(Err(IndexerError::UnresolvedBlock)) => latest_unresolved += 1,
+                Some(Err(IndexerError::BlockError(_))) => latest_unresolved += 1,
                 Some(Err(_)) | None => (),
                 Some(Ok(outcome)) => {
                     let total_indexer_fees: USD = ctx
@@ -808,9 +810,10 @@ async fn handle_indexer_query(
     let observation = match &result {
         Ok(_) => Ok(()),
         Err(IndexerError::Timeout) => Err(IndexerErrorObservation::Timeout),
-        Err(IndexerError::UnresolvedBlock) => Err(IndexerErrorObservation::IndexingBehind {
+        Err(IndexerError::BlockError(block_err)) => Err(IndexerErrorObservation::IndexingBehind {
             latest_query_block,
             latest_block: ctx.latest_block,
+            reported_block: block_err.reported_status,
         }),
         Err(_) => Err(IndexerErrorObservation::Other),
     };
@@ -876,12 +879,10 @@ async fn handle_indexer_query_inner(
         indexer_errors = indexer_errors.join(","),
     );
 
-    if indexer_errors.iter().any(|err| {
-        err.contains("Failed to decode `block.hash` value")
-            || err.contains("Failed to decode `block.number` value")
-    }) {
-        return Err(IndexerError::UnresolvedBlock);
-    }
+    indexer_errors
+        .iter()
+        .try_for_each(|err| check_block_error(err))
+        .map_err(IndexerError::BlockError)?;
 
     for error in &indexer_errors {
         if miscategorized_unattestable(error) {

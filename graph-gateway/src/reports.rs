@@ -503,7 +503,7 @@ pub fn indexer_attempt_status_code(result: &Result<ResponsePayload, IndexerError
         Err(IndexerError::UnattestableError(_)) => (0x2, 0x0),
         Err(IndexerError::Timeout) => (0x3, 0x0),
         Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
-        Err(IndexerError::UnresolvedBlock) => (0x5, 0x0),
+        Err(IndexerError::BlockError(_)) => (0x5, 0x0),
         Err(IndexerError::NoAllocation) => (0x7, 0x0),
         // prefix 0x6, followed by a 28-bit hash of the error message
         Err(IndexerError::Other(msg)) => (0x6, sip24_hash(&msg) as u32),

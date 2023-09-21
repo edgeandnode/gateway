@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use alloy_primitives::B256;
+use alloy_primitives::{BlockNumber, B256};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use indexer_selection::{Selection, UnresolvedBlock};
+use indexer_selection::Selection;
 
 #[derive(Debug)]
 pub struct IndexerResponse {
@@ -25,14 +25,14 @@ pub enum IndexerError {
     UnattestableError(StatusCode),
     Timeout,
     UnexpectedPayload,
-    UnresolvedBlock,
+    BlockError(BlockError),
     Other(String),
 }
 
-impl From<UnresolvedBlock> for IndexerError {
-    fn from(_: UnresolvedBlock) -> Self {
-        Self::UnresolvedBlock
-    }
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BlockError {
+    pub unresolved: Option<BlockNumber>,
+    pub reported_status: Option<BlockNumber>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,5 +121,46 @@ impl IndexerClient {
                 attestation: payload.attestation,
             },
         })
+    }
+}
+
+pub fn check_block_error(err: &str) -> Result<(), BlockError> {
+    // TODO: indexers should *always* report their block status in a header on every query. This
+    // will significantly reduce how brittle this feedback is, and also give a stronger basis for
+    // prediction in the happy path.
+    if !err.contains("Failed to decode `block") {
+        return Ok(());
+    }
+    let extract_block_number = |prefix: &str| -> Option<u64> {
+        let start = err.find(prefix)? + prefix.len();
+        let str = err.split_at(start).1.split_once(' ')?.0;
+        str.parse::<u64>().ok()
+    };
+    Err(BlockError {
+        unresolved: extract_block_number("and data for block number "),
+        reported_status: extract_block_number("has only indexed up to block number "),
+    })
+}
+
+#[cfg(test)]
+mod test {
+    use crate::indexer_client::BlockError;
+
+    #[test]
+    fn check_block_error() {
+        let tests = [
+            ("", Ok(())),
+            ("Failed to decode `block.number` value: `subgraph QmQqLJVgZLcRduoszARzRi12qGheUTWAHFf3ixMeGm2xML has only indexed up to block number 133239690 and data for block number 133239697 is therefore not yet available", Err(BlockError {
+                unresolved: Some(133239697),
+                reported_status: Some(133239690),
+            })),
+            ("Failed to decode `block.hash` value", Err(BlockError {
+                unresolved: None,
+                reported_status: None,
+            })),
+        ];
+        for (input, expected) in tests {
+            assert_eq!(super::check_block_error(input), expected);
+        }
     }
 }
