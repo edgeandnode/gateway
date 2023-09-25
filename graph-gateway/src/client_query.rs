@@ -327,26 +327,14 @@ async fn resolve_subgraph_deployments(
     network: &GraphNetwork,
     params: &BTreeMap<String, String>,
 ) -> Result<(Vec<Arc<Deployment>>, Option<Subgraph>), Error> {
-    if let Some(constraint) = params.get("subgraph_id") {
-        let (id, comparator) = constraint
-            .split_once('^')
-            .map(|(id, comparator)| (id, Some(comparator)))
-            .unwrap_or((constraint, None));
+    if let Some(id) = params.get("subgraph_id") {
         let id = SubgraphId::from_str(id).map_err(|_| Error::InvalidSubgraph(id.to_string()))?;
         let subgraph = network
             .subgraphs
             .value_immediate()
             .and_then(|subgraphs| subgraphs.get(&id).cloned())
             .ok_or_else(|| Error::SubgraphNotFound(id))?;
-        let comparator = match comparator {
-            None => None,
-            Some(comparator) => Some(
-                semver::Comparator::from_str(comparator)
-                    .map_err(|err| Error::InvalidSubgraph(err.to_string()))?,
-            ),
-        };
-        let versions = resolve_subgraph_versions(&subgraph, comparator)
-            .ok_or_else(|| Error::InvalidSubgraph("No matching deployments".to_string()))?;
+        let versions = subgraph.deployments.clone();
         Ok((versions, Some(subgraph)))
     } else if let Some(id) = params.get("deployment_id") {
         let id: DeploymentId = id
@@ -360,31 +348,6 @@ async fn resolve_subgraph_deployments(
     } else {
         Err(Error::InvalidDeploymentId("".to_string()))
     }
-}
-
-fn resolve_subgraph_versions(
-    subgraph: &Subgraph,
-    constraint: Option<semver::Comparator>,
-) -> Option<Vec<Arc<Deployment>>> {
-    let comparator = match constraint {
-        Some(comparator) => comparator,
-        None => {
-            return subgraph
-                .deployments
-                .last()
-                .map(|deployment| vec![deployment.clone()])
-        }
-    };
-    let matching_subgraph_versions: Vec<Arc<Deployment>> = subgraph
-        .deployments
-        .iter()
-        .filter(|deployment| match &deployment.version {
-            None => false,
-            Some(version) => comparator.matches(version),
-        })
-        .cloned()
-        .collect();
-    Some(matching_subgraph_versions)
 }
 
 struct QueryOutcome {
@@ -517,12 +480,8 @@ async fn handle_client_query_inner(
     let budget_query_count = count_top_level_selection_sets(&context)
         .map_err(Error::InvalidQuery)?
         .max(1) as u64;
-    // For budgeting purposes, pick the latest deployment. Otherwise pick the first.
-    let budget_deployment = deployments
-        .iter()
-        .max_by_key(|d| d.version.as_ref())
-        .map(|d| d.id)
-        .unwrap_or_else(|| deployments[0].id);
+    // For budgeting purposes, pick the latest deployment.
+    let budget_deployment = deployments.last().unwrap().id;
     let mut budget: USD = ctx.budgeter.budget(&budget_deployment, budget_query_count);
     if let Some(user_budget) = user_settings.budget {
         // Security: Consumers can and will set their budget to unreasonably high values.
@@ -1017,71 +976,7 @@ pub async fn legacy_auth_adapter<B>(
 
 #[cfg(test)]
 mod test {
-    use std::{collections::BTreeSet, sync::Arc};
-
-    use crate::topology::{Deployment, Manifest, Subgraph};
-
     use super::*;
-
-    #[test]
-    fn resolving_subgraph_versions() {
-        let deployment1 = "QmcvzjH2RvLiytkkwaiCB3fzkqzr33LbAh71nACB13UGr1"
-            .parse()
-            .unwrap();
-        let deployment2 = "QmcvzjH2RvLiytkkwaiCB3fzkqzr33LbAh71nACB13UGr2"
-            .parse()
-            .unwrap();
-        let deployment3 = "QmcvzjH2RvLiytkkwaiCB3fzkqzr33LbAh71nACB13UGr3"
-            .parse()
-            .unwrap();
-        let deployment4 = "QmcvzjH2RvLiytkkwaiCB3fzkqzr33LbAh71nACB13UGr4"
-            .parse()
-            .unwrap();
-        let deployment = |id: DeploymentId, version: Option<&str>| -> Arc<Deployment> {
-            Arc::new(Deployment {
-                id,
-                manifest: Arc::new(Manifest {
-                    network: "testnet".to_string(),
-                    features: vec![],
-                    min_block: 0,
-                }),
-                version: version.map(|v| Arc::new(v.parse().unwrap())),
-                indexers: vec![],
-                subgraphs: BTreeSet::new(),
-                transferred_to_l2: false,
-            })
-        };
-        let subgraph = Subgraph {
-            deployments: vec![
-                deployment(deployment1, Some("0.1.0")),
-                deployment(deployment2, Some("0.2.0")),
-                deployment(deployment3, Some("1.0.0")),
-                deployment(deployment4, None),
-            ],
-            id: "8dBE14bWuJkRGnhHdtcyfLHpp8VZTq8tq8SwSRoa2Lee"
-                .parse()
-                .unwrap(),
-            l2_id: None,
-        };
-
-        let tests: Vec<(Option<&str>, Vec<DeploymentId>)> = vec![
-            (None, vec![deployment4]),
-            (Some("^0"), vec![deployment1, deployment2]),
-            (Some("^0.1"), vec![deployment1]),
-            (Some("^0.2"), vec![deployment2]),
-            (Some("^1"), vec![deployment3]),
-        ];
-
-        for (constraint, expected) in tests {
-            let constraint = constraint.map(|c| c.parse().unwrap());
-            let resolved: Vec<DeploymentId> = resolve_subgraph_versions(&subgraph, constraint)
-                .unwrap()
-                .into_iter()
-                .map(|deployment| deployment.id)
-                .collect();
-            assert_eq!(resolved, expected);
-        }
-    }
 
     #[tokio::test]
     async fn l2_request_path() {

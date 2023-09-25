@@ -1,11 +1,7 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use eventuals::Ptr;
 use prelude::GRT;
-use semver::Version;
 use toolshed::url::Url;
 
 use crate::{
@@ -40,7 +36,7 @@ pub struct IndexingStatus {
     pub allocation: GRT,
     pub cost_model: Option<Ptr<CostModel>>,
     pub block: Option<BlockStatus>,
-    pub version: Option<Arc<Version>>,
+    pub versions_behind: u8,
 }
 
 /// Indexers are expected to monotonically increase their block height on a deployment. We also
