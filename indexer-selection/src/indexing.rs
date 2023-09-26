@@ -137,6 +137,9 @@ impl IndexingState {
             // Only apply this harsh penaly once, until the reported status is updated.
             status.behind_reported_block = true;
         }
+        if let Some(reported_block) = reported_block {
+            status.reported_number = reported_block;
+        }
         // The indexer is at least one block behind the assumed status (this will often be the
         // case). They may have already reported they are even farther behind, so we assume the
         // worst of the two.
