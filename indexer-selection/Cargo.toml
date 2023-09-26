@@ -25,7 +25,6 @@ siphasher.workspace = true
 tokio.workspace = true
 toolshed.workspace = true
 tracing.workspace = true
-semver = "1.0.18"
 
 [dev-dependencies]
 eventuals = { workspace = true, features = ["trace"] }

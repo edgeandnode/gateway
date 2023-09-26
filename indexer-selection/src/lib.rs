@@ -13,7 +13,6 @@ pub use ordered_float::NotNan;
 use rand::{prelude::SmallRng, Rng as _};
 pub use receipts;
 pub use secp256k1::SecretKey;
-use semver::Version;
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 use toolshed::url::Url;
 
@@ -230,15 +229,8 @@ impl State {
         let mut errors = IndexerErrors(BTreeMap::new());
         let mut available = Vec::<SelectionFactors>::new();
 
-        // Normalize versions to be relative to the best candidate.
-        let mut versions: Vec<&Version> = candidates
-            .iter()
-            .filter_map(|i| self.indexings.get(i)?.status.version.as_deref())
-            .collect();
-        versions.sort();
-
         for candidate in candidates {
-            match self.selection_factors(candidate, params, context, selection_limit, &versions) {
+            match self.selection_factors(candidate, params, context, selection_limit) {
                 Ok(factors) => available.push(factors),
                 Err(SelectionError::BadIndexer(err)) => errors.add(err, &candidate.indexer),
                 Err(SelectionError::BadInput(err)) => return Err(err),
@@ -284,7 +276,6 @@ impl State {
         params: &UtilityParameters,
         context: &mut Context<'_>,
         selection_limit: u8,
-        sorted_versions: &[&Version],
     ) -> Result<SelectionFactors, SelectionError> {
         let state = self
             .indexings
@@ -320,18 +311,11 @@ impl State {
         let perf_success = state.perf_success.expected_value();
         let slashable_usd = slashable.as_f64();
 
-        let version: Option<&Version> = state.status.version.as_deref();
-        let versions_behind = version
-            .and_then(|v| sorted_versions.iter().rev().position(|x| *x == v))
-            .unwrap_or(0)
-            .try_into()
-            .unwrap_or(u8::MAX);
-
         let expected_score = NotNan::new(expected_individual_score(
             params,
             reliability,
             perf_success,
-            versions_behind,
+            state.status.versions_behind,
             block_status.blocks_behind,
             slashable_usd,
             &fee,
@@ -341,7 +325,7 @@ impl State {
         Ok(SelectionFactors {
             indexing: *candidate,
             url: state.status.url.clone(),
-            versions_behind,
+            versions_behind: state.status.versions_behind,
             reliability,
             perf_success,
             perf_failure: state.perf_failure.expected_value(),

@@ -32,7 +32,6 @@ pub struct Subgraph {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubgraphVersion {
-    pub metadata_hash: Option<String>,
     pub subgraph_deployment: SubgraphDeployment,
 }
 
@@ -149,7 +148,6 @@ impl Client {
                 id
                 {}
                 versions(orderBy: version, orderDirection: asc) {{
-                    metadataHash
                     subgraphDeployment {{
                         ipfsHash
                         indexerAllocations(

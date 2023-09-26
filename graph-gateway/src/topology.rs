@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use alloy_primitives::{Address, B256};
+use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt, Ptr};
 use futures_util::future::join_all;
@@ -27,6 +27,7 @@ pub struct GraphNetwork {
 /// for a query by `DeploymentId` to interact with this.
 #[derive(Clone)]
 pub struct Subgraph {
+    /// Subgraph versions, in ascending order
     pub deployments: Vec<Arc<Deployment>>,
     pub id: SubgraphId,
     /// Indicates that the subgraph has been transferred to L2, and should not be served directly by
@@ -37,7 +38,6 @@ pub struct Subgraph {
 pub struct Deployment {
     pub id: DeploymentId,
     pub manifest: Arc<Manifest>,
-    pub version: Option<Arc<semver::Version>>,
     /// An indexer may have multiple active allocations on a deployment. We collapse them into a single logical
     /// allocation using the largest allocation ID and sum of the allocated tokens.
     pub indexers: Vec<Arc<Indexer>>,
@@ -90,7 +90,6 @@ impl GraphNetwork {
         let cache: &'static RwLock<IpfsCache> = Box::leak(Box::new(RwLock::new(IpfsCache {
             ipfs,
             manifests: HashMap::new(),
-            metadata: HashMap::new(),
         })));
 
         // Create a lookup table for subgraphs, keyed by their ID.
@@ -216,19 +215,9 @@ impl GraphNetwork {
         let transferred_to_l2 = version.subgraph_deployment.transferred_to_l2
             && version.subgraph_deployment.allocations.is_empty();
 
-        let metadata_hash: Option<B256> = version
-            .metadata_hash
-            .as_ref()
-            .and_then(|hash| hash.parse().ok());
-        let version = match metadata_hash {
-            Some(hash) => IpfsCache::metadata(cache, &hash).await,
-            None => None,
-        };
-
         Some(Arc::new(Deployment {
             id,
             manifest,
-            version,
             subgraphs,
             indexers,
             transferred_to_l2,
@@ -239,7 +228,6 @@ impl GraphNetwork {
 struct IpfsCache {
     ipfs: Arc<ipfs::Client>,
     manifests: HashMap<DeploymentId, Arc<Manifest>>,
-    metadata: HashMap<B256, Arc<semver::Version>>,
 }
 
 impl IpfsCache {
@@ -262,27 +250,6 @@ impl IpfsCache {
         let mut write = cache.write().await;
         write.manifests.insert(*deployment, manifest.clone());
         Some(manifest)
-    }
-
-    async fn metadata(cache: &RwLock<Self>, hash: &B256) -> Option<Arc<semver::Version>> {
-        let read = cache.read().await;
-        if let Some(metadata) = read.metadata.get(hash) {
-            return Some(metadata.clone());
-        }
-        let ipfs = read.ipfs.clone();
-        drop(read);
-
-        let metadata = match Self::cat_metadata(&ipfs, hash).await {
-            Ok(metadata) => Arc::new(metadata),
-            Err(metadata_err) => {
-                tracing::warn!(%hash, %metadata_err);
-                return None;
-            }
-        };
-
-        let mut write = cache.write().await;
-        write.metadata.insert(*hash, metadata.clone());
-        Some(metadata)
     }
 
     async fn cat_manifest(
@@ -330,19 +297,5 @@ impl IpfsCache {
             min_block,
             features: manifest.features,
         })
-    }
-
-    async fn cat_metadata(ipfs: &ipfs::Client, hash: &B256) -> anyhow::Result<semver::Version> {
-        #[derive(Deserialize)]
-        struct Metadata {
-            label: String,
-        }
-
-        // CIDv0 prefix for hex-encoded content address
-        let cid = format!("f1220{}", hex::encode(hash.0));
-
-        let payload = ipfs.cat(&cid).await?;
-        let metadata: Metadata = serde_json::from_str(&payload)?;
-        Ok(metadata.label.trim_start_matches('v').parse()?)
     }
 }

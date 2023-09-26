@@ -11,7 +11,6 @@ use rand::{
     seq::{IteratorRandom, SliceRandom},
     thread_rng, Rng, RngCore as _, SeedableRng as _,
 };
-use semver::Version;
 use tokio::spawn;
 
 use prelude::buffer_queue::QueueWriter;
@@ -65,7 +64,7 @@ fn base_indexing_status() -> IndexingStatus {
             behind_reported_block: false,
             min_block: None,
         }),
-        version: Some(Version::new(0, 0, 0).into()),
+        versions_behind: 0,
     }
 }
 
@@ -307,13 +306,6 @@ async fn fuzz() {
 #[test]
 fn favor_higher_version() {
     let mut rng = SmallRng::from_entropy();
-    let mut gen_version = || {
-        Version::new(
-            rng.gen_range(0..3),
-            rng.gen_range(0..3),
-            rng.gen_range(0..3),
-        )
-    };
 
     let candidates: Vec<Indexing> = (0..2)
         .map(|i| Indexing {
@@ -321,9 +313,9 @@ fn favor_higher_version() {
             deployment: DeploymentId(bytes_from_id(i).into()),
         })
         .collect();
-    let mut versions = [gen_version(), gen_version()];
-    if versions[0] == versions[1] {
-        versions[1].major += 1;
+    let mut versions_behind = [rng.gen_range(0..3), rng.gen_range(0..3)];
+    if versions_behind[0] == versions_behind[1] {
+        versions_behind[1] += 1;
     }
 
     let mut state = State {
@@ -336,14 +328,14 @@ fn favor_higher_version() {
     state.indexings.insert(
         candidates[0],
         IndexingState::new(IndexingStatus {
-            version: Some(versions[0].clone().into()),
+            versions_behind: versions_behind[0],
             ..base_indexing_status()
         }),
     );
     state.indexings.insert(
         candidates[1],
         IndexingState::new(IndexingStatus {
-            version: Some(versions[1].clone().into()),
+            versions_behind: versions_behind[1],
             ..base_indexing_status()
         }),
     );
@@ -360,11 +352,14 @@ fn favor_higher_version() {
     let result = state.select_indexers(&mut rng, &candidates, &params, &mut context, 1);
 
     println!("{:#?}", candidates);
-    println!("{:#?}", versions);
+    println!("{:#?}", versions_behind);
     println!("{:#?}", result);
 
-    let max_version = versions.iter().max().unwrap();
-    let index = versions.iter().position(|v| v == max_version).unwrap();
+    let max_version = versions_behind.iter().min().unwrap();
+    let index = versions_behind
+        .iter()
+        .position(|v| v == max_version)
+        .unwrap();
     let expected = candidates[index];
 
     let selection = result.unwrap().0[0].indexing;

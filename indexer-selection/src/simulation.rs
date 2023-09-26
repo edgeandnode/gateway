@@ -9,7 +9,6 @@ use rand_distr::Normal;
 
 use prelude::test_utils::{bytes_from_id, init_test_tracing};
 use prelude::GRT;
-use semver::Version;
 use toolshed::thegraph::DeploymentId;
 
 use crate::test_utils::default_cost_model;
@@ -77,7 +76,7 @@ pub async fn simulate(
                     behind_reported_block: false,
                     min_block: None,
                 }),
-                version: Some(Version::new(0, 0, 0).into()),
+                versions_behind: 0,
             },
         );
     }
