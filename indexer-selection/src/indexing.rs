@@ -70,7 +70,12 @@ impl IndexingState {
         // value of `blocks_behind`. This is especially important for fast-moving chains to avoid
         // indexers being thrown much further behind without any observation to justify that.
         match (&self.status.block, &mut status.block) {
-            (Some(prev), Some(next)) if !prev.behind_reported_block => {
+            (Some(prev), Some(next))
+                // Take their updated status without modification when we have witnessed them behind their last reported
+                // block, or if they are reporting a status further behind their last report.
+                if !prev.behind_reported_block
+                    && (prev.reported_number <= next.reported_number) =>
+            {
                 next.blocks_behind = next.blocks_behind.min(prev.blocks_behind);
             }
             _ => (),
