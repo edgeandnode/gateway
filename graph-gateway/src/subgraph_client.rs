@@ -1,7 +1,7 @@
 use axum::http::{header, HeaderMap, HeaderValue};
+use graphql::http::Response;
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, value::RawValue, Value};
-use toolshed::graphql::http::Response;
 use toolshed::thegraph::BlockPointer;
 use toolshed::url::Url;
 

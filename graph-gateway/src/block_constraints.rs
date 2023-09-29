@@ -1,15 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use alloy_primitives::{BlockHash, BlockNumber};
-use itertools::Itertools as _;
-use serde_json::{self, json};
-use toolshed::graphql::graphql_parser::query::{
+use graphql::graphql_parser::query::{
     Definition, Document, OperationDefinition, Selection, Text, Value,
 };
-use toolshed::graphql::{IntoStaticValue as _, QueryVariables, StaticValue};
+use graphql::{IntoStaticValue as _, QueryVariables, StaticValue};
+use itertools::Itertools as _;
+use serde_json::{self, json};
+use toolshed::thegraph::BlockPointer;
 
 use indexer_selection::{Context, UnresolvedBlock};
-use toolshed::thegraph::BlockPointer;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {
