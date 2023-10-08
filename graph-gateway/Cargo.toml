@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "graph-gateway"
-version = "13.5.0"
+version = "14.0.0"
 
 [dependencies]
 anyhow.workspace = true
@@ -28,7 +28,7 @@ maxminddb = "0.23"
 prelude = { path = "../prelude" }
 primitive-types = "0.12.1"
 prometheus = { version = "0.13", default-features = false }
-prost = "0.11.8"
+prost = "0.12.1"
 rand.workspace = true
 rdkafka = { version = "0.34", features = ["gssapi", "tracing"] }
 reqwest.workspace = true
