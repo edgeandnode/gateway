@@ -7,8 +7,8 @@ use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::Mutex;
-use toolshed::thegraph::BlockPointer;
-use toolshed::{graphql, thegraph::DeploymentId, url::url::Host, url::Url};
+use toolshed::thegraph::{BlockPointer, DeploymentId};
+use toolshed::url::{url::Host, Url};
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 
 use indexer_selection::cost_model::CostModel;

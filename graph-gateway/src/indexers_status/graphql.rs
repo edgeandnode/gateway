@@ -1,6 +1,6 @@
+use graphql::http::Response;
 use serde::de::DeserializeOwned;
 use serde_json::json;
-use toolshed::graphql::http::Response;
 use toolshed::url::Url;
 
 /// Trait for types that can be converted into a GraphQL query.

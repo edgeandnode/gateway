@@ -12,11 +12,12 @@ axum = { version = "0.6.15", default-features = false, features = [
     "original-uri",
 ] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-ethers = { version = "2.0.8", default-features = false, features = ["abigen"] }
+ethers = { version = "2.0.10", default-features = false, features = ["abigen"] }
 eventuals.workspace = true
 faster-hex = "0.8.0"
 futures = "0.3"
 futures-util = "0.3"
+graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.1.0" }
 graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "334d18b" }
 hex = "0.4"
 indexer-selection = { path = "../indexer-selection" }

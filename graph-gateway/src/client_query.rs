@@ -22,6 +22,7 @@ use axum::{
 };
 use eventuals::{Eventual, Ptr};
 use futures::future::join_all;
+use graphql::graphql_parser::query::{OperationDefinition, SelectionSet};
 use lazy_static::lazy_static;
 use prelude::USD;
 use prost::bytes::Buf;
@@ -30,8 +31,6 @@ use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
 use tokio::sync::mpsc;
-use toolshed::graphql;
-use toolshed::graphql::graphql_parser::query::{OperationDefinition, SelectionSet};
 use toolshed::thegraph::{BlockPointer, DeploymentId, SubgraphId};
 use toolshed::url::Url;
 use tracing::Instrument;
