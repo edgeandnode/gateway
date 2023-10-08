@@ -14,7 +14,7 @@ arrayvec = "0.7"
 alloy-primitives.workspace = true
 eventuals.workspace = true
 num-traits = "0.2"
-ordered-float = "3.0"
+ordered-float = "4.1"
 permutation = "0.4"
 prelude = { path = "../prelude" }
 rand.workspace = true
