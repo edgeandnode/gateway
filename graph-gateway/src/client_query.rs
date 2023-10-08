@@ -482,6 +482,7 @@ async fn handle_client_query_inner(
     // For budgeting purposes, pick the latest deployment.
     let budget_deployment = deployments.last().unwrap().id;
     let mut budget: USD = ctx.budgeter.budget(&budget_deployment, budget_query_count);
+    let ignore_budget_feedback = user_settings.budget.is_some();
     if let Some(user_budget) = user_settings.budget {
         // Security: Consumers can and will set their budget to unreasonably high values.
         // This `.min` prevents the budget from being set far beyond what it would be
@@ -688,17 +689,19 @@ async fn handle_client_query_inner(
                 Some(Err(IndexerError::BlockError(_))) => latest_unresolved += 1,
                 Some(Err(_)) | None => (),
                 Some(Ok(outcome)) => {
-                    let total_indexer_fees: USD = ctx
-                        .isa_state
-                        .latest()
-                        .network_params
-                        .grt_to_usd(total_indexer_fees)
-                        .unwrap();
-                    let _ = ctx.budgeter.feedback.send(budgets::Feedback {
-                        deployment: budget_deployment,
-                        fees: total_indexer_fees,
-                        query_count: budget_query_count,
-                    });
+                    if !ignore_budget_feedback {
+                        let total_indexer_fees: USD = ctx
+                            .isa_state
+                            .latest()
+                            .network_params
+                            .grt_to_usd(total_indexer_fees)
+                            .unwrap();
+                        let _ = ctx.budgeter.feedback.send(budgets::Feedback {
+                            deployment: budget_deployment,
+                            fees: total_indexer_fees,
+                            query_count: budget_query_count,
+                        });
+                    }
 
                     return Ok(outcome);
                 }
