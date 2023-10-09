@@ -1,4 +1,4 @@
-FROM rust:1.69-bullseye AS build
+FROM rust:1.73-bullseye AS build
 
 ARG GH_USER
 ARG GH_TOKEN
@@ -28,6 +28,7 @@ RUN cargo build --release --bin graph-gateway --color=always
 FROM debian:bullseye-slim
 
 RUN apt-get update && apt-get install -y \
+  libsasl2-dev \
   libssl1.1 \
   ca-certificates \
   && rm -rf /var/lib/apt/lists/*
