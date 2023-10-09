@@ -130,9 +130,13 @@ fn volume_discount(monthly_volume: u64, target: USD) -> USD {
     // 10E-6 USD.
     // https://www.desmos.com/calculator/awtbdpoehu
     let b_min = MIN_BUDGET_USD;
-    let b_max = target.as_f64();
-    let m: f64 = 1e5;
-    let z: f64 = 0.35;
+    // TODO: this 250 magic number is to help temporarily mimic the outomes of the old volume
+    // discounting (https://www.desmos.com/calculator/afjpgynlsp)
+    let b_max = target.as_f64() * 250.0;
+    let m: f64 = 1e3;
+    // dips below old volume discounting outcomes between (10^4, 10^8), to compensate for higher
+    // query count per request
+    let z: f64 = 0.69;
     let v = monthly_volume as f64;
     let budget = b_min + ((b_max - b_min) * m.powf(z)) / (v + m).powf(z);
     // 52fcdb5f-8557-4ebb-968d-46e7756aa63f
