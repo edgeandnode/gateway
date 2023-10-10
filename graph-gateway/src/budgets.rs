@@ -132,7 +132,7 @@ fn volume_discount(monthly_volume: u64, target: USD) -> USD {
     let b_min = MIN_BUDGET_USD;
     let b_max = target.as_f64();
     let m: f64 = 1e4;
-    let z: f64 = 0.35;
+    let z: f64 = 1.0;
     let v = monthly_volume as f64;
     let budget = b_min + ((b_max - b_min) * m.powf(z)) / (v + m).powf(z);
     // 52fcdb5f-8557-4ebb-968d-46e7756aa63f
