@@ -88,7 +88,7 @@ pub fn fee_utility(fee: &GRT, budget: &GRT) -> UtilityFactor {
     utility = utility.max(1e-18);
     UtilityFactor {
         utility,
-        weight: 0.5,
+        weight: WEIGHT,
     }
 }
 
