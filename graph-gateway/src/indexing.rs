@@ -5,7 +5,6 @@ use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
 use semver::Version;
 use serde::Deserialize;
-use serde_json::json;
 use tokio::sync::Mutex;
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 use toolshed::url::{url::Host, Url};
@@ -16,8 +15,8 @@ use indexer_selection::Indexing;
 use prelude::epoch_cache::EpochCache;
 
 use crate::geoip::GeoIP;
-use crate::indexers_status::indexing_statuses::{client, IndexingStatusResponse};
-use crate::subgraph_client::graphql_query;
+use crate::indexers_status::cost_models::{self, CostModelQuery, CostModelSourceResponse};
+use crate::indexers_status::indexing_statuses::{self, IndexingStatusResponse};
 use crate::topology::Deployment;
 
 pub struct IndexingStatus {
@@ -183,10 +182,23 @@ async fn query_indexer_for_indexing_statuses(
     client: reqwest::Client,
     status_url: Url,
 ) -> Result<Vec<IndexingStatusResponse>, String> {
-    client::send_indexing_statuses_query(client, status_url)
+    indexing_statuses::client::send_indexing_statuses_query(client, status_url)
         .await
         .map_err(|err| err.to_string())
         .map(|res| res.indexing_statuses)
+}
+
+/// Convenience wrapper method around [`client::send_cost_model_query`] to map the result
+/// types to the expected by [`query_status`] method.
+async fn query_indexer_for_cost_models(
+    client: reqwest::Client,
+    cost_url: Url,
+    deployments: Vec<DeploymentId>,
+) -> Result<Vec<CostModelSourceResponse>, String> {
+    cost_models::client::send_cost_model_query(client, cost_url, CostModelQuery { deployments })
+        .await
+        .map_err(|err| err.to_string())
+        .map(|res| res.cost_models)
 }
 
 async fn query_status(
@@ -200,26 +212,13 @@ async fn query_status(
     let statuses = query_indexer_for_indexing_statuses(client.clone(), status_url.into()).await?;
 
     let cost_url = url.join("cost").map_err(|err| err.to_string())?;
-    let deployments = statuses
-        .iter()
-        .map(|stat| stat.subgraph.to_string())
-        .collect::<Vec<String>>();
-    let cost_query = json!({
-        "query": r#"query costModels($deployments: [String!]!) {
-            costModels(deployments: $deployments) {
-                deployment
-                model
-                variables
-            }
-        }"#,
-        "variables": { "deployments": deployments },
-    });
-    let cost_models =
-        graphql_query::<CostModelResponse>(client, cost_url.into(), &cost_query, None)
-            .await
-            .and_then(graphql::http::Response::unpack)
-            .map(|cost_models| cost_models.cost_models)
-            .unwrap_or_default();
+    let cost_models = query_indexer_for_cost_models(
+        client.clone(),
+        cost_url.into(),
+        statuses.iter().map(|stat| stat.subgraph).collect(),
+    )
+    .await
+    .unwrap_or_default();
 
     let mut actor = actor.lock().await;
     let mut cost_models = cost_models
@@ -299,19 +298,6 @@ fn compile_cost_model(
 struct CostModelSource {
     model: String,
     variables: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CostModelResponse {
-    cost_models: Vec<CostModelSourceResponse>,
-}
-
-#[derive(Deserialize)]
-struct CostModelSourceResponse {
-    deployment: DeploymentId,
-    model: String,
-    variables: Option<String>,
 }
 
 #[derive(Deserialize)]
