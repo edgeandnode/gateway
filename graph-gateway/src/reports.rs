@@ -1,10 +1,12 @@
 use std::error::Error;
 use std::fmt;
 
+use alloy_primitives::Address;
 use prost::Message as _;
 use rdkafka::error::KafkaResult;
 use serde::Deserialize;
 use serde_json::{json, Map};
+use toolshed::{concat_bytes, thegraph::attestation::Attestation};
 use tracing::span;
 use tracing_subscriber::{filter::FilterFn, layer, prelude::*, registry, EnvFilter, Layer};
 
@@ -499,7 +501,7 @@ pub fn indexer_attempt_status_code(result: &Result<ResponsePayload, IndexerError
     let (prefix, data) = match &result {
         // prefix 0x0, followed by the HTTP status code
         Ok(_) => (0x0, 200_u32.to_be()),
-        Err(IndexerError::NoAttestation) => (0x1, 0x0),
+        Err(IndexerError::NoAttestation) | Err(IndexerError::BadAttestation) => (0x1, 0x0),
         Err(IndexerError::UnattestableError(_)) => (0x2, 0x0),
         Err(IndexerError::Timeout) => (0x3, 0x0),
         Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
@@ -509,4 +511,45 @@ pub fn indexer_attempt_status_code(result: &Result<ResponsePayload, IndexerError
         Err(IndexerError::Other(msg)) => (0x6, sip24_hash(&msg) as u32),
     };
     (prefix << 28) | (data & (u32::MAX >> 4))
+}
+
+pub fn serialize_attestation(
+    attestation: &Attestation,
+    indexer: Address,
+    request: String,
+    response: String,
+) -> Vec<u8> {
+    AttestationProtobuf {
+        request,
+        response,
+        indexer: indexer.0 .0.into(),
+        subgraph_deployment: attestation.deployment.0.into(),
+        request_cid: attestation.request_cid.0.into(),
+        response_cid: attestation.response_cid.0.into(),
+        signature: concat_bytes!(65, [&[attestation.v], &attestation.r.0, &attestation.s.0]).into(),
+    }
+    .encode_to_vec()
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct AttestationProtobuf {
+    #[prost(string, tag = "1")]
+    request: String,
+    #[prost(string, tag = "2")]
+    response: String,
+    /// 20 bytes
+    #[prost(bytes, tag = "3")]
+    indexer: Vec<u8>,
+    /// 32 bytes
+    #[prost(bytes, tag = "4")]
+    subgraph_deployment: Vec<u8>,
+    /// 32 bytes
+    #[prost(bytes, tag = "5")]
+    request_cid: Vec<u8>,
+    /// 32 bytes
+    #[prost(bytes, tag = "6")]
+    response_cid: Vec<u8>,
+    /// 65 bytes, ECDSA signature (v, r, s)
+    #[prost(bytes, tag = "7")]
+    signature: Vec<u8>,
 }

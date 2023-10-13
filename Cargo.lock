@@ -1426,6 +1426,7 @@ name = "graph-gateway"
 version = "14.0.1"
 dependencies = [
  "alloy-primitives",
+ "alloy-sol-types",
  "anyhow",
  "assert_matches",
  "axum",
