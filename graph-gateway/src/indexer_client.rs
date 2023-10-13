@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use alloy_primitives::{BlockNumber, B256};
+use alloy_primitives::BlockNumber;
 use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
-
 use indexer_selection::Selection;
+use serde::Deserialize;
+use toolshed::thegraph::attestation::Attestation;
 
 #[derive(Debug)]
 pub struct IndexerResponse {
@@ -23,6 +23,7 @@ pub enum IndexerError {
     NoAllocation,
     NoAttestation,
     UnattestableError(StatusCode),
+    BadAttestation,
     Timeout,
     UnexpectedPayload,
     BlockError(BlockError),
@@ -41,19 +42,6 @@ pub struct IndexerResponsePayload {
     pub graphql_response: Option<String>,
     pub attestation: Option<Attestation>,
     pub error: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Attestation {
-    #[serde(rename = "requestCID")]
-    pub request_cid: B256,
-    #[serde(rename = "responseCID")]
-    pub response_cid: B256,
-    #[serde(rename = "subgraphDeploymentID")]
-    pub deployment: B256,
-    pub v: u8,
-    pub r: B256,
-    pub s: B256,
 }
 
 #[derive(Clone)]

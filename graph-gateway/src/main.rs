@@ -1,16 +1,15 @@
+use std::collections::hash_map::{Entry, HashMap};
+use std::collections::hash_set::HashSet;
+use std::env;
+use std::fs::read_to_string;
+use std::io::Write as _;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
-use std::{
-    collections::hash_map::{Entry, HashMap},
-    collections::hash_set::HashSet,
-    env,
-    fs::read_to_string,
-    io::Write as _,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::PathBuf,
-    sync::Arc,
-};
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, U256};
+use alloy_sol_types::Eip712Domain;
 use anyhow::{self, Context};
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, State},
@@ -26,7 +25,7 @@ use prometheus::{self, Encoder as _};
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
 use tokio::spawn;
-use toolshed::thegraph::DeploymentId;
+use toolshed::thegraph::{attestation, DeploymentId};
 use tower_http::cors::{self, CorsLayer};
 
 use graph_gateway::indexings_blocklist::indexings_blocklist;
@@ -35,7 +34,6 @@ use graph_gateway::{
     chains::{ethereum, BlockCache},
     client_query,
     config::{Config, ExchangeRateProvider},
-    fisherman_client::FishermanClient,
     geoip::GeoIP,
     indexer_client::IndexerClient,
     indexing::{indexing_statuses, IndexingStatus},
@@ -70,7 +68,7 @@ async fn main() {
     let config_repr = format!("{config:#?}");
 
     // Instantiate the Kafka client
-    let kafka_client = match KafkaClient::new(&config.kafka.into()) {
+    let kafka_client: &'static KafkaClient = match KafkaClient::new(&config.kafka.into()) {
         Ok(kafka_client) => Box::leak(Box::new(kafka_client)),
         Err(kafka_client_err) => {
             tracing::error!(%kafka_client_err);
@@ -145,6 +143,12 @@ async fn main() {
 
     let receipt_signer: &'static ReceiptSigner =
         Box::leak(Box::new(ReceiptSigner::new(signer_key)));
+    let attestation_domain: &'static Eip712Domain =
+        Box::leak(Box::new(attestation::eip712_domain(
+            U256::from_str_radix(&config.attestations.chain_id, 10)
+                .expect("failed to parse attestation domain chain_id"),
+            config.attestations.dispute_manager,
+        )));
 
     let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
     let network = GraphNetwork::new(network_subgraph_data.subgraphs, ipfs).await;
@@ -233,11 +237,6 @@ async fn main() {
         .expect("invalid query_fees_target");
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
-    let fisherman_client = config.fisherman.map(|url| {
-        Box::leak(Box::new(FishermanClient::new(http_client.clone(), url)))
-            as &'static FishermanClient
-    });
-
     tracing::info!("Waiting for exchange rate...");
     usd_to_grt.value().await.unwrap();
     tracing::info!("Waiting for ISA setup...");
@@ -249,13 +248,14 @@ async fn main() {
         indexer_client: IndexerClient {
             client: http_client.clone(),
         },
+        kafka_client,
         graph_env_id: config.graph_env_id.clone(),
         auth_handler,
         budgeter,
         network,
         indexing_statuses,
+        attestation_domain,
         indexings_blocklist,
-        fisherman_client,
         block_caches,
         observations: update_writer,
         receipt_signer,

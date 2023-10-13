@@ -6,6 +6,7 @@ version = "14.0.1"
 [dependencies]
 anyhow.workspace = true
 alloy-primitives.workspace = true
+alloy-sol-types = "0.3.2"
 axum = { version = "0.6.15", default-features = false, features = [
     "json",
     "tokio",

@@ -9,7 +9,6 @@ pub mod budgets;
 pub mod chains;
 pub mod client_query;
 pub mod config;
-pub mod fisherman_client;
 pub mod geoip;
 pub mod indexer_client;
 pub mod indexers_status;

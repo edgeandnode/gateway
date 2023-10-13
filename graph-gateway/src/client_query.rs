@@ -10,6 +10,7 @@ use std::{
 };
 
 use alloy_primitives::Address;
+use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, bail, Context as _};
 use axum::extract::OriginalUri;
 use axum::http::{HeaderValue, Request, Uri};
@@ -31,7 +32,7 @@ use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
 use tokio::sync::mpsc;
-use toolshed::thegraph::{BlockPointer, DeploymentId, SubgraphId};
+use toolshed::thegraph::{attestation, BlockPointer, DeploymentId, SubgraphId};
 use toolshed::url::Url;
 use tracing::Instrument;
 use uuid::Uuid;
@@ -43,22 +44,17 @@ use indexer_selection::{
 };
 use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
 
+use crate::auth::{AuthHandler, AuthToken};
+use crate::block_constraints::{block_constraints, make_query_deterministic, BlockConstraint};
 use crate::budgets::{self, Budgeter};
-use crate::indexer_client::{
-    check_block_error, Attestation, IndexerClient, IndexerError, ResponsePayload,
-};
-use crate::{
-    auth::{AuthHandler, AuthToken},
-    block_constraints::{block_constraints, make_query_deterministic, BlockConstraint},
-    chains::BlockCache,
-    fisherman_client::{ChallengeOutcome, FishermanClient},
-    indexing::IndexingStatus,
-    metrics::{with_metric, METRICS},
-    receipts::{ReceiptSigner, ReceiptStatus},
-    reports,
-    topology::{Deployment, GraphNetwork, Subgraph},
-    unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
-};
+use crate::chains::BlockCache;
+use crate::indexer_client::{check_block_error, IndexerClient, IndexerError, ResponsePayload};
+use crate::indexing::IndexingStatus;
+use crate::metrics::{with_metric, METRICS};
+use crate::receipts::{ReceiptSigner, ReceiptStatus};
+use crate::reports::{self, serialize_attestation, KafkaClient};
+use crate::topology::{Deployment, GraphNetwork, Subgraph};
+use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
 
 fn query_id() -> String {
     lazy_static! {
@@ -100,7 +96,7 @@ pub enum Error {
 #[derive(Clone)]
 pub struct Context {
     pub indexer_client: IndexerClient,
-    pub fisherman_client: Option<&'static FishermanClient>,
+    pub kafka_client: &'static KafkaClient,
     pub graph_env_id: String,
     pub auth_handler: &'static AuthHandler,
     pub budgeter: &'static Budgeter,
@@ -110,6 +106,7 @@ pub struct Context {
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
     pub receipt_signer: &'static ReceiptSigner,
+    pub attestation_domain: &'static Eip712Domain,
     pub indexings_blocklist: Eventual<Ptr<HashSet<Indexing>>>,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
@@ -637,8 +634,9 @@ async fn handle_client_query_inner(
                 .clone();
             let indexer_query_context = IndexerQueryContext {
                 indexer_client: ctx.indexer_client.clone(),
-                fisherman_client: ctx.fisherman_client,
+                kafka_client: ctx.kafka_client,
                 receipt_signer: ctx.receipt_signer,
+                attestation_domain: ctx.attestation_domain,
                 observations: ctx.observations.clone(),
                 deployment,
                 latest_block: latest_block.number,
@@ -718,8 +716,9 @@ async fn handle_client_query_inner(
 #[derive(Clone)]
 struct IndexerQueryContext {
     pub indexer_client: IndexerClient,
-    pub fisherman_client: Option<&'static FishermanClient>,
+    pub kafka_client: &'static KafkaClient,
     pub receipt_signer: &'static ReceiptSigner,
+    pub attestation_domain: &'static Eip712Domain,
     pub observations: QueueWriter<Update>,
     pub deployment: Arc<Deployment>,
     pub latest_block: u64,
@@ -874,58 +873,26 @@ async fn handle_indexer_query_inner(
     }
 
     if let Some(attestation) = &response.payload.attestation {
-        challenge_indexer_response(
-            ctx.fisherman_client,
-            ctx.observations.clone(),
-            selection.indexing,
-            allocation,
-            deterministic_query,
-            response.payload.body.clone(),
-            attestation.clone(),
+        let indexer = selection.indexing.indexer;
+        let verified = attestation::verify(
+            ctx.attestation_domain,
+            attestation,
+            &indexer,
+            &deterministic_query,
+            &response.payload.body,
         );
+        // We send the Kafka message directly to avoid passing the request & response payloads
+        // through the normal reporting path. This is to reduce log bloat.
+        let response = response.payload.body.to_string();
+        let payload = serialize_attestation(attestation, indexer, deterministic_query, response);
+        ctx.kafka_client.send("gateway_attestations", &payload);
+        if let Err(attestation_verification_err) = verified {
+            tracing::debug!(%attestation_verification_err);
+            return Err(IndexerError::BadAttestation);
+        }
     }
 
     Ok(response.payload)
-}
-
-fn challenge_indexer_response(
-    fisherman_client: Option<&'static FishermanClient>,
-    observations: QueueWriter<Update>,
-    indexing: Indexing,
-    allocation: Address,
-    indexer_query: String,
-    indexer_response: Arc<String>,
-    attestation: Attestation,
-) {
-    let fisherman = match fisherman_client {
-        Some(fisherman) => fisherman,
-        None => return,
-    };
-    tokio::spawn(async move {
-        let outcome = fisherman
-            .challenge(
-                &indexing,
-                &allocation,
-                &indexer_query,
-                &indexer_response,
-                &attestation,
-            )
-            .await;
-        tracing::trace!(?outcome);
-        let penalty = match outcome {
-            ChallengeOutcome::Unknown | ChallengeOutcome::AgreeWithTrustedIndexer => 0,
-            ChallengeOutcome::DisagreeWithUntrustedIndexer => 10,
-            ChallengeOutcome::DisagreeWithTrustedIndexer => 35,
-            ChallengeOutcome::FailedToProvideAttestation => 40,
-        };
-        if penalty > 0 {
-            tracing::info!(?outcome, "penalizing for challenge outcome");
-            let _ = observations.write(Update::Penalty {
-                indexing,
-                weight: penalty,
-            });
-        }
-    });
 }
 
 fn count_top_level_selection_sets(ctx: &AgoraContext) -> anyhow::Result<usize> {

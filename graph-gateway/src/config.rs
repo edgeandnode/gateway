@@ -22,12 +22,10 @@ use crate::poi::ProofOfIndexingInfo;
 pub struct Config {
     /// Respect the payment state of API keys (disable for testnets)
     pub api_key_payment_required: bool,
+    pub attestations: AttestationConfig,
     pub chains: Vec<Chain>,
     /// Ethereum RPC provider, or fixed exchange rate for testing
     pub exchange_rate_provider: ExchangeRateProvider,
-    /// Fisherman RPC for challenges
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    pub fisherman: Option<Url>,
     /// GeoIP database path
     pub geoip_database: Option<PathBuf>,
     /// GeoIP blocked countries (ISO 3166-1 alpha-2 codes)
@@ -82,6 +80,12 @@ pub struct Config {
     pub studio_url: Option<Url>,
     /// Subscriptions configuration
     pub subscriptions: Option<Subscriptions>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AttestationConfig {
+    pub chain_id: String,
+    pub dispute_manager: Address,
 }
 
 #[serde_as]

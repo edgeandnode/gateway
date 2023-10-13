@@ -107,6 +107,7 @@ pub enum IndexerErrorObservation {
         /// Latest block indexed at the time of query execution, reported by indexer
         reported_block: Option<u64>,
     },
+    BadAttestation,
     Other,
 }
 
