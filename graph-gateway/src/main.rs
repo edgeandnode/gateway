@@ -277,6 +277,8 @@ async fn main() {
             IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
             metrics_port,
         ))
+        // disable Nagel's algorithm
+        .tcp_nodelay(true)
         .serve(router.into_make_service())
         .await
         .expect("Failed to start metrics server");
@@ -354,6 +356,8 @@ async fn main() {
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         api_port,
     ))
+    // disable Nagel's algorithm
+    .tcp_nodelay(true)
     .serve(router.into_make_service_with_connect_info::<SocketAddr>())
     .await
     .expect("Failed to start API server");
