@@ -515,14 +515,14 @@ pub fn indexer_attempt_status_code(result: &Result<ResponsePayload, IndexerError
 
 pub fn serialize_attestation(
     attestation: &Attestation,
-    indexer: Address,
+    allocation: Address,
     request: String,
     response: String,
 ) -> Vec<u8> {
     AttestationProtobuf {
         request,
         response,
-        indexer: indexer.0 .0.into(),
+        allocation: allocation.0 .0.into(),
         subgraph_deployment: attestation.deployment.0.into(),
         request_cid: attestation.request_cid.0.into(),
         response_cid: attestation.response_cid.0.into(),
@@ -539,7 +539,7 @@ pub struct AttestationProtobuf {
     response: String,
     /// 20 bytes
     #[prost(bytes, tag = "3")]
-    indexer: Vec<u8>,
+    allocation: Vec<u8>,
     /// 32 bytes
     #[prost(bytes, tag = "4")]
     subgraph_deployment: Vec<u8>,
