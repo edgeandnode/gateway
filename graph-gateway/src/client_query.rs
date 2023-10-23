@@ -873,18 +873,17 @@ async fn handle_indexer_query_inner(
     }
 
     if let Some(attestation) = &response.payload.attestation {
-        let indexer = selection.indexing.indexer;
         let verified = attestation::verify(
             ctx.attestation_domain,
             attestation,
-            &indexer,
+            &allocation,
             &deterministic_query,
             &response.payload.body,
         );
         // We send the Kafka message directly to avoid passing the request & response payloads
         // through the normal reporting path. This is to reduce log bloat.
         let response = response.payload.body.to_string();
-        let payload = serialize_attestation(attestation, indexer, deterministic_query, response);
+        let payload = serialize_attestation(attestation, allocation, deterministic_query, response);
         ctx.kafka_client.send("gateway_attestations", &payload);
         if let Err(attestation_verification_err) = verified {
             tracing::debug!(%attestation_verification_err);
