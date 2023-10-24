@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, U256};
 use ethers::signers::coins_bip39::English;
 use ethers::signers::MnemonicBuilder;
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
@@ -67,9 +67,8 @@ pub struct Config {
     pub port_metrics: u16,
     /// Target for indexer fees paid per query
     pub query_fees_target: f64,
-    /// Mnemonic for voucher signing
-    #[serde_as(as = "DisplayFromStr")]
-    pub signer_key: SignerKey,
+    /// Scalar TAP config (receipt signing)
+    pub scalar: Scalar,
     /// API keys that won't be blocked for non-payment
     #[serde(default)]
     pub special_api_keys: Vec<String>,
@@ -148,6 +147,18 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
         }
         config
     }
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize)]
+pub struct Scalar {
+    /// Mnemonic for voucher signing
+    #[serde_as(as = "DisplayFromStr")]
+    pub signer_key: SignerKey,
+    /// Scalar TAP verifier contract chain
+    pub chain_id: U256,
+    /// Scalar TAP verifier contract address
+    pub verifier: Address,
 }
 
 pub struct SignerKey(pub SecretKey);
