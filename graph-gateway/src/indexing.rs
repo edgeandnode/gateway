@@ -25,6 +25,7 @@ pub struct IndexingStatus {
     pub block: BlockPointer,
     pub min_block: Option<u64>,
     pub cost_model: Option<Ptr<CostModel>>,
+    pub legacy_scalar: bool,
 }
 
 pub async fn indexing_statuses(
@@ -132,7 +133,7 @@ async fn update_indexer(
     apply_geoblocking(&mut locked_actor, &url).await?;
     drop(locked_actor);
 
-    query_status(actor, &client, indexer, url)
+    query_status(actor, &client, indexer, url, version)
         .await
         .map_err(|err| format!("IndexerStatusError({err})"))
 }
@@ -193,6 +194,7 @@ async fn query_status(
     client: &reqwest::Client,
     indexer: Address,
     url: Url,
+    version: Version,
 ) -> Result<Vec<(Indexing, IndexingStatus)>, String> {
     let status_url = url.join("status").map_err(|err| err.to_string())?;
     let statuses = query_indexer_for_indexing_statuses(client.clone(), status_url.into()).await?;
@@ -240,6 +242,10 @@ async fn query_status(
         .collect::<HashMap<DeploymentId, Ptr<CostModel>>>();
     drop(actor);
 
+    // TODO: Minimum indexer version supporting Scalar TAP (temporary, as non-TAP Scalar is deprecated)
+    let min_scalar_tap_version: Version = "100.0.0".parse().unwrap();
+    let legacy_scalar = version < min_scalar_tap_version;
+
     Ok(statuses
         .into_iter()
         .filter_map(|status| {
@@ -261,6 +267,7 @@ async fn query_status(
                     .as_ref()
                     .and_then(|b| b.number.parse::<u64>().ok()),
                 cost_model,
+                legacy_scalar,
             };
             Some((indexing, status))
         })

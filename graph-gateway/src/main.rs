@@ -111,7 +111,7 @@ async fn main() {
         })
         .collect::<HashMap<String, BlockCache>>();
     let block_caches: &'static HashMap<String, BlockCache> = Box::leak(Box::new(block_caches));
-    let signer_key = config.signer_key.0;
+    let signer_key = config.scalar.signer_key.0;
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -141,8 +141,6 @@ async fn main() {
         ))
         .unwrap();
 
-    let receipt_signer: &'static ReceiptSigner =
-        Box::leak(Box::new(ReceiptSigner::new(signer_key)));
     let attestation_domain: &'static Eip712Domain =
         Box::leak(Box::new(attestation::eip712_domain(
             U256::from_str_radix(&config.attestations.chain_id, 10)
@@ -183,6 +181,24 @@ async fn main() {
         geoip,
     )
     .await;
+
+    let legacy_indexers = indexing_statuses.clone().map(|statuses| async move {
+        let legacy_indexers: HashSet<Address> = statuses
+            .iter()
+            .filter(|(_, status)| status.legacy_scalar)
+            .map(|(indexing, _)| indexing.indexer)
+            .collect();
+        Ptr::new(legacy_indexers)
+    });
+    let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(
+        ReceiptSigner::new(
+            signer_key,
+            legacy_indexers,
+            config.scalar.chain_id,
+            config.scalar.verifier,
+        )
+        .await,
+    ));
 
     {
         let update_writer = update_writer.clone();
