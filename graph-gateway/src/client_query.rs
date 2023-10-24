@@ -9,7 +9,6 @@ use std::{
     },
 };
 
-use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, bail, Context as _};
 use axum::extract::OriginalUri;
@@ -51,7 +50,7 @@ use crate::chains::BlockCache;
 use crate::indexer_client::{check_block_error, IndexerClient, IndexerError, ResponsePayload};
 use crate::indexing::IndexingStatus;
 use crate::metrics::{with_metric, METRICS};
-use crate::receipts::{ReceiptSigner, ReceiptStatus};
+use crate::receipts::{ReceiptSigner, ReceiptStatus, ScalarReceipt};
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
@@ -747,7 +746,7 @@ async fn handle_indexer_query(
         .receipt_signer
         .create_receipt(&selection.indexing, selection.fee)
         .await
-        .map_err(|_| IndexerError::NoAllocation);
+        .ok_or(IndexerError::NoAllocation);
 
     let result = match receipt.as_ref() {
         Ok(receipt) => {
@@ -803,7 +802,7 @@ async fn handle_indexer_query_inner(
     ctx: &mut IndexerQueryContext,
     selection: Selection,
     deterministic_query: String,
-    receipt: &[u8],
+    receipt: &ScalarReceipt,
 ) -> Result<ResponsePayload, IndexerError> {
     let start_time = Instant::now();
     let result = ctx
@@ -816,8 +815,7 @@ async fn handle_indexer_query_inner(
         hist.observe(ctx.response_time.as_millis() as f64)
     });
 
-    let allocation = Address::from_slice(&receipt[0..20]);
-
+    let allocation = receipt.allocation();
     tracing::info!(target: reports::INDEXER_QUERY_TARGET, ?allocation);
 
     let response = result?;

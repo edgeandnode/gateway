@@ -6,6 +6,8 @@ use indexer_selection::Selection;
 use serde::Deserialize;
 use toolshed::thegraph::attestation::Attestation;
 
+use crate::receipts::ScalarReceipt;
+
 #[derive(Debug)]
 pub struct IndexerResponse {
     pub status: u16,
@@ -55,10 +57,8 @@ impl IndexerClient {
         &self,
         selection: &Selection,
         query: String,
-        receipt: &[u8],
+        receipt: &ScalarReceipt,
     ) -> Result<IndexerResponse, IndexerError> {
-        let receipt = hex::encode(receipt);
-        let receipt = &receipt[0..(receipt.len() - 64)];
         let url = selection
             .url
             .join(&format!("subgraphs/id/{:?}", selection.indexing.deployment))
@@ -67,7 +67,7 @@ impl IndexerClient {
             .client
             .post(url)
             .header("Content-Type", "application/json")
-            .header("Scalar-Receipt", receipt)
+            .header("Scalar-Receipt", &receipt.serialize())
             .body(query)
             .send()
             .await

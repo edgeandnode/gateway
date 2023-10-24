@@ -1,56 +1,137 @@
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::Arc,
-};
+use std::collections::HashSet;
+use std::collections::{hash_map::Entry, HashMap};
+use std::sync::Arc;
+use std::time::SystemTime;
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, U256};
+use alloy_sol_types::Eip712Domain;
+use ethers::signers::Wallet;
+use eventuals::{Eventual, Ptr};
+use rand::RngCore;
+use tap_core::eip_712_signed_message::EIP712SignedMessage;
+use tap_core::tap_receipt::Receipt;
 use tokio::sync::{Mutex, RwLock};
 
 pub use indexer_selection::receipts::QueryStatus as ReceiptStatus;
-use indexer_selection::{
-    receipts::{BorrowFail, ReceiptPool},
-    Indexing, SecretKey,
-};
+use indexer_selection::receipts::ReceiptPool;
+use indexer_selection::{Indexing, SecretKey};
 use prelude::GRT;
 
 pub struct ReceiptSigner {
     // TODO: When legacy (non-TAP) Scalar is removed, this should contain the only owned reference
     // to the SignerKey. This will resolve https://github.com/edgeandnode/graph-gateway/issues/13.
     signer_key: SecretKey,
+    domain: Eip712Domain,
+    allocations: RwLock<HashMap<Indexing, Address>>,
+    legacy_indexers: Eventual<Ptr<HashSet<Address>>>,
     legacy_pools: RwLock<HashMap<Indexing, Arc<Mutex<ReceiptPool>>>>,
 }
 
+pub enum ScalarReceipt {
+    Legacy(Vec<u8>),
+    TAP(EIP712SignedMessage<Receipt>),
+}
+
+impl ScalarReceipt {
+    pub fn allocation(&self) -> Address {
+        match self {
+            ScalarReceipt::Legacy(receipt) => Address::from_slice(&receipt[0..20]),
+            ScalarReceipt::TAP(receipt) => receipt.message.allocation_id,
+        }
+    }
+
+    pub fn serialize(&self) -> String {
+        match self {
+            ScalarReceipt::Legacy(receipt) => hex::encode(&receipt[..(receipt.len() - 32)]),
+            ScalarReceipt::TAP(receipt) => serde_json::to_string(&receipt).unwrap(),
+        }
+    }
+}
+
 impl ReceiptSigner {
-    pub fn new(signer_key: SecretKey) -> Self {
+    pub async fn new(
+        signer_key: SecretKey,
+        legacy_indexers: Eventual<Ptr<HashSet<Address>>>,
+        chain_id: U256,
+        verifier: Address,
+    ) -> Self {
+        let _ = legacy_indexers.value().await;
         Self {
             signer_key,
+            domain: Eip712Domain {
+                name: Some("Scalar TAP".into()),
+                version: Some("1".into()),
+                chain_id: Some(chain_id),
+                verifying_contract: Some(verifier),
+                salt: None,
+            },
+            allocations: RwLock::default(),
+            legacy_indexers,
             legacy_pools: RwLock::default(),
         }
     }
 
-    pub async fn create_receipt(
-        &self,
-        indexing: &Indexing,
-        fee: GRT,
-    ) -> Result<Vec<u8>, BorrowFail> {
-        let legacy_pools = self.legacy_pools.read().await;
-        let legacy_pool = legacy_pools.get(indexing).ok_or(BorrowFail::NoAllocation)?;
-        let mut legacy_pool = legacy_pool.lock().await;
-        legacy_pool.commit(fee.shift::<0>().as_u256())
+    pub async fn create_receipt(&self, indexing: &Indexing, fee: GRT) -> Option<ScalarReceipt> {
+        if self
+            .legacy_indexers
+            .value_immediate()
+            .unwrap_or_default()
+            .contains(&indexing.indexer)
+        {
+            let legacy_pools = self.legacy_pools.read().await;
+            let legacy_pool = legacy_pools.get(indexing)?;
+            let mut legacy_pool = legacy_pool.lock().await;
+            let receipt = legacy_pool.commit(fee.shift::<0>().as_u256()).ok()?;
+            return Some(ScalarReceipt::Legacy(receipt));
+        }
+
+        let allocation = *self.allocations.read().await.get(indexing)?;
+        // TODO: risk management (cap on outstanding debts that proactively prevents sending receipt)
+        let nonce = rand::thread_rng().next_u64();
+        let timestamp_ns = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            .try_into()
+            .unwrap();
+        let receipt = Receipt {
+            allocation_id: allocation.0 .0.into(),
+            timestamp_ns,
+            nonce,
+            value: fee.shift::<0>().as_u256().as_u128(),
+        };
+        let wallet =
+            Wallet::from_bytes(self.signer_key.as_ref()).expect("failed to prepare receipt wallet");
+        let signed = EIP712SignedMessage::new(&self.domain, receipt, &wallet)
+            .await
+            .expect("failed to sign receipt");
+        Some(ScalarReceipt::TAP(signed))
     }
 
-    pub async fn record_receipt(&self, indexing: &Indexing, receipt: &[u8], status: ReceiptStatus) {
-        let legacy_pool = self.legacy_pools.read().await;
-        let mut legacy_pool = match legacy_pool.get(indexing) {
-            Some(legacy_pool) => legacy_pool.lock().await,
-            None => return,
-        };
-        legacy_pool.release(receipt, status);
+    pub async fn record_receipt(
+        &self,
+        indexing: &Indexing,
+        receipt: &ScalarReceipt,
+        status: ReceiptStatus,
+    ) {
+        match receipt {
+            ScalarReceipt::Legacy(receipt) => {
+                let legacy_pool = self.legacy_pools.read().await;
+                let mut legacy_pool = match legacy_pool.get(indexing) {
+                    Some(legacy_pool) => legacy_pool.lock().await,
+                    None => return,
+                };
+                legacy_pool.release(receipt, status);
+            }
+            ScalarReceipt::TAP(_) => {
+                // TODO: TAP collateral management
+            }
+        }
     }
 
     pub async fn update_allocations(&self, indexings: HashMap<Indexing, Address>) {
-        for (indexing, allocation) in indexings {
-            let legacy_pool = self.get(&indexing).await;
+        for (indexing, allocation) in &indexings {
+            let legacy_pool = self.get(indexing).await;
             let mut legacy_pool = legacy_pool.lock().await;
             // remove stale allocations
             for old_allocation in legacy_pool
@@ -61,9 +142,17 @@ impl ReceiptSigner {
                 legacy_pool.remove_allocation(&old_allocation);
             }
             // add allocation, if not already present
-            if !legacy_pool.contains_allocation(&allocation) {
-                legacy_pool.add_allocation(self.signer_key, allocation.into());
+            if !legacy_pool.contains_allocation(allocation) {
+                legacy_pool.add_allocation(self.signer_key, *allocation.0);
             }
+        }
+
+        let mut allocations = self.allocations.write().await;
+        // remove stale allocations
+        allocations.retain(|k, _| indexings.contains_key(k));
+        // update allocations
+        for (indexing, allocation) in indexings {
+            allocations.insert(indexing, allocation);
         }
     }
 
