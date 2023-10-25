@@ -304,10 +304,6 @@ impl State {
             selection_limit,
         )?;
 
-        if state.status.allocation == GRT::zero() {
-            return Err(IndexerError::NoAllocation.into());
-        }
-
         let reliability = state.reliability.expected_value();
         let perf_success = state.perf_success.expected_value();
         let slashable_usd = slashable.as_f64();
