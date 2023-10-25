@@ -228,8 +228,6 @@ impl Topology {
                 set_err(IndexerError::NoStatus);
             } else if status.stake == GRT::zero() {
                 set_err(IndexerError::NoStake);
-            } else if status.allocation == GRT::zero() {
-                set_err(IndexerError::NoAllocation);
             } else if fee > request.params.budget.as_f64() {
                 set_err(IndexerError::FeeTooHigh);
             }
