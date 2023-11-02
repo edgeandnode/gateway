@@ -6,7 +6,6 @@ use anyhow::anyhow;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use prelude::*;
 use serde::Deserialize;
-use serde_json::json;
 use tokio::sync::Mutex;
 use toolshed::thegraph::{DeploymentId, SubgraphId};
 
@@ -116,7 +115,7 @@ impl Client {
         let query = r#"{ graphNetwork(id: "1") { slashingPercentage } }"#;
         let response = self
             .subgraph_client
-            .query::<GraphNetworkResponse>(&json!({ "query": query }))
+            .query::<GraphNetworkResponse>(query)
             .await
             .map_err(|err| anyhow!(err))?
             .graph_network
@@ -178,7 +177,7 @@ impl Client {
 
         let subgraphs = self
             .subgraph_client
-            .paginated_query::<Subgraph>(&query)
+            .paginated_query::<Subgraph>(query)
             .await?;
 
         if subgraphs.is_empty() {
