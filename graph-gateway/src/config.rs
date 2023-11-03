@@ -172,10 +172,12 @@ impl FromStr for SignerKey {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct Subscriptions {
-    /// Subscriptions contract owners
-    pub contract_owners: Vec<Address>,
+    /// Subscriptions contract domains
+    pub domains: Vec<SubscriptionsDomain>,
     /// Kafka topic to report subscription queries
     pub kafka_topic: Option<String>,
+    /// Query key signers that don't require payment
+    pub special_signers: Vec<Address>,
     /// Subscriptions subgraph URL
     #[serde_as(as = "DisplayFromStr")]
     pub subgraph: Url,
@@ -185,4 +187,11 @@ pub struct Subscriptions {
     #[serde(default)]
     #[serde_as(as = "FromInto<Vec<SubscriptionTier>>")]
     pub tiers: SubscriptionTiers,
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize)]
+pub struct SubscriptionsDomain {
+    pub chain_id: u64,
+    pub contract: Address,
 }

@@ -213,23 +213,33 @@ async fn main() {
     let subscription_tiers: &'static SubscriptionTiers =
         Box::leak(Box::new(subscription_tiers.unwrap_or_default()));
 
-    let subscriptions = match config.subscriptions {
+    let subscriptions = match &config.subscriptions {
         None => Eventual::from_value(Ptr::default()),
         Some(subscriptions) => subscriptions_subgraph::Client::create(
             subgraph_client::Client::new(
                 http_client.clone(),
-                subscriptions.subgraph,
-                subscriptions.ticket,
+                subscriptions.subgraph.clone(),
+                subscriptions.ticket.clone(),
             ),
             subscription_tiers,
-            subscriptions.contract_owners,
         ),
     };
     let auth_handler = AuthHandler::create(
         api_keys,
         HashSet::from_iter(config.special_api_keys),
+        config
+            .subscriptions
+            .iter()
+            .flat_map(|s| s.special_signers.clone())
+            .collect(),
         config.api_key_payment_required,
         subscriptions,
+        config
+            .subscriptions
+            .iter()
+            .flat_map(|s| &s.domains)
+            .map(|d| (d.chain_id, d.contract))
+            .collect(),
     );
     let query_fees_target = config
         .query_fees_target
