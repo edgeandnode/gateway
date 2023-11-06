@@ -1,11 +1,7 @@
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{self, AtomicUsize};
+use std::sync::Arc;
 use std::time::Duration;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{
-        atomic::{self, AtomicUsize},
-        Arc,
-    },
-};
 
 use alloy_primitives::Address;
 use anyhow::{anyhow, bail, ensure, Result};
@@ -22,8 +18,10 @@ use crate::topology::Deployment;
 pub struct AuthHandler {
     pub api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     pub special_api_keys: HashSet<String>,
+    pub special_query_key_signers: HashSet<Address>,
     pub api_key_payment_required: bool,
     pub subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
+    pub subscription_domains: HashMap<u64, Address>,
     pub subscription_query_counters: RwLock<HashMap<Address, AtomicUsize>>,
 }
 
@@ -43,14 +41,18 @@ impl AuthHandler {
     pub fn create(
         api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
         special_api_keys: HashSet<String>,
+        special_query_key_signers: HashSet<Address>,
         api_key_payment_required: bool,
         subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
+        subscription_domains: HashMap<u64, Address>,
     ) -> &'static Self {
         let handler: &'static Self = Box::leak(Box::new(Self {
             api_keys,
             special_api_keys,
+            special_query_key_signers,
             api_key_payment_required,
             subscriptions,
+            subscription_domains,
             subscription_query_counters: RwLock::default(),
         }));
 
@@ -186,6 +188,27 @@ impl AuthHandler {
             AuthToken::ApiKey(_) => return Ok(()),
             AuthToken::Ticket(payload, subscription) => (payload, subscription),
         };
+
+        // This is safe, since we have already verified the signature and the claimed signer match.
+        // This is placed before the subscriptions domain check to allow the same special query keys to be used across
+        // testnet & mainnet.
+        if self
+            .special_query_key_signers
+            .contains(&Address::from(ticket_payload.signer.0))
+        {
+            return Ok(());
+        }
+
+        let matches_subscriptions_domain = self
+            .subscription_domains
+            .get(&ticket_payload.chain_id)
+            .map(|contract| contract == &Address::from(ticket_payload.contract.0))
+            .unwrap_or(false);
+        ensure!(
+            matches_subscriptions_domain,
+            "Query key chain_id or contract not allowed"
+        );
+
         let user: Address = ticket_payload.user().0.into();
         let counters = match self.subscription_query_counters.try_read() {
             Ok(counters) => counters,

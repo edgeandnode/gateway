@@ -13,7 +13,6 @@ use crate::subscriptions::{ActiveSubscription, Subscription};
 pub struct Client {
     subgraph_client: subgraph_client::Client,
     tiers: &'static SubscriptionTiers,
-    owner_subscriptions: Vec<(Address, Subscription)>,
     subscriptions: EventualWriter<Ptr<HashMap<Address, Subscription>>>,
 }
 
@@ -21,26 +20,11 @@ impl Client {
     pub fn create(
         subgraph_client: subgraph_client::Client,
         tiers: &'static SubscriptionTiers,
-        contract_owners: Vec<Address>,
     ) -> Eventual<Ptr<HashMap<Address, Subscription>>> {
-        // TODO: query contract owners and authorized signers from subrgaph
-        let owner_subscriptions: Vec<(Address, Subscription)> = contract_owners
-            .iter()
-            .map(|owner| {
-                let sub = Subscription {
-                    queries_per_minute: u32::MAX,
-                    signers: vec![],
-                };
-                (*owner, sub)
-            })
-            .collect();
-
-        let (mut subscriptions_tx, subscriptions_rx) = Eventual::new();
-        subscriptions_tx.write(Ptr::new(owner_subscriptions.iter().cloned().collect()));
+        let (subscriptions_tx, subscriptions_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
             tiers,
-            owner_subscriptions,
             subscriptions: subscriptions_tx,
         }));
 
@@ -114,7 +98,6 @@ impl Client {
                 };
                 (user.id, sub)
             })
-            .chain(self.owner_subscriptions.clone())
             .collect();
         self.subscriptions.write(Ptr::new(subscriptions_map));
 
