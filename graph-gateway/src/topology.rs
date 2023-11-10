@@ -4,7 +4,7 @@ use std::sync::Arc;
 use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt, Ptr};
-use futures_util::future::join_all;
+use futures::future::join_all;
 use itertools::Itertools;
 use prelude::GRT;
 use serde::Deserialize;
