@@ -31,7 +31,7 @@ primitive-types = "0.12.1"
 prometheus = { version = "0.13", default-features = false }
 prost = "0.12.1"
 rand.workspace = true
-rdkafka = { version = "0.34", features = ["gssapi", "tracing"] }
+rdkafka = { version = "0.36.0", features = ["gssapi", "tracing"] }
 reqwest.workspace = true
 secp256k1.workspace = true
 semver = "1.0"
