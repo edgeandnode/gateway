@@ -18,11 +18,10 @@ use indexer_selection::{Indexing, SecretKey};
 use prelude::GRT;
 
 pub struct ReceiptSigner {
-    // TODO: When legacy (non-TAP) Scalar is removed, this should contain the only owned reference
-    // to the SignerKey. This will resolve https://github.com/edgeandnode/graph-gateway/issues/13.
-    signer_key: SecretKey,
+    signer: SecretKey,
     domain: Eip712Domain,
     allocations: RwLock<HashMap<Indexing, Address>>,
+    legacy_signer: &'static SecretKey,
     legacy_indexers: Eventual<Ptr<HashSet<Address>>>,
     legacy_pools: RwLock<HashMap<Indexing, Arc<Mutex<ReceiptPool>>>>,
 }
@@ -50,14 +49,15 @@ impl ScalarReceipt {
 
 impl ReceiptSigner {
     pub async fn new(
-        signer_key: SecretKey,
-        legacy_indexers: Eventual<Ptr<HashSet<Address>>>,
+        signer: SecretKey,
         chain_id: U256,
         verifier: Address,
+        legacy_signer: &'static SecretKey,
+        legacy_indexers: Eventual<Ptr<HashSet<Address>>>,
     ) -> Self {
         let _ = legacy_indexers.value().await;
         Self {
-            signer_key,
+            signer,
             domain: Eip712Domain {
                 name: Some("Scalar TAP".into()),
                 version: Some("1".into()),
@@ -66,6 +66,7 @@ impl ReceiptSigner {
                 salt: None,
             },
             allocations: RwLock::default(),
+            legacy_signer,
             legacy_indexers,
             legacy_pools: RwLock::default(),
         }
@@ -101,7 +102,7 @@ impl ReceiptSigner {
             value: fee.shift::<0>().as_u256().as_u128(),
         };
         let wallet =
-            Wallet::from_bytes(self.signer_key.as_ref()).expect("failed to prepare receipt wallet");
+            Wallet::from_bytes(self.signer.as_ref()).expect("failed to prepare receipt wallet");
         let signed = EIP712SignedMessage::new(&self.domain, receipt, &wallet)
             .await
             .expect("failed to sign receipt");
@@ -143,7 +144,7 @@ impl ReceiptSigner {
             }
             // add allocation, if not already present
             if !legacy_pool.contains_allocation(allocation) {
-                legacy_pool.add_allocation(self.signer_key, *allocation.0);
+                legacy_pool.add_allocation(*self.legacy_signer, *allocation.0);
             }
         }
 
