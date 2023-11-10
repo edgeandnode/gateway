@@ -1,10 +1,9 @@
+use std::ops::Deref;
 use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 use alloy_primitives::{Address, U256};
-use ethers::signers::coins_bip39::English;
-use ethers::signers::MnemonicBuilder;
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
 use semver::Version;
 use serde::Deserialize;
@@ -12,7 +11,7 @@ use serde_with::{serde_as, DisplayFromStr, FromInto};
 use toolshed::url::Url;
 
 use indexer_selection::SecretKey;
-use prelude::{key_path, USD};
+use prelude::USD;
 
 use crate::chains::ethereum;
 use crate::poi::ProofOfIndexingInfo;
@@ -154,30 +153,11 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
 pub struct Scalar {
     /// Mnemonic for voucher signing
     #[serde_as(as = "DisplayFromStr")]
-    pub signer_key: SignerKey,
+    pub signer: Hidden<SecretKey>,
     /// Scalar TAP verifier contract chain
     pub chain_id: U256,
     /// Scalar TAP verifier contract address
     pub verifier: Address,
-}
-
-pub struct SignerKey(pub SecretKey);
-
-impl fmt::Debug for SignerKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "SignerKey(..)")
-    }
-}
-
-impl FromStr for SignerKey {
-    type Err = anyhow::Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let wallet = MnemonicBuilder::<English>::default()
-            .phrase(s)
-            .derivation_path(&key_path("scalar/allocations"))?
-            .build()?;
-        Ok(Self(SecretKey::from_slice(&wallet.signer().to_bytes())?))
-    }
 }
 
 #[serde_as]
@@ -205,4 +185,28 @@ pub struct Subscriptions {
 pub struct SubscriptionsDomain {
     pub chain_id: u64,
     pub contract: Address,
+}
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+pub struct Hidden<T>(pub T);
+
+impl<T: fmt::Debug> fmt::Debug for Hidden<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HIDDEN")
+    }
+}
+
+impl<T: FromStr> FromStr for Hidden<T> {
+    type Err = T::Err;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.parse()?))
+    }
+}
+
+impl<T> Deref for Hidden<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
