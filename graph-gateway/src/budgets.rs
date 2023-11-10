@@ -15,9 +15,10 @@ use toolshed::thegraph::DeploymentId;
 
 use crate::metrics::METRICS;
 
-/// The minimum budget output for volume discounting, in USD. This 10e-6 number comes from some back-of-the-napkin
-/// calculations based on hosted service costs attributable to serving queries in June 2023.
-const MIN_BUDGET_USD: f64 = 10e-6;
+/// This 10e-6 number comes some back-of-the-napkin calculations on what we expect is the minimum
+/// fee an indexer should be paid per query, based on hosted service costs attributable to serving
+/// queries in June 2023. Now we are using it as the maximum discount instead of the minimum budget.
+const MAX_DISCOUNT_USD: f64 = 10e-6;
 
 pub struct Budgeter {
     pub feedback: mpsc::UnboundedSender<Feedback>,
@@ -33,8 +34,7 @@ pub struct Feedback {
 
 impl Budgeter {
     pub fn new(query_fees_target: USD) -> Self {
-        // 52fcdb5f-8557-4ebb-968d-46e7756aa63f
-        assert!(query_fees_target.as_f64() >= MIN_BUDGET_USD);
+        assert!(query_fees_target.as_f64() >= MAX_DISCOUNT_USD);
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
         let (budgets_tx, budgets_rx) = Eventual::new();
         Actor::create(feedback_rx, budgets_tx, query_fees_target);
@@ -104,6 +104,9 @@ impl Actor {
     }
 
     fn revise_budget(&mut self) {
+        if self.controller.recent_query_count == 0 {
+            return;
+        }
         let target = self.controller.target_query_fees;
         let control_variable = self.controller.control_variable();
         tracing::debug!(budget_control_variable = %control_variable);
@@ -126,17 +129,15 @@ impl Actor {
 
 fn volume_discount(monthly_volume: u64, target: USD) -> USD {
     // Discount the budget, based on a generalized logistic function. We apply little to no discount
-    // between 0 and ~10e3 queries per month. And we limit the discount to a minimum budget of
-    // 10E-6 USD.
-    // https://www.desmos.com/calculator/5ue96zyvjw
-    let b_min = MIN_BUDGET_USD;
+    // between 0 and ~10e3 queries per month. And we limit the discount to 10E-6 USD.
+    // https://www.desmos.com/calculator/whtakt50sa
     let b_max = target.as_f64();
+    let b_min = b_max - MAX_DISCOUNT_USD;
     let m: f64 = 1e6;
-    let z: f64 = 1.0;
+    let z: f64 = 0.45;
     let v = monthly_volume as f64;
     let budget = b_min + ((b_max - b_min) * m.powf(z)) / (v + m).powf(z);
-    // 52fcdb5f-8557-4ebb-968d-46e7756aa63f
-    budget.try_into().unwrap()
+    budget.try_into().unwrap_or_default()
 }
 
 /// State for the control loop targeting `recent_query_fees`.
