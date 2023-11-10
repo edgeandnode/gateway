@@ -48,6 +48,7 @@ use graph_gateway::{
 use indexer_selection::{actor::Update, BlockStatus, Indexing};
 use prelude::buffer_queue::QueueWriter;
 use prelude::{buffer_queue, double_buffer};
+use secp256k1::SecretKey;
 
 // Moving the `exchange_rate` module to `lib.rs` makes the doctests to fail during the compilation
 // step. This module is only used here, so let's keep it here for now.
@@ -111,7 +112,6 @@ async fn main() {
         })
         .collect::<HashMap<String, BlockCache>>();
     let block_caches: &'static HashMap<String, BlockCache> = Box::leak(Box::new(block_caches));
-    let signer_key = config.scalar.signer_key.0;
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -192,7 +192,7 @@ async fn main() {
     });
     let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(
         ReceiptSigner::new(
-            signer_key,
+            config.scalar.signer.clone(),
             legacy_indexers,
             config.scalar.chain_id,
             config.scalar.verifier,
@@ -352,23 +352,24 @@ async fn main() {
                 .layer(middleware::from_fn(client_query::legacy_auth_adapter)),
         );
 
+    let signer: &'static SecretKey = Box::leak(Box::new(config.scalar.signer.0));
     let router = Router::new()
         .route("/", routing::get(|| async { "Ready to roll!" }))
         // This path is required by NGINX ingress controller.
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/collect-receipts",
-            routing::post(vouchers::handle_collect_receipts).with_state(signer_key),
+            routing::post(vouchers::handle_collect_receipts).with_state(signer),
         )
         .route(
             "/partial-voucher",
             routing::post(vouchers::handle_partial_voucher)
-                .with_state(signer_key)
+                .with_state(signer)
                 .layer(DefaultBodyLimit::max(3_000_000)),
         )
         .route(
             "/voucher",
-            routing::post(vouchers::handle_voucher).with_state(signer_key),
+            routing::post(vouchers::handle_voucher).with_state(signer),
         )
         // Temporary route. Will be replaced by gateway metadata (GSP).
         .route(
