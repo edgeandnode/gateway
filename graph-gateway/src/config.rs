@@ -151,11 +151,14 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct Scalar {
+    /// Scalar TAP verifier contract chain
+    pub chain_id: U256,
+    /// Mnemonic for legacy voucher signing
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub legacy_signer: Option<Hidden<SecretKey>>,
     /// Mnemonic for voucher signing
     #[serde_as(as = "DisplayFromStr")]
     pub signer: Hidden<SecretKey>,
-    /// Scalar TAP verifier contract chain
-    pub chain_id: U256,
     /// Scalar TAP verifier contract address
     pub verifier: Address,
 }

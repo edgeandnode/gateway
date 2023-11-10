@@ -69,7 +69,7 @@ pub async fn handle_partial_voucher(
     payload: Bytes,
 ) -> Result<JsonResponse, (StatusCode, String)> {
     let _timer = METRICS.partial_voucher.duration.start_timer();
-    match process_partial_voucher(&signer, &payload) {
+    match process_partial_voucher(signer, &payload) {
         Ok(response) => {
             METRICS.partial_voucher.ok.inc();
             Ok(response)
@@ -116,7 +116,7 @@ pub async fn handle_voucher(
     payload: Bytes,
 ) -> Result<JsonResponse, (StatusCode, String)> {
     let _timer = METRICS.voucher.duration.start_timer();
-    match process_voucher(&signer, &payload) {
+    match process_voucher(signer, &payload) {
         Ok(response) => {
             METRICS.voucher.ok.inc();
             Ok(response)
