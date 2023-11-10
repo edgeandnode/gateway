@@ -28,6 +28,8 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
+          profile: minimal
+          override: true
 
       - name: Cache Cargo build files
         uses: Leafwing-Studios/cargo-cache@v1
@@ -46,7 +48,8 @@ jobs:
       - run: cargo clippy -- -D warnings
 
       - name: Unit tests
-        run: cargo test --lib -- --nocapture
+        run: cargo test --lib
 
       - name: Integration tests
-        run: cargo test --test '*'
+        # the cargo clean is to avoid running out of disk space, hopefully unnecessary in the future
+        run: cargo clean && cargo test --test '*'
