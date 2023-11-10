@@ -46,14 +46,6 @@ pub fn sip24_hash(value: &impl Hash) -> u64 {
     hasher.finish()
 }
 
-/// Encode the given name into a valid BIP-32 key chain path.
-pub fn key_path(name: &str) -> String {
-    std::iter::once("m".to_string())
-        .chain(name.bytes().map(|b| b.to_string()))
-        .collect::<Vec<String>>()
-        .join("/")
-}
-
 /// Decimal Parts-Per-Million with 6 fractional digits
 pub type PPM = UDecimal<6>;
 /// Decimal USD with 18 fractional digits

@@ -21,11 +21,11 @@ lazy_static! {
 }
 
 pub async fn handle_collect_receipts(
-    State(signer): State<SecretKey>,
+    State(signer): State<&'static SecretKey>,
     payload: Bytes,
 ) -> Result<JsonResponse, (StatusCode, String)> {
     let _timer = METRICS.collect_receipts.duration.start_timer();
-    match process_oneshot_voucher(&signer, &payload) {
+    match process_oneshot_voucher(signer, &payload) {
         Ok(response) => {
             METRICS.collect_receipts.ok.inc();
             Ok(response)
@@ -65,7 +65,7 @@ fn process_oneshot_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonRe
 }
 
 pub async fn handle_partial_voucher(
-    State(signer): State<SecretKey>,
+    State(signer): State<&'static SecretKey>,
     payload: Bytes,
 ) -> Result<JsonResponse, (StatusCode, String)> {
     let _timer = METRICS.partial_voucher.duration.start_timer();
@@ -112,7 +112,7 @@ fn process_partial_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonRe
 }
 
 pub async fn handle_voucher(
-    State(signer): State<SecretKey>,
+    State(signer): State<&'static SecretKey>,
     payload: Bytes,
 ) -> Result<JsonResponse, (StatusCode, String)> {
     let _timer = METRICS.voucher.duration.start_timer();
