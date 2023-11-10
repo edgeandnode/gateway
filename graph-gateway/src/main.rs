@@ -190,12 +190,20 @@ async fn main() {
             .collect();
         Ptr::new(legacy_indexers)
     });
+    let legacy_signer: &'static SecretKey = Box::leak(Box::new(
+        config
+            .scalar
+            .legacy_signer
+            .map(|s| s.0)
+            .unwrap_or(config.scalar.signer.0),
+    ));
     let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(
         ReceiptSigner::new(
-            config.scalar.signer.clone(),
-            legacy_indexers,
+            config.scalar.signer.0,
             config.scalar.chain_id,
             config.scalar.verifier,
+            legacy_signer,
+            legacy_indexers,
         )
         .await,
     ));
@@ -352,24 +360,23 @@ async fn main() {
                 .layer(middleware::from_fn(client_query::legacy_auth_adapter)),
         );
 
-    let signer: &'static SecretKey = Box::leak(Box::new(config.scalar.signer.0));
     let router = Router::new()
         .route("/", routing::get(|| async { "Ready to roll!" }))
         // This path is required by NGINX ingress controller.
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/collect-receipts",
-            routing::post(vouchers::handle_collect_receipts).with_state(signer),
+            routing::post(vouchers::handle_collect_receipts).with_state(legacy_signer),
         )
         .route(
             "/partial-voucher",
             routing::post(vouchers::handle_partial_voucher)
-                .with_state(signer)
+                .with_state(legacy_signer)
                 .layer(DefaultBodyLimit::max(3_000_000)),
         )
         .route(
             "/voucher",
-            routing::post(vouchers::handle_voucher).with_state(signer),
+            routing::post(vouchers::handle_voucher).with_state(legacy_signer),
         )
         // Temporary route. Will be replaced by gateway metadata (GSP).
         .route(
