@@ -8,10 +8,10 @@ name = "sim"
 path = "bin/sim.rs"
 
 [dependencies]
-cost-model = { git = "https://github.com/graphprotocol/agora", rev = "9984f9e" }
+alloy-primitives.workspace = true
 anyhow.workspace = true
 arrayvec = "0.7"
-alloy-primitives.workspace = true
+cost-model = { git = "https://github.com/graphprotocol/agora", rev = "9984f9e" }
 eventuals.workspace = true
 num-traits = "0.2"
 ordered-float = "4.1"
