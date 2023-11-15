@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -7,15 +6,14 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
 use ethers::signers::Wallet;
 use eventuals::{Eventual, Ptr};
+use indexer_selection::Indexing;
+use prelude::GRT;
 use rand::RngCore;
+pub use receipts::{QueryStatus as ReceiptStatus, ReceiptPool};
+use secp256k1::SecretKey;
 use tap_core::eip_712_signed_message::EIP712SignedMessage;
 use tap_core::tap_receipt::Receipt;
 use tokio::sync::{Mutex, RwLock};
-
-pub use indexer_selection::receipts::QueryStatus as ReceiptStatus;
-use indexer_selection::receipts::ReceiptPool;
-use indexer_selection::{Indexing, SecretKey};
-use prelude::GRT;
 
 pub struct ReceiptSigner {
     signer: SecretKey,
@@ -72,7 +70,7 @@ impl ReceiptSigner {
         }
     }
 
-    pub async fn create_receipt(&self, indexing: &Indexing, fee: GRT) -> Option<ScalarReceipt> {
+    pub async fn create_receipt(&self, indexing: &Indexing, fee: &GRT) -> Option<ScalarReceipt> {
         if self
             .legacy_indexers
             .value_immediate()
@@ -82,7 +80,9 @@ impl ReceiptSigner {
             let legacy_pools = self.legacy_pools.read().await;
             let legacy_pool = legacy_pools.get(indexing)?;
             let mut legacy_pool = legacy_pool.lock().await;
-            let receipt = legacy_pool.commit(fee.shift::<0>().as_u256()).ok()?;
+            let locked_fee =
+                primitive_types::U256::from_little_endian(&fee.0.raw_u256().as_le_bytes());
+            let receipt = legacy_pool.commit(locked_fee).ok()?;
             return Some(ScalarReceipt::Legacy(receipt));
         }
 
@@ -99,7 +99,7 @@ impl ReceiptSigner {
             allocation_id: allocation.0 .0.into(),
             timestamp_ns,
             nonce,
-            value: fee.shift::<0>().as_u256().as_u128(),
+            value: fee.0.as_u128().unwrap_or(0),
         };
         let wallet =
             Wallet::from_bytes(self.signer.as_ref()).expect("failed to prepare receipt wallet");

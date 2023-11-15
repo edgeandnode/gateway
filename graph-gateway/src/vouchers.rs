@@ -1,18 +1,12 @@
-use std::str::FromStr;
-
-use alloy_primitives::{Address, FixedBytes};
+use alloy_primitives::{Address, FixedBytes, U256};
 use axum::{body::Bytes, extract::State, http::StatusCode};
 use lazy_static::lazy_static;
-use primitive_types::U256;
 use secp256k1::{PublicKey, Secp256k1};
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use serde_json::json;
 
-use indexer_selection::{
-    receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher},
-    SecretKey,
-};
-use prelude::GRTWei;
+use receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher};
+use secp256k1::SecretKey;
 
 use crate::{json_response, metrics::*, JsonResponse};
 
@@ -50,7 +44,7 @@ fn process_oneshot_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonRe
         "collect receipts request",
     );
     // Don't allow more than 10M GRT in a single collection
-    if voucher.fees > U256::from(10000000000000000000000000_u128) {
+    if voucher.fees > primitive_types::U256::from(10000000000000000000000000_u128) {
         tracing::error!(excessive_voucher_fees = %voucher.fees);
         return Err("Voucher value too large".into());
     }
@@ -95,7 +89,7 @@ fn process_partial_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonRe
         "partial voucher request",
     );
     // 10M GRT
-    if partial_voucher.voucher.fees > U256::from(10000000000000000000000000u128) {
+    if partial_voucher.voucher.fees > primitive_types::U256::from(10000000000000000000000000u128) {
         tracing::error!(excessive_voucher_fees = %partial_voucher.voucher.fees);
         return Err("Voucher value too large".into());
     }
@@ -139,7 +133,7 @@ fn process_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonResponse, 
         .map(|pv| receipts::PartialVoucher {
             voucher: receipts::Voucher {
                 allocation_id: allocation_id.into(),
-                fees: pv.fees,
+                fees: primitive_types::U256::from_little_endian(&pv.fees.as_le_bytes()),
                 signature: pv.signature.into(),
             },
             receipt_id_min: *pv.receipt_id_min,
@@ -155,7 +149,7 @@ fn process_voucher(signer: &SecretKey, payload: &Bytes) -> Result<JsonResponse, 
         "voucher request",
     );
     // 10M GRT
-    if voucher.fees > U256::from(10000000000000000000000000u128) {
+    if voucher.fees > primitive_types::U256::from(10000000000000000000000000u128) {
         tracing::error!(excessive_voucher_fees = %voucher.fees);
         return Err("Voucher value too large".into());
     }
@@ -188,7 +182,6 @@ struct VoucherRequest {
 #[derive(Deserialize)]
 struct PartialVoucher {
     signature: Signature,
-    #[serde(deserialize_with = "deserialize_u256")]
     fees: U256,
     receipt_id_min: ReceiptID,
     receipt_id_max: ReceiptID,
@@ -196,11 +189,3 @@ struct PartialVoucher {
 
 type Signature = FixedBytes<65>;
 type ReceiptID = FixedBytes<15>;
-
-fn deserialize_u256<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, D::Error> {
-    let input: &str = Deserialize::deserialize(deserializer)?;
-    // U256::from_str is busted, so use the equivalent decimals representation
-    Ok(GRTWei::from_str(input)
-        .map_err(serde::de::Error::custom)?
-        .as_u256())
-}

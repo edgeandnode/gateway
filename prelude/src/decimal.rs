@@ -1,71 +1,75 @@
-use std::{cmp::Ordering, fmt, iter, ops, str};
+use std::{fmt, iter, str};
 
-// TODO: replace with alloy-primitives::U256
-use primitive_types::U256;
+use alloy_primitives::U256;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum ParseStrError {
-    InvalidInput,
-}
+const ONE_18: u128 = 1_000_000_000_000_000_000;
 
-impl fmt::Display for ParseStrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Failed to parse decimal value")
+/// Represents a positive decimal value with 18 fractional digits precision. Using U256 as storage.
+#[derive(Copy, Clone, Default, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct UDecimal18(U256);
+
+impl From<U256> for UDecimal18 {
+    fn from(value: U256) -> Self {
+        Self(U256::from(value) * U256::from(ONE_18))
     }
 }
 
-/// Represents a positive decimal value with some fractional digit precision, P.
-/// Using U256 as storage.
-#[derive(Copy, Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct UDecimal<const P: u8> {
-    internal: U256,
+impl From<u128> for UDecimal18 {
+    fn from(value: u128) -> Self {
+        Self::from(U256::from(value))
+    }
 }
 
-macro_rules! impl_from_uints {
-    ($($t:ty),+) => {$(
-        impl<const P: u8> std::convert::TryFrom<$t> for UDecimal<P> {
-            type Error = &'static str;
-            fn try_from(from: $t) -> Result<UDecimal<P>, Self::Error> {
-                let internal = U256::from(from)
-                    .checked_mul(U256::exp10(P as usize))
-                    .ok_or("overflow")?;
-                Ok(UDecimal { internal })
-            }
-        }
-    )*};
+impl TryFrom<f64> for UDecimal18 {
+    type Error = <U256 as TryFrom<f64>>::Error;
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        U256::try_from(value * 1e18).map(Self)
+    }
 }
 
-impl_from_uints!(u8, u16, u32, u64, u128, usize, U256);
+impl From<UDecimal18> for f64 {
+    fn from(value: UDecimal18) -> Self {
+        f64::from(value.0) * 1e-18
+    }
+}
 
-impl<const P: u8> str::FromStr for UDecimal<P> {
-    type Err = ParseStrError;
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct InvalidDecimalString;
+
+impl fmt::Display for InvalidDecimalString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "invalid decimal string")
+    }
+}
+
+impl str::FromStr for UDecimal18 {
+    type Err = InvalidDecimalString;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use ParseStrError::*;
-        // We require at least one ASCII digit. Otherwise `U256::from_dec_str` will return 0 for
+        // We require at least one ASCII digit. Otherwise `U256::from_str_radix` will return 0 for
         // some inputs we consider invalid.
         if !s.chars().any(|c: char| -> bool { c.is_ascii_digit() }) {
-            return Err(InvalidInput);
+            return Err(InvalidDecimalString);
         }
         let (int, frac) = s.split_at(s.chars().position(|c| c == '.').unwrap_or(s.len()));
-        let p = P as usize;
+        let p = 18;
         let digits = int
             .chars()
             // append fractional digits (after decimal point)
             .chain(frac.chars().skip(1).chain(iter::repeat('0')).take(p))
             .collect::<String>();
-        Ok(UDecimal {
-            internal: U256::from_dec_str(&digits).map_err(|_| InvalidInput)?,
-        })
+        Ok(UDecimal18(
+            U256::from_str_radix(&digits, 10).map_err(|_| InvalidDecimalString)?,
+        ))
     }
 }
 
-impl<const P: u8> fmt::Display for UDecimal<P> {
+impl fmt::Display for UDecimal18 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.internal == 0.into() {
+        if self.0 == U256::from(0) {
             return write!(f, "0");
         }
-        let p = P as usize;
-        let digits = self.internal.to_string().into_bytes();
+        let p = 18;
+        let digits = self.0.to_string().into_bytes();
         let ctz = digits
             .iter()
             .rev()
@@ -96,189 +100,75 @@ impl<const P: u8> fmt::Display for UDecimal<P> {
     }
 }
 
-impl<const P: u8> fmt::Debug for UDecimal<P> {
+impl fmt::Debug for UDecimal18 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self}")
     }
 }
 
-// TODO: The following mathematical operations may result in overflow. This is
-// fine for our current use-case. But should be handled if we want to release as
-// a separate library.
+impl UDecimal18 {
+    /// This will use the value of the given U256 directly, without scaling by 1e18.
+    pub fn from_raw_u256(value: U256) -> Self {
+        Self(value)
+    }
 
-impl<const P: u8> ops::Mul for UDecimal<P> {
-    type Output = Self;
-    fn mul(self, rhs: Self) -> Self::Output {
-        Self {
-            internal: (self.internal * rhs.internal) / U256::exp10(P as usize),
+    pub fn raw_u256(&self) -> &U256 {
+        &self.0
+    }
+
+    pub fn as_u128(&self) -> Option<u128> {
+        if self.0 % U256::from(ONE_18) > U256::ZERO {
+            return None;
         }
+        let inner = self.0 / U256::from(ONE_18);
+        inner.try_into().ok()
+    }
+
+    pub fn saturating_add(self, rhs: Self) -> Self {
+        Self(self.0.saturating_add(rhs.0))
     }
 }
 
-impl<const P: u8> ops::Mul<U256> for UDecimal<P> {
-    type Output = Self;
-    fn mul(self, rhs: U256) -> Self::Output {
-        Self {
-            internal: self.internal * rhs,
-        }
-    }
-}
-
-impl<const P: u8> ops::Div for UDecimal<P> {
-    type Output = Self;
-    fn div(self, rhs: Self) -> Self::Output {
-        Self {
-            internal: (self.internal * U256::exp10(P as usize)) / rhs.internal,
-        }
-    }
-}
-
-impl<const P: u8> ops::Add for UDecimal<P> {
+impl std::ops::Add for UDecimal18 {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            internal: self.internal + rhs.internal,
-        }
+        Self(self.0.add(rhs.0))
     }
 }
 
-impl<const P: u8> ops::Sub for UDecimal<P> {
+impl std::ops::Mul for UDecimal18 {
     type Output = Self;
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self {
-            internal: self.internal - rhs.internal,
-        }
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self((self.0 * rhs.0) / U256::from(ONE_18))
     }
 }
 
-impl<const P: u8> ops::AddAssign for UDecimal<P> {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = *self + rhs;
+impl std::ops::Div for UDecimal18 {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        Self((self.0 * U256::from(ONE_18)) / rhs.0)
     }
 }
 
-impl<const P: u8> ops::SubAssign for UDecimal<P> {
-    fn sub_assign(&mut self, rhs: Self) {
-        *self = *self - rhs;
-    }
-}
-
-impl<const P: u8> iter::Sum for UDecimal<P> {
+impl std::iter::Sum for UDecimal18 {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(Self::zero(), |sum, x| sum + x)
+        Self(iter.map(|u| u.0).sum())
     }
-}
-
-#[allow(dead_code)]
-impl<const P: u8> UDecimal<P> {
-    pub fn zero() -> Self {
-        Self { internal: 0.into() }
-    }
-
-    pub fn from_little_endian(bytes: &[u8; 32]) -> Self {
-        Self {
-            internal: U256::from_little_endian(bytes),
-        }
-    }
-
-    pub fn change_precision<const N: u8>(self) -> UDecimal<N> {
-        UDecimal {
-            internal: match N.cmp(&P) {
-                Ordering::Greater => self.internal * (U256::exp10((N - P) as usize)),
-                Ordering::Less => self.internal / (U256::exp10((P - N) as usize)),
-                Ordering::Equal => self.internal,
-            },
-        }
-    }
-
-    pub fn shift<const N: u8>(self) -> UDecimal<N> {
-        UDecimal {
-            internal: self.internal,
-        }
-    }
-
-    pub fn as_u256(&self) -> U256 {
-        self.internal / U256::exp10(P as usize)
-    }
-
-    pub fn as_f64(&self) -> f64 {
-        // Collect the little-endian bytes of the U256 value.
-        let mut le_u8 = [0u8; 32];
-        self.internal.to_little_endian(&mut le_u8);
-        // Merge the 32 bytes into 4 u64 values to reduce the amount of float
-        // operations required to calculate the final value.
-        let mut le_u64 = [0u64; 4];
-        for (i, entry) in le_u64.iter_mut().enumerate() {
-            *entry = u64::from_le_bytes(le_u8[(i * 8)..((i + 1) * 8)].try_into().unwrap());
-        }
-        // Count trailing u64 zero values. This is used to avoid unnecessary
-        // multiplications by zero.
-        let ctz = le_u64.iter().rev().take_while(|&&b| b == 0).count();
-        // Sum the terms and then divide by 10^P, where each term equals
-        // 2^(64i) * n.
-        le_u64
-            .iter()
-            .enumerate()
-            .take(le_u64.len() - ctz)
-            .map(|(i, &n)| 2.0f64.powi(i as i32 * 64) * n as f64)
-            .sum::<f64>()
-            / 10.0f64.powi(P as i32)
-    }
-
-    pub fn to_little_endian(&self) -> [u8; 32] {
-        let mut buf = [0u8; 32];
-        self.internal.to_little_endian(&mut buf);
-        buf
-    }
-
-    pub fn saturating_add(self, other: Self) -> Self {
-        Self {
-            internal: self.internal.saturating_add(other.internal),
-        }
-    }
-
-    pub fn saturating_sub(self, other: Self) -> Self {
-        Self {
-            internal: self.internal.saturating_sub(other.internal),
-        }
-    }
-}
-
-impl<const P: u8> TryFrom<f64> for UDecimal<P> {
-    type Error = FromF64Error;
-    fn try_from(mut from: f64) -> Result<Self, Self::Error> {
-        if from.is_nan() || (from < 0.0) {
-            return Err(FromF64Error::InvalidInput);
-        }
-        const U128_MAX: f64 = u128::MAX as f64;
-        from *= 10.0f64.powi(P as i32);
-        let lower = from.min(U128_MAX);
-        from -= lower;
-        let lower = lower as u128;
-        // This can result in some nasty loss of precision for low (nonzero) values of upper.
-        let upper = (from / U128_MAX).round() as u128;
-        let mut le_u8 = [0u8; 32];
-        le_u8[0..16].copy_from_slice(&lower.to_le_bytes());
-        le_u8[16..32].copy_from_slice(&upper.to_le_bytes());
-        Ok(Self {
-            internal: U256::from_little_endian(&le_u8),
-        })
-    }
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum FromF64Error {
-    InvalidInput,
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::str::FromStr as _;
 
     #[test]
-    fn udecimal() {
-        test_udecimal::<6>(&[
+    fn u256_from_str() {
+        assert_eq!("100".parse::<U256>().unwrap(), U256::from(100));
+        assert_eq!("0x100".parse::<U256>().unwrap(), U256::from(256));
+    }
+
+    #[test]
+    fn udecimal18_from_str() {
+        let tests: &[(&str, Option<(&str, u128)>)] = &[
             ("", None),
             ("?", None),
             (".", None),
@@ -290,42 +180,35 @@ mod test {
             (".0", Some(("0", 0))),
             ("0.", Some(("0", 0))),
             ("00.00", Some(("0", 0))),
-            ("1", Some(("1", 1_000_000))),
-            ("1.0", Some(("1", 1_000_000))),
-            ("1.", Some(("1", 1_000_000))),
-            ("0.1", Some(("0.1", 100_000))),
-            (".1", Some(("0.1", 100_000))),
-            ("0.0000012", Some(("0.000001", 1))),
-            ("0.001001", Some(("0.001001", 1_001))),
-            ("0.001", Some(("0.001", 1_000))),
-            ("100.001", Some(("100.001", 100_001_000))),
-            ("100.000", Some(("100", 100_000_000))),
-            ("123.0", Some(("123", 123_000_000))),
-            ("123", Some(("123", 123_000_000))),
+            ("1", Some(("1", ONE_18))),
+            ("1.0", Some(("1", ONE_18))),
+            ("1.", Some(("1", ONE_18))),
+            ("0.1", Some(("0.1", ONE_18 / 10))),
+            (".1", Some(("0.1", ONE_18 / 10))),
+            ("0.0000000000000000012", Some(("0.000000000000000001", 1))),
+            ("0.001001", Some(("0.001001", 1_001_000_000_000_000))),
+            ("0.001", Some(("0.001", ONE_18 / 1_000))),
+            ("100.001", Some(("100.001", 100_001_000_000_000_000_000))),
+            ("100.000", Some(("100", 100 * ONE_18))),
+            ("123.0", Some(("123", 123 * ONE_18))),
+            ("123", Some(("123", 123 * ONE_18))),
             (
-                "123456789.123456789",
-                Some(("123456789.123456", 123_456_789_123_456)),
+                "123456789123456789.123456789123456789123456789",
+                Some((
+                    "123456789123456789.123456789123456789",
+                    123_456_789_123_456_789_123_456_789_123_456_789,
+                )),
             ),
-        ]);
-        test_udecimal::<0>(&[
-            ("0", Some(("0", 0))),
-            ("1", Some(("1", 1))),
-            ("0.1", Some(("0", 0))),
-            ("123456789", Some(("123456789", 123_456_789))),
-            ("123.1", Some(("123", 123))),
-        ]);
-    }
-
-    fn test_udecimal<const P: u8>(tests: &[(&str, Option<(&str, u64)>)]) {
+        ];
         for (input, expected) in tests {
-            println!("input: \"{}\"", input);
-            let d = UDecimal::<P>::from_str(input);
+            let output = input.parse::<UDecimal18>();
+            println!("\"{input}\" => {output:?}");
             match expected {
                 &Some((repr, internal)) => {
-                    assert_eq!(d.as_ref().map(|d| d.internal), Ok(internal.into()));
-                    assert_eq!(d.as_ref().map(ToString::to_string), Ok(repr.into()));
+                    assert_eq!(output.as_ref().map(|d| d.0), Ok(U256::from(internal)));
+                    assert_eq!(output.as_ref().map(ToString::to_string), Ok(repr.into()));
                 }
-                None => assert_eq!(d, Err(ParseStrError::InvalidInput)),
+                None => assert_eq!(output, Err(InvalidDecimalString)),
             }
         }
     }
@@ -340,35 +223,31 @@ mod test {
             1.0,
             123.456,
             1e14,
+            1e17,
             1e18,
+            1e19,
             2.0f64.powi(128) - 1.0,
             2.0f64.powi(128),
             1e26,
-            // 1e27, // -> 2.085% error @ P = 12
-            // 1e28, // -> 1.318% error @ P = 12
+            1e27,
+            1e28,
             1e29,
             1e30,
+            1e31,
             1e32,
         ];
         for test in tests {
-            test_udecimal_from_f64::<0>(test);
-            test_udecimal_from_f64::<1>(test);
-            test_udecimal_from_f64::<6>(test);
-            test_udecimal_from_f64::<12>(test);
+            let expected = (test * 1e18_f64).floor();
+            let decimal = UDecimal18::try_from(test).unwrap();
+            let output = decimal.0.to_string().parse::<f64>().unwrap();
+            let error = (expected - output).abs() / expected.max(1e-30);
+            println!(
+                "expected: {}\n decimal: {}\n   error: {:.3}%\n---",
+                expected / 1e18,
+                decimal,
+                error * 100.0
+            );
+            assert!(error < 0.005);
         }
-    }
-
-    fn test_udecimal_from_f64<const P: u8>(value: f64) {
-        let expected = (value * 10.0f64.powi(P as i32)).floor();
-        let decimal = UDecimal::<P>::try_from(value).unwrap();
-        let output = decimal.internal.to_string().parse::<f64>().unwrap();
-        let error = (expected - output).abs() / expected.max(1e-30);
-        println!(
-            "expected: {}\n decimal: {}\n   error: {:.3}%\n---",
-            expected / 10.0f64.powi(P as i32),
-            decimal,
-            error * 100.0
-        );
-        assert!(error < 0.005);
     }
 }

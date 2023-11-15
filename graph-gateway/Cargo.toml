@@ -32,8 +32,9 @@ prometheus = { version = "0.13", default-features = false }
 prost = "0.12.1"
 rand.workspace = true
 rdkafka = { version = "0.36.0", features = ["gssapi", "tracing"] }
+receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "89a821c" }
 reqwest.workspace = true
-secp256k1.workspace = true
+secp256k1 = { version = "0.24", default-features = false }
 semver = "1.0"
 serde.workspace = true
 serde_json = { version = "1.0", features = ["raw_value"] }

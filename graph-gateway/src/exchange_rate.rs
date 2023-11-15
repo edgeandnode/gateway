@@ -1,17 +1,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, ensure};
+use alloy_primitives::U256;
+use anyhow::ensure;
 use ethers::{
     abi::Address,
     prelude::{abigen, Http},
     providers::Provider,
 };
 use eventuals::{Eventual, EventualExt, EventualWriter};
+use prelude::{UDecimal18, GRT};
 use tokio::sync::Mutex;
 use toolshed::url::Url;
-
-use prelude::{UDecimal, USD};
 
 abigen!(
     UniswapV3Pool,
@@ -19,7 +19,7 @@ abigen!(
     event_derives(serde::Deserialize, serde::Serialize);
 );
 
-pub async fn usd_to_grt(provider: Url) -> anyhow::Result<Eventual<USD>> {
+pub async fn grt_per_usd(provider: Url) -> anyhow::Result<Eventual<GRT>> {
     // https://info.uniswap.org/#/pools/0x4d1fb02fa84eda35881902e8e0fdacc3a873398b
     let uniswap_v3_pool: Address = "0x4d1Fb02fa84EdA35881902e8E0fdacC3a873398B"
         .parse()
@@ -38,14 +38,14 @@ pub async fn usd_to_grt(provider: Url) -> anyhow::Result<Eventual<USD>> {
     ensure!(pool.token_1().await.unwrap() == grt);
 
     let (writer, reader) = Eventual::new();
-    let writer: &'static Mutex<EventualWriter<USD>> = Box::leak(Box::new(Mutex::new(writer)));
+    let writer: &'static Mutex<EventualWriter<GRT>> = Box::leak(Box::new(Mutex::new(writer)));
     eventuals::timer(Duration::from_secs(60))
         .pipe_async(move |_| async {
-            match fetch_usd_to_grt(pool).await {
-                Err(usd_to_grt_err) => tracing::error!(%usd_to_grt_err),
-                Ok(usd_to_grt) => {
-                    tracing::info!(%usd_to_grt);
-                    writer.lock().await.write(usd_to_grt);
+            match fetch_grt_per_usd(pool).await {
+                Err(grt_per_usd_err) => tracing::error!(%grt_per_usd_err),
+                Ok(grt_per_usd) => {
+                    tracing::info!(grt_per_usd = %grt_per_usd.0);
+                    writer.lock().await.write(grt_per_usd);
                 }
             };
         })
@@ -53,17 +53,17 @@ pub async fn usd_to_grt(provider: Url) -> anyhow::Result<Eventual<USD>> {
     Ok(reader)
 }
 
-async fn fetch_usd_to_grt(pool: &UniswapV3Pool<Provider<Http>>) -> anyhow::Result<USD> {
-    const GRT_DECIMALS: u8 = 18;
-    const USDC_DECIMALS: u8 = 6;
+async fn fetch_grt_per_usd(pool: &UniswapV3Pool<Provider<Http>>) -> anyhow::Result<GRT> {
+    const GRT_DECIMALS: u32 = 18;
+    const USDC_DECIMALS: u32 = 6;
     // https://docs.uniswap.org/contracts/v3/reference/core/interfaces/pool/IUniswapV3PoolDerivedState#observe
     // token1/token0 -> GRT/USDC
     let twap_seconds: u32 = 60 * 20;
     let (tick_cumulatives, _) = pool.observe(vec![twap_seconds, 0]).await?;
     ensure!(tick_cumulatives.len() == 2);
     let tick = (tick_cumulatives[1] - tick_cumulatives[0]) / twap_seconds as i64;
-    let price = UDecimal::<0>::try_from(1.0001_f64.powi(tick as i32) as u128)
-        .map_err(|err| anyhow!(err))?
-        .shift::<{ GRT_DECIMALS - USDC_DECIMALS }>();
-    Ok(price.change_precision())
+    let price = U256::try_from(1.0001_f64.powi(tick as i32)).unwrap();
+    let shift = U256::from(10_u128.pow(18 - (GRT_DECIMALS - USDC_DECIMALS)));
+    let price = UDecimal18::from_raw_u256(price * shift);
+    Ok(GRT(price))
 }

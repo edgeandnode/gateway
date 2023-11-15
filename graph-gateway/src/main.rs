@@ -46,8 +46,7 @@ use graph_gateway::{
     vouchers, JsonResponse,
 };
 use indexer_selection::{actor::Update, BlockStatus, Indexing};
-use prelude::buffer_queue::QueueWriter;
-use prelude::{buffer_queue, double_buffer};
+use prelude::{buffer_queue::QueueWriter, *};
 use secp256k1::SecretKey;
 
 // Moving the `exchange_rate` module to `lib.rs` makes the doctests to fail during the compilation
@@ -118,14 +117,14 @@ async fn main() {
         .build()
         .unwrap();
 
-    let usd_to_grt = match config.exchange_rate_provider {
-        ExchangeRateProvider::Fixed(usd_to_grt) => Eventual::from_value(usd_to_grt),
-        ExchangeRateProvider::Rpc(url) => exchange_rate::usd_to_grt(url).await.unwrap(),
+    let grt_per_usd: Eventual<GRT> = match config.exchange_rate_provider {
+        ExchangeRateProvider::Fixed(grt_per_usd) => Eventual::from_value(GRT(grt_per_usd)),
+        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await.unwrap(),
     };
     update_from_eventual(
-        usd_to_grt.clone(),
+        grt_per_usd.clone(),
         update_writer.clone(),
-        Update::USDToGRTConversion,
+        Update::GRTPerUSD,
     );
 
     let network_subgraph_client =
@@ -268,11 +267,12 @@ async fn main() {
     let query_fees_target = config
         .query_fees_target
         .try_into()
+        .map(USD)
         .expect("invalid query_fees_target");
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
     tracing::info!("Waiting for exchange rate...");
-    usd_to_grt.value().await.unwrap();
+    grt_per_usd.value().await.unwrap();
     tracing::info!("Waiting for ISA setup...");
     update_writer.flush().await.unwrap();
 

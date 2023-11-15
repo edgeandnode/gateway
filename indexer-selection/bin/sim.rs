@@ -21,17 +21,17 @@ async fn main() -> Result<()> {
             let fields = line.split(',').collect::<Vec<&str>>();
             Some(IndexerCharacteristics {
                 address: fields[0].parse().expect("address"),
-                fee: fields[1].parse().expect("fee"),
+                fee: GRT(fields[1].parse().expect("fee")),
                 blocks_behind: fields[2].parse::<f64>().expect("blocks_behind").round() as u64,
                 latency_ms: fields[3].parse::<f64>().expect("latency_ms").round() as u64,
                 success_rate: fields[4].parse().expect("success_rate"),
-                allocation: fields[5].parse().expect("allocation"),
-                stake: fields[6].parse().expect("stake"),
+                allocation: GRT(fields[5].parse().expect("allocation")),
+                stake: GRT(fields[6].parse().expect("stake")),
             })
         })
         .collect::<Vec<IndexerCharacteristics>>();
 
-    let budget = "0.01".parse().unwrap();
+    let budget = GRT(UDecimal18::try_from(0.01).unwrap());
     let freshness_requirements = BlockRequirements {
         range: None,
         has_latest: true,
@@ -55,14 +55,11 @@ async fn main() -> Result<()> {
     for selection_limit in [1, 3] {
         let results = simulate(&characteristics, &params, 100, selection_limit).await?;
 
-        let total_cost = results
-            .selections
-            .iter()
-            .fold(GRT::zero(), |sum, s| sum + s.fee);
+        let total_cost = GRT(results.selections.iter().map(|s| s.fee.0).sum());
         eprintln!(
             "| {} | {:.6} | {:.0} | {:.2} | {:.2} | {:.2} |",
             selection_limit,
-            total_cost,
+            total_cost.0,
             results.avg_latency,
             results.avg_blocks_behind,
             results.selections.len() as f64 / results.client_queries as f64,
@@ -77,12 +74,12 @@ async fn main() -> Result<()> {
                 .collect::<Vec<&Selection>>();
             let detail = format!(
                 "fee={:.4} behind={:02} latency={:04} success={:.3} alloc={:1.0e} stake={:1.0e}",
-                indexer.fee.as_f64(),
+                f64::from(indexer.fee.0),
                 indexer.blocks_behind,
                 indexer.latency_ms,
                 indexer.success_rate,
-                indexer.allocation.as_f64(),
-                indexer.stake.as_f64(),
+                f64::from(indexer.allocation.0),
+                f64::from(indexer.stake.0),
             );
             println!(
                 "selection_limit={},{},{},{},{}",
@@ -90,7 +87,7 @@ async fn main() -> Result<()> {
                 indexer.address,
                 detail,
                 selections.len(),
-                selections.iter().fold(GRT::zero(), |sum, s| sum + s.fee),
+                selections.iter().map(|s| s.fee.0).sum::<UDecimal18>(),
             );
         }
     }

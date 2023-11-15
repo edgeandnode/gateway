@@ -193,16 +193,16 @@ impl GraphNetwork {
                     Indexer {
                         id,
                         url,
-                        staked_tokens: allocation.indexer.staked_tokens.change_precision(),
+                        staked_tokens: GRT(allocation.indexer.staked_tokens.into()),
                         largest_allocation: allocation.id,
-                        allocated_tokens: allocation.allocated_tokens.change_precision(),
+                        allocated_tokens: GRT(allocation.allocated_tokens.into()),
                     },
                 ))
             })
             .into_group_map() // TODO: remove need for itertools here: https://github.com/rust-lang/rust/issues/80552
             .into_iter()
             .filter_map(|(_, mut allocations)| {
-                let total_allocation: GRT = allocations.iter().map(|a| a.allocated_tokens).sum();
+                let total_allocation = GRT(allocations.iter().map(|a| a.allocated_tokens.0).sum());
                 // last allocation is latest: 9936786a-e286-45f3-9190-8409d8389e88
                 let mut indexer = allocations.pop()?;
                 indexer.allocated_tokens = total_allocation;

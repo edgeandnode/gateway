@@ -2,7 +2,7 @@ use std::{collections::HashMap, error::Error, sync::Arc};
 
 use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
-use prelude::USD;
+use prelude::{UDecimal18, USD};
 use serde::Deserialize;
 use tokio::{sync::Mutex, time::Duration};
 use toolshed::thegraph::{DeploymentId, SubgraphId};
@@ -86,7 +86,9 @@ impl Client {
                     user_id: api_key.user_id,
                     user_address: api_key.user_address.parse().ok()?,
                     query_status: api_key.query_status,
-                    max_budget: api_key.max_budget.and_then(|b| USD::try_from(b).ok()),
+                    max_budget: api_key
+                        .max_budget
+                        .and_then(|b| UDecimal18::try_from(b).ok().map(USD)),
                     subgraphs: api_key
                         .subgraphs
                         .into_iter()

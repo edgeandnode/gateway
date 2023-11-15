@@ -5,13 +5,12 @@ use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 use alloy_primitives::{Address, U256};
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
+use prelude::UDecimal18;
+use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr, FromInto};
 use toolshed::url::Url;
-
-use indexer_selection::SecretKey;
-use prelude::USD;
 
 use crate::chains::ethereum;
 use crate::poi::ProofOfIndexingInfo;
@@ -110,8 +109,10 @@ impl From<Chain> for ethereum::Provider {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum ExchangeRateProvider {
+    /// Ethereum RPC provider
     Rpc(#[serde_as(as = "DisplayFromStr")] Url),
-    Fixed(USD),
+    /// Fixed conversion rate of GRT/USD
+    Fixed(#[serde_as(as = "DisplayFromStr")] UDecimal18),
 }
 
 #[derive(Debug, Deserialize)]

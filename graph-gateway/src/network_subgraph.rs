@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, U256};
 use anyhow::anyhow;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
-use prelude::{GRTWei, PPM};
+use prelude::*;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::Mutex;
@@ -18,7 +18,7 @@ pub struct Data {
 }
 
 pub struct NetworkParams {
-    pub slashing_percentage: PPM,
+    pub slashing_percentage: UDecimal18,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,7 +50,7 @@ pub struct SubgraphDeployment {
 #[serde(rename_all = "camelCase")]
 pub struct Allocation {
     pub id: Address,
-    pub allocated_tokens: GRTWei,
+    pub allocated_tokens: U256,
     pub indexer: Indexer,
 }
 
@@ -59,7 +59,7 @@ pub struct Allocation {
 pub struct Indexer {
     pub id: Address,
     pub url: Option<String>,
-    pub staked_tokens: GRTWei,
+    pub staked_tokens: U256,
 }
 
 pub struct Client {
@@ -123,10 +123,9 @@ impl Client {
             .ok_or_else(|| anyhow!("Discarding empty update (graphNetwork)"))?;
 
         Ok(NetworkParams {
-            slashing_percentage: response
-                .slashing_percentage
-                .try_into()
-                .map_err(|_| anyhow!("Failed to parse slashingPercentage"))?,
+            slashing_percentage: UDecimal18::from_raw_u256(
+                U256::from(response.slashing_percentage) * U256::from(1_000_000_000_000_u128),
+            ),
         })
     }
 
