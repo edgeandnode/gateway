@@ -1,11 +1,21 @@
+use graphql_http::http_client::ReqwestExt;
 use toolshed::url::Url;
 
-use crate::indexers_status::graphql;
 use crate::indexers_status::indexing_statuses::query;
 
 pub async fn send_indexing_statuses_query(
     client: reqwest::Client,
     status_url: Url,
 ) -> anyhow::Result<query::IndexingStatusesResponse> {
-    graphql::send_graphql_query(&client, status_url, query::IndexingStatusesQuery).await
+    let res = client
+        .post(status_url.0)
+        .send_graphql(query::INDEXING_STATUSES_QUERY_DOCUMENT)
+        .await;
+    match res {
+        Ok(res) => Ok(res?),
+        Err(e) => Err(anyhow::anyhow!(
+            "Error sending indexing statuses query: {}",
+            e
+        )),
+    }
 }

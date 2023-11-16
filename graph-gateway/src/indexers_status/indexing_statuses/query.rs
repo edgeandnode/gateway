@@ -5,27 +5,24 @@ use indoc::indoc;
 use serde::{Deserialize, Deserializer};
 use toolshed::thegraph::DeploymentId;
 
-use crate::indexers_status::graphql::IntoGraphqlQuery;
-
-#[derive(Clone, Debug)]
-pub struct IndexingStatusesQuery;
-
-impl IntoGraphqlQuery for IndexingStatusesQuery {
-    fn to_query(&self) -> String {
-        String::from(indoc! {
-            r#"{
-                indexingStatuses(subgraphs: []) {
-                    subgraph
-                    chains {
-                        network
-                        latestBlock { number hash }
-                        earliestBlock { number hash }
-                    }
+pub(super) const INDEXING_STATUSES_QUERY_DOCUMENT: &str = indoc! {
+    r#"{
+        indexingStatuses(subgraphs: []) {
+            subgraph
+            chains {
+                network
+                latestBlock {
+                    number
+                    hash
                 }
-            }"#
-        })
-    }
-}
+                earliestBlock {
+                    number
+                    hash
+                }
+            }
+        }
+    }"#
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
