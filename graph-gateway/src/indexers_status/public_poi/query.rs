@@ -1,57 +1,48 @@
 use alloy_primitives::{BlockNumber, B256};
+use graphql_http::graphql::{Document, IntoDocument, IntoDocumentWithVariables};
 use indoc::indoc;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use toolshed::thegraph::DeploymentId;
-
-use crate::indexers_status::graphql::IntoGraphqlQuery;
 
 pub const MAX_REQUESTS_PER_QUERY: usize = 10;
 
 pub type ProofOfIndexing = B256;
 
-#[derive(Clone, Debug)]
+pub(super) const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = indoc! {
+    r#"query ($requests: [PublicProofOfIndexingRequest!]!) {
+        publicProofsOfIndexing(requests: $requests) {
+            deployment
+            proofOfIndexing
+            block {
+                number
+            }
+        }
+    }"# 
+};
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PublicProofOfIndexingQuery {
     pub requests: Vec<PublicProofOfIndexingRequest>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PublicProofOfIndexingRequest {
     pub deployment: DeploymentId,
     pub block_number: BlockNumber,
 }
 
-impl PublicProofOfIndexingRequest {
-    fn to_query_params(&self) -> String {
-        format!(
-            r#"{{ deployment: "{}", blockNumber: "{}" }}"#,
-            self.deployment, self.block_number
-        )
-    }
-}
+impl IntoDocumentWithVariables for PublicProofOfIndexingQuery {
+    type Variables = Self;
 
-impl IntoGraphqlQuery for PublicProofOfIndexingQuery {
-    fn to_query(&self) -> String {
+    fn into_document_with_variables(self) -> (Document, Self::Variables) {
         debug_assert!(!self.requests.is_empty(), "Must have at least one request");
 
-        let requests = self
-            .requests
-            .iter()
-            .map(|request| request.to_query_params())
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        format!(
-            indoc! {
-                r#"{{
-                    publicProofsOfIndexing(requests: [{}]) {{
-                        deployment
-                        proofOfIndexing
-                        block {{ number }}
-                    }}
-                }}"#
-            },
-            requests
+        (
+            PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT.into_document(),
+            self,
         )
     }
 }
@@ -82,30 +73,13 @@ mod tests {
     use super::*;
 
     mod query {
+        use graphql_http::http::request::IntoRequestParameters;
+        use serde_json::json;
+
         use super::*;
 
         #[test]
-        fn public_proof_of_indexing_request_to_query_params_format() {
-            //// Given
-            let request = PublicProofOfIndexingRequest {
-                deployment: "QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw"
-                    .parse()
-                    .expect("Failed to parse deployment ID"),
-                block_number: 123,
-            };
-
-            //// When
-            let query = request.to_query_params();
-
-            //// Then
-            assert_eq!(
-                query.as_str(),
-                "{ deployment: \"QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw\", blockNumber: \"123\" }"
-            );
-        }
-
-        #[test]
-        fn create_status_public_pois_query() {
+        fn create_status_public_pois_request_params() {
             //// Given
             let query = PublicProofOfIndexingQuery {
                 requests: vec![
@@ -125,18 +99,40 @@ mod tests {
             };
 
             //// When
-            let query = query.to_query();
+            let query = query.into_request_parameters();
 
             //// Then
+            // Assert the query document.
             assert_eq!(
-                query.as_str(),
-                indoc! { r#"{
-                    publicProofsOfIndexing(requests: [{ deployment: "QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw", blockNumber: "123" }, { deployment: "QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH", blockNumber: "456" }]) {
-                        deployment
-                        proofOfIndexing
-                        block { number }
-                    }
-                }"# }
+                query.query.as_str(),
+                PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT
+            );
+
+            // Assert the query variables.
+            assert!(matches!(
+                query.variables.get("requests"),
+                Some(serde_json::Value::Array(_))
+            ));
+
+            let var_requests = query
+                .variables
+                .get("requests")
+                .expect("Missing requests variables")
+                .as_array()
+                .expect("Invalid requests variables");
+            assert_eq!(
+                var_requests[0],
+                json!({
+                    "deployment": "QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw",
+                    "blockNumber": 123
+                })
+            );
+            assert_eq!(
+                var_requests[1],
+                json!({
+                    "deployment": "QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH",
+                    "blockNumber": 456
+                })
             );
         }
     }

@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use alloy_primitives::BlockNumber;
+use graphql_http::http_client::ReqwestExt;
 use itertools::Itertools;
 use toolshed::thegraph::DeploymentId;
 use toolshed::url::Url;
 
-use crate::indexers_status::graphql;
 use crate::indexers_status::public_poi::query;
 use crate::poi::ProofOfIndexing;
 
@@ -14,7 +14,14 @@ pub async fn send_public_poi_query(
     status_url: Url,
     query: query::PublicProofOfIndexingQuery,
 ) -> anyhow::Result<query::PublicProofOfIndexingResponse> {
-    graphql::send_graphql_query(&client, status_url, query).await
+    let res = client.post(status_url.0).send_graphql(query).await;
+    match res {
+        Ok(res) => Ok(res?),
+        Err(e) => Err(anyhow::anyhow!(
+            "Error sending public proof of indexing query: {}",
+            e
+        )),
+    }
 }
 
 pub async fn send_public_poi_queries_and_merge_results(
