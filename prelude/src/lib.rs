@@ -46,24 +46,12 @@ pub fn sip24_hash(value: &impl Hash) -> u64 {
     hasher.finish()
 }
 
-/// Decimal Parts-Per-Million with 6 fractional digits
-pub type PPM = UDecimal<6>;
-/// Decimal USD with 18 fractional digits
-pub type USD = UDecimal<18>;
-/// Decimal GRT with 18 fractional digits
-pub type GRT = UDecimal<18>;
-/// Decimal GRT Wei (10^-18 GRT)
-pub type GRTWei = UDecimal<0>;
+// The following are cumbersome by design. It's better to be forced to think hard about converting
+// between these types.
 
-impl<'de, const P: u8> serde::Deserialize<'de> for UDecimal<P> {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let input: &str = serde::Deserialize::deserialize(deserializer)?;
-        input.parse::<Self>().map_err(serde::de::Error::custom)
-    }
-}
-
-impl<const P: u8> serde::Serialize for UDecimal<P> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
-    }
-}
+/// GRT with 18 fractional digits
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GRT(pub UDecimal18);
+/// USD with 18 fractional digits
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct USD(pub UDecimal18);

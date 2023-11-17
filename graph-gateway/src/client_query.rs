@@ -24,7 +24,7 @@ use eventuals::{Eventual, Ptr};
 use futures::future::join_all;
 use graphql::graphql_parser::query::{OperationDefinition, SelectionSet};
 use lazy_static::lazy_static;
-use prelude::USD;
+use prelude::{UDecimal18, USD};
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
@@ -477,26 +477,27 @@ async fn handle_client_query_inner(
         .max(1) as u64;
     // For budgeting purposes, pick the latest deployment.
     let budget_deployment = deployments.last().unwrap().id;
-    let mut budget: USD = ctx.budgeter.budget(&budget_deployment, budget_query_count);
+    let mut budget = ctx.budgeter.budget(&budget_deployment, budget_query_count);
     let ignore_budget_feedback = user_settings.budget.is_some();
     if let Some(user_budget) = user_settings.budget {
         // Security: Consumers can and will set their budget to unreasonably high values.
         // This `.min` prevents the budget from being set far beyond what it would be
         // automatically. The reason this is important is because sometimes queries are
         // subsidized and we would be at-risk to allow arbitrarily high values.
-        budget = user_budget.min(budget * USD::try_from(10_u64).unwrap());
+        budget = USD(user_budget.0.min(budget.0 * UDecimal18::from(10)));
         // TOOD: budget = user_budget.max(budget * USD::try_from(0.1_f64).unwrap());
     }
-    let budget: GRT = ctx
+    let grt_per_usd = ctx
         .isa_state
         .latest()
         .network_params
-        .usd_to_grt(budget)
+        .grt_per_usd
         .ok_or_else(|| Error::Internal(anyhow!("Missing exchange rate")))?;
+    let budget = GRT(budget.0 * grt_per_usd.0);
     tracing::info!(
         target: reports::CLIENT_QUERY_TARGET,
         query_count = budget_query_count,
-        budget_grt = budget.as_f64() as f32,
+        budget_grt = f64::from(budget.0) as f32,
     );
 
     let mut utility_params = UtilityParameters {
@@ -510,7 +511,7 @@ async fn handle_client_query_inner(
     let mut rng = SmallRng::from_entropy();
 
     let mut total_indexer_queries = 0;
-    let mut total_indexer_fees = GRT::zero();
+    let mut total_indexer_fees = GRT(UDecimal18::from(0));
     // Used to track how many times an indexer failed to resolve a block. This may indicate that
     // our latest block has been uncled.
     let mut latest_unresolved: u32 = 0;
@@ -580,10 +581,10 @@ async fn handle_client_query_inner(
 
             // Double the budget & retry if there is any indexer requesting a higher fee.
             if !last_retry && isa_errors.contains_key(&IndexerSelectionError::FeeTooHigh) {
-                utility_params.budget = utility_params.budget * GRT::try_from(2_u64).unwrap();
+                utility_params.budget = GRT(utility_params.budget.0 * UDecimal18::from(2));
                 tracing::info!(
                     target: reports::CLIENT_QUERY_TARGET,
-                    budget_grt = budget.as_f64() as f32,
+                    budget_grt = f64::from(budget.0) as f32,
                     "increase_budget"
                 );
                 continue;
@@ -595,10 +596,10 @@ async fn handle_client_query_inner(
             )));
         }
 
-        total_indexer_fees += selections.iter().map(|s| s.fee).sum();
+        total_indexer_fees = GRT(total_indexer_fees.0 + selections.iter().map(|s| s.fee.0).sum());
         tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
-            indexer_fees_grt = total_indexer_fees.as_f64() as f32,
+            indexer_fees_grt = f64::from(total_indexer_fees.0) as f32,
         );
 
         // The gateway's current strategy for predicting is optimized for keeping responses close to chain head. We've
@@ -687,12 +688,7 @@ async fn handle_client_query_inner(
                 Some(Err(_)) | None => (),
                 Some(Ok(outcome)) => {
                     if !ignore_budget_feedback {
-                        let total_indexer_fees: USD = ctx
-                            .isa_state
-                            .latest()
-                            .network_params
-                            .grt_to_usd(total_indexer_fees)
-                            .unwrap();
+                        let total_indexer_fees = USD(total_indexer_fees.0 / grt_per_usd.0);
                         let _ = ctx.budgeter.feedback.send(budgets::Feedback {
                             deployment: budget_deployment,
                             fees: total_indexer_fees,
@@ -738,13 +734,13 @@ async fn handle_indexer_query(
         %deployment,
         url = %selection.url,
         blocks_behind = selection.blocks_behind,
-        fee_grt = selection.fee.as_f64() as f32,
+        fee_grt = f64::from(selection.fee.0) as f32,
         subgraph_chain = %ctx.deployment.manifest.network,
     );
 
     let receipt = ctx
         .receipt_signer
-        .create_receipt(&selection.indexing, selection.fee)
+        .create_receipt(&selection.indexing, &selection.fee)
         .await
         .ok_or(IndexerError::NoAllocation);
 

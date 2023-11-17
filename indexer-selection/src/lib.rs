@@ -10,14 +10,11 @@ use alloy_primitives::{Address, BlockHash, BlockNumber};
 pub use cost_model::{self, CostModel};
 use num_traits::Zero as _;
 pub use ordered_float::NotNan;
+use prelude::*;
 use rand::{prelude::SmallRng, Rng as _};
-pub use receipts;
-pub use secp256k1::SecretKey;
+use score::{expected_individual_score, ExpectedValue};
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 use toolshed::url::Url;
-
-use prelude::*;
-use score::{expected_individual_score, ExpectedValue};
 
 pub use crate::{
     economic_security::NetworkParameters,
@@ -27,7 +24,6 @@ pub use crate::{
 };
 use crate::{
     fee::indexer_fee,
-    receipts::BorrowFail,
     score::{select_indexers, SelectionFactors},
 };
 
@@ -109,14 +105,6 @@ pub enum IndexerErrorObservation {
     },
     BadAttestation,
     Other,
-}
-
-impl From<BorrowFail> for IndexerError {
-    fn from(from: BorrowFail) -> Self {
-        match from {
-            BorrowFail::NoAllocation => Self::NoAllocation,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -288,7 +276,7 @@ impl State {
             return Err(IndexerError::MissingRequiredBlock.into());
         }
 
-        if state.status.stake == GRT::zero() {
+        if state.status.stake == GRT(UDecimal18::from(0)) {
             return Err(IndexerError::NoStake.into());
         }
 
@@ -306,7 +294,7 @@ impl State {
 
         let reliability = state.reliability.expected_value();
         let perf_success = state.perf_success.expected_value();
-        let slashable_usd = slashable.as_f64();
+        let slashable_usd = slashable.0.into();
 
         let expected_score = NotNan::new(expected_individual_score(
             params,
@@ -338,7 +326,7 @@ impl State {
 
 /// Sybil protection
 fn sybil(indexer_allocation: &GRT) -> Result<NotNan<f64>, IndexerError> {
-    let identity = indexer_allocation.as_f64();
+    let identity: f64 = indexer_allocation.0.into();
 
     // There is a GIP out there which would allow for allocations with 0 GRT stake.
     // For example, MIPS. We don't want for those to never be selected. Furthermore,

@@ -110,7 +110,7 @@ pub fn select_indexers<R: Rng>(
 
 impl MetaIndexer<'_> {
     fn fee(&self) -> GRT {
-        self.0.iter().map(|f| f.fee).sum()
+        GRT(self.0.iter().map(|f| f.fee.0).sum())
     }
 
     fn score(&self, params: &UtilityParameters) -> f64 {
