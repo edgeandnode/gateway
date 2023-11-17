@@ -12,7 +12,7 @@ use crate::{BlockPointer, CostModel};
 pub const TEST_KEY: &str = "244226452948404D635166546A576E5A7234753778217A25432A462D4A614E64";
 
 pub fn default_cost_model(fee: GRT) -> CostModel {
-    CostModel::compile(format!("default => {fee};"), "").unwrap()
+    CostModel::compile(format!("default => {};", fee.0), "").unwrap()
 }
 
 #[track_caller]

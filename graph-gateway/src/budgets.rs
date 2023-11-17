@@ -5,7 +5,7 @@ use indexer_selection::{
     decay::{Decay, FastDecayBuffer},
     impl_struct_decay,
 };
-use prelude::USD;
+use prelude::{UDecimal18, USD};
 use tokio::{
     select, spawn,
     sync::mpsc,
@@ -34,7 +34,7 @@ pub struct Feedback {
 
 impl Budgeter {
     pub fn new(query_fees_target: USD) -> Self {
-        assert!(query_fees_target.as_f64() >= MAX_DISCOUNT_USD);
+        assert!(f64::from(query_fees_target.0) >= MAX_DISCOUNT_USD);
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
         let (budgets_tx, budgets_rx) = Eventual::new();
         Actor::create(feedback_rx, budgets_tx, query_fees_target);
@@ -51,7 +51,7 @@ impl Budgeter {
             .value_immediate()
             .and_then(|budgets| budgets.get(deployment).copied())
             .unwrap_or(self.query_fees_target);
-        budget * USD::try_from(query_count).unwrap()
+        USD(budget.0 * UDecimal18::from(query_count as u128))
     }
 }
 
@@ -109,17 +109,17 @@ impl Actor {
         }
         let target = self.controller.target_query_fees;
         let control_variable = self.controller.control_variable();
-        tracing::debug!(budget_control_variable = %control_variable);
+        tracing::debug!(budget_control_variable = ?control_variable);
         let now = Instant::now();
         let budgets = self
             .volume_estimators
             .iter()
             .map(|(deployment, volume_estimator)| {
                 let volume = volume_estimator.monthly_volume_estimate(now) as u64;
-                let mut budget = volume_discount(volume, target) * control_variable;
+                let mut budget = volume_discount(volume, target).0 * control_variable;
                 // limit budget to 100x target
-                budget = budget.min(target * USD::try_from(100_u64).unwrap());
-                (*deployment, budget)
+                budget = budget.min(target.0 * UDecimal18::from(100));
+                (*deployment, USD(budget))
             })
             .collect();
 
@@ -131,13 +131,13 @@ fn volume_discount(monthly_volume: u64, target: USD) -> USD {
     // Discount the budget, based on a generalized logistic function. We apply little to no discount
     // between 0 and ~10e3 queries per month. And we limit the discount to 10E-6 USD.
     // https://www.desmos.com/calculator/whtakt50sa
-    let b_max = target.as_f64();
+    let b_max: f64 = target.0.into();
     let b_min = b_max - MAX_DISCOUNT_USD;
     let m: f64 = 1e6;
     let z: f64 = 0.45;
     let v = monthly_volume as f64;
     let budget = b_min + ((b_max - b_min) * m.powf(z)) / (v + m).powf(z);
-    budget.try_into().unwrap_or_default()
+    USD(budget.try_into().unwrap_or_default())
 }
 
 /// State for the control loop targeting `recent_query_fees`.
@@ -152,32 +152,33 @@ impl Controller {
     fn new(target_query_fees: USD) -> Self {
         Self {
             target_query_fees,
-            recent_fees: USD::zero(),
+            recent_fees: USD(UDecimal18::from(0)),
             recent_query_count: 0,
             error_history: FastDecayBuffer::default(),
         }
     }
 
     fn add_queries(&mut self, fees: USD, query_count: u64) {
-        self.recent_fees += fees;
+        self.recent_fees = USD(self.recent_fees.0 + fees.0);
         self.recent_query_count += query_count;
     }
 
-    fn control_variable(&mut self) -> USD {
+    fn control_variable(&mut self) -> UDecimal18 {
         // See the following link if you're unfamiliar with PID controllers:
         // https://en.wikipedia.org/wiki/Proportional%E2%80%93integral%E2%80%93derivative_controller
-        let process_variable = self.recent_fees.as_f64() / self.recent_query_count.max(1) as f64;
+        let process_variable =
+            f64::from(self.recent_fees.0) / self.recent_query_count.max(1) as f64;
         METRICS.avg_query_fees.set(process_variable);
 
-        self.recent_fees = USD::zero();
+        self.recent_fees = USD(UDecimal18::from(0));
         self.recent_query_count = 0;
         self.error_history.decay();
-        let error = self.target_query_fees.as_f64() - process_variable;
+        let error = f64::from(self.target_query_fees.0) - process_variable;
         *self.error_history.current_mut() = error;
 
         let i: f64 = self.error_history.frames().iter().sum();
         let k_i = 3e4;
-        USD::try_from(1.0).unwrap() + USD::try_from(i * k_i).unwrap_or(USD::zero())
+        UDecimal18::from(1) + UDecimal18::try_from(i * k_i).unwrap_or_default()
     }
 }
 
@@ -332,32 +333,32 @@ mod tests {
             process_variable_multiplier: f64,
             tolerance: f64,
         ) {
-            let setpoint = controller.target_query_fees.as_f64();
-            let mut process_variable = USD::zero();
+            let setpoint: f64 = controller.target_query_fees.0.into();
+            let mut process_variable = 0.0;
             for i in 0..30 {
-                let control_variable = controller.control_variable();
-                process_variable = controller.target_query_fees
-                    * USD::try_from(process_variable_multiplier).unwrap()
+                let control_variable: f64 = controller.control_variable().into();
+                process_variable = f64::from(controller.target_query_fees.0)
+                    * process_variable_multiplier
                     * control_variable;
                 println!(
                     "{i:02} SP={setpoint:.6}, PV={:.8}, CV={:.8}",
-                    process_variable.as_f64(),
-                    control_variable.as_f64(),
+                    process_variable, control_variable,
                 );
-                controller.add_queries(process_variable, 1);
+                controller.add_queries(USD(UDecimal18::try_from(process_variable).unwrap()), 1);
             }
-            assert_within(process_variable.as_f64(), setpoint, tolerance);
+            assert_within(process_variable, setpoint, tolerance);
         }
 
         for setpoint in [20e-6, 40e-6] {
-            let mut controller = Controller::new(USD::try_from(setpoint).unwrap());
+            let setpoint = USD(UDecimal18::try_from(setpoint).unwrap());
+            let mut controller = Controller::new(setpoint);
             test_controller(&mut controller, 0.2, 1e-6);
-            let mut controller = Controller::new(USD::try_from(setpoint).unwrap());
+            let mut controller = Controller::new(setpoint);
             test_controller(&mut controller, 0.6, 1e-6);
-            let mut controller = Controller::new(USD::try_from(setpoint).unwrap());
+            let mut controller = Controller::new(setpoint);
             test_controller(&mut controller, 0.8, 1e-6);
 
-            let mut controller = Controller::new(USD::try_from(setpoint).unwrap());
+            let mut controller = Controller::new(setpoint);
             test_controller(&mut controller, 0.2, 1e-6);
             test_controller(&mut controller, 0.6, 1e-6);
             test_controller(&mut controller, 0.7, 1e-6);

@@ -15,7 +15,7 @@ use tokio::spawn;
 
 use prelude::buffer_queue::QueueWriter;
 use prelude::test_utils::bytes_from_id;
-use prelude::{buffer_queue, double_buffer, GRT, PPM};
+use prelude::{buffer_queue, double_buffer, UDecimal18, GRT};
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 
 use crate::actor::{process_updates, Update};
@@ -36,8 +36,8 @@ struct Config {
 
 #[derive(Debug)]
 struct Topology {
-    usd_to_grt_conversion: GRT,
-    slashing_percentage: PPM,
+    grt_per_usd: GRT,
+    slashing_percentage: UDecimal18,
     blocks: Vec<BlockPointer>,
     deployments: HashSet<DeploymentId>,
     indexings: HashMap<Indexing, IndexingStatus>,
@@ -55,8 +55,8 @@ struct Request {
 fn base_indexing_status() -> IndexingStatus {
     IndexingStatus {
         url: "http://localhost:8000".parse().unwrap(),
-        stake: "1".parse().unwrap(),
-        allocation: "1".parse().unwrap(),
+        stake: GRT(UDecimal18::from(1)),
+        allocation: GRT(UDecimal18::from(1)),
         cost_model: None,
         block: Some(BlockStatus {
             reported_number: 0,
@@ -100,15 +100,15 @@ impl Topology {
             .filter_map(|_| Self::gen_indexing(rng, config, &blocks, &deployments))
             .collect();
         let state = Self {
-            usd_to_grt_conversion: "1.0".parse().unwrap(),
-            slashing_percentage: "0.1".parse().unwrap(),
+            grt_per_usd: GRT(UDecimal18::from(1)),
+            slashing_percentage: UDecimal18::try_from(0.1).unwrap(),
             blocks,
             deployments,
             indexings,
         };
 
         update_writer
-            .write(Update::USDToGRTConversion(state.usd_to_grt_conversion))
+            .write(Update::GRTPerUSD(state.grt_per_usd))
             .unwrap();
         update_writer
             .write(Update::SlashingPercentage(state.slashing_percentage))
@@ -149,7 +149,7 @@ impl Topology {
     }
 
     fn gen_grt(rng: &mut SmallRng, table: &[f64; 4]) -> GRT {
-        GRT::try_from(*table.choose(rng).unwrap()).unwrap()
+        GRT(UDecimal18::try_from(*table.choose(rng).unwrap()).unwrap())
     }
 
     fn gen_request(&self, rng: &mut SmallRng) -> Option<Request> {
@@ -167,7 +167,7 @@ impl Topology {
                 .map(|indexing| indexing.indexer)
                 .collect(),
             params: utiliy_params(
-                "1.0".parse().unwrap(),
+                GRT(UDecimal18::from(1)),
                 BlockRequirements {
                     range: required_block.map(|b| (0, b)),
                     has_latest: required_block.is_some() && rng.gen_bool(0.5),
@@ -191,10 +191,7 @@ impl Topology {
 
         let mut context = Context::new(&request.query, "").unwrap();
 
-        let fees = selections
-            .iter()
-            .map(|s| s.fee)
-            .fold(GRT::zero(), |sum, fee| sum + fee);
+        let fees = GRT(selections.iter().map(|s| s.fee.0).sum());
         ensure!(fees <= request.params.budget);
 
         let indexers_dedup: BTreeSet<Address> = request.indexers.iter().copied().collect();
@@ -226,9 +223,9 @@ impl Topology {
                 set_err(IndexerError::MissingRequiredBlock);
             } else if status.block.is_none() {
                 set_err(IndexerError::NoStatus);
-            } else if status.stake == GRT::zero() {
+            } else if status.stake == GRT(UDecimal18::from(0)) {
                 set_err(IndexerError::NoStake);
-            } else if fee > request.params.budget.as_f64() {
+            } else if fee > request.params.budget.0.into() {
                 set_err(IndexerError::FeeTooHigh);
             }
         }
@@ -246,7 +243,7 @@ impl Topology {
 
 #[tokio::test]
 async fn fuzz() {
-    // init_tracing(false);
+    // crate::init_tracing(false);
 
     let seed = env::vars()
         .find(|(k, _)| k == "TEST_SEED")
@@ -318,8 +315,8 @@ fn favor_higher_version() {
 
     let mut state = State {
         network_params: NetworkParameters {
-            usd_to_grt_conversion: Some("1".parse().unwrap()),
-            slashing_percentage: Some("0.1".parse().unwrap()),
+            grt_per_usd: Some(GRT(UDecimal18::from(1))),
+            slashing_percentage: Some(UDecimal18::try_from(0.1).unwrap()),
         },
         indexings: HashMap::from_iter([]),
     };
@@ -339,7 +336,7 @@ fn favor_higher_version() {
     );
 
     let params = utiliy_params(
-        "1".parse().unwrap(),
+        GRT(UDecimal18::from(1)),
         BlockRequirements {
             range: None,
             has_latest: true,

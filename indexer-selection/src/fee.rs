@@ -1,9 +1,10 @@
 use std::convert::TryFrom;
 
+use alloy_primitives::U256;
 use cost_model::{CostError, CostModel};
 use eventuals::Ptr;
 
-use prelude::{GRTWei, GRT};
+use prelude::{UDecimal18, GRT};
 
 use crate::{utility::UtilityFactor, Context, IndexerError, InputError, SelectionError};
 
@@ -77,12 +78,13 @@ const WEIGHT: f64 = 0.5;
 // 7a3da342-c049-4ab0-8058-91880491b442
 pub fn fee_utility(fee: &GRT, budget: &GRT) -> UtilityFactor {
     // Any fee over budget has zero utility.
-    if *fee > *budget {
+    if fee > budget {
         return UtilityFactor::one(0.0);
     }
-    let one_wei: GRT = GRTWei::try_from(1u64).unwrap().shift();
-    let scaled_fee = *fee / budget.saturating_add(one_wei);
-    let mut utility = (scaled_fee.as_f64() + S).recip() - S;
+    let one_wei = UDecimal18::from_raw_u256(U256::from(1));
+    let scaled_fee: f64 = (fee.0 / budget.0.saturating_add(one_wei)).into();
+    println!("{} {}, {scaled_fee}", fee.0, budget.0);
+    let mut utility = (scaled_fee + S).recip() - S;
     // Set minimum utility, since small negative utility can result from loss of precision when the
     // fee approaches the budget.
     utility = utility.max(1e-18);
@@ -105,7 +107,7 @@ fn min_optimal_fee(budget: &GRT) -> GRT {
     let w = WEIGHT;
     let mut min_rate = (4.0 * S.powi(2) * w + w.powi(2) - 2.0 * w + 1.0).sqrt();
     min_rate = (min_rate - 2.0 * S.powi(2) - w + 1.0) / (2.0 * S);
-    *budget * GRT::try_from(min_rate).unwrap()
+    GRT(budget.0 * UDecimal18::try_from(min_rate).unwrap())
 }
 
 pub fn indexer_fee(
@@ -118,8 +120,11 @@ pub fn indexer_fee(
         .as_ref()
         .map(|model| model.cost_with_context(context))
     {
-        None => GRT::zero(),
-        Some(Ok(fee)) => fee.to_string().parse::<GRTWei>().unwrap().shift(),
+        None => GRT(UDecimal18::from(0)),
+        Some(Ok(fee)) => {
+            let fee = U256::try_from_be_slice(&fee.to_bytes_be()).unwrap_or(U256::MAX);
+            GRT(UDecimal18::from_raw_u256(fee))
+        }
         Some(Err(CostError::CostModelFail | CostError::QueryNotCosted)) => {
             return Err(IndexerError::QueryNotCosted.into());
         }
@@ -134,16 +139,16 @@ pub fn indexer_fee(
     };
 
     // Any fee over budget is refused.
-    if fee > *budget {
+    if &fee > budget {
         return Err(IndexerError::FeeTooHigh.into());
     }
 
-    let budget = *budget / GRT::try_from(max_indexers).unwrap();
+    let budget = GRT(budget.0 / UDecimal18::from(max_indexers as u128));
     let min_optimal_fee = min_optimal_fee(&budget);
     // If their fee is less than the min optimal, lerp between them so that
     // indexers are rewarded for being closer.
     if fee < min_optimal_fee {
-        fee = (min_optimal_fee + fee) * GRT::try_from(0.75).unwrap();
+        fee = GRT((min_optimal_fee.0 + fee.0) * UDecimal18::try_from(0.75).unwrap());
     }
 
     Ok(fee)
@@ -159,16 +164,20 @@ mod test {
 
     #[test]
     fn test() {
-        let cost_model = Some(Ptr::new(default_cost_model("0.01".parse().unwrap())));
+        let cost_model = Some(Ptr::new(default_cost_model(GRT(UDecimal18::try_from(
+            0.01,
+        )
+        .unwrap()))));
         let mut context = Context::new(BASIC_QUERY, "").unwrap();
         // Expected values based on https://www.desmos.com/calculator/kxd4kpjxi5
         let tests = [(0.01, 0.0), (0.02, 0.27304), (0.1, 0.50615), (1.0, 0.55769)];
         for (budget, expected_utility) in tests {
-            let budget = budget.to_string().parse::<GRT>().unwrap();
+            let budget = GRT(UDecimal18::try_from(budget).unwrap());
             let fee = indexer_fee(&cost_model, &mut context, &budget, 1).unwrap();
             let utility = fee_utility(&fee, &budget);
+            println!("{fee:?} / {budget:?}, {expected_utility}, {utility:?}");
             let utility = utility.utility.powf(utility.weight);
-            assert!(fee >= "0.01".parse::<GRT>().unwrap());
+            assert!(fee.0 >= UDecimal18::try_from(0.01).unwrap());
             assert_within(utility, expected_utility, 0.0001);
         }
     }

@@ -8,7 +8,7 @@ use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 use rand_distr::Normal;
 
 use prelude::test_utils::{bytes_from_id, init_test_tracing};
-use prelude::GRT;
+use prelude::{UDecimal18, GRT};
 use toolshed::thegraph::DeploymentId;
 
 use crate::test_utils::default_cost_model;
@@ -53,8 +53,8 @@ pub async fn simulate(
     };
 
     let mut isa = State::default();
-    isa.network_params.slashing_percentage = "0.1".parse().ok();
-    isa.network_params.usd_to_grt_conversion = "0.1".parse().ok();
+    isa.network_params.slashing_percentage = UDecimal18::try_from(0.1).ok();
+    isa.network_params.grt_per_usd = UDecimal18::try_from(0.1).ok().map(GRT);
 
     for characteristics in characteristics {
         let indexing = Indexing {

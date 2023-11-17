@@ -19,8 +19,6 @@ permutation = "0.4"
 prelude = { path = "../prelude" }
 rand.workspace = true
 rand_distr = "0.4"
-receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "89a821c" }
-secp256k1.workspace = true
 siphasher.workspace = true
 tokio.workspace = true
 toolshed.workspace = true

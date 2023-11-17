@@ -2,25 +2,16 @@ use prelude::*;
 
 #[derive(Default)]
 pub struct NetworkParameters {
-    pub slashing_percentage: Option<PPM>,
-    pub usd_to_grt_conversion: Option<GRT>,
+    pub slashing_percentage: Option<UDecimal18>,
+    pub grt_per_usd: Option<GRT>,
 }
 
 impl NetworkParameters {
-    pub fn usd_to_grt(&self, usd: USD) -> Option<GRT> {
-        let conversion_rate = self.usd_to_grt_conversion?;
-        Some(usd * conversion_rate)
-    }
-
-    pub fn grt_to_usd(&self, grt: GRT) -> Option<USD> {
-        let conversion_rate = self.usd_to_grt_conversion?;
-        Some(grt / conversion_rate)
-    }
-
     pub fn slashable_usd(&self, indexer_stake: GRT) -> Option<USD> {
         let slashing_percentage = self.slashing_percentage?;
-        let slashable_grt = indexer_stake * slashing_percentage.change_precision();
-        self.grt_to_usd(slashable_grt)
+        let slashable_grt = indexer_stake.0 * slashing_percentage;
+        let slashable_usd = slashable_grt / self.grt_per_usd?.0;
+        Some(USD(slashable_usd))
     }
 }
 
@@ -29,68 +20,6 @@ mod tests {
     use crate::{test_utils::*, utility::ConcaveUtilityParameters};
 
     use super::*;
-
-    #[test]
-    fn two_usd_to_grt() {
-        let params = NetworkParameters {
-            usd_to_grt_conversion: "0.511732966311998143".parse().ok(),
-            slashing_percentage: 0u64.try_into().ok(),
-        };
-        // Check conversion of 2 USD to GRT
-        assert_eq!(
-            params.usd_to_grt(2u64.try_into().unwrap()),
-            Some("1.023465932623996286".parse().unwrap())
-        );
-    }
-
-    #[test]
-    fn two_grt_to_usd() {
-        let params = NetworkParameters {
-            usd_to_grt_conversion: "0.511732966311998143".parse().ok(),
-            slashing_percentage: 0u64.try_into().ok(),
-        };
-        // Check conversion of 2 GRT to USD
-        assert_eq!(
-            params.grt_to_usd(2u64.try_into().unwrap()),
-            Some("3.908288368470326937".parse().unwrap())
-        );
-    }
-
-    #[test]
-    fn trillion_usd_to_grt() {
-        let mut params = NetworkParameters {
-            usd_to_grt_conversion: None,
-            slashing_percentage: 0u64.try_into().ok(),
-        };
-        let trillion: USD = 10u64.pow(12).try_into().unwrap();
-        // Assert None is returned if eventual has no value.
-        assert_eq!(params.usd_to_grt(trillion), None);
-        // Set conversion rate
-        params.usd_to_grt_conversion = "0.511732966311998143".parse().ok();
-        // Check conversion of 1 trillion USD to GRT
-        assert_eq!(
-            params.usd_to_grt(trillion),
-            Some("511732966311.998143".parse().unwrap())
-        );
-    }
-
-    #[test]
-    fn trillion_grt_to_usd() {
-        let mut params = NetworkParameters {
-            usd_to_grt_conversion: None,
-            slashing_percentage: 0u64.try_into().ok(),
-        };
-        let trillion: GRT = 10u64.pow(12).try_into().unwrap();
-        // Assert None is returned if eventual has no value.
-        assert_eq!(params.grt_to_usd(trillion), None);
-        // Set conversion rate
-        params.usd_to_grt_conversion = "0.511732966311998143".parse().ok();
-        // Check conversion of 1 trillion GRT to USD
-        assert_eq!(
-            params.grt_to_usd(trillion),
-            Some("1954144184235.163468761907206198".parse().unwrap())
-        );
-    }
 
     #[test]
     fn high_stake() {
@@ -118,20 +47,20 @@ mod tests {
     }
 
     fn test_economic_security_utility(
-        usd_to_grt: u64,
+        grt_per_usd: u128,
         slashing_percentage: f64,
-        stake: u64,
+        stake: u128,
         u_a: f64,
-        expected_slashable: u64,
+        expected_slashable: u128,
         expected_utility: f64,
     ) {
         let params = NetworkParameters {
-            usd_to_grt_conversion: usd_to_grt.try_into().ok(),
-            slashing_percentage: slashing_percentage.to_string().parse().ok(),
+            grt_per_usd: Some(GRT(UDecimal18::from(grt_per_usd))),
+            slashing_percentage: UDecimal18::try_from(slashing_percentage).ok(),
         };
-        let slashable = params.slashable_usd(stake.try_into().unwrap()).unwrap();
-        let utility = ConcaveUtilityParameters::one(u_a).concave_utility(slashable.as_f64());
-        assert_eq!(slashable, expected_slashable.try_into().unwrap());
+        let slashable = params.slashable_usd(GRT(UDecimal18::from(stake))).unwrap();
+        let utility = ConcaveUtilityParameters::one(u_a).concave_utility(slashable.0.into());
+        assert_eq!(slashable.0, UDecimal18::from(expected_slashable));
         assert_within(utility.utility, expected_utility, 0.01);
     }
 }
