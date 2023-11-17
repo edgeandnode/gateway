@@ -11,8 +11,6 @@ path = "bin/sim.rs"
 alloy-primitives.workspace = true
 anyhow.workspace = true
 arrayvec = "0.7"
-cost-model = { git = "https://github.com/graphprotocol/agora", rev = "9984f9e" }
-eventuals.workspace = true
 num-traits = "0.2"
 ordered-float = "4.1"
 permutation = "0.4"
@@ -23,6 +21,3 @@ siphasher.workspace = true
 tokio.workspace = true
 toolshed.workspace = true
 tracing.workspace = true
-
-[dev-dependencies]
-eventuals = { workspace = true, features = ["trace"] }

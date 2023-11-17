@@ -1,13 +1,12 @@
 use std::time::{Duration, Instant};
 
-use eventuals::Ptr;
 use prelude::GRT;
 use toolshed::url::Url;
 
-use crate::{
-    decay::ISADecayBuffer, fee::indexer_fee, performance::*, reliability::*, BlockRequirements,
-    Context, CostModel, IndexerErrorObservation, SelectionError,
-};
+use crate::decay::ISADecayBuffer;
+use crate::performance::*;
+use crate::reliability::*;
+use crate::{BlockRequirements, IndexerErrorObservation};
 
 pub struct IndexingState {
     pub status: IndexingStatus,
@@ -34,7 +33,6 @@ pub struct IndexingStatus {
     pub url: Url,
     pub stake: GRT,
     pub allocation: GRT,
-    pub cost_model: Option<Ptr<CostModel>>,
     pub block: Option<BlockStatus>,
     pub versions_behind: u8,
 }
@@ -163,14 +161,5 @@ impl IndexingState {
         reliability.decay();
         perf_success.decay();
         perf_failure.decay();
-    }
-
-    pub fn fee(
-        &self,
-        context: &mut Context<'_>,
-        budget: &GRT,
-        max_indexers: u8,
-    ) -> Result<GRT, SelectionError> {
-        indexer_fee(&self.status.cost_model, context, budget, max_indexers)
     }
 }
