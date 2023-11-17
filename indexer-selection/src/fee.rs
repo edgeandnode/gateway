@@ -78,7 +78,7 @@ const WEIGHT: f64 = 0.5;
 // 7a3da342-c049-4ab0-8058-91880491b442
 pub fn fee_utility(fee: &GRT, budget: &GRT) -> UtilityFactor {
     // Any fee over budget has zero utility.
-    if fee.0 > budget.0 {
+    if fee > budget {
         return UtilityFactor::one(0.0);
     }
     let one_wei = UDecimal18::from_raw_u256(U256::from(1));
@@ -139,7 +139,7 @@ pub fn indexer_fee(
     };
 
     // Any fee over budget is refused.
-    if fee.0 > budget.0 {
+    if &fee > budget {
         return Err(IndexerError::FeeTooHigh.into());
     }
 
@@ -147,7 +147,7 @@ pub fn indexer_fee(
     let min_optimal_fee = min_optimal_fee(&budget);
     // If their fee is less than the min optimal, lerp between them so that
     // indexers are rewarded for being closer.
-    if fee.0 < min_optimal_fee.0 {
+    if fee < min_optimal_fee {
         fee = GRT((min_optimal_fee.0 + fee.0) * UDecimal18::try_from(0.75).unwrap());
     }
 

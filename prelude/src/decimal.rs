@@ -5,7 +5,7 @@ use alloy_primitives::U256;
 const ONE_18: u128 = 1_000_000_000_000_000_000;
 
 /// Represents a positive decimal value with 18 fractional digits precision. Using U256 as storage.
-#[derive(Copy, Clone, Default, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UDecimal18(U256);
 
 impl From<U256> for UDecimal18 {

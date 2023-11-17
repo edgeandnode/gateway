@@ -192,7 +192,7 @@ impl Topology {
         let mut context = Context::new(&request.query, "").unwrap();
 
         let fees = GRT(selections.iter().map(|s| s.fee.0).sum());
-        ensure!(fees.0 <= request.params.budget.0);
+        ensure!(fees <= request.params.budget);
 
         let indexers_dedup: BTreeSet<Address> = request.indexers.iter().copied().collect();
         ensure!(indexers_dedup.len() == request.indexers.len());

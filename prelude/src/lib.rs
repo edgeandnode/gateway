@@ -49,9 +49,9 @@ pub fn sip24_hash(value: &impl Hash) -> u64 {
 // The following are cumbersome by design. It's better to be forced to think hard about converting
 // between these types.
 
-/// USD with 18 fractional digits
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct USD(pub UDecimal18);
 /// GRT with 18 fractional digits
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GRT(pub UDecimal18);
+/// USD with 18 fractional digits
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct USD(pub UDecimal18);
