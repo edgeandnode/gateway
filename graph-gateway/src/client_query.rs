@@ -1,14 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::str::FromStr;
+use std::sync::atomic::{self, AtomicUsize};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
-    sync::{
-        atomic::{self, AtomicUsize},
-        Arc,
-    },
-};
 
+use alloy_primitives::U256;
 use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, bail, Context as _};
 use axum::extract::OriginalUri;
@@ -20,10 +16,18 @@ use axum::{
     http::{header, HeaderMap, Response, StatusCode},
     RequestPartsExt,
 };
+use cost_model::{Context as AgoraContext, CostError, CostModel};
 use eventuals::{Eventual, Ptr};
 use futures::future::join_all;
 use graphql::graphql_parser::query::{OperationDefinition, SelectionSet};
+use indexer_selection::Candidate;
+use indexer_selection::{
+    actor::Update, BlockRequirements, IndexerError as IndexerSelectionError,
+    IndexerErrorObservation, Indexing, InputError, Selection, UnresolvedBlock, UtilityParameters,
+    SELECTION_LIMIT,
+};
 use lazy_static::lazy_static;
+use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
 use prelude::{UDecimal18, USD};
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
@@ -35,13 +39,6 @@ use toolshed::thegraph::{attestation, BlockPointer, DeploymentId, SubgraphId};
 use toolshed::url::Url;
 use tracing::Instrument;
 use uuid::Uuid;
-
-use indexer_selection::{
-    actor::Update, BlockRequirements, Context as AgoraContext,
-    IndexerError as IndexerSelectionError, IndexerErrorObservation, Indexing, InputError,
-    Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
-};
-use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
 
 use crate::auth::{AuthHandler, AuthToken};
 use crate::block_constraints::{block_constraints, make_query_deterministic, BlockConstraint};
@@ -395,7 +392,7 @@ async fn handle_client_query_inner(
         .value_immediate()
         .unwrap_or_default();
 
-    let candidates: Vec<Indexing> = deployments
+    let candidates: BTreeSet<Indexing> = deployments
         .iter()
         .flat_map(move |deployment| {
             let id = deployment.id;
@@ -412,8 +409,6 @@ async fn handle_client_query_inner(
                     !blocklist.contains(indexing)
                 })
         })
-        .collect::<BTreeSet<Indexing>>()
-        .into_iter()
         .collect();
     tracing::info!(candidates = candidates.len());
     if candidates.is_empty() {
@@ -425,14 +420,31 @@ async fn handle_client_query_inner(
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_default();
-    let context = AgoraContext::new(&payload.query, &variables)
+    let mut context = AgoraContext::new(&payload.query, &variables)
         .map_err(|err| Error::InvalidQuery(anyhow!("{}", err)))?;
-
     tracing::info!(
         target: reports::CLIENT_QUERY_TARGET,
         query = %payload.query,
         %variables,
     );
+
+    let mut candidates: Vec<Candidate> = candidates
+        .into_iter()
+        .filter_map(|indexing| {
+            let cost_model = ctx
+                .indexing_statuses
+                .value_immediate()
+                .and_then(|m| m.get(&indexing).and_then(|s| s.cost_model.clone()));
+            let fee = match indexer_fee(&cost_model, &mut context) {
+                Ok(fee) => fee,
+                Err(cost_model_err) => {
+                    tracing::warn!(%cost_model_err, ?indexing);
+                    return None;
+                }
+            };
+            Some(Candidate { indexing, fee })
+        })
+        .collect();
 
     let mut block_cache = ctx
         .block_caches
@@ -472,33 +484,36 @@ async fn handle_client_query_inner(
 
     let user_settings = ctx.auth_handler.query_settings(&auth).await;
 
-    let budget_query_count = count_top_level_selection_sets(&context)
-        .map_err(Error::InvalidQuery)?
-        .max(1) as u64;
-    // For budgeting purposes, pick the latest deployment.
-    let budget_deployment = deployments.last().unwrap().id;
-    let mut budget = ctx.budgeter.budget(&budget_deployment, budget_query_count);
-    let ignore_budget_feedback = user_settings.budget.is_some();
-    if let Some(user_budget) = user_settings.budget {
-        // Security: Consumers can and will set their budget to unreasonably high values.
-        // This `.min` prevents the budget from being set far beyond what it would be
-        // automatically. The reason this is important is because sometimes queries are
-        // subsidized and we would be at-risk to allow arbitrarily high values.
-        budget = USD(user_budget.0.min(budget.0 * UDecimal18::from(10)));
-        // TOOD: budget = user_budget.max(budget * USD::try_from(0.1_f64).unwrap());
-    }
     let grt_per_usd = ctx
         .isa_state
         .latest()
         .network_params
         .grt_per_usd
         .ok_or_else(|| Error::Internal(anyhow!("Missing exchange rate")))?;
+    let budget_query_count = count_top_level_selection_sets(&context)
+        .map_err(Error::InvalidQuery)?
+        .max(1) as u64;
+    let candidate_fees: Vec<USD> = candidates
+        .iter()
+        .map(|c| USD(c.fee.0 / grt_per_usd.0))
+        .collect();
+    let mut budget = ctx.budgeter.budget(budget_query_count, &candidate_fees);
+    let ignore_budget_feedback = user_settings.budget.is_some();
+    if let Some(user_budget) = user_settings.budget {
+        // Security: Consumers can and will set their budget to unreasonably high values.
+        // This `.min` prevents the budget from being set far beyond what it would be
+        // automatically. The reason this is important is because sometimes queries are
+        // subsidized and we would be at-risk to allow arbitrarily high values.
+        let max_budget = USD(budget.0 * UDecimal18::from(10));
+        budget = user_budget.min(max_budget);
+    }
     let budget = GRT(budget.0 * grt_per_usd.0);
     tracing::info!(
         target: reports::CLIENT_QUERY_TARGET,
         query_count = budget_query_count,
         budget_grt = f64::from(budget.0) as f32,
     );
+    candidates.retain(|c| c.fee <= budget);
 
     let mut utility_params = UtilityParameters {
         budget,
@@ -531,34 +546,11 @@ async fn handle_client_query_inner(
         // 170cbcf3-db7f-404a-be13-2022d9142677
         utility_params.latest_block = latest_block.number;
 
-        // Since we modify the context in-place, we need to reset the context to the state of
-        // the original client query. This to avoid the following scenario:
-        // 1. A client query has no block requirements set for some top-level operation
-        // 2. The first indexer is selected, with some indexing status at block number `n`
-        // 3. The query is made deterministic by setting the block requirement to the hash of
-        //    block `n`
-        // 4. Some condition requires us to retry this query on another indexer with an indexing
-        //    status at a block less than `n`
-        // 5. The same context is re-used, including the block requirement set to the hash of
-        //    block `n`
-        // 6. The indexer is seen as being behind and is unnecessarily penalized
-        //
-        // TODO: Avoid the additional cloning of the entire AST here, especially in the case
-        // where retries are necessary. Only the top-level operation arguments need to be reset
-        // to the state of the client query.
-        let mut context = context.clone();
-
         let selection_timer = METRICS.indexer_selection_duration.start_timer();
         let (selections, indexer_errors) = ctx
             .isa_state
             .latest()
-            .select_indexers(
-                &mut rng,
-                &candidates,
-                &utility_params,
-                &mut context,
-                SELECTION_LIMIT as u8,
-            )
+            .select_indexers(&mut rng, &utility_params, &candidates)
             .map_err(|err| match err {
                 InputError::MalformedQuery => Error::InvalidQuery(anyhow!("Failed to parse")),
                 InputError::MissingNetworkParams => {
@@ -649,6 +641,17 @@ async fn handle_client_query_inner(
                     Err(_) if !last_retry => continue,
                     Err(unresolved) => return Err(Error::BlockNotFound(unresolved)),
                 };
+            // The Agora context must be cloned to preserve the state of the original client query.
+            // This to avoid the following scenario:
+            // 1. A client query has no block requirements set for some top-level operation
+            // 2. The first indexer is selected, with some indexing status at block number `n`
+            // 3. The query is made deterministic by setting the block requirement to the hash of
+            //    block `n`
+            // 4. Some condition requires us to retry this query on another indexer with an indexing
+            //    status at a block less than `n`
+            // 5. The same context is re-used, including the block requirement set to the hash of
+            //    block `n`
+            // 6. The indexer is seen as being behind and is unnecessarily penalized
             let deterministic_query =
                 make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)
                     .ok_or_else(|| {
@@ -690,7 +693,6 @@ async fn handle_client_query_inner(
                     if !ignore_budget_feedback {
                         let total_indexer_fees = USD(total_indexer_fees.0 / grt_per_usd.0);
                         let _ = ctx.budgeter.feedback.send(budgets::Feedback {
-                            deployment: budget_deployment,
                             fees: total_indexer_fees,
                             query_count: budget_query_count,
                         });
@@ -888,7 +890,7 @@ async fn handle_indexer_query_inner(
     Ok(response.payload)
 }
 
-fn count_top_level_selection_sets(ctx: &AgoraContext) -> anyhow::Result<usize> {
+fn count_top_level_selection_sets(ctx: &AgoraContext<String>) -> anyhow::Result<usize> {
     let selection_sets = ctx
         .operations
         .iter()
@@ -900,6 +902,29 @@ fn count_top_level_selection_sets(ctx: &AgoraContext) -> anyhow::Result<usize> {
         })
         .collect::<anyhow::Result<Vec<&SelectionSet<String>>>>()?;
     Ok(selection_sets.into_iter().map(|set| set.items.len()).sum())
+}
+
+pub fn indexer_fee(
+    cost_model: &Option<Ptr<CostModel>>,
+    context: &mut AgoraContext<'_, String>,
+) -> Result<GRT, &'static str> {
+    match cost_model
+        .as_ref()
+        .map(|model| model.cost_with_context(context))
+    {
+        None => Ok(GRT(UDecimal18::from(0))),
+        Some(Ok(fee)) => {
+            let fee = U256::try_from_be_slice(&fee.to_bytes_be()).unwrap_or(U256::MAX);
+            Ok(GRT(UDecimal18::from_raw_u256(fee)))
+        }
+        Some(Err(CostError::CostModelFail | CostError::QueryNotCosted)) => Err("QueryNotCosted"),
+        Some(Err(
+            CostError::QueryNotSupported
+            | CostError::QueryInvalid
+            | CostError::FailedToParseQuery
+            | CostError::FailedToParseVariables,
+        )) => Err("MalformedQuery"),
+    }
 }
 
 /// This adapter middleware extracts the authorization token from the `api_key` path parameter,

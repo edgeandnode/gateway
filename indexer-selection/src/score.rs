@@ -1,15 +1,15 @@
 use std::time::{Duration, Instant};
 
+use alloy_primitives::U256;
 use arrayvec::ArrayVec;
 use ordered_float::NotNan;
-use prelude::GRT;
+use prelude::{UDecimal18, GRT};
 use rand::{prelude::SliceRandom as _, Rng};
 use toolshed::url::Url;
 
+use crate::performance::performance_utility;
+use crate::utility::{weighted_product_model, UtilityFactor};
 use crate::{
-    fee::fee_utility,
-    performance::performance_utility,
-    utility::{weighted_product_model, UtilityFactor},
     BlockRequirements, ConcaveUtilityParameters, Indexing, Selection, UtilityParameters,
     MIN_SCORE_CUTOFF,
 };
@@ -45,7 +45,6 @@ pub fn select_indexers<R: Rng>(
     rng: &mut R,
     params: &UtilityParameters,
     factors: &[SelectionFactors],
-    selection_limit: u8,
 ) -> Vec<Selection> {
     if factors.is_empty() {
         return vec![];
@@ -56,7 +55,6 @@ pub fn select_indexers<R: Rng>(
     // We must use a suitable indexer, if one exists. Indexers are filtered out when calculating
     // selection factors if they are over budget or don't meet freshness requirements. So they won't
     // pollute the set we're selecting from.
-    let selection_limit = SELECTION_LIMIT.min(selection_limit as usize);
     let sample_limit = factors.len().min(16);
     let mut selections: ArrayVec<&SelectionFactors, SELECTION_LIMIT> = ArrayVec::new();
 
@@ -72,7 +70,7 @@ pub fn select_indexers<R: Rng>(
     let mut combined_score = selections[0].expected_score;
     // Sample some indexers and add them to the selected set if they increase the combined score.
     for _ in 0..sample_limit {
-        if selections.len() == selection_limit {
+        if selections.len() == SELECTION_LIMIT {
             break;
         }
         let candidate = factors.choose_weighted(rng, |f| *f.sybil).unwrap();
@@ -279,4 +277,23 @@ fn versions_behind_utility(versions_behind: u8) -> UtilityFactor {
 /// https://www.desmos.com/calculator/j2s3d4tem8
 fn exploration_weight(t: Duration) -> f64 {
     0.1_f64.powf(0.005 * t.as_secs_f64())
+}
+
+/// Target an optimal fee of ~(1/3) of budget, since up to 3 indexers can be selected.
+/// https://www.desmos.com/calculator/elzlqpb7tc
+pub fn fee_utility(fee: &GRT, budget: &GRT) -> UtilityFactor {
+    // Any fee over budget has zero utility.
+    if fee > budget {
+        return UtilityFactor::one(0.0);
+    }
+    let one_wei = UDecimal18::from_raw_u256(U256::from(1));
+    let scaled_fee = fee.0 / budget.0.saturating_add(one_wei);
+    // (5_f64.sqrt() - 1.0) / 2.0
+    const S: f64 = 0.6180339887498949;
+    let mut utility = (f64::from(scaled_fee) + S).recip() - S;
+    // Set minimum utility, since small negative utility can result from loss of precision when the
+    // fee approaches the budget.
+    utility = utility.max(1e-18);
+    let weight: f64 = 1.4;
+    UtilityFactor { utility, weight }
 }

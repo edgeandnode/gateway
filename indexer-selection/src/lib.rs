@@ -7,7 +7,6 @@ use std::{
 };
 
 use alloy_primitives::{Address, BlockHash, BlockNumber};
-pub use cost_model::{self, CostModel};
 use num_traits::Zero as _;
 pub use ordered_float::NotNan;
 use prelude::*;
@@ -16,21 +15,17 @@ use score::{expected_individual_score, ExpectedValue};
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 use toolshed::url::Url;
 
+use crate::score::{select_indexers, SelectionFactors};
 pub use crate::{
     economic_security::NetworkParameters,
     indexing::{BlockStatus, IndexingState, IndexingStatus},
     score::SELECTION_LIMIT,
     utility::ConcaveUtilityParameters,
 };
-use crate::{
-    fee::indexer_fee,
-    score::{select_indexers, SelectionFactors},
-};
 
 pub mod actor;
 pub mod decay;
 mod economic_security;
-mod fee;
 mod indexing;
 mod performance;
 mod reliability;
@@ -41,13 +36,15 @@ mod test;
 pub mod test_utils;
 mod utility;
 
-// We have to use `String` instead of `&'c str` here because of compiler bug triggered when holding
-// a context across an await. See https://github.com/rust-lang/rust/issues/71723
-pub type Context<'c> = cost_model::Context<'c, String>;
-
 /// If an indexer's score is penalized such that it falls below this proportion of the max indexer
 /// score, then the indexer will be discarded from the set of indexers to select from.
 const MIN_SCORE_CUTOFF: f64 = 0.25;
+
+#[derive(Clone, Debug)]
+pub struct Candidate {
+    pub indexing: Indexing,
+    pub fee: GRT,
+}
 
 #[derive(Clone, Debug)]
 pub struct Selection {
@@ -210,18 +207,18 @@ impl State {
     pub fn select_indexers<'a>(
         &self,
         rng: &mut SmallRng,
-        candidates: &'a [Indexing],
         params: &UtilityParameters,
-        context: &mut Context<'_>,
-        selection_limit: u8,
+        candidates: &'a [Candidate],
     ) -> Result<(Vec<Selection>, IndexerErrors<'a>), InputError> {
         let mut errors = IndexerErrors(BTreeMap::new());
         let mut available = Vec::<SelectionFactors>::new();
 
         for candidate in candidates {
-            match self.selection_factors(candidate, params, context, selection_limit) {
+            match self.selection_factors(candidate, params) {
                 Ok(factors) => available.push(factors),
-                Err(SelectionError::BadIndexer(err)) => errors.add(err, &candidate.indexer),
+                Err(SelectionError::BadIndexer(err)) => {
+                    errors.add(err, &candidate.indexing.indexer)
+                }
                 Err(SelectionError::BadInput(err)) => return Err(err),
             };
         }
@@ -254,21 +251,18 @@ impl State {
         tracing::debug!(score_cutoff = *score_cutoff);
         available.retain(|factors| factors.expected_score >= score_cutoff);
 
-        let mut selections = select_indexers(rng, params, &available, selection_limit);
-        selections.truncate(selection_limit as usize);
+        let selections = select_indexers(rng, params, &available);
         Ok((selections, errors))
     }
 
     fn selection_factors(
         &self,
-        candidate: &Indexing,
+        candidate: &Candidate,
         params: &UtilityParameters,
-        context: &mut Context<'_>,
-        selection_limit: u8,
     ) -> Result<SelectionFactors, SelectionError> {
         let state = self
             .indexings
-            .get(candidate)
+            .get(&candidate.indexing)
             .ok_or(IndexerError::NoStatus)?;
 
         let block_status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
@@ -285,12 +279,9 @@ impl State {
             .slashable_usd(state.status.stake)
             .ok_or(InputError::MissingNetworkParams)?;
 
-        let fee = indexer_fee(
-            &state.status.cost_model,
-            context,
-            &params.budget,
-            selection_limit,
-        )?;
+        if candidate.fee > params.budget {
+            return Err(IndexerError::FeeTooHigh.into());
+        }
 
         let reliability = state.reliability.expected_value();
         let perf_success = state.perf_success.expected_value();
@@ -305,12 +296,13 @@ impl State {
             block_status.blocks_behind,
             slashable_usd,
             zero_allocation,
-            &fee,
+            &candidate.fee,
         ))
         .unwrap_or(NotNan::zero());
+        debug_assert!(*expected_score > 0.0);
 
         Ok(SelectionFactors {
-            indexing: *candidate,
+            indexing: candidate.indexing,
             url: state.status.url.clone(),
             versions_behind: state.status.versions_behind,
             reliability,
@@ -319,7 +311,7 @@ impl State {
             blocks_behind: block_status.blocks_behind,
             slashable_usd,
             expected_score,
-            fee,
+            fee: candidate.fee,
             last_use: state.last_use,
             sybil: sybil(&state.status.allocation)?,
         })

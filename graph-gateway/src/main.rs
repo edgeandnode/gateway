@@ -476,7 +476,6 @@ async fn write_indexer_inputs(
             url: indexer.url.clone(),
             stake: indexer.staked_tokens,
             allocation: indexer.allocated_tokens,
-            cost_model: status.cost_model.clone(),
             block: Some(BlockStatus {
                 reported_number: status.block.number,
                 blocks_behind: latest_block.saturating_sub(status.block.number),

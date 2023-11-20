@@ -1,15 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use alloy_primitives::{BlockHash, BlockNumber};
+use cost_model::Context;
 use graphql::graphql_parser::query::{
     Definition, Document, OperationDefinition, Selection, Text, Value,
 };
 use graphql::{IntoStaticValue as _, QueryVariables, StaticValue};
+use indexer_selection::UnresolvedBlock;
 use itertools::Itertools as _;
 use serde_json::{self, json};
 use toolshed::thegraph::BlockPointer;
-
-use indexer_selection::{Context, UnresolvedBlock};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {
@@ -29,7 +29,9 @@ impl BlockConstraint {
     }
 }
 
-pub fn block_constraints<'c>(context: &'c Context<'c>) -> Option<BTreeSet<BlockConstraint>> {
+pub fn block_constraints<'c>(
+    context: &'c Context<'c, String>,
+) -> Option<BTreeSet<BlockConstraint>> {
     let mut constraints = BTreeSet::new();
     let vars = &context.variables;
     // ba6c90f1-3baf-45be-ac1c-f60733404436
@@ -72,7 +74,7 @@ pub fn block_constraints<'c>(context: &'c Context<'c>) -> Option<BTreeSet<BlockC
 }
 
 pub fn make_query_deterministic(
-    mut ctx: Context<'_>,
+    mut ctx: Context<'_, String>,
     resolved: &BTreeSet<BlockPointer>,
     latest: &BlockPointer,
 ) -> Option<String> {
