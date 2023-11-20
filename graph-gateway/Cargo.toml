@@ -13,13 +13,16 @@ axum = { version = "0.6.15", default-features = false, features = [
     "original-uri",
 ] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+cost-model = { git = "https://github.com/graphprotocol/agora", rev = "9984f9e" }
 ethers = { version = "2.0.10", default-features = false, features = ["abigen"] }
-eventuals.workspace = true
+eventuals = "0.6.7"
 faster-hex = "0.8.0"
 futures = "0.3"
 graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "334d18b" }
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.1.0" }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed.git", tag = "graphql-http-v0.1.0", features = ["http-reqwest"] }
+graphql-http = { git = "https://github.com/edgeandnode/toolshed.git", tag = "graphql-http-v0.1.0", features = [
+    "http-reqwest",
+] }
 hex = "0.4"
 indexer-selection = { path = "../indexer-selection" }
 indoc = "2.0.3"

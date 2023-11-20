@@ -1,18 +1,17 @@
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 
 use alloy_primitives::Address;
+use cost_model::CostModel;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
+use indexer_selection::Indexing;
+use prelude::epoch_cache::EpochCache;
 use semver::Version;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 use toolshed::url::{url::Host, Url};
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
-
-use indexer_selection::cost_model::CostModel;
-use indexer_selection::Indexing;
-use prelude::epoch_cache::EpochCache;
 
 use crate::geoip::GeoIP;
 use crate::indexers_status::cost_models::{self, CostModelQuery, CostModelSourceResponse};

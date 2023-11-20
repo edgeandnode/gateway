@@ -3,17 +3,14 @@ use std::time::{Duration, Instant};
 
 use alloy_primitives::Address;
 use anyhow::Result;
-use eventuals::Ptr;
-use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
-use rand_distr::Normal;
-
 use prelude::test_utils::{bytes_from_id, init_test_tracing};
 use prelude::{UDecimal18, GRT};
+use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
+use rand_distr::Normal;
 use toolshed::thegraph::DeploymentId;
 
-use crate::test_utils::default_cost_model;
 use crate::{
-    BlockStatus, Context, IndexerErrorObservation, Indexing, IndexingStatus, Selection, State,
+    BlockStatus, Candidate, IndexerErrorObservation, Indexing, IndexingStatus, Selection, State,
     UtilityParameters,
 };
 
@@ -67,7 +64,6 @@ pub async fn simulate(
                 url: "http://localhost".parse().unwrap(),
                 stake: characteristics.stake,
                 allocation: characteristics.allocation,
-                cost_model: Some(Ptr::new(default_cost_model(characteristics.fee))),
                 block: Some(BlockStatus {
                     reported_number: params
                         .latest_block
@@ -81,11 +77,14 @@ pub async fn simulate(
         );
     }
 
-    let candidates: Vec<Indexing> = characteristics
+    let candidates: Vec<Candidate> = characteristics
         .iter()
-        .map(|c| Indexing {
-            indexer: c.address,
-            deployment,
+        .map(|c| Candidate {
+            indexing: Indexing {
+                indexer: c.address,
+                deployment,
+            },
+            fee: c.fee,
         })
         .collect();
     let characteristics: HashMap<&Address, &IndexerCharacteristics> =
@@ -96,11 +95,9 @@ pub async fn simulate(
             isa.decay();
         }
 
-        let mut context = Context::new("{ a }", "").unwrap();
         let t0 = Instant::now();
-        let (mut selections, _) = isa
-            .select_indexers(&mut rng, &candidates, params, &mut context, selection_limit)
-            .unwrap();
+        let (mut selections, _) = isa.select_indexers(&mut rng, params, &candidates).unwrap();
+        selections.truncate(selection_limit as usize);
         results.avg_selection_seconds += Instant::now().duration_since(t0).as_secs_f64();
 
         selections

@@ -4,26 +4,20 @@ use std::ops::RangeInclusive;
 
 use alloy_primitives::Address;
 use anyhow::{bail, ensure};
-use eventuals::Ptr;
-use num_traits::ToPrimitive as _;
-use rand::{
-    rngs::SmallRng,
-    seq::{IteratorRandom, SliceRandom},
-    thread_rng, Rng, RngCore as _, SeedableRng as _,
-};
-use tokio::spawn;
-
 use prelude::buffer_queue::QueueWriter;
 use prelude::test_utils::bytes_from_id;
 use prelude::{buffer_queue, double_buffer, UDecimal18, GRT};
+use rand::rngs::SmallRng;
+use rand::seq::{IteratorRandom, SliceRandom};
+use rand::{thread_rng, Rng, RngCore as _, SeedableRng as _};
+use tokio::spawn;
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 
 use crate::actor::{process_updates, Update};
-use crate::test_utils::default_cost_model;
 use crate::{
-    BlockRequirements, BlockStatus, Context, IndexerError, IndexerErrors, Indexing, IndexingState,
-    IndexingStatus, InputError, NetworkParameters, Selection, State, UtilityParameters,
-    SELECTION_LIMIT,
+    BlockRequirements, BlockStatus, Candidate, IndexerError, IndexerErrors, Indexing,
+    IndexingState, IndexingStatus, InputError, NetworkParameters, Selection, State,
+    UtilityParameters,
 };
 
 #[derive(Clone)]
@@ -41,6 +35,7 @@ struct Topology {
     blocks: Vec<BlockPointer>,
     deployments: HashSet<DeploymentId>,
     indexings: HashMap<Indexing, IndexingStatus>,
+    fees: HashMap<Indexing, GRT>,
 }
 
 #[derive(Debug)]
@@ -48,8 +43,6 @@ struct Request {
     deployment: DeploymentId,
     indexers: Vec<Address>,
     params: UtilityParameters,
-    query: String,
-    selection_limit: u8,
 }
 
 fn base_indexing_status() -> IndexingStatus {
@@ -57,7 +50,6 @@ fn base_indexing_status() -> IndexingStatus {
         url: "http://localhost:8000".parse().unwrap(),
         stake: GRT(UDecimal18::from(1)),
         allocation: GRT(UDecimal18::from(1)),
-        cost_model: None,
         block: Some(BlockStatus {
             reported_number: 0,
             blocks_behind: 0,
@@ -96,8 +88,13 @@ impl Topology {
                 hash: bytes_from_id(id).into(),
             })
             .collect::<Vec<BlockPointer>>();
-        let indexings = (0..rng.gen_range(config.indexings.clone()))
+        let indexings: HashMap<Indexing, IndexingStatus> = (0..rng
+            .gen_range(config.indexings.clone()))
             .filter_map(|_| Self::gen_indexing(rng, config, &blocks, &deployments))
+            .collect();
+        let fees: HashMap<Indexing, GRT> = indexings
+            .keys()
+            .map(|i| (*i, Self::gen_grt(rng, &[0.0, 0.1, 1.0, 2.0])))
             .collect();
         let state = Self {
             grt_per_usd: GRT(UDecimal18::from(1)),
@@ -105,6 +102,7 @@ impl Topology {
             blocks,
             deployments,
             indexings,
+            fees,
         };
 
         update_writer
@@ -133,10 +131,6 @@ impl Topology {
         };
         let status = IndexingStatus {
             stake: Self::gen_grt(rng, &[0.0, 50e3, 100e3, 150e3]),
-            cost_model: Some(Ptr::new(default_cost_model(Self::gen_grt(
-                rng,
-                &[0.0, 0.1, 1.0, 2.0],
-            )))),
             block: blocks.choose(rng).map(|b| BlockStatus {
                 reported_number: b.number,
                 blocks_behind: blocks.len() as u64 - 1 - b.number,
@@ -174,8 +168,6 @@ impl Topology {
                 },
                 self.blocks.last()?.number,
             ),
-            query: "{ entities { id } }".to_string(),
-            selection_limit: rng.gen_range(1..=SELECTION_LIMIT) as u8,
         })
     }
 
@@ -189,8 +181,6 @@ impl Topology {
             Err(_) => bail!("unexpected InputError"),
         };
 
-        let mut context = Context::new(&request.query, "").unwrap();
-
         let fees = GRT(selections.iter().map(|s| s.fee.0).sum());
         ensure!(fees <= request.params.budget);
 
@@ -199,21 +189,14 @@ impl Topology {
 
         let mut expected_errors = IndexerErrors(BTreeMap::new());
         for indexer in &request.indexers {
-            let status = self
-                .indexings
-                .get(&Indexing {
-                    indexer: *indexer,
-                    deployment: request.deployment,
-                })
-                .unwrap();
+            let indexing = Indexing {
+                indexer: *indexer,
+                deployment: request.deployment,
+            };
+            let status = self.indexings.get(&indexing).unwrap();
             let required_block = request.params.requirements.range.map(|(_, n)| n);
-            let fee = status
-                .cost_model
-                .as_ref()
-                .map(|c| c.cost_with_context(&mut context).unwrap().to_f64().unwrap())
-                .unwrap_or(0.0)
-                / 1e18;
-            println!("indexer={}, fee={}", indexer, fee);
+            let fee = *self.fees.get(&indexing).unwrap();
+            println!("indexer={}, fee={:?}", indexer, fee);
             let mut set_err = |err: IndexerError| {
                 expected_errors.0.entry(err).or_default().insert(indexer);
             };
@@ -225,7 +208,7 @@ impl Topology {
                 set_err(IndexerError::NoStatus);
             } else if status.stake == GRT(UDecimal18::from(0)) {
                 set_err(IndexerError::NoStake);
-            } else if fee > request.params.budget.0.into() {
+            } else if fee > request.params.budget {
                 set_err(IndexerError::FeeTooHigh);
             }
         }
@@ -273,22 +256,23 @@ async fn fuzz() {
             None => continue,
         };
         println!("{:#?}", request);
-        let mut context = Context::new(&request.query, "").unwrap();
-        let candidates: Vec<Indexing> = request
+        let candidates: Vec<Candidate> = request
             .indexers
             .iter()
-            .map(|indexer| Indexing {
-                indexer: *indexer,
-                deployment: request.deployment,
+            .map(|indexer| {
+                let indexing = Indexing {
+                    indexer: *indexer,
+                    deployment: request.deployment,
+                };
+                Candidate {
+                    fee: *topology.fees.get(&indexing).unwrap(),
+                    indexing,
+                }
             })
             .collect();
-        let result = isa_state.latest().select_indexers(
-            &mut rng,
-            &candidates,
-            &request.params,
-            &mut context,
-            request.selection_limit,
-        );
+        let result = isa_state
+            .latest()
+            .select_indexers(&mut rng, &request.params, &candidates);
         if let Err(err) = topology.check(&request, &result) {
             println!("{}", err);
             println!("TEST_SEED={}", seed);
@@ -302,10 +286,13 @@ async fn fuzz() {
 fn favor_higher_version() {
     let mut rng = SmallRng::from_entropy();
 
-    let candidates: Vec<Indexing> = (0..2)
-        .map(|i| Indexing {
-            indexer: bytes_from_id(0).into(),
-            deployment: DeploymentId(bytes_from_id(i).into()),
+    let candidates: Vec<Candidate> = (0..2)
+        .map(|i| Candidate {
+            indexing: Indexing {
+                indexer: bytes_from_id(0).into(),
+                deployment: DeploymentId(bytes_from_id(i).into()),
+            },
+            fee: GRT(UDecimal18::from(1)),
         })
         .collect();
     let mut versions_behind = [rng.gen_range(0..3), rng.gen_range(0..3)];
@@ -321,14 +308,14 @@ fn favor_higher_version() {
         indexings: HashMap::from_iter([]),
     };
     state.indexings.insert(
-        candidates[0],
+        candidates[0].indexing,
         IndexingState::new(IndexingStatus {
             versions_behind: versions_behind[0],
             ..base_indexing_status()
         }),
     );
     state.indexings.insert(
-        candidates[1],
+        candidates[1].indexing,
         IndexingState::new(IndexingStatus {
             versions_behind: versions_behind[1],
             ..base_indexing_status()
@@ -343,8 +330,7 @@ fn favor_higher_version() {
         },
         1,
     );
-    let mut context = Context::new("{ a { b } }", "").unwrap();
-    let result = state.select_indexers(&mut rng, &candidates, &params, &mut context, 1);
+    let result = state.select_indexers(&mut rng, &params, &candidates);
 
     println!("{:#?}", candidates);
     println!("{:#?}", versions_behind);
@@ -355,7 +341,7 @@ fn favor_higher_version() {
         .iter()
         .position(|v| v == max_version)
         .unwrap();
-    let expected = candidates[index];
+    let expected = candidates[index].indexing;
 
     let selection = result.unwrap().0[0].indexing;
     assert_eq!(selection, expected);

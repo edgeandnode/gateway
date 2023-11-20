@@ -50,8 +50,8 @@ pub fn sip24_hash(value: &impl Hash) -> u64 {
 // between these types.
 
 /// GRT with 18 fractional digits
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GRT(pub UDecimal18);
 /// USD with 18 fractional digits
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct USD(pub UDecimal18);
