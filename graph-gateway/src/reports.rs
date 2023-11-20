@@ -33,6 +33,12 @@ impl KafkaClient {
     }
 
     pub fn send(&self, topic: &str, payload: &[u8]) {
+        // Don't bother attepting to send messages that the broker should reject.
+        const MAX_MSG_BYTES: usize = 1 << 20;
+        if payload.len() > MAX_MSG_BYTES {
+            tracing::warn!(kafka_producer_err = "msg too big");
+        }
+
         let record = rdkafka::producer::BaseRecord::<'_, (), [u8]>::to(topic).payload(payload);
         if let Err((kafka_producer_err, _)) = self.producer.send(record) {
             tracing::error!(%kafka_producer_err, %topic);
