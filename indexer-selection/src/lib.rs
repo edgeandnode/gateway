@@ -295,6 +295,7 @@ impl State {
         let reliability = state.reliability.expected_value();
         let perf_success = state.perf_success.expected_value();
         let slashable_usd = slashable.0.into();
+        let zero_allocation = state.status.allocation == GRT(UDecimal18::from(0));
 
         let expected_score = NotNan::new(expected_individual_score(
             params,
@@ -303,6 +304,7 @@ impl State {
             state.status.versions_behind,
             block_status.blocks_behind,
             slashable_usd,
+            zero_allocation,
             &fee,
         ))
         .unwrap_or(NotNan::zero());

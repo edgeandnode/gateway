@@ -207,6 +207,7 @@ impl MetaIndexer<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn expected_individual_score(
     params: &UtilityParameters,
     reliability: f64,
@@ -214,8 +215,10 @@ pub fn expected_individual_score(
     versions_behind: u8,
     blocks_behind: u64,
     slashable_usd: f64,
+    zero_allocation: bool,
     fee: &GRT,
 ) -> f64 {
+    let altruism_penalty = UtilityFactor::one(if zero_allocation { 0.8 } else { 1.0 });
     weighted_product_model([
         reliability_utility(reliability),
         performance_utility(perf_success as u32),
@@ -223,6 +226,7 @@ pub fn expected_individual_score(
         versions_behind_utility(versions_behind),
         data_freshness_utility(params.block_rate_hz, &params.requirements, blocks_behind),
         fee_utility(fee, &params.budget),
+        altruism_penalty,
     ])
 }
 
