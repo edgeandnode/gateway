@@ -372,7 +372,7 @@ async fn handle_client_query_inner(
             user_address = ?api_key.user_address,
             api_key = %api_key.key,
         ),
-        AuthToken::Ticket(payload, _) => tracing::info!(
+        AuthToken::Ticket(payload) => tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
             user_address = ?payload.user(),
             ticket_payload = serde_json::to_string(payload).unwrap(),
