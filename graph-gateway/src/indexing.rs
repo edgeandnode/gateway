@@ -7,7 +7,6 @@ use futures::future::join_all;
 use indexer_selection::Indexing;
 use prelude::epoch_cache::EpochCache;
 use semver::Version;
-use serde::Deserialize;
 use tokio::sync::Mutex;
 use toolshed::thegraph::{BlockPointer, DeploymentId};
 use toolshed::url::{url::Host, Url};
@@ -16,6 +15,7 @@ use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 use crate::geoip::GeoIP;
 use crate::indexers_status::cost_models::{self, CostModelQuery, CostModelSourceResponse};
 use crate::indexers_status::indexing_statuses::{self, IndexingStatusResponse};
+use crate::indexers_status::version;
 use crate::topology::Deployment;
 
 pub struct IndexingStatus {
@@ -112,17 +112,7 @@ async fn update_indexer(
     let version_url = url
         .join("version")
         .map_err(|err| format!("IndexerVersionError({err})"))?;
-    let version = client
-        .get(version_url)
-        .send()
-        .await
-        .map_err(|err| format!("IndexerVersionError({err})"))?
-        .json::<IndexerVersion>()
-        .await
-        .map_err(|err| format!("IndexerVersionError({err})"))?
-        .version
-        .parse::<Version>()
-        .map_err(|err| format!("IndexerVersionError({err})"))?;
+    let version = query_indexer_version(client.clone(), version_url.into()).await?;
 
     let mut locked_actor = actor.lock().await;
     if version < locked_actor.min_version {
@@ -198,6 +188,18 @@ async fn query_indexer_for_cost_models(
         .await
         .map_err(|err| err.to_string())
         .map(|res| res.cost_models)
+}
+
+/// Convenience wrapper method around [`client::send_version_query`] to map the result
+/// types to the expected by [`update_indexer`] method.
+async fn query_indexer_version(
+    client: reqwest::Client,
+    version_url: Url,
+) -> Result<Version, String> {
+    version::client::send_version_query(client, version_url)
+        .await
+        .map_err(|err| err.to_string())
+        .map(|res| res.version)
 }
 
 async fn query_status(
@@ -297,9 +299,4 @@ fn compile_cost_model(
 struct CostModelSource {
     model: String,
     variables: String,
-}
-
-#[derive(Deserialize)]
-struct IndexerVersion {
-    version: String,
 }
