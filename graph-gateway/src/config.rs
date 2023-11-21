@@ -3,13 +3,13 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, B256, U256};
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
 use prelude::UDecimal18;
 use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr, FromInto};
+use serde_with::{serde_as, DeserializeAs, DisplayFromStr, FromInto};
 use toolshed::url::Url;
 
 use crate::chains::ethereum;
@@ -154,11 +154,11 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
 pub struct Scalar {
     /// Scalar TAP verifier contract chain
     pub chain_id: U256,
-    /// Mnemonic for legacy voucher signing
-    #[serde_as(as = "Option<DisplayFromStr>")]
+    /// Secret key for legacy voucher signing
+    #[serde_as(as = "Option<HiddenSecretKey>")]
     pub legacy_signer: Option<Hidden<SecretKey>>,
-    /// Mnemonic for voucher signing
-    #[serde_as(as = "DisplayFromStr")]
+    /// Secret key for voucher signing
+    #[serde_as(as = "HiddenSecretKey")]
     pub signer: Hidden<SecretKey>,
     /// Scalar TAP verifier contract address
     pub verifier: Address,
@@ -212,5 +212,18 @@ impl<T> Deref for Hidden<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+struct HiddenSecretKey;
+impl<'de> DeserializeAs<'de, Hidden<SecretKey>> for HiddenSecretKey {
+    fn deserialize_as<D>(deserializer: D) -> Result<Hidden<SecretKey>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let bytes = B256::deserialize(deserializer)?;
+        SecretKey::from_slice(bytes.as_slice())
+            .map(Hidden)
+            .map_err(serde::de::Error::custom)
     }
 }
