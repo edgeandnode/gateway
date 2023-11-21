@@ -34,7 +34,7 @@ pub enum AuthToken {
     /// API key from the Subgraph Studio Database.
     ApiKey(Arc<APIKey>),
     /// Ticket associated with a subscription.
-    Ticket(TicketPayload, Subscription),
+    Ticket(TicketPayload),
 }
 
 impl AuthHandler {
@@ -90,25 +90,7 @@ impl AuthHandler {
         }
 
         let (payload, _) = TicketPayload::from_ticket_base64(input)?;
-
-        let user: Address = payload.user().0.into();
-        let subscription = self
-            .subscriptions
-            .value_immediate()
-            .unwrap_or_default()
-            .get(&user)
-            .cloned()
-            .ok_or_else(|| anyhow!("Subscription not found for user {}", user))?;
-
-        let signer: Address = payload.signer.0.into();
-        ensure!(
-            (signer == user) || subscription.signers.contains(&signer),
-            "Signer {} not authorized for user {}",
-            signer,
-            user,
-        );
-
-        Ok(AuthToken::Ticket(payload, subscription))
+        Ok(AuthToken::Ticket(payload))
     }
 
     pub async fn check_token(
@@ -134,7 +116,7 @@ impl AuthHandler {
         // Check deployment allowlist
         let allowed_deployments: Vec<DeploymentId> = match token {
             AuthToken::ApiKey(api_key) => api_key.deployments.clone(),
-            AuthToken::Ticket(payload, _) => payload
+            AuthToken::Ticket(payload) => payload
                 .allowed_deployments
                 .iter()
                 .flat_map(|s| s.split(','))
@@ -151,7 +133,7 @@ impl AuthHandler {
         // Check subgraph allowlist
         let allowed_subgraphs: Vec<SubgraphId> = match token {
             AuthToken::ApiKey(api_key) => api_key.subgraphs.clone(),
-            AuthToken::Ticket(payload, _) => payload
+            AuthToken::Ticket(payload) => payload
                 .allowed_subgraphs
                 .iter()
                 .flat_map(|s| s.split(','))
@@ -171,7 +153,7 @@ impl AuthHandler {
         // Check domain allowlist
         let allowed_domains: Vec<&str> = match token {
             AuthToken::ApiKey(api_key) => api_key.domains.iter().map(|s| s.as_str()).collect(),
-            AuthToken::Ticket(payload, _) => payload
+            AuthToken::Ticket(payload) => payload
                 .allowed_domains
                 .iter()
                 .flat_map(|s| s.split(','))
@@ -184,9 +166,9 @@ impl AuthHandler {
 
         // Check rate limit for subscriptions. This step should be last to avoid invalid queries
         // taking up the rate limit.
-        let (ticket_payload, subscription) = match token {
+        let ticket_payload = match token {
             AuthToken::ApiKey(_) => return Ok(()),
-            AuthToken::Ticket(payload, subscription) => (payload, subscription),
+            AuthToken::Ticket(payload) => payload,
         };
 
         // This is safe, since we have already verified the signature and the claimed signer match.
@@ -198,6 +180,20 @@ impl AuthHandler {
         {
             return Ok(());
         }
+
+        let user: Address = ticket_payload.user().0.into();
+        let subscription = self
+            .subscriptions
+            .value_immediate()
+            .unwrap_or_default()
+            .get(&user)
+            .cloned()
+            .ok_or_else(|| anyhow!("Subscription not found for user {}", user))?;
+        let signer: Address = ticket_payload.signer.0.into();
+        ensure!(
+            (signer == user) || subscription.signers.contains(&signer),
+            "Signer {signer} not authorized for user {user}",
+        );
 
         let matches_subscriptions_domain = self
             .subscription_domains
