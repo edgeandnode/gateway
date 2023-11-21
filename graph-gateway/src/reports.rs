@@ -183,12 +183,14 @@ impl tracing_subscriber::field::Visit for CollectFields<'_> {
 
     fn record_u128(&mut self, field: &tracing::field::Field, value: u128) {
         debug_assert!(false, "u128 should not be serialized to JSON");
-        self.0.insert(field.name().to_owned(), value.into());
+        self.0
+            .insert(field.name().to_owned(), value.to_string().into());
     }
 
     fn record_i128(&mut self, field: &tracing::field::Field, value: i128) {
         debug_assert!(false, "1128 should not be serialized to JSON");
-        self.0.insert(field.name().to_owned(), value.into());
+        self.0
+            .insert(field.name().to_owned(), value.to_string().into());
     }
 }
 
