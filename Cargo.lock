@@ -4297,8 +4297,8 @@ dependencies = [
 
 [[package]]
 name = "toolshed"
-version = "0.2.2"
-source = "git+https://github.com/edgeandnode/toolshed?rev=e9f3446#e9f344633ef0d78a3209fac295de57c6397bd009"
+version = "0.2.3"
+source = "git+https://github.com/edgeandnode/toolshed?tag=v0.2.3#caeaa72e028ef2f60f1b480de796e6d97aebf4a1"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
