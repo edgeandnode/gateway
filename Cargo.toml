@@ -28,5 +28,5 @@ tokio = { version = "1.24", features = [
     "sync",
     "time",
 ] }
-toolshed = { git = "https://github.com/edgeandnode/toolshed", rev = "e9f3446" }
+toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "v0.2.3" }
 tracing = { version = "0.1", default-features = false }
