@@ -76,7 +76,7 @@ impl Client {
         );
         let active_subscriptions_response = self
             .subgraph_client
-            .paginated_query::<ActiveSubscription>(&query)
+            .paginated_query::<ActiveSubscription>(query)
             .await?;
         if active_subscriptions_response.is_empty() {
             return Err("Discarding empty update (active_subscriptions)".to_string());
