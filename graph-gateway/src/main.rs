@@ -128,7 +128,7 @@ async fn main() {
     );
 
     let network_subgraph_client =
-        subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone(), None);
+        subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
     let network_subgraph_data =
         network_subgraph::Client::create(network_subgraph_client, config.l2_gateway.is_some())
             .await
@@ -239,11 +239,9 @@ async fn main() {
     let subscriptions = match &config.subscriptions {
         None => Eventual::from_value(Ptr::default()),
         Some(subscriptions) => subscriptions_subgraph::Client::create(
-            subgraph_client::Client::new(
-                http_client.clone(),
-                subscriptions.subgraph.clone(),
-                subscriptions.ticket.clone(),
-            ),
+            subgraph_client::Client::builder(http_client.clone(), subscriptions.subgraph.clone())
+                .with_auth_token(subscriptions.ticket.clone())
+                .build(),
             subscription_tiers,
         ),
     };
