@@ -1,4 +1,4 @@
-# Release Process
+# Releases
 
 1. Test the main branch using the [edgeandnode/local-network](https://github.com/edgeandnode/local-network)
    - Make sure that the gateway returns a correct response to a valid query
@@ -12,3 +12,4 @@
    - Create a new release via GitHub
      - Include the release notes from the PR
      - Tag the commit with the version string, prefixed with a `v`
+
