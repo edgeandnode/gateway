@@ -51,24 +51,24 @@ impl Metrics {
             block_resolution: ResponseMetricVecs::new(
                 "gw_block_resolution",
                 "block requests",
-                &["network"],
+                &["chain"],
             ),
             block_cache_hit: register_int_counter_vec!(
                 "gw_block_cache_hit",
                 "block cache hit count",
-                &["network"]
+                &["chain"]
             )
             .unwrap(),
             block_cache_miss: register_int_counter_vec!(
                 "gw_block_cache_miss",
                 "block cache miss count",
-                &["network"]
+                &["chain"]
             )
             .unwrap(),
             chain_head: register_int_gauge_vec!(
                 "gw_chain_head",
                 "chain head block number",
-                &["network"]
+                &["chain"]
             )
             .unwrap(),
             indexer_selection_duration: register_histogram!(

@@ -1,6 +1,5 @@
 use std::ops::Deref;
 use std::str::FromStr;
-use std::time::Duration;
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 use alloy_primitives::{Address, B256, U256};
@@ -12,7 +11,6 @@ use serde::Deserialize;
 use serde_with::{serde_as, DeserializeAs, DisplayFromStr, FromInto};
 use toolshed::url::Url;
 
-use crate::chains::ethereum;
 use crate::poi::ProofOfIndexingInfo;
 
 #[serde_as]
@@ -86,23 +84,11 @@ pub struct AttestationConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Chain {
     pub name: String,
     #[serde_as(as = "DisplayFromStr")]
     pub rpc: Url,
-    pub poll_hz: u16,
-    pub block_rate_hz: f64,
-}
-
-impl From<Chain> for ethereum::Provider {
-    fn from(chain: Chain) -> Self {
-        Self {
-            network: chain.name,
-            rpc: chain.rpc,
-            block_time: Duration::from_secs(chain.poll_hz as u64),
-        }
-    }
 }
 
 #[serde_as]
