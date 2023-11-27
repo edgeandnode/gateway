@@ -68,7 +68,6 @@ pub async fn simulate(
                     reported_number: params
                         .latest_block
                         .saturating_sub(characteristics.blocks_behind),
-                    blocks_behind: characteristics.blocks_behind,
                     behind_reported_block: false,
                     min_block: None,
                 }),

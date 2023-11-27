@@ -93,12 +93,8 @@ impl From<IndexerError> for SelectionError {
 pub enum IndexerErrorObservation {
     Timeout,
     IndexingBehind {
-        /// Chain head prior to indexer selection execution
-        latest_block: u64,
         /// Latest block used for the indexer query
         latest_query_block: u64,
-        /// Latest block indexed at the time of query execution, reported by indexer
-        reported_block: Option<u64>,
     },
     BadAttestation,
     Other,
@@ -186,9 +182,9 @@ impl State {
         }
     }
 
-    pub fn penalize(&mut self, indexing: &Indexing, weight: u8) {
+    pub fn penalize(&mut self, indexing: &Indexing) {
         if let Some(state) = self.indexings.get_mut(indexing) {
-            state.penalize(weight);
+            state.penalize();
         }
     }
 
@@ -266,7 +262,7 @@ impl State {
             .ok_or(IndexerError::NoStatus)?;
 
         let block_status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
-        if !block_status.meets_requirements(&params.requirements, params.latest_block) {
+        if !block_status.meets_requirements(&params.requirements) {
             return Err(IndexerError::MissingRequiredBlock.into());
         }
 
@@ -287,13 +283,16 @@ impl State {
         let perf_success = state.perf_success.expected_value();
         let slashable_usd = slashable.0.into();
         let zero_allocation = state.status.allocation == GRT(UDecimal18::from(0));
+        let blocks_behind = params
+            .latest_block
+            .saturating_sub(block_status.reported_number);
 
         let expected_score = NotNan::new(expected_individual_score(
             params,
             reliability,
             perf_success,
             state.status.versions_behind,
-            block_status.blocks_behind,
+            blocks_behind,
             slashable_usd,
             zero_allocation,
             &candidate.fee,
@@ -308,7 +307,7 @@ impl State {
             reliability,
             perf_success,
             perf_failure: state.perf_failure.expected_value(),
-            blocks_behind: block_status.blocks_behind,
+            blocks_behind,
             slashable_usd,
             expected_score,
             fee: candidate.fee,

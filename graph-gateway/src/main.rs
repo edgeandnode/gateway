@@ -1,5 +1,4 @@
-use std::collections::hash_map::{Entry, HashMap};
-use std::collections::hash_set::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::read_to_string;
 use std::io::Write as _;
@@ -215,7 +214,6 @@ async fn main() {
                 let update_writer = update_writer.clone();
                 async move {
                     write_indexer_inputs(
-                        block_caches,
                         &update_writer,
                         receipt_signer,
                         &deployments,
@@ -427,7 +425,6 @@ async fn handle_subscription_tiers(
 }
 
 async fn write_indexer_inputs(
-    block_caches: &HashMap<String, BlockCache>,
     update_writer: &QueueWriter<Update>,
     receipt_signer: &ReceiptSigner,
     deployments: &HashMap<DeploymentId, Arc<Deployment>>,
@@ -444,7 +441,6 @@ async fn write_indexer_inputs(
 
     let mut indexings: HashMap<Indexing, indexer_selection::IndexingStatus> = HashMap::new();
     let mut allocations: HashMap<Indexing, Address> = HashMap::new();
-    let mut latest_blocks: HashMap<String, u64> = HashMap::new();
     for (versions_behind, (deployment, indexer)) in deployments.values().flat_map(|deployment| {
         deployment
             .indexers
@@ -461,22 +457,12 @@ async fn write_indexer_inputs(
             Some(status) => status,
             None => continue,
         };
-        let latest_block = match latest_blocks.entry(status.chain.clone()) {
-            Entry::Occupied(entry) => *entry.get(),
-            Entry::Vacant(entry) => *entry.insert(
-                block_caches
-                    .get(&status.chain)
-                    .and_then(|cache| cache.chain_head.value_immediate().map(|b| b.number))
-                    .unwrap_or(0),
-            ),
-        };
         let update = indexer_selection::IndexingStatus {
             url: indexer.url.clone(),
             stake: indexer.staked_tokens,
             allocation: indexer.allocated_tokens,
             block: Some(BlockStatus {
                 reported_number: status.block.number,
-                blocks_behind: latest_block.saturating_sub(status.block.number),
                 behind_reported_block: false,
                 min_block: status.min_block,
             }),

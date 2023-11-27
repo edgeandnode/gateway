@@ -639,7 +639,6 @@ async fn handle_client_query_inner(
                 attestation_domain: ctx.attestation_domain,
                 observations: ctx.observations.clone(),
                 deployment,
-                latest_block: latest_block.number,
                 response_time: Duration::default(),
             };
 
@@ -726,7 +725,6 @@ struct IndexerQueryContext {
     pub attestation_domain: &'static Eip712Domain,
     pub observations: QueueWriter<Update>,
     pub deployment: Arc<Deployment>,
-    pub latest_block: u64,
     pub response_time: Duration,
 }
 
@@ -775,11 +773,9 @@ async fn handle_indexer_query(
     let observation = match &result {
         Ok(_) => Ok(()),
         Err(IndexerError::Timeout) => Err(IndexerErrorObservation::Timeout),
-        Err(IndexerError::BlockError(block_err)) => Err(IndexerErrorObservation::IndexingBehind {
-            latest_query_block,
-            latest_block: ctx.latest_block,
-            reported_block: block_err.reported_status,
-        }),
+        Err(IndexerError::BlockError(_)) => {
+            Err(IndexerErrorObservation::IndexingBehind { latest_query_block })
+        }
         Err(_) => Err(IndexerErrorObservation::Other),
     };
     if let Ok(receipt) = receipt {
@@ -852,7 +848,6 @@ async fn handle_indexer_query_inner(
         if miscategorized_unattestable(error) {
             let _ = ctx.observations.write(Update::Penalty {
                 indexing: selection.indexing,
-                weight: 35,
             });
             tracing::info!(%error, "penalizing for unattestable error");
             return Err(IndexerError::UnattestableError(StatusCode::OK));
