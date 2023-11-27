@@ -25,7 +25,6 @@ pub enum Update {
     },
     Penalty {
         indexing: Indexing,
-        weight: u8,
     },
 }
 
@@ -83,6 +82,6 @@ pub fn apply_state_update(state: &mut State, update: &Update) {
         } => {
             state.observe_query(indexing, *duration, *result);
         }
-        Update::Penalty { indexing, weight } => state.penalize(indexing, *weight),
+        Update::Penalty { indexing } => state.penalize(indexing),
     }
 }
