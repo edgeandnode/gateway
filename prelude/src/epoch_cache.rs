@@ -82,6 +82,13 @@ impl<K: Eq + Hash, V, const C: u8> EpochCache<K, V, C> {
             f(v);
         }
     }
+
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&K, &mut V) -> bool,
+    {
+        self.0.retain(|k, (v, _)| f(k, v));
+    }
 }
 
 #[cfg(test)]
