@@ -52,7 +52,6 @@ fn base_indexing_status() -> IndexingStatus {
         allocation: GRT(UDecimal18::from(1)),
         block: Some(BlockStatus {
             reported_number: 0,
-            blocks_behind: 0,
             behind_reported_block: false,
             min_block: None,
         }),
@@ -133,7 +132,6 @@ impl Topology {
             stake: Self::gen_grt(rng, &[0.0, 50e3, 100e3, 150e3]),
             block: blocks.choose(rng).map(|b| BlockStatus {
                 reported_number: b.number,
-                blocks_behind: blocks.len() as u64 - 1 - b.number,
                 behind_reported_block: false,
                 min_block: None,
             }),
