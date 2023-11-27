@@ -515,12 +515,13 @@ async fn handle_client_query_inner(
     );
     candidates.retain(|c| c.fee <= budget);
 
+    let block_rate_hz = block_cache.blocks_per_minute.value_immediate().unwrap_or(0) as f64 / 60.0;
     let mut utility_params = UtilityParameters {
         budget,
         requirements: block_requirements,
         // 170cbcf3-db7f-404a-be13-2022d9142677
         latest_block: 0,
-        block_rate_hz: block_cache.block_rate_hz,
+        block_rate_hz,
     };
 
     let mut rng = SmallRng::from_entropy();
