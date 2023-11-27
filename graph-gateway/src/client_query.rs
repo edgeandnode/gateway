@@ -446,7 +446,7 @@ async fn handle_client_query_inner(
         })
         .collect();
 
-    let mut block_cache = ctx
+    let block_cache = ctx
         .block_caches
         .get(&subgraph_chain)
         .cloned()
@@ -539,12 +539,8 @@ async fn handle_client_query_inner(
 
     let mut total_indexer_queries = 0;
     let mut total_indexer_fees = GRT(UDecimal18::from(0));
-    // Used to track how many times an indexer failed to resolve a block. This may indicate that
-    // our latest block has been uncled.
-    let mut latest_unresolved: u32 = 0;
 
     for retry in 0..ctx.indexer_selection_retry_limit {
-        let last_retry = retry == (ctx.indexer_selection_retry_limit - 1);
         // Make sure our observations are up-to-date if retrying.
         if retry > 0 {
             let _ = ctx.observations.flush().await;
@@ -602,29 +598,6 @@ async fn handle_client_query_inner(
             indexer_fees_grt = f64::from(total_indexer_fees.0) as f32,
         );
 
-        // The gateway's current strategy for predicting is optimized for keeping responses close to chain head. We've
-        // seen instances where indexers are stuck far behind chain head, potentially due to IPFS data availability
-        // issues. The gateway's predictions are not cutting it in these scenarios where `blocks_behind` values are
-        // constantly increasing. This adds an exponential backoff to the latest_block input to indexer selection when
-        // retries are necessary due to indexers failing to resolve the requested block hash. This also adds a more
-        // aggressive fallback based on the reported block statuses of available indexers. This is not an ideal
-        // solution, since it adds more complexity to one of the most complex interactions in the gateway. I intend to
-        // completely rework this soon. But it will likely require support on the indexer side.
-        let mut backoff = 2_u64.pow(latest_unresolved);
-        if latest_unresolved > 2 {
-            let statuses = ctx.indexing_statuses.value_immediate().unwrap();
-            let mut reported_blocks: Vec<u64> = selections
-                .iter()
-                .filter_map(|s| statuses.get(&s.indexing))
-                .map(|s| s.block.number)
-                .collect();
-            reported_blocks.sort();
-            backoff += reported_blocks
-                .get(reported_blocks.len() / 2)
-                .map(|n| latest_block.number - *n)
-                .unwrap_or(0);
-        }
-
         let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
             let deployment = deployments
@@ -642,12 +615,13 @@ async fn handle_client_query_inner(
                 response_time: Duration::default(),
             };
 
-            let latest_query_block =
-                match block_cache.latest(selection.blocks_behind + backoff).await {
-                    Ok(latest_query_block) => latest_query_block,
-                    Err(_) if !last_retry => continue,
-                    Err(unresolved) => return Err(Error::BlockNotFound(unresolved)),
-                };
+            let latest_query_block = block_cache
+                .fetch_block(UnresolvedBlock::WithNumber(
+                    latest_block.number - selection.blocks_behind,
+                ))
+                .await
+                .map_err(Error::BlockNotFound)?;
+
             // The Agora context must be cloned to preserve the state of the original client query.
             // This to avoid the following scenario:
             // 1. A client query has no block requirements set for some top-level operation
@@ -694,7 +668,6 @@ async fn handle_client_query_inner(
         }
         for _ in 0..selections_len {
             match outcome_rx.recv().await {
-                Some(Err(IndexerError::BlockError(_))) => latest_unresolved += 1,
                 Some(Err(_)) | None => (),
                 Some(Ok(outcome)) => {
                     if !ignore_budget_feedback {
