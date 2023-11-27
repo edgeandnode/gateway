@@ -559,7 +559,7 @@ async fn handle_client_query_inner(
         utility_params.latest_block = latest_block.number;
 
         let selection_timer = METRICS.indexer_selection_duration.start_timer();
-        let (selections, indexer_errors) = ctx
+        let (mut selections, indexer_errors) = ctx
             .isa_state
             .latest()
             .select_indexers(&mut rng, &utility_params, &candidates)
@@ -583,23 +583,19 @@ async fn handle_client_query_inner(
                 .filter(|(_, l)| *l > 0)
                 .collect::<BTreeMap<&IndexerSelectionError, usize>>();
 
-            // Double the budget & retry if there is any indexer requesting a higher fee.
-            if !last_retry && isa_errors.contains_key(&IndexerSelectionError::FeeTooHigh) {
-                utility_params.budget = GRT(utility_params.budget.0 * UDecimal18::from(2));
-                tracing::info!(
-                    target: reports::CLIENT_QUERY_TARGET,
-                    budget_grt = f64::from(budget.0) as f32,
-                    "increase_budget"
-                );
-                continue;
-            }
-
             return Err(Error::NoSuitableIndexer(anyhow!(
                 "Indexer selection errors: {:?}",
                 isa_errors
             )));
         }
 
+        for selection in &mut selections {
+            // TODO: In a future where indexers are expected put more effort into setting cost
+            // models, we should pay selected indexers the maximum fee of the alternatives
+            // (where `fee <= budget`).
+            let min_fee = budget.0 * UDecimal18::try_from(0.75).unwrap();
+            selection.fee = GRT(selection.fee.0.max(min_fee));
+        }
         total_indexer_fees = GRT(total_indexer_fees.0 + selections.iter().map(|s| s.fee.0).sum());
         tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
