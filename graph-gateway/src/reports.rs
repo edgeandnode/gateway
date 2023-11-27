@@ -527,9 +527,11 @@ pub fn serialize_attestation(
     request: String,
     response: String,
 ) -> Vec<u8> {
+    // Limit string payloads to 10 KB.
+    const MAX_LEN: usize = 10_000;
     AttestationProtobuf {
-        request,
-        response,
+        request: (request.len() <= MAX_LEN).then_some(request),
+        response: (response.len() <= MAX_LEN).then_some(response),
         allocation: allocation.0 .0.into(),
         subgraph_deployment: attestation.deployment.0.into(),
         request_cid: attestation.request_cid.0.into(),
@@ -541,10 +543,10 @@ pub fn serialize_attestation(
 
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct AttestationProtobuf {
-    #[prost(string, tag = "1")]
-    request: String,
-    #[prost(string, tag = "2")]
-    response: String,
+    #[prost(string, optional, tag = "1")]
+    request: Option<String>,
+    #[prost(string, optional, tag = "2")]
+    response: Option<String>,
     /// 20 bytes
     #[prost(bytes, tag = "3")]
     allocation: Vec<u8>,
