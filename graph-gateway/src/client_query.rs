@@ -474,8 +474,19 @@ async fn handle_client_query_inner(
         }),
     };
 
-    // Reject queries for blocks before minimum start block in the manifest.
-    if matches!(min_block, Some(min_block) if min_block < manifest_min_block) {
+    // Reject queries for blocks before the minimum start block in the manifest, but only if the
+    // constraint is for an exact block. For example, we always want to allow `block_gte: 0`.
+    let request_contains_invalid_blocks = resolved_blocks
+        .iter()
+        .filter(|b| {
+            block_constraints.iter().any(|c| match c {
+                BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => false,
+                BlockConstraint::Hash(hash) => hash == &b.hash,
+                BlockConstraint::Number(number) => number == &b.number,
+            })
+        })
+        .any(|b| b.number < manifest_min_block);
+    if request_contains_invalid_blocks {
         return Err(Error::InvalidQuery(anyhow!(
             "Requested block before minimum `startBlock` of manifest: {}",
             min_block.unwrap_or_default()
