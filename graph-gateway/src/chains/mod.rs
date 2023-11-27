@@ -95,18 +95,6 @@ impl BlockCache {
         self.request_tx.send(request).ok().unwrap();
         rx.await.unwrap()
     }
-
-    pub async fn latest(&mut self, skip: u64) -> Result<BlockPointer, UnresolvedBlock> {
-        let latest = self
-            .chain_head
-            .value_immediate()
-            .ok_or(UnresolvedBlock::WithNumber(0))?;
-        let number = latest.number.saturating_sub(skip);
-        if number == latest.number {
-            return Ok(latest);
-        }
-        self.fetch_block(UnresolvedBlock::WithNumber(number)).await
-    }
 }
 
 struct Actor {
