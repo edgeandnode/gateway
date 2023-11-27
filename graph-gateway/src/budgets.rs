@@ -22,7 +22,8 @@ pub struct Feedback {
 impl Budgeter {
     pub fn new(query_fees_target: USD) -> Self {
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
-        let (budget_limit_tx, budget_limit_rx) = Eventual::new();
+        let (mut budget_limit_tx, budget_limit_rx) = Eventual::new();
+        budget_limit_tx.write(query_fees_target);
         Actor::create(feedback_rx, budget_limit_tx, query_fees_target);
         let absolute_budget_limit = USD(query_fees_target.0 * UDecimal18::from(10));
         Self {
@@ -96,11 +97,13 @@ struct Controller {
 
 impl Controller {
     fn new(target_query_fees: USD) -> Self {
+        let mut error_history = FastDecayBuffer::default();
+        *error_history.current_mut() = target_query_fees.0.into();
         Self {
             target_query_fees,
             recent_fees: USD(UDecimal18::from(0)),
             recent_query_count: 0,
-            error_history: FastDecayBuffer::default(),
+            error_history,
         }
     }
 
@@ -123,8 +126,9 @@ impl Controller {
         *self.error_history.current_mut() = error;
 
         let i: f64 = self.error_history.frames().iter().sum();
-        let k_i = 3e4;
-        UDecimal18::from(1) + UDecimal18::try_from(i * k_i).unwrap_or_default()
+        let k_i = 1.2;
+        let correction = UDecimal18::try_from(i * k_i).unwrap_or_default();
+        self.target_query_fees.0 + correction
     }
 }
 
@@ -143,11 +147,9 @@ mod tests {
         ) {
             let setpoint: f64 = controller.target_query_fees.0.into();
             let mut process_variable = 0.0;
-            for i in 0..30 {
+            for i in 0..20 {
                 let control_variable: f64 = controller.control_variable().into();
-                process_variable = f64::from(controller.target_query_fees.0)
-                    * process_variable_multiplier
-                    * control_variable;
+                process_variable = control_variable * process_variable_multiplier;
                 println!(
                     "{i:02} SP={setpoint:.6}, PV={:.8}, CV={:.8}",
                     process_variable, control_variable,
@@ -157,7 +159,7 @@ mod tests {
             assert_within(process_variable, setpoint, tolerance);
         }
 
-        for setpoint in [20e-6, 40e-6] {
+        for setpoint in [10e-6, 20e-6, 50e-6] {
             let setpoint = USD(UDecimal18::try_from(setpoint).unwrap());
             let mut controller = Controller::new(setpoint);
             test_controller(&mut controller, 0.2, 1e-6);
