@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use alloy_primitives::BlockHash;
-use reqwest;
+use indexer_selection::UnresolvedBlock;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
 use tokio::sync::mpsc;
@@ -9,49 +9,40 @@ use tokio::time::interval;
 use toolshed::{thegraph::BlockPointer, url::Url};
 use tracing::Instrument;
 
-use indexer_selection::UnresolvedBlock;
-
-use crate::metrics::METRICS;
-
 use super::{BlockHead, ClientMsg};
-
-#[derive(Debug)]
-pub struct Provider {
-    pub network: String,
-    pub block_time: Duration,
-    pub rpc: Url,
-}
-
-impl super::Provider for Provider {
-    fn network(&self) -> &str {
-        &self.network
-    }
-}
+use crate::{config, metrics::METRICS};
 
 pub struct Client {
-    provider: Provider,
+    chain: config::Chain,
     http_client: reqwest::Client,
     notify: mpsc::UnboundedSender<ClientMsg>,
 }
 
 impl super::Client for Client {
-    type Provider = Provider;
+    type Config = config::Chain;
+
+    fn chain_name(config: &Self::Config) -> &str {
+        &config.name
+    }
+
+    fn poll_interval() -> Duration {
+        Duration::from_secs(2)
+    }
 
     fn create(
-        provider: Provider,
+        chain: config::Chain,
         notify: mpsc::UnboundedSender<ClientMsg>,
     ) -> mpsc::UnboundedSender<UnresolvedBlock> {
-        let _trace =
-            tracing::info_span!("Ethereum Client Actor", network = %provider.network).entered();
+        let _trace = tracing::info_span!("Ethereum Client Actor", chain = %chain.name).entered();
         let (unresolved_tx, mut unresolved_rx) = mpsc::unbounded_channel();
         let mut client = Self {
-            provider,
+            chain,
             http_client: reqwest::Client::new(),
             notify,
         };
         tokio::spawn(
             async move {
-                let mut poll_timer = interval(client.provider.block_time);
+                let mut poll_timer = interval(Self::poll_interval());
                 loop {
                     tokio::select! {
                         _ = poll_timer.tick() => {
@@ -74,14 +65,14 @@ impl super::Client for Client {
 impl Client {
     async fn spawn_block_fetch(&mut self, unresolved: Option<UnresolvedBlock>) {
         let client = self.http_client.clone();
-        let network = self.provider.network.clone();
-        let rpc = self.provider.rpc.clone();
+        let chain = self.chain.name.clone();
+        let rpc = self.chain.rpc.clone();
         let notify = self.notify.clone();
         tokio::spawn(async move {
-            let timer = METRICS.block_resolution.start_timer(&[&network]);
+            let timer = METRICS.block_resolution.start_timer(&[&chain]);
             let result = Self::fetch_block(client, rpc, unresolved.clone()).await;
             drop(timer);
-            METRICS.block_resolution.check(&[&network], &result);
+            METRICS.block_resolution.check(&[&chain], &result);
             let response = match result {
                 Ok(head) => match &unresolved {
                     Some(_) => ClientMsg::Block(head.block),

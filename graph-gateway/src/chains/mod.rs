@@ -3,16 +3,16 @@ use std::time::Duration;
 
 use alloy_primitives::{BlockHash, BlockNumber};
 use eventuals::{Eventual, EventualWriter};
+use indexer_selection::UnresolvedBlock;
+use prelude::epoch_cache::EpochCache;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::interval;
 use toolshed::thegraph::BlockPointer;
 use tracing::Instrument;
 
-use indexer_selection::UnresolvedBlock;
-use prelude::epoch_cache::EpochCache;
-
 use crate::{block_constraints::*, metrics::*};
 
+pub mod block_rate;
 pub mod ethereum;
 pub mod test;
 
@@ -22,14 +22,15 @@ pub struct BlockHead {
     pub uncles: Vec<BlockHash>,
 }
 
-pub trait Provider {
-    fn network(&self) -> &str;
-}
-
 pub trait Client {
-    type Provider: Provider;
+    type Config;
+
+    fn chain_name(config: &Self::Config) -> &str;
+
+    fn poll_interval() -> Duration;
+
     fn create(
-        provider: Self::Provider,
+        config: Self::Config,
         notify: mpsc::UnboundedSender<ClientMsg>,
     ) -> mpsc::UnboundedSender<UnresolvedBlock>;
 }
@@ -50,7 +51,7 @@ pub struct BlockRequirements {
 #[derive(Clone)]
 pub struct BlockCache {
     pub chain_head: Eventual<BlockPointer>,
-    pub block_rate_hz: f64,
+    pub blocks_per_minute: Eventual<u64>,
     request_tx: mpsc::UnboundedSender<Request>,
 }
 
@@ -60,24 +61,27 @@ struct Request {
 }
 
 impl BlockCache {
-    pub fn new<C: Client>(block_rate_hz: f64, provider: C::Provider) -> Self {
-        let (chain_head_broadcast_tx, chain_head_broadcast_rx) = Eventual::new();
+    pub fn new<C: Client>(config: C::Config) -> Self {
+        let (chain_head_tx, chain_head_rx) = Eventual::new();
         let (notify_tx, notify_rx) = mpsc::unbounded_channel();
         let (request_tx, request_rx) = mpsc::unbounded_channel();
+        let (blocks_per_minute_tx, blocks_per_minute_rx) = Eventual::new();
         let actor = Actor {
-            network: provider.network().to_string(),
-            client_tx: C::create(provider, notify_tx),
+            chain: C::chain_name(&config).to_string(),
+            client_tx: C::create(config, notify_tx),
             notify_rx,
             request_rx,
-            chain_head_broadcast_tx,
+            chain_head_tx,
+            blocks_per_minute_tx,
+            block_rate_estimator: block_rate::Estimator::new(C::poll_interval()),
             number_to_hash: EpochCache::new(),
             hash_to_number: EpochCache::new(),
             pending: HashMap::new(),
         };
         actor.spawn();
         Self {
-            chain_head: chain_head_broadcast_rx,
-            block_rate_hz,
+            chain_head: chain_head_rx,
+            blocks_per_minute: blocks_per_minute_rx,
             request_tx,
         }
     }
@@ -106,11 +110,13 @@ impl BlockCache {
 }
 
 struct Actor {
-    network: String,
+    chain: String,
     request_rx: mpsc::UnboundedReceiver<Request>,
     client_tx: mpsc::UnboundedSender<UnresolvedBlock>,
     notify_rx: mpsc::UnboundedReceiver<ClientMsg>,
-    chain_head_broadcast_tx: EventualWriter<BlockPointer>,
+    chain_head_tx: EventualWriter<BlockPointer>,
+    blocks_per_minute_tx: EventualWriter<u64>,
+    block_rate_estimator: block_rate::Estimator,
     number_to_hash: EpochCache<BlockNumber, BlockHash, 2>,
     hash_to_number: EpochCache<BlockHash, BlockNumber, 2>,
     pending: HashMap<UnresolvedBlock, Vec<oneshot::Sender<Result<BlockPointer, UnresolvedBlock>>>>,
@@ -118,7 +124,7 @@ struct Actor {
 
 impl Actor {
     fn spawn(mut self) {
-        let _trace = tracing::info_span!("Block Cache Actor", network = %self.network).entered();
+        let _trace = tracing::info_span!("Block Cache Actor", chain = %self.chain).entered();
         tokio::spawn(
             async move {
                 let mut cache_timer = interval(Duration::from_secs(32));
@@ -160,11 +166,11 @@ impl Actor {
         };
         match cached {
             Ok(block) => {
-                with_metric(&METRICS.block_cache_hit, &[&self.network], |c| c.inc());
+                with_metric(&METRICS.block_cache_hit, &[&self.chain], |c| c.inc());
                 let _ = request.tx.send(Ok(block));
             }
             Err(unresolved) => {
-                with_metric(&METRICS.block_cache_miss, &[&self.network], |c| c.inc());
+                with_metric(&METRICS.block_cache_miss, &[&self.chain], |c| c.inc());
                 let _ = self.client_tx.send(unresolved.clone());
                 self.pending.entry(unresolved).or_default().push(request.tx);
             }
@@ -183,10 +189,13 @@ impl Actor {
 
         self.handle_block(head.block.clone()).await;
 
-        with_metric(&METRICS.chain_head, &[&self.network], |g| {
+        let blocks_per_minute = self.block_rate_estimator.update(head.block.number);
+        self.blocks_per_minute_tx.write(blocks_per_minute);
+
+        with_metric(&METRICS.chain_head, &[&self.chain], |g| {
             g.set(head.block.number as i64)
         });
-        self.chain_head_broadcast_tx.write(head.block);
+        self.chain_head_tx.write(head.block);
     }
 
     async fn handle_block(&mut self, block: BlockPointer) {
