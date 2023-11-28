@@ -112,7 +112,7 @@ struct Actor {
 
 impl Actor {
     fn spawn(mut self) {
-        let _trace = tracing::info_span!("Block Cache Actor", chain = %self.chain).entered();
+        let _trace = tracing::info_span!("block_cache", chain = %self.chain).entered();
         tokio::spawn(
             async move {
                 let mut cache_timer = interval(Duration::from_secs(32));
@@ -133,7 +133,7 @@ impl Actor {
                         else => break,
                     };
                 }
-                tracing::error!("block cache exit");
+                tracing::error!("exit");
             }
             .in_current_span(),
         );
@@ -166,8 +166,6 @@ impl Actor {
     }
 
     async fn handle_chain_head(&mut self, head: BlockHead) {
-        tracing::info!(chain_head = ?head);
-
         for uncle in &head.uncles {
             let removed = self.hash_to_number.remove(uncle);
             if let Some(removed) = removed {
@@ -177,6 +175,8 @@ impl Actor {
 
         let blocks_per_minute = self.block_rate_estimator.update(head.block.number);
         self.blocks_per_minute_tx.write(blocks_per_minute);
+
+        tracing::info!(chain_head = ?head, blocks_per_minute);
 
         // Remove prior blocks from the past minute. This avoids retaining uncled blocks that are
         // frequently used.
