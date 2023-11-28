@@ -51,5 +51,4 @@ jobs:
         run: cargo test --lib
 
       - name: Integration tests
-        # the cargo clean is to avoid running out of disk space, hopefully unnecessary in the future
-        run: cargo clean && cargo test --test '*'
+        run: cargo test --test '*'
