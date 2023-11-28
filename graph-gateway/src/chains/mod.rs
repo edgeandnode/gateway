@@ -187,10 +187,16 @@ impl Actor {
             }
         }
 
-        self.handle_block(head.block.clone()).await;
-
         let blocks_per_minute = self.block_rate_estimator.update(head.block.number);
         self.blocks_per_minute_tx.write(blocks_per_minute);
+
+        // Remove prior blocks from the past minute. This avoids retaining uncled blocks that are
+        // frequently used.
+        let cutoff = head.block.number - blocks_per_minute;
+        self.number_to_hash.retain(|n, _| *n < cutoff);
+        self.hash_to_number.retain(|_, n| *n < cutoff);
+
+        self.handle_block(head.block.clone()).await;
 
         with_metric(&METRICS.chain_head, &[&self.chain], |g| {
             g.set(head.block.number as i64)
