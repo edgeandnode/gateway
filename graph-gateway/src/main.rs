@@ -277,6 +277,7 @@ async fn main() {
         l2_gateway: config.l2_gateway,
         indexer_client: IndexerClient {
             client: http_client.clone(),
+            receipt_signer,
         },
         kafka_client,
         graph_env_id: config.graph_env_id.clone(),
@@ -288,7 +289,6 @@ async fn main() {
         indexings_blocklist,
         block_caches,
         observations: update_writer,
-        receipt_signer,
         isa_state,
     };
 
