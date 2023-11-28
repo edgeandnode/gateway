@@ -68,6 +68,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloy-primitives"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5def4b5e1bb8fe7ea37eeac1063246d4ef26f56cbdccf864a5a6bdcb80e91f4"
+dependencies = [
+ "alloy-rlp",
+ "bytes",
+ "cfg-if",
+ "const-hex",
+ "derive_more",
+ "hex-literal",
+ "itoa",
+ "proptest",
+ "rand",
+ "ruint",
+ "serde",
+ "tiny-keccak",
+]
+
+[[package]]
 name = "alloy-rlp"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -91,7 +111,25 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.39",
- "syn-solidity",
+ "syn-solidity 0.4.2",
+ "tiny-keccak",
+]
+
+[[package]]
+name = "alloy-sol-macro"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0acd5b8d2699b095a57a0ecea6a6a2045b8e5ed6f2607bfa3382961d2889e82"
+dependencies = [
+ "const-hex",
+ "dunce",
+ "heck",
+ "indexmap 2.1.0",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.39",
+ "syn-solidity 0.5.0",
  "tiny-keccak",
 ]
 
@@ -101,8 +139,20 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "98d7107bed88e8f09f0ddcc3335622d87bfb6821f3e0c7473329fb1cfad5e015"
 dependencies = [
- "alloy-primitives",
- "alloy-sol-macro",
+ "alloy-primitives 0.4.2",
+ "alloy-sol-macro 0.4.2",
+ "const-hex",
+ "serde",
+]
+
+[[package]]
+name = "alloy-sol-types"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97d483e9c6db659cdb24fc736684ef68b743705fbdb0677c6404815361871b92"
+dependencies = [
+ "alloy-primitives 0.5.0",
+ "alloy-sol-macro 0.5.0",
  "const-hex",
  "serde",
 ]
@@ -1679,8 +1729,8 @@ dependencies = [
 name = "graph-gateway"
 version = "15.0.0"
 dependencies = [
- "alloy-primitives",
- "alloy-sol-types",
+ "alloy-primitives 0.4.2",
+ "alloy-sol-types 0.4.2",
  "anyhow",
  "assert_matches",
  "axum",
@@ -1691,7 +1741,7 @@ dependencies = [
  "faster-hex",
  "futures",
  "graph-subscriptions",
- "graphql 0.1.0",
+ "graphql 0.3.0",
  "graphql-http",
  "hex",
  "hyper",
@@ -1746,8 +1796,8 @@ dependencies = [
 
 [[package]]
 name = "graphql"
-version = "0.1.0"
-source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-v0.1.0#659205f037bda669237f3c61fa70f09cfa2fbab3"
+version = "0.2.0"
+source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-v0.2.0#2df5ee975656027d4a7fbf591baf6a29dfbe0ee6"
 dependencies = [
  "firestorm",
  "graphql-parser",
@@ -1756,8 +1806,8 @@ dependencies = [
 
 [[package]]
 name = "graphql"
-version = "0.2.0"
-source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-v0.2.0#2df5ee975656027d4a7fbf591baf6a29dfbe0ee6"
+version = "0.3.0"
+source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-v0.3.0#19ec30dc044137b805528181873f4413b45ab8d4"
 dependencies = [
  "firestorm",
  "graphql-parser",
@@ -2079,7 +2129,7 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 name = "indexer-selection"
 version = "0.0.1"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.4.2",
  "anyhow",
  "arrayvec 0.7.4",
  "num-traits",
@@ -2909,7 +2959,7 @@ checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 name = "prelude"
 version = "0.0.1"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.4.2",
  "anyhow",
  "siphasher",
  "snmalloc-rs",
@@ -4029,6 +4079,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-solidity"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e349ed2ca56eff703d7c3ea013771bcbab9ad2ad39dddf863fc51d820329dc41"
+dependencies = [
+ "paste",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.39",
+]
+
+[[package]]
 name = "sync_wrapper"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4078,8 +4140,8 @@ name = "tap_core"
 version = "0.6.0"
 source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?tag=tap_core-v0.6.0#ca5f0a97b63a6a607a265d006b30e89595505e64"
 dependencies = [
- "alloy-primitives",
- "alloy-sol-types",
+ "alloy-primitives 0.4.2",
+ "alloy-sol-types 0.4.2",
  "anyhow",
  "async-trait",
  "ethereum-types",
@@ -4317,16 +4379,14 @@ dependencies = [
 
 [[package]]
 name = "toolshed"
-version = "0.2.3"
-source = "git+https://github.com/edgeandnode/toolshed?tag=v0.2.3#cdbbbf99b6f097b19d46c7aab5cf219f29e6cbb0"
+version = "0.3.0"
+source = "git+https://github.com/edgeandnode/toolshed?tag=v0.3.0#af7b1c8be57a488122f015eb95f2051bb704cdff"
 dependencies = [
- "alloy-primitives",
- "alloy-sol-types",
+ "alloy-primitives 0.5.0",
+ "alloy-sol-types 0.5.0",
  "async-graphql",
  "bs58",
  "ethers-core",
- "firestorm",
- "graphql-parser",
  "serde",
  "serde_with 3.4.0",
  "sha3",
