@@ -189,6 +189,10 @@ impl Actor {
         with_metric(&METRICS.chain_head, &[&self.chain], |g| {
             g.set(head.block.number as i64)
         });
+        with_metric(&METRICS.blocks_per_minute, &[&self.chain], |g| {
+            g.set(blocks_per_minute as i64)
+        });
+
         self.chain_head_tx.write(head.block);
     }
 
