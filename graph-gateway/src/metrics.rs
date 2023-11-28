@@ -21,6 +21,7 @@ pub struct Metrics {
     pub block_cache_hit: IntCounterVec,
     pub block_cache_miss: IntCounterVec,
     pub chain_head: IntGaugeVec,
+    pub blocks_per_minute: IntGaugeVec,
     pub indexer_selection_duration: Histogram,
 }
 
@@ -68,6 +69,12 @@ impl Metrics {
             chain_head: register_int_gauge_vec!(
                 "gw_chain_head",
                 "chain head block number",
+                &["chain"]
+            )
+            .unwrap(),
+            blocks_per_minute: register_int_gauge_vec!(
+                "gw_blocks_per_minute",
+                "chain blocks per minute",
                 &["chain"]
             )
             .unwrap(),
