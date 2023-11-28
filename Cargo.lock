@@ -49,26 +49,6 @@ dependencies = [
 
 [[package]]
 name = "alloy-primitives"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0628ec0ba5b98b3370bb6be17b12f23bfce8ee4ad83823325a20546d9b03b78"
-dependencies = [
- "alloy-rlp",
- "bytes",
- "cfg-if",
- "const-hex",
- "derive_more",
- "hex-literal",
- "itoa",
- "proptest",
- "rand",
- "ruint",
- "serde",
- "tiny-keccak",
-]
-
-[[package]]
-name = "alloy-primitives"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5def4b5e1bb8fe7ea37eeac1063246d4ef26f56cbdccf864a5a6bdcb80e91f4"
@@ -100,23 +80,6 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a98ad1696a2e17f010ae8e43e9f2a1e930ed176a8e3ff77acfeff6dfb07b42c"
-dependencies = [
- "const-hex",
- "dunce",
- "heck",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn 2.0.39",
- "syn-solidity 0.4.2",
- "tiny-keccak",
-]
-
-[[package]]
-name = "alloy-sol-macro"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0acd5b8d2699b095a57a0ecea6a6a2045b8e5ed6f2607bfa3382961d2889e82"
@@ -129,20 +92,8 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.39",
- "syn-solidity 0.5.0",
+ "syn-solidity",
  "tiny-keccak",
-]
-
-[[package]]
-name = "alloy-sol-types"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98d7107bed88e8f09f0ddcc3335622d87bfb6821f3e0c7473329fb1cfad5e015"
-dependencies = [
- "alloy-primitives 0.4.2",
- "alloy-sol-macro 0.4.2",
- "const-hex",
- "serde",
 ]
 
 [[package]]
@@ -151,8 +102,8 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97d483e9c6db659cdb24fc736684ef68b743705fbdb0677c6404815361871b92"
 dependencies = [
- "alloy-primitives 0.5.0",
- "alloy-sol-macro 0.5.0",
+ "alloy-primitives",
+ "alloy-sol-macro",
  "const-hex",
  "serde",
 ]
@@ -1729,8 +1680,8 @@ dependencies = [
 name = "graph-gateway"
 version = "15.0.0"
 dependencies = [
- "alloy-primitives 0.4.2",
- "alloy-sol-types 0.4.2",
+ "alloy-primitives",
+ "alloy-sol-types",
  "anyhow",
  "assert_matches",
  "axum",
@@ -2129,7 +2080,7 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 name = "indexer-selection"
 version = "0.0.1"
 dependencies = [
- "alloy-primitives 0.4.2",
+ "alloy-primitives",
  "anyhow",
  "arrayvec 0.7.4",
  "num-traits",
@@ -2959,7 +2910,7 @@ checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 name = "prelude"
 version = "0.0.1"
 dependencies = [
- "alloy-primitives 0.4.2",
+ "alloy-primitives",
  "anyhow",
  "siphasher",
  "snmalloc-rs",
@@ -4068,18 +4019,6 @@ dependencies = [
 
 [[package]]
 name = "syn-solidity"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86b837ef12ab88835251726eb12237655e61ec8dc8a280085d1961cdc3dfd047"
-dependencies = [
- "paste",
- "proc-macro2",
- "quote",
- "syn 2.0.39",
-]
-
-[[package]]
-name = "syn-solidity"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e349ed2ca56eff703d7c3ea013771bcbab9ad2ad39dddf863fc51d820329dc41"
@@ -4138,10 +4077,10 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "tap_core"
 version = "0.6.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?tag=tap_core-v0.6.0#ca5f0a97b63a6a607a265d006b30e89595505e64"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e55ea03#e55ea03fc8da6bfcf38132e8e8a2bfa10200da42"
 dependencies = [
- "alloy-primitives 0.4.2",
- "alloy-sol-types 0.4.2",
+ "alloy-primitives",
+ "alloy-sol-types",
  "anyhow",
  "async-trait",
  "ethereum-types",
@@ -4382,8 +4321,8 @@ name = "toolshed"
 version = "0.3.0"
 source = "git+https://github.com/edgeandnode/toolshed?tag=v0.3.0#af7b1c8be57a488122f015eb95f2051bb704cdff"
 dependencies = [
- "alloy-primitives 0.5.0",
- "alloy-sol-types 0.5.0",
+ "alloy-primitives",
+ "alloy-sol-types",
  "async-graphql",
  "bs58",
  "ethers-core",
