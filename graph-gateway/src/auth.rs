@@ -241,16 +241,17 @@ impl AuthHandler {
     }
 }
 
-pub fn is_domain_authorized<S: AsRef<str>>(authorized: &[S], origin: &str) -> bool {
-    authorized.iter().any(|authorized| {
-        let pattern = authorized.as_ref().split('.');
-        let origin = origin.split('.');
-        let count = pattern.clone().count();
-        if (count < 1) || (origin.clone().count() != count) {
-            return false;
+pub fn is_domain_authorized(authorized: &[&str], origin: &str) -> bool {
+    fn match_domain(pattern: &str, origin: &str) -> bool {
+        if pattern.starts_with('*') {
+            origin.ends_with(pattern.trim_start_matches('*'))
+        } else {
+            origin == pattern
         }
-        pattern.zip(origin).all(|(p, o)| (p == o) || (p == "*"))
-    })
+    }
+    authorized
+        .iter()
+        .any(|pattern| match_domain(pattern, origin))
 }
 
 #[cfg(test)]
@@ -259,7 +260,13 @@ mod test {
 
     #[test]
     fn authorized_domains() {
-        let authorized_domains = ["example.com", "localhost", "a.b.c", "*.d.e"];
+        let authorized_domains = [
+            "example.com",
+            "localhost",
+            "a.b.c",
+            "*.d.e",
+            "*-foo.vercel.app",
+        ];
         let tests = [
             ("", false),
             ("example.com", true),
@@ -275,9 +282,17 @@ mod test {
             ("e", false),
             ("d.e", false),
             ("z.d.e", true),
+            ("-foo.vercel.app", true),
+            ("foo.vercel.app", false),
+            ("bar-foo.vercel.app", true),
+            ("bar.foo.vercel.app", false),
         ];
         for (input, expected) in tests {
-            assert_eq!(expected, is_domain_authorized(&authorized_domains, input));
+            assert_eq!(
+                expected,
+                is_domain_authorized(&authorized_domains, input),
+                "match '{input}'"
+            );
         }
     }
 }
