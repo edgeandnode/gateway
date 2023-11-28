@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "graph-gateway"
-version = "15.0.0"
+version = "15.1.0"
 
 [dependencies]
 alloy-primitives.workspace = true
@@ -16,7 +16,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3367d76" }
 ethers = { version = "2.0.10", default-features = false, features = ["abigen"] }
 eventuals = "0.6.7"
-faster-hex = "0.8.0"
+faster-hex = "0.9.0"
 futures = "0.3"
 graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "334d18b" }
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
@@ -26,7 +26,7 @@ graphql-http = { git = "https://github.com/edgeandnode/toolshed.git", tag = "gra
 hex = "0.4"
 indexer-selection = { path = "../indexer-selection" }
 indoc = "2.0.3"
-itertools = "0.11"
+itertools = "0.12.0"
 lazy_static = "1.4"
 maxminddb = "0.23"
 prelude = { path = "../prelude" }
@@ -63,5 +63,3 @@ uuid = { version = "1.0", default-features = false, features = ["v4"] }
 [dev-dependencies]
 assert_matches = "1.5.0"
 hyper = "0.14.24"
-regex = "1.5"
-test-with = { version = "0.12.0", default-features = false }
