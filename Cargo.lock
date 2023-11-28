@@ -1719,6 +1719,7 @@ dependencies = [
  "simple-rate-limiter",
  "tap_core",
  "test-with",
+ "thegraph",
  "thiserror",
  "tokio",
  "toolshed",
@@ -2090,6 +2091,7 @@ dependencies = [
  "rand",
  "rand_distr",
  "siphasher",
+ "thegraph",
  "tokio",
  "toolshed",
  "tracing",
@@ -4125,6 +4127,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "thegraph"
+version = "0.1.1"
+source = "git+https://github.com/edgeandnode/toolshed?tag=thegraph-v0.1.1#5694de09fad473489012866c3fbca85a5eae098b"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "async-graphql",
+ "bs58",
+ "ethers-core",
+ "graphql-http",
+ "indoc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_with 3.4.0",
+ "sha3",
+ "thiserror",
+ "toolshed",
+ "tracing",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4318,8 +4342,8 @@ dependencies = [
 
 [[package]]
 name = "toolshed"
-version = "0.3.0"
-source = "git+https://github.com/edgeandnode/toolshed?tag=v0.3.0#af7b1c8be57a488122f015eb95f2051bb704cdff"
+version = "0.4.0"
+source = "git+https://github.com/edgeandnode/toolshed?tag=v0.4.0#aa885d38818101d4c30d4869ab060f8c2c29f13b"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -4751,9 +4775,9 @@ checksum = "7ab9b36309365056cd639da3134bf87fa8f3d86008abf99e612384a6eecd459f"
 
 [[package]]
 name = "web-sys"
-version = "0.3.65"
+version = "0.3.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5db499c5f66323272151db0e666cd34f78617522fb0c1604d31a27c50c206a85"
+checksum = "50c24a44ec86bb68fbecd1b3efed7e85ea5621b39b35ef2766b66cd984f8010f"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

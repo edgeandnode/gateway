@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use indexer_selection::UnresolvedBlock;
+use thegraph::types::BlockPointer;
 use tokio::sync::mpsc;
-use toolshed::thegraph::BlockPointer;
 
 use crate::chains::BlockHead;
 

@@ -4,10 +4,11 @@ use std::{collections::HashMap, sync::Arc};
 use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
-use prelude::unix_timestamp;
+use thegraph::client as subgraph_client;
 use tokio::sync::Mutex;
 
-use crate::subgraph_client;
+use prelude::unix_timestamp;
+
 use crate::subscriptions::{ActiveSubscription, Subscription};
 
 pub struct Client {

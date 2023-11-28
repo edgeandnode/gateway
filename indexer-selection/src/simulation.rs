@@ -7,7 +7,7 @@ use prelude::test_utils::{bytes_from_id, init_test_tracing};
 use prelude::{UDecimal18, GRT};
 use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 use rand_distr::Normal;
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 use crate::{
     BlockStatus, Candidate, IndexerErrorObservation, Indexing, IndexingStatus, Selection, State,

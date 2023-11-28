@@ -6,10 +6,9 @@ use anyhow::anyhow;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use prelude::*;
 use serde::Deserialize;
+use thegraph::client as subgraph_client;
+use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::Mutex;
-use toolshed::thegraph::{DeploymentId, SubgraphId};
-
-use crate::subgraph_client;
 
 pub struct Data {
     pub network_params: NetworkParams,

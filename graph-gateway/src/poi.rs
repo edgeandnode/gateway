@@ -1,5 +1,5 @@
 use alloy_primitives::{BlockNumber, B256};
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 pub type ProofOfIndexing = B256;
 
