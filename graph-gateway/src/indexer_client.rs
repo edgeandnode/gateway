@@ -6,11 +6,11 @@ use indexer_selection::Selection;
 use serde::Deserialize;
 use toolshed::thegraph::attestation::Attestation;
 
-use crate::receipts::ScalarReceipt;
+use crate::receipts::{ReceiptSigner, ReceiptStatus, ScalarReceipt};
 
-#[derive(Debug)]
 pub struct IndexerResponse {
     pub status: u16,
+    pub receipt: ScalarReceipt,
     pub payload: ResponsePayload,
 }
 
@@ -49,6 +49,7 @@ pub struct IndexerResponsePayload {
 #[derive(Clone)]
 pub struct IndexerClient {
     pub client: reqwest::Client,
+    pub receipt_signer: &'static ReceiptSigner,
 }
 
 impl IndexerClient {
@@ -57,12 +58,17 @@ impl IndexerClient {
         &self,
         selection: &Selection,
         query: String,
-        receipt: &ScalarReceipt,
     ) -> Result<IndexerResponse, IndexerError> {
         let url = selection
             .url
             .join(&format!("subgraphs/id/{:?}", selection.indexing.deployment))
             .map_err(|err| IndexerError::Other(err.to_string()))?;
+        let receipt = self
+            .receipt_signer
+            .create_receipt(&selection.indexing, &selection.fee)
+            .await
+            .ok_or(IndexerError::NoAllocation)?;
+
         let result = self
             .client
             .post(url)
@@ -72,6 +78,16 @@ impl IndexerClient {
             .send()
             .await
             .and_then(|response| response.error_for_status());
+
+        let receipt_status = match &result {
+            Ok(_) => ReceiptStatus::Success,
+            Err(err) if err.is_timeout() => ReceiptStatus::Unknown,
+            Err(_) => ReceiptStatus::Failure,
+        };
+        self.receipt_signer
+            .record_receipt(&selection.indexing, &receipt, receipt_status)
+            .await;
+
         let response = match result {
             Ok(response) => response,
             // We need to observe timeouts differently in the ISA, so we discriminate them here.
@@ -104,6 +120,7 @@ impl IndexerClient {
         tracing::debug!(response_len = graphql_response.len());
         Ok(IndexerResponse {
             status: response_status.as_u16(),
+            receipt,
             payload: ResponsePayload {
                 body: Arc::new(graphql_response),
                 attestation: payload.attestation,

@@ -47,7 +47,6 @@ use crate::chains::BlockCache;
 use crate::indexer_client::{check_block_error, IndexerClient, IndexerError, ResponsePayload};
 use crate::indexing::IndexingStatus;
 use crate::metrics::{with_metric, METRICS};
-use crate::receipts::{ReceiptSigner, ReceiptStatus, ScalarReceipt};
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
@@ -101,7 +100,6 @@ pub struct Context {
     pub block_caches: &'static HashMap<String, BlockCache>,
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
-    pub receipt_signer: &'static ReceiptSigner,
     pub attestation_domain: &'static Eip712Domain,
     pub indexings_blocklist: Eventual<Ptr<HashSet<Indexing>>>,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
@@ -608,7 +606,6 @@ async fn handle_client_query_inner(
             let indexer_query_context = IndexerQueryContext {
                 indexer_client: ctx.indexer_client.clone(),
                 kafka_client: ctx.kafka_client,
-                receipt_signer: ctx.receipt_signer,
                 attestation_domain: ctx.attestation_domain,
                 observations: ctx.observations.clone(),
                 deployment,
@@ -694,7 +691,6 @@ async fn handle_client_query_inner(
 struct IndexerQueryContext {
     pub indexer_client: IndexerClient,
     pub kafka_client: &'static KafkaClient,
-    pub receipt_signer: &'static ReceiptSigner,
     pub attestation_domain: &'static Eip712Domain,
     pub observations: QueueWriter<Update>,
     pub deployment: Arc<Deployment>,
@@ -719,18 +715,7 @@ async fn handle_indexer_query(
         subgraph_chain = %ctx.deployment.manifest.network,
     );
 
-    let receipt = ctx
-        .receipt_signer
-        .create_receipt(&selection.indexing, &selection.fee)
-        .await
-        .ok_or(IndexerError::NoAllocation);
-
-    let result = match receipt.as_ref() {
-        Ok(receipt) => {
-            handle_indexer_query_inner(&mut ctx, selection, deterministic_query, receipt).await
-        }
-        Err(err) => Err(err.clone()),
-    };
+    let result = handle_indexer_query_inner(&mut ctx, selection, deterministic_query).await;
     METRICS.indexer_query.check(&[&deployment], &result);
 
     tracing::info!(
@@ -751,18 +736,6 @@ async fn handle_indexer_query(
         }
         Err(_) => Err(IndexerErrorObservation::Other),
     };
-    if let Ok(receipt) = receipt {
-        let receipt_status = match &observation {
-            Ok(()) => ReceiptStatus::Success,
-            // The indexer is potentially unaware that it failed, since it may have sent a response back
-            // with an attestation.
-            Err(IndexerErrorObservation::Timeout) => ReceiptStatus::Unknown,
-            Err(_) => ReceiptStatus::Failure,
-        };
-        ctx.receipt_signer
-            .record_receipt(&indexing, &receipt, receipt_status)
-            .await;
-    }
 
     let _ = ctx.observations.write(Update::QueryObservation {
         indexing,
@@ -777,12 +750,11 @@ async fn handle_indexer_query_inner(
     ctx: &mut IndexerQueryContext,
     selection: Selection,
     deterministic_query: String,
-    receipt: &ScalarReceipt,
 ) -> Result<ResponsePayload, IndexerError> {
     let start_time = Instant::now();
     let result = ctx
         .indexer_client
-        .query_indexer(&selection, deterministic_query.clone(), receipt)
+        .query_indexer(&selection, deterministic_query.clone())
         .await;
     ctx.response_time = Instant::now() - start_time;
     let deployment = selection.indexing.deployment.to_string();
@@ -790,13 +762,13 @@ async fn handle_indexer_query_inner(
         hist.observe(ctx.response_time.as_millis() as f64)
     });
 
-    let allocation = receipt.allocation();
-    tracing::info!(target: reports::INDEXER_QUERY_TARGET, ?allocation);
-
     let response = result?;
     if response.status != StatusCode::OK.as_u16() {
         tracing::warn!(indexer_response_status = %response.status);
     }
+
+    let allocation = response.receipt.allocation();
+    tracing::info!(target: reports::INDEXER_QUERY_TARGET, ?allocation);
 
     let indexer_errors = serde_json::from_str::<
         graphql_http::http::response::ResponseBody<Box<RawValue>>,
