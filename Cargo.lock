@@ -803,11 +803,11 @@ checksum = "e496a50fda8aacccc86d7529e2c1e0892dbd0f898a6b5645b5561b89c3210efa"
 [[package]]
 name = "cost-model"
 version = "0.1.0"
-source = "git+https://github.com/graphprotocol/agora?rev=9984f9e#9984f9ecc5401e1d637ee9e7d485d617e6cae56d"
+source = "git+https://github.com/graphprotocol/agora?rev=3367d76#3367d7650f06dae10f02bdb7663b07a66adc6978"
 dependencies = [
  "firestorm",
  "fraction",
- "graphql",
+ "graphql 0.2.0",
  "lazy_static",
  "nom",
  "num-bigint 0.2.6",
@@ -1691,7 +1691,7 @@ dependencies = [
  "faster-hex",
  "futures",
  "graph-subscriptions",
- "graphql",
+ "graphql 0.1.0",
  "graphql-http",
  "hex",
  "hyper",
@@ -1748,6 +1748,16 @@ dependencies = [
 name = "graphql"
 version = "0.1.0"
 source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-v0.1.0#659205f037bda669237f3c61fa70f09cfa2fbab3"
+dependencies = [
+ "firestorm",
+ "graphql-parser",
+ "serde",
+]
+
+[[package]]
+name = "graphql"
+version = "0.2.0"
+source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-v0.2.0#2df5ee975656027d4a7fbf591baf6a29dfbe0ee6"
 dependencies = [
  "firestorm",
  "graphql-parser",
@@ -4308,7 +4318,7 @@ dependencies = [
 [[package]]
 name = "toolshed"
 version = "0.2.3"
-source = "git+https://github.com/edgeandnode/toolshed?tag=v0.2.3#caeaa72e028ef2f60f1b480de796e6d97aebf4a1"
+source = "git+https://github.com/edgeandnode/toolshed?tag=v0.2.3#cdbbbf99b6f097b19d46c7aab5cf219f29e6cbb0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",

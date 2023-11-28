@@ -13,7 +13,7 @@ axum = { version = "0.6.15", default-features = false, features = [
     "original-uri",
 ] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-cost-model = { git = "https://github.com/graphprotocol/agora", rev = "9984f9e" }
+cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3367d76" }
 ethers = { version = "2.0.10", default-features = false, features = ["abigen"] }
 eventuals = "0.6.7"
 faster-hex = "0.8.0"

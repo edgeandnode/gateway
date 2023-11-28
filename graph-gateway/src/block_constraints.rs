@@ -5,7 +5,7 @@ use cost_model::Context;
 use graphql::graphql_parser::query::{
     Definition, Document, OperationDefinition, Selection, Text, Value,
 };
-use graphql::{IntoStaticValue as _, QueryVariables, StaticValue};
+use graphql::{IntoStaticValue as _, StaticValue};
 use indexer_selection::UnresolvedBlock;
 use itertools::Itertools as _;
 use serde_json::{self, json};
@@ -157,7 +157,7 @@ fn deterministic_block<'c>(hash: &BlockHash) -> Value<'c, String> {
 }
 
 fn field_constraint(
-    vars: &QueryVariables,
+    vars: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
     field: &Value<'_, String>,
 ) -> Option<BlockConstraint> {
@@ -172,7 +172,7 @@ fn field_constraint(
 }
 
 fn parse_constraint<'c, T: Text<'c>>(
-    vars: &QueryVariables,
+    vars: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
     fields: &BTreeMap<T::Value, Value<'c, T>>,
 ) -> Option<BlockConstraint> {
@@ -192,7 +192,7 @@ fn parse_constraint<'c, T: Text<'c>>(
 
 fn parse_hash<'c, T: Text<'c>>(
     hash: &Value<'c, T>,
-    variables: &QueryVariables,
+    variables: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
 ) -> Option<BlockHash> {
     match hash {
@@ -210,7 +210,7 @@ fn parse_hash<'c, T: Text<'c>>(
 
 fn parse_number<'c, T: Text<'c>>(
     number: &Value<'c, T>,
-    variables: &QueryVariables,
+    variables: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
 ) -> Option<u64> {
     let n = match number {
