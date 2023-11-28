@@ -18,6 +18,7 @@ prelude = { path = "../prelude" }
 rand.workspace = true
 rand_distr = "0.4"
 siphasher.workspace = true
+thegraph.workspace = true
 tokio.workspace = true
 toolshed.workspace = true
 tracing.workspace = true

@@ -8,8 +8,8 @@ use futures::future::join_all;
 use itertools::Itertools;
 use prelude::GRT;
 use serde::Deserialize;
+use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
-use toolshed::thegraph::{DeploymentId, SubgraphId};
 use toolshed::url::Url;
 
 use crate::{ipfs, network_subgraph};

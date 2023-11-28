@@ -10,8 +10,8 @@ use prelude::{buffer_queue, double_buffer, UDecimal18, GRT};
 use rand::rngs::SmallRng;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng, RngCore as _, SeedableRng as _};
+use thegraph::types::{BlockPointer, DeploymentId};
 use tokio::spawn;
-use toolshed::thegraph::{BlockPointer, DeploymentId};
 
 use crate::actor::{process_updates, Update};
 use crate::{

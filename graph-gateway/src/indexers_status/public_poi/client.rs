@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use alloy_primitives::BlockNumber;
 use graphql_http::http_client::ReqwestExt;
 use itertools::Itertools;
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 use toolshed::url::Url;
 
 use crate::indexers_status::public_poi::query;

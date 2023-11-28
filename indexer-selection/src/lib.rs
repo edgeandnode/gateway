@@ -12,7 +12,7 @@ pub use ordered_float::NotNan;
 use prelude::*;
 use rand::{prelude::SmallRng, Rng as _};
 use score::{expected_individual_score, ExpectedValue};
-use toolshed::thegraph::{BlockPointer, DeploymentId};
+use thegraph::types::{BlockPointer, DeploymentId};
 use toolshed::url::Url;
 
 use crate::score::{select_indexers, SelectionFactors};

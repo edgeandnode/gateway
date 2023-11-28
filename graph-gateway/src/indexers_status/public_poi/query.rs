@@ -3,7 +3,7 @@ use graphql_http::graphql::{Document, IntoDocument, IntoDocumentWithVariables};
 use indoc::indoc;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 pub const MAX_REQUESTS_PER_QUERY: usize = 10;
 

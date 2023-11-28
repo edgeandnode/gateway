@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use alloy_primitives::Address;
 use itertools::Itertools;
+use thegraph::types::DeploymentId;
 use tokio::sync::Mutex;
-use toolshed::thegraph::DeploymentId;
 use toolshed::url::Url;
 
 use indexer_selection::Indexing;

@@ -8,8 +8,8 @@ use anyhow::{anyhow, bail, ensure, Result};
 use eventuals::{Eventual, EventualExt, Ptr};
 use graph_subscriptions::TicketPayload;
 use prelude::USD;
+use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
-use toolshed::thegraph::{DeploymentId, SubgraphId};
 
 use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::subscriptions::Subscription;

@@ -20,7 +20,6 @@ pub mod network_subgraph;
 pub mod poi;
 pub mod receipts;
 pub mod reports;
-pub mod subgraph_client;
 pub mod subgraph_studio;
 pub mod subscriptions;
 pub mod subscriptions_subgraph;

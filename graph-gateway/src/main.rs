@@ -18,18 +18,20 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
-use graph_gateway::budgets::Budgeter;
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use prometheus::{self, Encoder as _};
+use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
+use thegraph::client as subgraph_client;
+use thegraph::types::{attestation, DeploymentId};
 use tokio::spawn;
-use toolshed::thegraph::{attestation, DeploymentId};
 use tower_http::cors::{self, CorsLayer};
 
 use graph_gateway::indexings_blocklist::indexings_blocklist;
 use graph_gateway::{
     auth::AuthHandler,
+    budgets::Budgeter,
     chains::{ethereum, BlockCache},
     client_query,
     config::{Config, ExchangeRateProvider},
@@ -40,13 +42,12 @@ use graph_gateway::{
     receipts::ReceiptSigner,
     reports,
     reports::KafkaClient,
-    subgraph_client, subgraph_studio, subscriptions_subgraph,
+    subgraph_studio, subscriptions_subgraph,
     topology::{Deployment, GraphNetwork},
     vouchers, JsonResponse,
 };
 use indexer_selection::{actor::Update, BlockStatus, Indexing};
 use prelude::{buffer_queue::QueueWriter, *};
-use secp256k1::SecretKey;
 
 // Moving the `exchange_rate` module to `lib.rs` makes the doctests to fail during the compilation
 // step. This module is only used here, so let's keep it here for now.

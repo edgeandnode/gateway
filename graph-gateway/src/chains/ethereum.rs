@@ -4,9 +4,10 @@ use alloy_primitives::BlockHash;
 use indexer_selection::UnresolvedBlock;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
+use thegraph::types::BlockPointer;
 use tokio::sync::mpsc;
 use tokio::time::interval;
-use toolshed::{thegraph::BlockPointer, url::Url};
+use toolshed::url::Url;
 use tracing::Instrument;
 
 use super::{BlockHead, ClientMsg};
