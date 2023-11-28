@@ -829,14 +829,14 @@ async fn handle_indexer_query_inner(
         tracing::warn!(indexer_response_status = %response.status);
     }
 
-    let indexer_errors =
-        serde_json::from_str::<graphql::http::Response<Box<RawValue>>>(&response.payload.body)
-            .map_err(|_| IndexerError::UnexpectedPayload)?
-            .errors
-            .unwrap_or_default()
-            .into_iter()
-            .map(|err| err.message)
-            .collect::<Vec<String>>();
+    let indexer_errors = serde_json::from_str::<
+        graphql_http::http::response::ResponseBody<Box<RawValue>>,
+    >(&response.payload.body)
+    .map_err(|_| IndexerError::UnexpectedPayload)?
+    .errors
+    .into_iter()
+    .map(|err| err.message)
+    .collect::<Vec<String>>();
 
     tracing::info!(
         target: reports::INDEXER_QUERY_TARGET,
@@ -866,7 +866,7 @@ async fn handle_indexer_query_inner(
 
     if response.payload.attestation.is_none() {
         // TODO: This is a temporary hack to handle errors that were previously miscategorized as
-        // unattestable in graph-node.
+        //  unattestable in graph-node.
         for error in &indexer_errors {
             if miscategorized_attestable(error) {
                 return Ok(response.payload);
