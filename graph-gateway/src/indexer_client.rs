@@ -4,7 +4,7 @@ use alloy_primitives::BlockNumber;
 use axum::http::StatusCode;
 use indexer_selection::Selection;
 use serde::Deserialize;
-use toolshed::thegraph::attestation::Attestation;
+use thegraph::types::attestation::Attestation;
 
 use crate::receipts::{ReceiptSigner, ReceiptStatus, ScalarReceipt};
 

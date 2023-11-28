@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use alloy_primitives::BlockHash;
 use indoc::indoc;
 use serde::{Deserialize, Deserializer};
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 pub(super) const INDEXING_STATUSES_QUERY_DOCUMENT: &str = indoc! {
     r#"{

@@ -3,7 +3,7 @@ use std::hash::{Hash as _, Hasher as _};
 use alloy_primitives::Address;
 use prelude::test_utils::bytes_from_id;
 use siphasher::sip::SipHasher24;
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 use crate::BlockPointer;
 

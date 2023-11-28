@@ -9,7 +9,7 @@ use graphql::{IntoStaticValue as _, StaticValue};
 use indexer_selection::UnresolvedBlock;
 use itertools::Itertools as _;
 use serde_json::{self, json};
-use toolshed::thegraph::BlockPointer;
+use thegraph::types::BlockPointer;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {

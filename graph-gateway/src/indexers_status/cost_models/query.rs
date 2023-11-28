@@ -2,7 +2,7 @@ use graphql_http::graphql::{Document, IntoDocument, IntoDocumentWithVariables};
 use indoc::indoc;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 pub(super) const COST_MODEL_QUERY_DOCUMENT: &str = indoc! {
     r#"query ($deployments: [String!]!) {

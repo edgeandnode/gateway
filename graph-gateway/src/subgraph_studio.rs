@@ -4,8 +4,8 @@ use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use prelude::{UDecimal18, USD};
 use serde::Deserialize;
+use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::{sync::Mutex, time::Duration};
-use toolshed::thegraph::{DeploymentId, SubgraphId};
 use toolshed::url::Url;
 
 #[derive(Clone, Debug, Default)]

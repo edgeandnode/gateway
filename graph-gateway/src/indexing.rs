@@ -7,8 +7,8 @@ use futures::future::join_all;
 use indexer_selection::Indexing;
 use prelude::epoch_cache::EpochCache;
 use semver::Version;
+use thegraph::types::{BlockPointer, DeploymentId};
 use tokio::sync::Mutex;
-use toolshed::thegraph::{BlockPointer, DeploymentId};
 use toolshed::url::{url::Host, Url};
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 
