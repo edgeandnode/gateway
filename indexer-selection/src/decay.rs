@@ -44,7 +44,6 @@ pub trait Decay {
 }
 
 pub type ISADecayBuffer<T> = DecayBuffer<T, 7, 4>;
-pub type FastDecayBuffer<T> = DecayBuffer<T, 6, 5>;
 
 impl<T, const F: usize, const D: u16> Default for DecayBuffer<T, F, D>
 where
