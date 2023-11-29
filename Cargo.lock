@@ -4078,8 +4078,8 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tap_core"
-version = "0.6.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e55ea03#e55ea03fc8da6bfcf38132e8e8a2bfa10200da42"
+version = "0.7.0"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?tag=tap_core-v0.7.0#63df2b586fbb5d9661123bc9dcabd212a94ea2bf"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
