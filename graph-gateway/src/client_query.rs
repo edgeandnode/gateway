@@ -507,7 +507,6 @@ async fn handle_client_query_inner(
         .map(|c| USD(c.fee.0 / grt_per_usd.0))
         .collect();
     let mut budget = ctx.budgeter.budget(budget_query_count, &candidate_fees);
-    let ignore_budget_feedback = user_settings.budget.is_some();
     if let Some(user_budget) = user_settings.budget {
         // Security: Consumers can and will set their budget to unreasonably high values.
         // This `.min` prevents the budget from being set far beyond what it would be
@@ -679,13 +678,11 @@ async fn handle_client_query_inner(
             match outcome_rx.recv().await {
                 Some(Err(_)) | None => (),
                 Some(Ok(outcome)) => {
-                    if !ignore_budget_feedback {
-                        let total_indexer_fees = USD(total_indexer_fees.0 / grt_per_usd.0);
-                        let _ = ctx.budgeter.feedback.send(budgets::Feedback {
-                            fees: total_indexer_fees,
-                            query_count: budget_query_count,
-                        });
-                    }
+                    let total_indexer_fees = USD(total_indexer_fees.0 / grt_per_usd.0);
+                    let _ = ctx.budgeter.feedback.send(budgets::Feedback {
+                        fees: total_indexer_fees,
+                        query_count: budget_query_count,
+                    });
 
                     return Ok(outcome);
                 }
