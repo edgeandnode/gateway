@@ -68,7 +68,7 @@ fn utiliy_params(
         budget,
         requirements,
         latest_block,
-        block_rate_hz: 0.1,
+        block_rate_hz: 60.0_f64.recip(),
     }
 }
 
@@ -199,8 +199,8 @@ impl Topology {
                 expected_errors.0.entry(err).or_default().insert(indexer);
             };
 
-            if matches!(required_block, Some(n) if n > status.block.as_ref().unwrap().reported_number)
-            {
+            let allowed_block = status.block.as_ref().unwrap().reported_number;
+            if matches!(required_block, Some(n) if n.saturating_sub(1) > allowed_block) {
                 set_err(IndexerError::MissingRequiredBlock);
             } else if status.block.is_none() {
                 set_err(IndexerError::NoStatus);
