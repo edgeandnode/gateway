@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "graph-gateway"
-version = "15.1.0"
+version = "15.2.0"
 
 [dependencies]
 alloy-primitives.workspace = true
