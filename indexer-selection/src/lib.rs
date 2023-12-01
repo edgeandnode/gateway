@@ -262,7 +262,7 @@ impl State {
             .ok_or(IndexerError::NoStatus)?;
 
         let block_status = state.status.block.as_ref().ok_or(IndexerError::NoStatus)?;
-        if !block_status.meets_requirements(&params.requirements) {
+        if !block_status.meets_requirements(&params.requirements, params.block_rate_hz) {
             return Err(IndexerError::MissingRequiredBlock.into());
         }
 
