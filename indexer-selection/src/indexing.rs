@@ -1,3 +1,4 @@
+use std::ops::RangeInclusive;
 use std::time::{Duration, Instant};
 
 use prelude::GRT;
@@ -48,16 +49,23 @@ pub struct BlockStatus {
 }
 
 impl BlockStatus {
-    pub fn meets_requirements(&self, requirements: &BlockRequirements) -> bool {
-        let (min, max) = match requirements.range {
-            Some(range) => range,
-            None => return true,
-        };
+    pub fn meets_requirements(&self, requirements: &BlockRequirements, block_rate_hz: f64) -> bool {
         if self.behind_reported_block {
             return false;
         }
-        let min_block = self.min_block.unwrap_or(0);
-        (min_block <= min) && (max <= self.reported_number)
+
+        // Allow selecting indexers if their reported block is "close enough" to the required range. This is to allow an
+        // admittedly fragile use-case where client queries contain a constraint based on the most recent block from
+        // some RPC provider. Indexers closer to chain head and with higher success rate will be favored all else being
+        // equal.
+        let offset = (block_rate_hz * 60.0) as u64;
+
+        let (min, max) = match requirements.range {
+            Some((start, end)) => (start.saturating_sub(offset), end.saturating_sub(offset)),
+            None => return true,
+        };
+        let reported_range = RangeInclusive::new(self.min_block.unwrap_or(0), self.reported_number);
+        reported_range.contains(&min) && reported_range.contains(&max)
     }
 }
 
