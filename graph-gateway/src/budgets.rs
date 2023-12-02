@@ -128,7 +128,7 @@ impl Controller {
         *self.error_history.current_mut() += error;
 
         let i: f64 = self.error_history.frames().iter().sum();
-        let k_i = 0.1;
+        let k_i = 0.2;
         let control_variable = (i * k_i) * target;
         USD(UDecimal18::try_from(target + control_variable).unwrap_or_default())
     }
