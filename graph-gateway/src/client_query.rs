@@ -615,7 +615,9 @@ async fn handle_client_query_inner(
                 &block_cache,
                 latest_block.number.saturating_sub(selection.blocks_behind),
                 blocks_per_minute,
-            );
+            )
+            .await
+            .map_err(Error::BlockNotFound)?;
 
             // The Agora context must be cloned to preserve the state of the original client query.
             // This to avoid the following scenario:
