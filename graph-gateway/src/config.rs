@@ -29,10 +29,6 @@ pub struct Config {
     pub geoip_blocked_countries: Vec<String>,
     /// Graph network environment identifier, inserted into Kafka messages
     pub graph_env_id: String,
-    /// Rounds of indexer selection and queries to attempt. Note that indexer queries have a 20s
-    /// timeout, so setting this to 5 for example would result in a 100s worst case response time
-    /// for a client query.
-    pub indexer_selection_retry_limit: usize,
     /// IPFS endpoint with access to the subgraph files
     #[serde_as(as = "DisplayFromStr")]
     pub ipfs: Url,

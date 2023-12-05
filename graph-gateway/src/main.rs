@@ -274,7 +274,6 @@ async fn main() {
     update_writer.flush().await.unwrap();
 
     let client_query_ctx = client_query::Context {
-        indexer_selection_retry_limit: config.indexer_selection_retry_limit,
         l2_gateway: config.l2_gateway,
         indexer_client: IndexerClient {
             client: http_client.clone(),

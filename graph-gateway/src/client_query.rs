@@ -30,7 +30,7 @@ use lazy_static::lazy_static;
 use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
 use prelude::{UDecimal18, USD};
 use prost::bytes::Buf;
-use rand::{rngs::SmallRng, SeedableRng as _};
+use rand::{rngs::SmallRng, thread_rng, SeedableRng as _};
 use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -95,7 +95,6 @@ pub struct Context {
     pub graph_env_id: String,
     pub auth_handler: &'static AuthHandler,
     pub budgeter: &'static Budgeter,
-    pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,
     pub block_caches: &'static HashMap<String, BlockCache>,
     pub network: GraphNetwork,
@@ -524,176 +523,157 @@ async fn handle_client_query_inner(
     candidates.retain(|c| c.fee <= budget);
 
     let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
-    let mut utility_params = UtilityParameters {
+    let latest_block = block_cache
+        .chain_head
+        .value_immediate()
+        .ok_or(Error::BlockNotFound(UnresolvedBlock::WithNumber(0)))?;
+    tracing::debug!(?latest_block);
+
+    let utility_params = UtilityParameters {
         budget,
         requirements: block_requirements,
-        // 170cbcf3-db7f-404a-be13-2022d9142677
-        latest_block: 0,
+        latest_block: latest_block.number,
         block_rate_hz: blocks_per_minute as f64 / 60.0,
     };
+    let mut rng = SmallRng::from_rng(thread_rng()).unwrap();
 
-    let mut rng = SmallRng::from_entropy();
+    let selection_timer = METRICS.indexer_selection_duration.start_timer();
+    let (mut selections, indexer_errors) = ctx
+        .isa_state
+        .latest()
+        .select_indexers(&mut rng, &utility_params, &candidates)
+        .map_err(|err| match err {
+            InputError::MalformedQuery => Error::InvalidQuery(anyhow!("Failed to parse")),
+            InputError::MissingNetworkParams => Error::Internal(anyhow!("Missing network params")),
+        })?;
+    drop(selection_timer);
 
-    let mut total_indexer_queries = 0;
-    let mut total_indexer_fees = GRT(UDecimal18::from(0));
+    let indexer_query_count = selections.len();
 
-    for retry in 0..ctx.indexer_selection_retry_limit {
-        // Make sure our observations are up-to-date if retrying.
-        if retry > 0 {
-            let _ = ctx.observations.flush().await;
-        }
+    tracing::debug!(indexer_errors = ?indexer_errors.0);
+    if selections.is_empty() {
+        let isa_errors = indexer_errors
+            .0
+            .iter()
+            .map(|(k, v)| (k, v.len()))
+            .filter(|(_, l)| *l > 0)
+            .collect::<BTreeMap<&IndexerSelectionError, usize>>();
 
-        let latest_block = block_cache
-            .chain_head
-            .value_immediate()
-            .ok_or(Error::BlockNotFound(UnresolvedBlock::WithNumber(0)))?;
-        tracing::debug!(?latest_block);
-        // 170cbcf3-db7f-404a-be13-2022d9142677
-        utility_params.latest_block = latest_block.number;
+        return Err(Error::NoSuitableIndexer(anyhow!(
+            "Indexer selection errors: {:?}",
+            isa_errors
+        )));
+    }
 
-        let selection_timer = METRICS.indexer_selection_duration.start_timer();
-        let (mut selections, indexer_errors) = ctx
-            .isa_state
-            .latest()
-            .select_indexers(&mut rng, &utility_params, &candidates)
-            .map_err(|err| match err {
-                InputError::MalformedQuery => Error::InvalidQuery(anyhow!("Failed to parse")),
-                InputError::MissingNetworkParams => {
-                    Error::Internal(anyhow!("Missing network params"))
-                }
-            })?;
-        drop(selection_timer);
+    for selection in &mut selections {
+        // TODO: In a future where indexers are expected put more effort into setting cost
+        // models, we should pay selected indexers the maximum fee of the alternatives
+        // (where `fee <= budget`).
+        let min_fee = budget.0 * UDecimal18::try_from(0.75).unwrap();
+        selection.fee = GRT(selection.fee.0.max(min_fee));
+    }
+    let total_indexer_fees = GRT(selections.iter().map(|s| s.fee.0).sum());
+    tracing::info!(
+        target: reports::CLIENT_QUERY_TARGET,
+        indexer_fees_grt = f64::from(total_indexer_fees.0) as f32,
+    );
 
-        let selections_len = selections.len();
-        total_indexer_queries += selections_len;
+    let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
+    for selection in selections {
+        let deployment = deployments
+            .iter()
+            .find(|deployment| deployment.id == selection.indexing.deployment)
+            .unwrap()
+            .clone();
+        let indexer_query_context = IndexerQueryContext {
+            indexer_client: ctx.indexer_client.clone(),
+            kafka_client: ctx.kafka_client,
+            attestation_domain: ctx.attestation_domain,
+            observations: ctx.observations.clone(),
+            deployment,
+            response_time: Duration::default(),
+        };
 
-        tracing::debug!(indexer_errors = ?indexer_errors.0);
-        if selections.is_empty() {
-            let isa_errors = indexer_errors
-                .0
-                .iter()
-                .map(|(k, v)| (k, v.len()))
-                .filter(|(_, l)| *l > 0)
-                .collect::<BTreeMap<&IndexerSelectionError, usize>>();
+        let latest_query_block = pick_latest_query_block(
+            &block_cache,
+            latest_block.number.saturating_sub(selection.blocks_behind),
+            blocks_per_minute,
+        )
+        .await
+        .map_err(Error::BlockNotFound)?;
 
-            return Err(Error::NoSuitableIndexer(anyhow!(
-                "Indexer selection errors: {:?}",
-                isa_errors
-            )));
-        }
+        // The Agora context must be cloned to preserve the state of the original client query.
+        // This to avoid the following scenario:
+        // 1. A client query has no block requirements set for some top-level operation
+        // 2. The first indexer is selected, with some indexing status at block number `n`
+        // 3. The query is made deterministic by setting the block requirement to the hash of
+        //    block `n`
+        // 4. Some condition requires us to retry this query on another indexer with an indexing
+        //    status at a block less than `n`
+        // 5. The same context is re-used, including the block requirement set to the hash of
+        //    block `n`
+        // 6. The indexer is seen as being behind and is unnecessarily penalized
+        let deterministic_query =
+            make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)
+                .ok_or_else(|| Error::InvalidQuery(anyhow!("Failed to set block constraints")))?;
 
-        for selection in &mut selections {
-            // TODO: In a future where indexers are expected put more effort into setting cost
-            // models, we should pay selected indexers the maximum fee of the alternatives
-            // (where `fee <= budget`).
-            let min_fee = budget.0 * UDecimal18::try_from(0.75).unwrap();
-            selection.fee = GRT(selection.fee.0.max(min_fee));
-        }
-        total_indexer_fees = GRT(total_indexer_fees.0 + selections.iter().map(|s| s.fee.0).sum());
-        tracing::info!(
-            target: reports::CLIENT_QUERY_TARGET,
-            indexer_fees_grt = f64::from(total_indexer_fees.0) as f32,
+        let optimistic_query = optimistic_query(
+            context.clone(),
+            &mut resolved_blocks,
+            &latest_block,
+            &latest_query_block,
+            &utility_params.requirements,
+            &block_cache,
+            &selection,
+        )
+        .await;
+
+        let indexer_query_context = indexer_query_context.clone();
+        let outcome_tx = outcome_tx.clone();
+        // We must manually construct this span before the spawned task, since otherwise
+        // there's a race between creating this span and another indexer responding which will
+        // close the outer client_query span.
+        let span = tracing::info_span!(
+            target: reports::INDEXER_QUERY_TARGET,
+            "indexer_query",
+            indexer = ?selection.indexing.indexer,
         );
+        tokio::spawn(
+            async move {
+                let response = handle_indexer_query(
+                    indexer_query_context,
+                    selection.clone(),
+                    deterministic_query,
+                    latest_query_block.number,
+                    optimistic_query,
+                )
+                .await;
+                let _ = outcome_tx.try_send(response.map(|response| QueryOutcome {
+                    response,
+                    selection,
+                }));
+            }
+            .instrument(span),
+        );
+    }
+    for _ in 0..indexer_query_count {
+        match outcome_rx.recv().await {
+            Some(Err(_)) | None => (),
+            Some(Ok(outcome)) => {
+                let total_indexer_fees = USD(total_indexer_fees.0 / grt_per_usd.0);
+                let _ = ctx.budgeter.feedback.send(budgets::Feedback {
+                    fees: total_indexer_fees,
+                    query_count: budget_query_count,
+                });
 
-        let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
-        for selection in selections {
-            let deployment = deployments
-                .iter()
-                .find(|deployment| deployment.id == selection.indexing.deployment)
-                .unwrap()
-                .clone();
-            let indexer_query_context = IndexerQueryContext {
-                indexer_client: ctx.indexer_client.clone(),
-                kafka_client: ctx.kafka_client,
-                attestation_domain: ctx.attestation_domain,
-                observations: ctx.observations.clone(),
-                deployment,
-                response_time: Duration::default(),
-            };
-
-            let latest_query_block = pick_latest_query_block(
-                &block_cache,
-                latest_block.number.saturating_sub(selection.blocks_behind),
-                blocks_per_minute,
-            )
-            .await
-            .map_err(Error::BlockNotFound)?;
-
-            // The Agora context must be cloned to preserve the state of the original client query.
-            // This to avoid the following scenario:
-            // 1. A client query has no block requirements set for some top-level operation
-            // 2. The first indexer is selected, with some indexing status at block number `n`
-            // 3. The query is made deterministic by setting the block requirement to the hash of
-            //    block `n`
-            // 4. Some condition requires us to retry this query on another indexer with an indexing
-            //    status at a block less than `n`
-            // 5. The same context is re-used, including the block requirement set to the hash of
-            //    block `n`
-            // 6. The indexer is seen as being behind and is unnecessarily penalized
-            let deterministic_query =
-                make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)
-                    .ok_or_else(|| {
-                        Error::InvalidQuery(anyhow!("Failed to set block constraints"))
-                    })?;
-
-            let optimistic_query = optimistic_query(
-                context.clone(),
-                &mut resolved_blocks,
-                &latest_block,
-                &latest_query_block,
-                &utility_params.requirements,
-                &block_cache,
-                &selection,
-            )
-            .await;
-
-            let indexer_query_context = indexer_query_context.clone();
-            let outcome_tx = outcome_tx.clone();
-            // We must manually construct this span before the spawned task, since otherwise
-            // there's a race between creating this span and another indexer responding which will
-            // close the outer client_query span.
-            let span = tracing::info_span!(
-                target: reports::INDEXER_QUERY_TARGET,
-                "indexer_query",
-                indexer = ?selection.indexing.indexer,
-            );
-            tokio::spawn(
-                async move {
-                    let response = handle_indexer_query(
-                        indexer_query_context,
-                        selection.clone(),
-                        deterministic_query,
-                        latest_query_block.number,
-                        optimistic_query,
-                    )
-                    .await;
-                    let _ = outcome_tx.try_send(response.map(|response| QueryOutcome {
-                        response,
-                        selection,
-                    }));
-                }
-                .instrument(span),
-            );
-        }
-        for _ in 0..selections_len {
-            match outcome_rx.recv().await {
-                Some(Err(_)) | None => (),
-                Some(Ok(outcome)) => {
-                    let total_indexer_fees = USD(total_indexer_fees.0 / grt_per_usd.0);
-                    let _ = ctx.budgeter.feedback.send(budgets::Feedback {
-                        fees: total_indexer_fees,
-                        query_count: budget_query_count,
-                    });
-
-                    return Ok(outcome);
-                }
-            };
-        }
+                return Ok(outcome);
+            }
+        };
     }
 
     Err(Error::NoSuitableIndexer(anyhow!(
         "Indexer queries attempted: {}",
-        total_indexer_queries
+        indexer_query_count
     )))
 }
 
