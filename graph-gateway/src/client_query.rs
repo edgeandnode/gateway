@@ -4,7 +4,7 @@ use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use alloy_primitives::U256;
+use alloy_primitives::{BlockNumber, U256};
 use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, bail, Context as _};
 use axum::extract::OriginalUri;
@@ -523,13 +523,13 @@ async fn handle_client_query_inner(
     );
     candidates.retain(|c| c.fee <= budget);
 
-    let block_rate_hz = block_cache.blocks_per_minute.value_immediate().unwrap_or(0) as f64 / 60.0;
+    let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
     let mut utility_params = UtilityParameters {
         budget,
         requirements: block_requirements,
         // 170cbcf3-db7f-404a-be13-2022d9142677
         latest_block: 0,
-        block_rate_hz,
+        block_rate_hz: blocks_per_minute as f64 / 60.0,
     };
 
     let mut rng = SmallRng::from_entropy();
@@ -611,12 +611,11 @@ async fn handle_client_query_inner(
                 response_time: Duration::default(),
             };
 
-            let latest_query_block = block_cache
-                .fetch_block(UnresolvedBlock::WithNumber(
-                    latest_block.number - selection.blocks_behind,
-                ))
-                .await
-                .map_err(Error::BlockNotFound)?;
+            let latest_query_block = pick_latest_query_block(
+                &block_cache,
+                latest_block.number.saturating_sub(selection.blocks_behind),
+                blocks_per_minute,
+            );
 
             // The Agora context must be cloned to preserve the state of the original client query.
             // This to avoid the following scenario:
@@ -892,6 +891,21 @@ pub fn indexer_fee(
             | CostError::FailedToParseVariables,
         )) => Err("MalformedQuery"),
     }
+}
+
+/// Select an available block up to `max_block`. Because the exact block number is not required, we can be a bit more
+/// resilient to RPC failures here by backing off on failed block resolution.
+async fn pick_latest_query_block(
+    cache: &BlockCache,
+    max_block: BlockNumber,
+    blocks_per_minute: u64,
+) -> Result<BlockPointer, UnresolvedBlock> {
+    for n in [max_block, max_block - 1, max_block - blocks_per_minute] {
+        if let Ok(block) = cache.fetch_block(UnresolvedBlock::WithNumber(n)).await {
+            return Ok(block);
+        }
+    }
+    Err(UnresolvedBlock::WithNumber(max_block))
 }
 
 /// Create an optimistic query for the indexer at a block closer to chain head than their last
