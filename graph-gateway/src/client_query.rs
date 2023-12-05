@@ -587,7 +587,7 @@ async fn handle_client_query_inner(
             // TODO: In a future where indexers are expected put more effort into setting cost
             // models, we should pay selected indexers the maximum fee of the alternatives
             // (where `fee <= budget`).
-            let min_fee = budget.0 * UDecimal18::try_from(0.75).unwrap();
+            let min_fee = budget.0 * UDecimal18::try_from(0.75 / selections_len as f64).unwrap();
             selection.fee = GRT(selection.fee.0.max(min_fee));
         }
         total_indexer_fees = GRT(total_indexer_fees.0 + selections.iter().map(|s| s.fee.0).sum());
