@@ -23,7 +23,7 @@ impl super::Client for Client {
     type Config = config::Chain;
 
     fn chain_name(config: &Self::Config) -> &str {
-        &config.name
+        &config.names[0]
     }
 
     fn poll_interval() -> Duration {
@@ -34,7 +34,7 @@ impl super::Client for Client {
         chain: config::Chain,
         notify: mpsc::UnboundedSender<ClientMsg>,
     ) -> mpsc::UnboundedSender<UnresolvedBlock> {
-        let _trace = tracing::info_span!("Ethereum Client Actor", chain = %chain.name).entered();
+        let _trace = tracing::info_span!("ethereum_client", chain = %chain.names[0]).entered();
         let (unresolved_tx, mut unresolved_rx) = mpsc::unbounded_channel();
         let mut client = Self {
             chain,
@@ -66,7 +66,7 @@ impl super::Client for Client {
 impl Client {
     async fn spawn_block_fetch(&mut self, unresolved: Option<UnresolvedBlock>) {
         let client = self.http_client.clone();
-        let chain = self.chain.name.clone();
+        let chain = self.chain.names[0].clone();
         let rpc = self.chain.rpc.clone();
         let notify = self.notify.clone();
         tokio::spawn(async move {

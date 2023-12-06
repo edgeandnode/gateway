@@ -101,16 +101,17 @@ async fn main() {
         .filter(|_| !config.geoip_blocked_countries.is_empty())
         .map(|db| GeoIP::new(db, config.geoip_blocked_countries).unwrap());
 
-    let block_caches = config
+    let block_caches: HashMap<String, &'static BlockCache> = config
         .chains
         .into_iter()
-        .map(|chain| {
-            let network = chain.name.clone();
-            let cache = BlockCache::new::<ethereum::Client>(chain);
-            (network, cache)
+        .flat_map(|chain| {
+            let cache: &'static BlockCache =
+                Box::leak(Box::new(BlockCache::new::<ethereum::Client>(chain.clone())));
+            chain.names.into_iter().map(move |alias| (alias, cache))
         })
-        .collect::<HashMap<String, BlockCache>>();
-    let block_caches: &'static HashMap<String, BlockCache> = Box::leak(Box::new(block_caches));
+        .collect();
+    let block_caches: &'static HashMap<String, &'static BlockCache> =
+        Box::leak(Box::new(block_caches));
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
