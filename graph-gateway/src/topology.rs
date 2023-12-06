@@ -1,18 +1,21 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt, Ptr};
 use futures::future::join_all;
+use indoc::indoc;
 use itertools::Itertools;
 use prelude::GRT;
 use serde::Deserialize;
+use thegraph::client as subgraph_client;
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
 use toolshed::url::Url;
 
-use crate::{ipfs, network_subgraph};
+use crate::{config, ipfs, network_subgraph, spawn_poller};
 
 /// Representation of the graph network being used to serve queries
 #[derive(Clone)]
@@ -38,6 +41,7 @@ pub struct Subgraph {
 pub struct Deployment {
     pub id: DeploymentId,
     pub manifest: Arc<Manifest>,
+    pub expect_attestation: bool,
     /// An indexer may have multiple active allocations on a deployment. We collapse them into a single logical
     /// allocation using the largest allocation ID and sum of the allocated tokens.
     pub indexers: Vec<Arc<Indexer>>,
@@ -85,6 +89,7 @@ pub struct Manifest {
 impl GraphNetwork {
     pub async fn new(
         subgraphs: Eventual<Ptr<Vec<network_subgraph::Subgraph>>>,
+        block_oracle_chains: Eventual<Ptr<HashSet<String>>>,
         ipfs: Arc<ipfs::Client>,
     ) -> Self {
         let cache: &'static RwLock<IpfsCache> = Box::leak(Box::new(RwLock::new(IpfsCache {
@@ -94,8 +99,9 @@ impl GraphNetwork {
 
         // Create a lookup table for subgraphs, keyed by their ID.
         // Invalid URL indexers are filtered out. See: 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
-        let subgraphs = subgraphs.map(move |subgraphs| async move {
-            Ptr::new(Self::subgraphs(&subgraphs, cache).await)
+        let subgraphs = subgraphs.map(move |subgraphs| {
+            let block_oracle_chains = block_oracle_chains.clone();
+            async move { Ptr::new(Self::subgraphs(&subgraphs, cache, block_oracle_chains).await) }
         });
 
         // Create a lookup table for deployments, keyed by their ID (which is also their IPFS hash).
@@ -134,19 +140,20 @@ impl GraphNetwork {
     async fn subgraphs(
         subgraphs: &[network_subgraph::Subgraph],
         cache: &'static RwLock<IpfsCache>,
+        block_oracle_chains: Eventual<Ptr<HashSet<String>>>,
     ) -> HashMap<SubgraphId, Subgraph> {
+        let block_oracle_chains: &HashSet<String> =
+            &block_oracle_chains.value_immediate().unwrap_or_default();
         join_all(subgraphs.iter().map(|subgraph| async move {
             let id = subgraph.id;
-            let deployments = join_all(
-                subgraph
-                    .versions
-                    .iter()
-                    .map(|version| Self::deployment(subgraphs, version, cache)),
-            )
-            .await
-            .into_iter()
-            .flatten()
-            .collect();
+            let deployments =
+                join_all(subgraph.versions.iter().map(|version| {
+                    Self::deployment(subgraphs, version, cache, block_oracle_chains)
+                }))
+                .await
+                .into_iter()
+                .flatten()
+                .collect();
             let subgraph = Subgraph {
                 deployments,
                 id,
@@ -163,6 +170,7 @@ impl GraphNetwork {
         subgraphs: &[network_subgraph::Subgraph],
         version: &network_subgraph::SubgraphVersion,
         cache: &'static RwLock<IpfsCache>,
+        block_oracle_chains: &HashSet<String>,
     ) -> Option<Arc<Deployment>> {
         let id = version.subgraph_deployment.id;
         let manifest = IpfsCache::manifest(cache, &version.subgraph_deployment.id).await?;
@@ -215,9 +223,13 @@ impl GraphNetwork {
         let transferred_to_l2 = version.subgraph_deployment.transferred_to_l2
             && version.subgraph_deployment.allocations.is_empty();
 
+        let expect_attestation =
+            manifest.features.is_empty() && block_oracle_chains.contains(&manifest.network);
+
         Some(Arc::new(Deployment {
             id,
             manifest,
+            expect_attestation,
             subgraphs,
             indexers,
             transferred_to_l2,
@@ -298,4 +310,49 @@ impl IpfsCache {
             features: manifest.features,
         })
     }
+}
+
+/// Returns the set of CAIP-2 IDs supported by the Block Oracle.
+pub async fn block_oracle_chains(
+    subgraph: subgraph_client::Client,
+    chains: &[config::Chain],
+) -> Eventual<Ptr<HashSet<String>>> {
+    let query = indoc! {"
+        networks(
+            block: $block
+            orderBy: id
+            orderDirection: asc
+            first: $first
+            where: {
+                id_gt: $last
+            }
+        ) {
+            id
+        }
+    "};
+    #[derive(Clone, Deserialize)]
+    struct Network {
+        id: String,
+    }
+    let chains: &'static HashMap<String, HashSet<String>> = Box::leak(Box::new(
+        chains
+            .iter()
+            .map(|c| (c.caip2_id.to_string(), HashSet::from_iter(c.names.clone())))
+            .collect::<HashMap<_, _>>(),
+    ));
+    let reader = spawn_poller::<Network>(
+        subgraph,
+        query.into(),
+        "block_oracle",
+        Duration::from_secs(120),
+    )
+    .map(move |networks| async move {
+        networks
+            .iter()
+            .flat_map(|n| chains.get(&n.id).cloned().unwrap_or_default())
+            .collect::<HashSet<String>>()
+            .into()
+    });
+    reader.value().await.unwrap();
+    reader
 }

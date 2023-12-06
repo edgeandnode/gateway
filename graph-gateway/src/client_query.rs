@@ -818,8 +818,7 @@ async fn handle_indexer_query_inner(
         }
     }
 
-    // Return early if we aren't expecting an attestation.
-    if !ctx.deployment.manifest.features.is_empty() {
+    if !ctx.deployment.expect_attestation {
         return Ok(response.payload);
     }
 

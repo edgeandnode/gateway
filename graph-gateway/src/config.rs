@@ -19,6 +19,9 @@ pub struct Config {
     /// Respect the payment state of API keys (disable for testnets)
     pub api_key_payment_required: bool,
     pub attestations: AttestationConfig,
+    /// Block oracle subgraph URL
+    #[serde_as(as = "DisplayFromStr")]
+    pub block_oracle_subgraph: Url,
     pub chains: Vec<Chain>,
     /// Ethereum RPC provider, or fixed exchange rate for testing
     pub exchange_rate_provider: ExchangeRateProvider,
@@ -86,6 +89,8 @@ pub struct AttestationConfig {
 #[serde_as]
 #[derive(Clone, Debug, Deserialize)]
 pub struct Chain {
+    /// CAIP-2 ID used to identify chains in the block oracle.
+    pub caip2_id: String,
     /// The first name is used in logs, the others are aliases also supported in subgraph manifests.
     pub names: Vec<String>,
     #[serde_as(as = "DisplayFromStr")]
