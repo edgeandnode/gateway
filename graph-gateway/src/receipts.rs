@@ -57,7 +57,7 @@ impl ReceiptSigner {
         Self {
             signer,
             domain: Eip712Domain {
-                name: Some("Scalar TAP".into()),
+                name: Some("TAP".into()),
                 version: Some("1".into()),
                 chain_id: Some(chain_id),
                 verifying_contract: Some(verifier),
