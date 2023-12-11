@@ -171,7 +171,7 @@ async fn query_indexer_for_indexing_statuses(
     client: reqwest::Client,
     status_url: Url,
 ) -> Result<Vec<IndexingStatusResponse>, String> {
-    indexing_statuses::client::send_indexing_statuses_query(client, status_url)
+    indexing_statuses::query(client, status_url)
         .await
         .map_err(|err| err.to_string())
         .map(|res| res.indexing_statuses)
@@ -184,7 +184,7 @@ async fn query_indexer_for_cost_models(
     cost_url: Url,
     deployments: Vec<DeploymentId>,
 ) -> Result<Vec<CostModelSourceResponse>, String> {
-    cost_models::client::send_cost_model_query(client, cost_url, CostModelQuery { deployments })
+    cost_models::query(client, cost_url, CostModelQuery { deployments })
         .await
         .map_err(|err| err.to_string())
         .map(|res| res.cost_models)

@@ -5,9 +5,8 @@ use assert_matches::assert_matches;
 use thegraph::types::DeploymentId;
 use tokio::time::timeout;
 
-use graph_gateway::indexers::public_poi::client;
 use graph_gateway::indexers::public_poi::{
-    PublicProofOfIndexingQuery, PublicProofOfIndexingRequest, MAX_REQUESTS_PER_QUERY,
+    self, PublicProofOfIndexingQuery, PublicProofOfIndexingRequest, MAX_REQUESTS_PER_QUERY,
 };
 
 /// Test utility function to create a valid `DeploymentId` with an arbitrary deployment id/ipfs hash.
@@ -39,7 +38,7 @@ async fn query_indexer_public_pois() {
     };
 
     //// When
-    let request = client::send_public_poi_query(client, status_url, query);
+    let request = public_poi::query(client, status_url, query);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
@@ -78,7 +77,7 @@ async fn requests_over_max_requests_per_query_should_fail() {
     };
 
     //// When
-    let request = client::send_public_poi_query(client, status_url, query);
+    let request = public_poi::query(client, status_url, query);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
@@ -102,12 +101,8 @@ async fn send_batched_queries_and_merge_results() {
         .collect::<Vec<_>>();
 
     //// When
-    let request = client::send_public_poi_queries_and_merge_results(
-        client,
-        status_url,
-        pois_to_query,
-        MAX_REQUESTS_PER_QUERY,
-    );
+    let request =
+        public_poi::merge_queries(client, status_url, pois_to_query, MAX_REQUESTS_PER_QUERY);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");

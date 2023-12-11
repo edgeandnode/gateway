@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use thegraph::types::DeploymentId;
 use tokio::time::timeout;
 
-use graph_gateway::indexers::indexing_statuses::client;
+use graph_gateway::indexers::indexing_statuses;
 
 /// Test utility function to create a valid `DeploymentId` with an arbitrary deployment id/ipfs hash.
 fn test_deployment_id(deployment: &str) -> DeploymentId {
@@ -22,7 +22,7 @@ async fn query_indexer_indexing_statuses() {
     let test_deployment = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
 
     //// When
-    let request = client::send_indexing_statuses_query(client, status_url);
+    let request = indexing_statuses::query(client, status_url);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
