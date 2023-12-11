@@ -4,15 +4,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use alloy_primitives::Address;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use thegraph::types::DeploymentId;
 use tokio::sync::Mutex;
 use toolshed::url::Url;
 
 use indexer_selection::Indexing;
 
-use crate::indexers_status::public_poi::client;
-use crate::poi::ProofOfIndexingInfo;
+use crate::indexers::public_poi;
+use crate::indexers::public_poi::ProofOfIndexingInfo;
 use crate::topology::{Deployment, Indexer};
 
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(20 * 60); // 20 minutes
@@ -89,13 +89,7 @@ pub async fn check_indexer_pois(
 ) -> (Address, Vec<ProofOfIndexingInfo>) {
     // Send the public POIs queries and merge the results into a table
     let requests = pois_info.iter().map(|info| info.meta());
-    let response_map = client::send_public_poi_queries_and_merge_results(
-        client,
-        indexer_url,
-        requests,
-        batch_size,
-    )
-    .await;
+    let response_map = public_poi::merge_queries(client, indexer_url, requests, batch_size).await;
 
     // Check the POIs against the indexer's POIs response map and generate
     // a list of matching POI

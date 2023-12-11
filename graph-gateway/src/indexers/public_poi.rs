@@ -1,13 +1,94 @@
+use std::collections::HashMap;
+
 use alloy_primitives::{BlockNumber, B256};
 use graphql_http::graphql::{Document, IntoDocument, IntoDocumentWithVariables};
+use graphql_http::http_client::ReqwestExt;
 use indoc::indoc;
+use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use thegraph::types::DeploymentId;
-
-pub const MAX_REQUESTS_PER_QUERY: usize = 10;
+use toolshed::url::Url;
 
 pub type ProofOfIndexing = B256;
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Deserialize)]
+pub struct ProofOfIndexingInfo {
+    /// Proof of indexing (POI).
+    pub proof_of_indexing: ProofOfIndexing,
+    /// POI deployment ID (the IPFS Hash in the Graph Network Subgraph).
+    pub deployment_id: DeploymentId,
+    /// POI block number.
+    pub block_number: BlockNumber,
+}
+
+impl ProofOfIndexingInfo {
+    /// Get the POI bytes.
+    pub fn poi(&self) -> ProofOfIndexing {
+        self.proof_of_indexing
+    }
+
+    /// Get the POI metadata.
+    pub fn meta(&self) -> (DeploymentId, BlockNumber) {
+        (self.deployment_id, self.block_number)
+    }
+}
+
+pub async fn query(
+    client: reqwest::Client,
+    status_url: Url,
+    query: PublicProofOfIndexingQuery,
+) -> anyhow::Result<PublicProofOfIndexingResponse> {
+    let res = client.post(status_url.0).send_graphql(query).await;
+    match res {
+        Ok(res) => Ok(res?),
+        Err(e) => Err(anyhow::anyhow!(
+            "Error sending public proof of indexing query: {}",
+            e
+        )),
+    }
+}
+
+pub async fn merge_queries(
+    client: reqwest::Client,
+    status_url: Url,
+    requests: impl IntoIterator<Item = (DeploymentId, BlockNumber)>,
+    batch_size: usize,
+) -> HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> {
+    // Build the query batches and create the futures
+    let queries = requests
+        .into_iter()
+        .map(|(deployment, block_number)| PublicProofOfIndexingRequest {
+            deployment,
+            block_number,
+        })
+        .chunks(batch_size)
+        .into_iter()
+        .map(|requests| PublicProofOfIndexingQuery {
+            requests: requests.collect(),
+        })
+        .map(|query| self::query(client.clone(), status_url.clone(), query))
+        .collect::<Vec<_>>();
+
+    // Send all queries concurrently
+    let responses = futures::future::join_all(queries).await;
+
+    let response_map: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> = responses
+        .into_iter()
+        // TODO: Handle errors (e.g., log them with trace level).
+        .filter_map(|response| response.ok())
+        .flat_map(|response| response.public_proofs_of_indexing)
+        .filter_map(|response| {
+            // If the response is missing the POI field, skip it.
+            let poi = response.proof_of_indexing?;
+            Some(((response.deployment, response.block.number), poi))
+        })
+        .collect::<HashMap<_, _>>();
+
+    response_map
+}
+
+pub const MAX_REQUESTS_PER_QUERY: usize = 10;
 
 pub(super) const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = indoc! {
     r#"query ($requests: [PublicProofOfIndexingRequest!]!) {
@@ -18,7 +99,7 @@ pub(super) const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = indoc! {
                 number
             }
         }
-    }"# 
+    }"#
 };
 
 #[derive(Clone, Debug, Serialize)]
