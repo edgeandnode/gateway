@@ -18,7 +18,6 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
-use graph_gateway::topology::block_oracle_chains;
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
@@ -107,12 +106,6 @@ async fn main() {
         .build()
         .unwrap();
 
-    let block_oracle_chains = block_oracle_chains(
-        subgraph_client::Client::new(http_client.clone(), config.block_oracle_subgraph),
-        &config.chains,
-    )
-    .await;
-
     let block_caches: HashMap<String, &'static BlockCache> = config
         .chains
         .into_iter()
@@ -156,8 +149,7 @@ async fn main() {
         )));
 
     let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
-    let network =
-        GraphNetwork::new(network_subgraph_data.subgraphs, block_oracle_chains, ipfs).await;
+    let network = GraphNetwork::new(network_subgraph_data.subgraphs, ipfs).await;
 
     // Indexer blocklist
     // Periodically check the defective POIs list against the network indexers and update the
