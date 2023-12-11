@@ -101,8 +101,7 @@ pub async fn check_indexer_pois(
     // a list of matching POI
     let result = pois_info
         .iter()
-        .cloned()
-        .filter(|info| {
+        .filter(|&info| {
             let info_meta = info.meta();
             let info_poi = info.poi();
 
@@ -113,6 +112,7 @@ pub async fn check_indexer_pois(
                 .map(|poi| poi == &info_poi)
                 .unwrap_or_default()
         })
+        .cloned()
         .collect::<Vec<_>>();
 
     (indexer_addr, result)
