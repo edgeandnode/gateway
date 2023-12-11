@@ -1,7 +1,7 @@
 use graphql_http::http_client::ReqwestExt;
 use toolshed::url::Url;
 
-use crate::indexers_status::cost_models::query;
+use crate::indexers::cost_models::query;
 
 pub async fn send_cost_model_query(
     client: reqwest::Client,

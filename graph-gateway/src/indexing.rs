@@ -13,9 +13,9 @@ use toolshed::url::{url::Host, Url};
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 
 use crate::geoip::GeoIP;
-use crate::indexers_status::cost_models::{self, CostModelQuery, CostModelSourceResponse};
-use crate::indexers_status::indexing_statuses::{self, IndexingStatusResponse};
-use crate::indexers_status::version;
+use crate::indexers::cost_models::{self, CostModelQuery, CostModelSourceResponse};
+use crate::indexers::indexing_statuses::{self, IndexingStatusResponse};
+use crate::indexers::version;
 use crate::topology::Deployment;
 
 pub struct IndexingStatus {

@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use thegraph::types::DeploymentId;
 use tokio::time::timeout;
 
-use graph_gateway::indexers_status::indexing_statuses::client;
+use graph_gateway::indexers::indexing_statuses::client;
 
 /// Test utility function to create a valid `DeploymentId` with an arbitrary deployment id/ipfs hash.
 fn test_deployment_id(deployment: &str) -> DeploymentId {

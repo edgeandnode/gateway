@@ -5,8 +5,8 @@ use assert_matches::assert_matches;
 use thegraph::types::DeploymentId;
 use tokio::time::timeout;
 
-use graph_gateway::indexers_status::public_poi::client;
-use graph_gateway::indexers_status::public_poi::{
+use graph_gateway::indexers::public_poi::client;
+use graph_gateway::indexers::public_poi::{
     PublicProofOfIndexingQuery, PublicProofOfIndexingRequest, MAX_REQUESTS_PER_QUERY,
 };
 

@@ -11,7 +11,7 @@ use toolshed::url::Url;
 
 use indexer_selection::Indexing;
 
-use crate::indexers_status::public_poi::client;
+use crate::indexers::public_poi::client;
 use crate::poi::ProofOfIndexingInfo;
 use crate::topology::{Deployment, Indexer};
 

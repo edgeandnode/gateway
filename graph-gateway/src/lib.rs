@@ -11,7 +11,7 @@ pub mod client_query;
 pub mod config;
 pub mod geoip;
 pub mod indexer_client;
-pub mod indexers_status;
+pub mod indexers;
 pub mod indexing;
 pub mod indexings_blocklist;
 pub mod ipfs;

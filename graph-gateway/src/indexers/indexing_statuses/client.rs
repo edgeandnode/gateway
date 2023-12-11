@@ -1,7 +1,7 @@
 use graphql_http::http_client::ReqwestExt;
 use toolshed::url::Url;
 
-use crate::indexers_status::indexing_statuses::query;
+use crate::indexers::indexing_statuses::query;
 
 pub async fn send_indexing_statuses_query(
     client: reqwest::Client,
