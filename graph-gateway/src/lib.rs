@@ -17,7 +17,6 @@ pub mod indexings_blocklist;
 pub mod ipfs;
 pub mod metrics;
 pub mod network_subgraph;
-pub mod poi;
 pub mod receipts;
 pub mod reports;
 pub mod subgraph_studio;

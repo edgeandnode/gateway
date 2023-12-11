@@ -10,6 +10,30 @@ use serde_with::{serde_as, DisplayFromStr};
 use thegraph::types::DeploymentId;
 use toolshed::url::Url;
 
+pub type ProofOfIndexing = B256;
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Deserialize)]
+pub struct ProofOfIndexingInfo {
+    /// Proof of indexing (POI).
+    pub proof_of_indexing: ProofOfIndexing,
+    /// POI deployment ID (the IPFS Hash in the Graph Network Subgraph).
+    pub deployment_id: DeploymentId,
+    /// POI block number.
+    pub block_number: BlockNumber,
+}
+
+impl ProofOfIndexingInfo {
+    /// Get the POI bytes.
+    pub fn poi(&self) -> ProofOfIndexing {
+        self.proof_of_indexing
+    }
+
+    /// Get the POI metadata.
+    pub fn meta(&self) -> (DeploymentId, BlockNumber) {
+        (self.deployment_id, self.block_number)
+    }
+}
+
 pub async fn query(
     client: reqwest::Client,
     status_url: Url,
@@ -65,8 +89,6 @@ pub async fn merge_queries(
 }
 
 pub const MAX_REQUESTS_PER_QUERY: usize = 10;
-
-pub type ProofOfIndexing = B256;
 
 pub(super) const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = indoc! {
     r#"query ($requests: [PublicProofOfIndexingRequest!]!) {

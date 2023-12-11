@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_with::{serde_as, DeserializeAs, DisplayFromStr, FromInto};
 use toolshed::url::Url;
 
-use crate::poi::ProofOfIndexingInfo;
+use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 #[serde_as]
 #[derive(Debug, Deserialize)]

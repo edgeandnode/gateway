@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use alloy_primitives::Address;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use thegraph::types::DeploymentId;
 use tokio::sync::Mutex;
 use toolshed::url::Url;
@@ -12,7 +12,7 @@ use toolshed::url::Url;
 use indexer_selection::Indexing;
 
 use crate::indexers::public_poi;
-use crate::poi::ProofOfIndexingInfo;
+use crate::indexers::public_poi::ProofOfIndexingInfo;
 use crate::topology::{Deployment, Indexer};
 
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(20 * 60); // 20 minutes
