@@ -3,7 +3,7 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use tokio::time::timeout;
 
-use graph_gateway::indexers_status::version::client;
+use graph_gateway::indexers::version::client;
 
 #[tokio::test]
 async fn query_indexer_public_pois() {

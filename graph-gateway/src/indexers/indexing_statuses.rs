@@ -1,11 +1,30 @@
 use std::borrow::Cow;
 
 use alloy_primitives::BlockHash;
+use graphql_http::http_client::ReqwestExt;
 use indoc::indoc;
 use serde::{Deserialize, Deserializer};
 use thegraph::types::DeploymentId;
+use toolshed::url::Url;
 
-pub(super) const INDEXING_STATUSES_QUERY_DOCUMENT: &str = indoc! {
+pub async fn query(
+    client: reqwest::Client,
+    status_url: Url,
+) -> anyhow::Result<IndexingStatusesResponse> {
+    let res = client
+        .post(status_url.0)
+        .send_graphql(INDEXING_STATUSES_QUERY_DOCUMENT)
+        .await;
+    match res {
+        Ok(res) => Ok(res?),
+        Err(e) => Err(anyhow::anyhow!(
+            "Error sending indexing statuses query: {}",
+            e
+        )),
+    }
+}
+
+pub const INDEXING_STATUSES_QUERY_DOCUMENT: &str = indoc! {
     r#"{
         indexingStatuses(subgraphs: []) {
             subgraph
