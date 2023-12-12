@@ -45,7 +45,7 @@ use crate::block_constraints::{block_constraints, make_query_deterministic, Bloc
 use crate::budgets::{self, Budgeter};
 use crate::chains::BlockCache;
 use crate::indexer_client::{check_block_error, IndexerClient, IndexerError, ResponsePayload};
-use crate::indexing::IndexingStatus;
+use crate::indexers::indexing;
 use crate::metrics::{with_metric, METRICS};
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
@@ -99,7 +99,7 @@ pub struct Context {
     pub l2_gateway: Option<Url>,
     pub block_caches: &'static HashMap<String, BlockCache>,
     pub network: GraphNetwork,
-    pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, IndexingStatus>>>,
+    pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, indexing::Status>>>,
     pub attestation_domain: &'static Eip712Domain,
     pub indexings_blocklist: Eventual<Ptr<HashSet<Indexing>>>,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,

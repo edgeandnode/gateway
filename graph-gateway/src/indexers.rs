@@ -1,4 +1,5 @@
 pub mod cost_models;
+pub mod indexing;
 pub mod indexing_statuses;
 pub mod public_poi;
 pub mod version;
