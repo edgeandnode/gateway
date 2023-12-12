@@ -10,10 +10,8 @@ use toolshed::url::Url;
 
 #[derive(Clone, Debug, Default)]
 pub struct APIKey {
-    pub id: i64,
     pub key: String,
     pub is_subsidized: bool,
-    pub user_id: i64,
     pub user_address: Address,
     pub query_status: QueryStatus,
     pub max_budget: Option<USD>,
@@ -80,10 +78,8 @@ impl Client {
             .into_iter()
             .filter_map(|api_key| {
                 let api_key = APIKey {
-                    id: api_key.id,
                     key: api_key.key,
                     is_subsidized: api_key.is_subsidized,
-                    user_id: api_key.user_id,
                     user_address: api_key.user_address.parse().ok()?,
                     query_status: api_key.query_status,
                     max_budget: api_key
@@ -121,10 +117,8 @@ struct GetGatewayApiKeysResponsePayload {
 
 #[derive(Deserialize)]
 struct GatewayApiKey {
-    id: i64,
     key: String,
     is_subsidized: bool,
-    user_id: i64,
     user_address: String,
     query_status: QueryStatus,
     max_budget: Option<f64>,

@@ -6,6 +6,7 @@ use std::time::Duration;
 use alloy_primitives::Address;
 use anyhow::{anyhow, bail, ensure, Result};
 use eventuals::{Eventual, EventualExt, Ptr};
+use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use graph_subscriptions::TicketPayload;
 use prelude::USD;
 use thegraph::types::{DeploymentId, SubgraphId};
@@ -21,6 +22,7 @@ pub struct AuthHandler {
     pub special_query_key_signers: HashSet<Address>,
     pub api_key_payment_required: bool,
     pub subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
+    pub subscription_tiers: &'static SubscriptionTiers,
     pub subscription_domains: HashMap<u64, Address>,
     pub subscription_query_counters: RwLock<HashMap<Address, AtomicUsize>>,
 }
@@ -44,6 +46,7 @@ impl AuthHandler {
         special_query_key_signers: HashSet<Address>,
         api_key_payment_required: bool,
         subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
+        subscription_tiers: &'static SubscriptionTiers,
         subscription_domains: HashMap<u64, Address>,
     ) -> &'static Self {
         let handler: &'static Self = Box::leak(Box::new(Self {
@@ -52,6 +55,7 @@ impl AuthHandler {
             special_query_key_signers,
             api_key_payment_required,
             subscriptions,
+            subscription_tiers,
             subscription_domains,
             subscription_query_counters: RwLock::default(),
         }));
@@ -188,7 +192,20 @@ impl AuthHandler {
             .unwrap_or_default()
             .get(&user)
             .cloned()
-            .ok_or_else(|| anyhow!("Subscription not found for user {}", user))?;
+            .unwrap_or_else(|| Subscription {
+                signers: vec![user],
+                rate: 0,
+            });
+        let subscription_tier = self.subscription_tiers.tier_for_rate(subscription.rate);
+        tracing::debug!(
+            subscription_payment_rate = subscription.rate,
+            queries_per_minute = subscription_tier.queries_per_minute,
+        );
+        ensure!(
+            subscription_tier.queries_per_minute > 0,
+            "Subscription not found for user {user}"
+        );
+
         let signer: Address = ticket_payload.signer.0.into();
         ensure!(
             (signer == user) || subscription.signers.contains(&signer),
@@ -216,7 +233,7 @@ impl AuthHandler {
                 let count = counter.fetch_add(1, atomic::Ordering::Relaxed);
                 // Note that counters are for 1 minute intervals.
                 // 5720d5ea-cfc3-4862-865b-52b4508a4c14
-                let limit = subscription.queries_per_minute as usize;
+                let limit = subscription_tier.queries_per_minute as usize;
                 // This error message should remain constant, since the graph-subscriptions-api
                 // relies on it to track rate limited conditions.
                 // TODO: Monthly limits should use the message "Monthly query limit exceeded"
