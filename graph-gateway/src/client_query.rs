@@ -591,8 +591,7 @@ async fn handle_client_query_inner(
             //    block `n`
             // 6. The indexer is seen as being behind and is unnecessarily penalized
             let deterministic_query =
-                make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)
-                    .ok_or_else(|| Error::Internal(anyhow!("failed to set block constraints")))?;
+                make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)?;
 
             let optimistic_query = optimistic_query(
                 context.clone(),
@@ -889,7 +888,7 @@ async fn optimistic_query(
     let unresolved = UnresolvedBlock::WithNumber(optimistic_block_number);
     let optimistic_block = block_cache.fetch_block(unresolved).await.ok()?;
     resolved.insert(optimistic_block.clone());
-    make_query_deterministic(ctx, resolved, &optimistic_block)
+    make_query_deterministic(ctx, resolved, &optimistic_block).ok()
 }
 
 /// This adapter middleware extracts the authorization token from the `api_key` path parameter,
