@@ -3,29 +3,24 @@ use std::{collections::HashMap, sync::Arc};
 
 use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
-use graph_subscriptions::subscription_tier::SubscriptionTiers;
+use prelude::unix_timestamp;
 use thegraph::client as subgraph_client;
 use tokio::sync::Mutex;
-
-use prelude::unix_timestamp;
 
 use crate::subscriptions::{ActiveSubscription, Subscription};
 
 pub struct Client {
     subgraph_client: subgraph_client::Client,
-    tiers: &'static SubscriptionTiers,
     subscriptions: EventualWriter<Ptr<HashMap<Address, Subscription>>>,
 }
 
 impl Client {
     pub fn create(
         subgraph_client: subgraph_client::Client,
-        tiers: &'static SubscriptionTiers,
     ) -> Eventual<Ptr<HashMap<Address, Subscription>>> {
         let (subscriptions_tx, subscriptions_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
-            tiers,
             subscriptions: subscriptions_tx,
         }));
 
@@ -85,19 +80,14 @@ impl Client {
 
         let subscriptions_map = active_subscriptions_response
             .into_iter()
-            .map(|active_sub| {
-                let user = active_sub.user;
+            .map(|ActiveSubscription { user, rate, .. }| {
                 let signers = user
                     .authorized_signers
                     .into_iter()
                     .map(|signer| signer.signer)
-                    .chain([user.id]);
-                let tier = self.tiers.tier_for_rate(active_sub.rate);
-                let sub = Subscription {
-                    signers: signers.collect(),
-                    queries_per_minute: tier.queries_per_minute,
-                };
-                (user.id, sub)
+                    .chain([user.id])
+                    .collect();
+                (user.id, Subscription { signers, rate })
             })
             .collect();
         self.subscriptions.write(Ptr::new(subscriptions_map));
