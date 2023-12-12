@@ -38,6 +38,7 @@ pub struct Subgraph {
 pub struct Deployment {
     pub id: DeploymentId,
     pub manifest: Arc<Manifest>,
+    pub expect_attestation: bool,
     /// An indexer may have multiple active allocations on a deployment. We collapse them into a single logical
     /// allocation using the largest allocation ID and sum of the allocated tokens.
     pub indexers: Vec<Arc<Indexer>>,
@@ -78,7 +79,6 @@ impl Indexer {
 
 pub struct Manifest {
     pub network: String,
-    pub features: Vec<String>,
     pub min_block: u64,
 }
 
@@ -218,6 +218,7 @@ impl GraphNetwork {
         Some(Arc::new(Deployment {
             id,
             manifest,
+            expect_attestation: version.subgraph_deployment.denied_at == 0,
             subgraphs,
             indexers,
             transferred_to_l2,
@@ -262,8 +263,6 @@ impl IpfsCache {
         #[serde(rename_all = "camelCase")]
         struct ManifestSrc {
             data_sources: Vec<DataSource>,
-            #[serde(default)]
-            features: Vec<String>,
         }
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -292,10 +291,6 @@ impl IpfsCache {
             .map(|data_source| data_source.network)
             .next()
             .ok_or_else(|| anyhow!("Network not found"))?;
-        Ok(Manifest {
-            network,
-            min_block,
-            features: manifest.features,
-        })
+        Ok(Manifest { network, min_block })
     }
 }

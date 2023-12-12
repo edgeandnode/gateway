@@ -38,6 +38,7 @@ pub struct SubgraphVersion {
 pub struct SubgraphDeployment {
     #[serde(rename = "ipfsHash")]
     pub id: DeploymentId,
+    pub denied_at: u64,
     #[serde(rename = "indexerAllocations")]
     pub allocations: Vec<Allocation>,
     #[serde(default)]
@@ -147,6 +148,7 @@ impl Client {
                 versions(orderBy: version, orderDirection: asc) {{
                     subgraphDeployment {{
                         ipfsHash
+                        deniedAt
                         indexerAllocations(
                             first: 100
                             orderBy: createdAt, orderDirection: asc

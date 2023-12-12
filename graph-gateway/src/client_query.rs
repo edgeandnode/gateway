@@ -97,7 +97,7 @@ pub struct Context {
     pub budgeter: &'static Budgeter,
     pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,
-    pub block_caches: &'static HashMap<String, BlockCache>,
+    pub block_caches: &'static HashMap<String, &'static BlockCache>,
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, indexing::Status>>>,
     pub attestation_domain: &'static Eip712Domain,
@@ -444,10 +444,9 @@ async fn handle_client_query_inner(
         })
         .collect();
 
-    let block_cache = ctx
+    let block_cache = *ctx
         .block_caches
         .get(&subgraph_chain)
-        .cloned()
         .ok_or_else(|| Error::SubgraphChainNotSupported(subgraph_chain))?;
 
     let block_constraints = block_constraints(&context)
@@ -612,7 +611,7 @@ async fn handle_client_query_inner(
             };
 
             let latest_query_block = pick_latest_query_block(
-                &block_cache,
+                block_cache,
                 latest_block.number.saturating_sub(selection.blocks_behind),
                 blocks_per_minute,
             )
@@ -642,7 +641,7 @@ async fn handle_client_query_inner(
                 &latest_block,
                 &latest_query_block,
                 &utility_params.requirements,
-                &block_cache,
+                block_cache,
                 &selection,
             )
             .await;
@@ -819,8 +818,7 @@ async fn handle_indexer_query_inner(
         }
     }
 
-    // Return early if we aren't expecting an attestation.
-    if !ctx.deployment.manifest.features.is_empty() {
+    if !ctx.deployment.expect_attestation {
         return Ok(response.payload);
     }
 
