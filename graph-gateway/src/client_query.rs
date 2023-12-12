@@ -4,7 +4,7 @@ use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use alloy_primitives::{BlockNumber, U256};
+use alloy_primitives::{Address, BlockNumber, U256};
 use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, bail, Context as _};
 use axum::extract::OriginalUri;
@@ -16,15 +16,14 @@ use axum::{
     http::{header, HeaderMap, Response, StatusCode},
     RequestPartsExt,
 };
-use cost_model::{Context as AgoraContext, CostError, CostModel};
+use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::{Eventual, Ptr};
 use futures::future::join_all;
 use graphql::graphql_parser::query::{OperationDefinition, SelectionSet};
 use indexer_selection::Candidate;
 use indexer_selection::{
-    actor::Update, BlockRequirements, IndexerError as IndexerSelectionError,
-    IndexerErrorObservation, Indexing, InputError, Selection, UnresolvedBlock, UtilityParameters,
-    SELECTION_LIMIT,
+    actor::Update, BlockRequirements, IndexerError as SelectionError, IndexerErrorObservation,
+    Indexing, InputError, Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
 };
 use lazy_static::lazy_static;
 use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
@@ -44,7 +43,8 @@ use crate::auth::{AuthHandler, AuthToken};
 use crate::block_constraints::{block_constraints, make_query_deterministic, BlockConstraint};
 use crate::budgets::Budgeter;
 use crate::chains::BlockCache;
-use crate::indexer_client::{check_block_error, IndexerClient, IndexerError, ResponsePayload};
+use crate::errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*};
+use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::indexers::indexing;
 use crate::metrics::{with_metric, METRICS};
 use crate::reports::{self, serialize_attestation, KafkaClient};
@@ -58,34 +58,6 @@ fn query_id() -> String {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let local_id = COUNTER.fetch_add(1, atomic::Ordering::Relaxed);
     format!("{}-{:x}", *GATEWAY_ID, local_id)
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("Block not found: {0}")]
-    BlockNotFound(UnresolvedBlock),
-    #[error("Subgraph deployment not found: {0}")]
-    DeploymentNotFound(DeploymentId),
-    #[error("Internal error: {0:#}")]
-    Internal(anyhow::Error),
-    #[error("{0:#}")]
-    InvalidAuth(anyhow::Error),
-    #[error("Invalid subgraph deployment: {0}")]
-    InvalidDeploymentId(String),
-    #[error("Invalid query: {0:#}")]
-    InvalidQuery(anyhow::Error),
-    #[error("Invalid subgraph: {0}")]
-    InvalidSubgraph(String),
-    #[error("No indexers found for subgraph deployment")]
-    NoIndexers,
-    #[error("No suitable indexer found for subgraph deployment. {0:#}")]
-    NoSuitableIndexer(anyhow::Error),
-    #[error("Subgraph chain not supported: {0}")]
-    SubgraphChainNotSupported(String),
-    #[error("Subgraph not found: {0}")]
-    SubgraphNotFound(SubgraphId),
-    #[error("L2 gateway request failed: {0}")]
-    L2GatewayError(anyhow::Error),
 }
 
 #[derive(Clone)]
@@ -194,13 +166,13 @@ pub async fn handle_query(
                 .instrument(span.clone())
                 .await
         }
-        (Err(auth_err), _) => Err(Error::InvalidAuth(auth_err)),
+        (Err(auth_err), _) => Err(Error::Auth(auth_err)),
         (_, Err(subgraph_resolution_err)) => Err(subgraph_resolution_err),
     };
 
     let deployment: Option<String> = result
         .as_ref()
-        .map(|response| response.selection.indexing.deployment.to_string())
+        .map(|(selection, _)| selection.indexing.deployment.to_string())
         .ok();
     let metric_labels = [deployment.as_deref().unwrap_or("")];
 
@@ -224,10 +196,7 @@ pub async fn handle_query(
     });
 
     match result {
-        Ok(QueryOutcome {
-            response: ResponsePayload { body, attestation },
-            ..
-        }) => {
+        Ok((_, ResponsePayload { body, attestation })) => {
             let attestation = attestation
                 .as_ref()
                 .and_then(|attestation| serde_json::to_string(attestation).ok())
@@ -270,15 +239,15 @@ async fn forward_request_to_l2(
         .and_then(|response| response.error_for_status())
     {
         Ok(response) => response,
-        Err(err) => return error_response(Error::L2GatewayError(err.into())),
+        Err(err) => return error_response(Error::Internal(anyhow!("L2 gateway error: {err}"))),
     };
     let status = response.status();
     if !status.is_success() {
-        return error_response(Error::L2GatewayError(anyhow!("{}", status)));
+        return error_response(Error::Internal(anyhow!("L2 gateway error: {status}")));
     }
     let body = match response.text().await {
         Ok(body) => body,
-        Err(err) => return error_response(Error::L2GatewayError(err.into())),
+        Err(err) => return error_response(Error::Internal(anyhow!("L2 gateway error: {err}"))),
     };
     Response::builder()
         .status(status)
@@ -318,31 +287,27 @@ async fn resolve_subgraph_deployments(
     params: &BTreeMap<String, String>,
 ) -> Result<(Vec<Arc<Deployment>>, Option<Subgraph>), Error> {
     if let Some(id) = params.get("subgraph_id") {
-        let id = SubgraphId::from_str(id).map_err(|_| Error::InvalidSubgraph(id.to_string()))?;
+        let id = SubgraphId::from_str(id)
+            .map_err(|_| Error::SubgraphNotFound(anyhow!("invalid subgraph ID: {id}")))?;
         let subgraph = network
             .subgraphs
             .value_immediate()
             .and_then(|subgraphs| subgraphs.get(&id).cloned())
-            .ok_or_else(|| Error::SubgraphNotFound(id))?;
+            .ok_or_else(|| Error::SubgraphNotFound(anyhow!("{id}")))?;
         let versions = subgraph.deployments.clone();
         Ok((versions, Some(subgraph)))
     } else if let Some(id) = params.get("deployment_id") {
         let id: DeploymentId = id
             .parse()
-            .map_err(|_| Error::InvalidDeploymentId(id.to_string()))?;
+            .map_err(|_| Error::SubgraphNotFound(anyhow!("invalid deployment ID: {id}")))?;
         network
             .deployments
             .value_immediate()
             .and_then(|deployments| Some((vec![deployments.get(&id)?.clone()], None)))
-            .ok_or_else(|| Error::DeploymentNotFound(id))
+            .ok_or_else(|| Error::SubgraphNotFound(anyhow!("deployment not found: {id}")))
     } else {
-        Err(Error::InvalidDeploymentId("".to_string()))
+        Err(Error::SubgraphNotFound(anyhow!("missing identifier")))
     }
-}
-
-struct QueryOutcome {
-    response: ResponsePayload,
-    selection: Selection,
 }
 
 async fn handle_client_query_inner(
@@ -351,11 +316,11 @@ async fn handle_client_query_inner(
     payload: Bytes,
     auth: AuthToken,
     domain: String,
-) -> Result<QueryOutcome, Error> {
+) -> Result<(Selection, ResponsePayload), Error> {
     let subgraph_chain = deployments
         .last()
         .map(|deployment| deployment.manifest.network.clone())
-        .ok_or_else(|| Error::InvalidSubgraph("No matching deployments".to_string()))?;
+        .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
     tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain, domain);
     // Make sure we only select from deployments indexing the same chain. This simplifies dealing
     // with block constraints later.
@@ -363,6 +328,10 @@ async fn handle_client_query_inner(
     tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
 
     let manifest_min_block = deployments.last().unwrap().manifest.min_block;
+    let block_cache = *ctx
+        .block_caches
+        .get(&subgraph_chain)
+        .ok_or_else(|| Error::ChainNotFound(subgraph_chain))?;
 
     match &auth {
         AuthToken::ApiKey(api_key) => tracing::info!(
@@ -378,40 +347,40 @@ async fn handle_client_query_inner(
     };
 
     let payload: QueryBody =
-        serde_json::from_reader(payload.reader()).map_err(|err| Error::InvalidQuery(err.into()))?;
+        serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
 
     ctx.auth_handler
         .check_token(&auth, &deployments, &domain)
         .await
-        .map_err(Error::InvalidAuth)?;
+        .map_err(Error::Auth)?;
+
+    let mut indexer_errors: BTreeMap<Address, IndexerError> = Default::default();
+
+    let mut candidates: BTreeSet<Indexing> = deployments
+        .iter()
+        .flat_map(move |deployment| {
+            let id = deployment.id;
+            deployment.indexers.iter().map(move |indexer| Indexing {
+                indexer: indexer.id,
+                deployment: id,
+            })
+        })
+        .collect();
+    if candidates.is_empty() {
+        return Err(Error::NoIndexers);
+    }
 
     let blocklist = ctx
         .indexings_blocklist
         .value_immediate()
         .unwrap_or_default();
-
-    let candidates: BTreeSet<Indexing> = deployments
-        .iter()
-        .flat_map(move |deployment| {
-            let id = deployment.id;
-            let blocklist = blocklist.clone();
-            deployment
-                .indexers
-                .iter()
-                .map(move |indexer| Indexing {
-                    indexer: indexer.id,
-                    deployment: id,
-                })
-                .filter(move |indexing| {
-                    // Filter out indexings that are blocked
-                    !blocklist.contains(indexing)
-                })
-        })
-        .collect();
-    tracing::info!(candidates = candidates.len());
-    if candidates.is_empty() {
-        return Err(Error::NoIndexers);
-    }
+    candidates.retain(|candidate| {
+        if blocklist.contains(candidate) {
+            indexer_errors.insert(candidate.indexer, IndexerError::Unavailable(NoStatus));
+            return false;
+        }
+        true
+    });
 
     let variables = payload
         .variables
@@ -419,7 +388,7 @@ async fn handle_client_query_inner(
         .map(ToString::to_string)
         .unwrap_or_default();
     let mut context = AgoraContext::new(&payload.query, &variables)
-        .map_err(|err| Error::InvalidQuery(anyhow!("{}", err)))?;
+        .map_err(|err| Error::BadQuery(anyhow!("{err}")))?;
     tracing::info!(
         target: reports::CLIENT_QUERY_TARGET,
         query = %payload.query,
@@ -435,8 +404,8 @@ async fn handle_client_query_inner(
                 .and_then(|m| m.get(&indexing).and_then(|s| s.cost_model.clone()));
             let fee = match indexer_fee(&cost_model, &mut context) {
                 Ok(fee) => fee,
-                Err(cost_model_err) => {
-                    tracing::warn!(%cost_model_err, ?indexing);
+                Err(err) => {
+                    indexer_errors.insert(indexing.indexer, err);
                     return None;
                 }
             };
@@ -444,13 +413,7 @@ async fn handle_client_query_inner(
         })
         .collect();
 
-    let block_cache = *ctx
-        .block_caches
-        .get(&subgraph_chain)
-        .ok_or_else(|| Error::SubgraphChainNotSupported(subgraph_chain))?;
-
-    let block_constraints = block_constraints(&context)
-        .ok_or_else(|| Error::InvalidQuery(anyhow!("Failed to determine block constraints.")))?;
+    let block_constraints = block_constraints(&context).unwrap_or_default();
     let mut resolved_blocks = join_all(
         block_constraints
             .iter()
@@ -484,9 +447,10 @@ async fn handle_client_query_inner(
         })
         .any(|b| b.number < manifest_min_block);
     if request_contains_invalid_blocks {
-        return Err(Error::InvalidQuery(anyhow!(
-            "Requested block before minimum `startBlock` of manifest: {}",
-            min_block.unwrap_or_default()
+        return Err(Error::BadQuery(anyhow!(
+            "requested block {}, before minimum `startBlock` of manifest {}",
+            min_block.unwrap_or_default(),
+            manifest_min_block,
         )));
     }
 
@@ -497,10 +461,10 @@ async fn handle_client_query_inner(
         .latest()
         .network_params
         .grt_per_usd
-        .ok_or_else(|| Error::Internal(anyhow!("Missing exchange rate")))?;
+        .ok_or_else(|| Error::Internal(anyhow!("missing exchange rate")))?;
     // TODO: In the future, we should factor this into our budget somehow.
     let agora_query_count = count_top_level_selection_sets(&context)
-        .map_err(Error::InvalidQuery)?
+        .map_err(Error::BadQuery)?
         .max(1) as u64;
     let candidate_fees: Vec<USD> = candidates
         .iter()
@@ -533,8 +497,6 @@ async fn handle_client_query_inner(
     };
 
     let mut rng = SmallRng::from_entropy();
-
-    let mut total_indexer_queries = 0;
     let mut total_indexer_fees = GRT(UDecimal18::from(0));
 
     for retry in 0..ctx.indexer_selection_retry_limit {
@@ -552,34 +514,32 @@ async fn handle_client_query_inner(
         utility_params.latest_block = latest_block.number;
 
         let selection_timer = METRICS.indexer_selection_duration.start_timer();
-        let (mut selections, indexer_errors) = ctx
+        let (mut selections, selection_errors) = ctx
             .isa_state
             .latest()
             .select_indexers(&mut rng, &utility_params, &candidates)
             .map_err(|err| match err {
-                InputError::MalformedQuery => Error::InvalidQuery(anyhow!("Failed to parse")),
                 InputError::MissingNetworkParams => {
-                    Error::Internal(anyhow!("Missing network params"))
+                    Error::Internal(anyhow!("missing network params"))
                 }
             })?;
         drop(selection_timer);
 
         let selections_len = selections.len();
-        total_indexer_queries += selections_len;
-
-        tracing::debug!(indexer_errors = ?indexer_errors.0);
+        for (error, indexers) in selection_errors.0 {
+            for indexer in indexers {
+                let error = match error {
+                    SelectionError::NoStatus => IndexerError::Unavailable(NoStatus),
+                    SelectionError::NoStake => IndexerError::Unavailable(NoStake),
+                    SelectionError::MissingRequiredBlock => IndexerError::Unavailable(MissingBlock),
+                    SelectionError::FeeTooHigh => IndexerError::Unavailable(FeeTooHigh),
+                    SelectionError::NaN => IndexerError::Internal("NaN"),
+                };
+                indexer_errors.insert(*indexer, error);
+            }
+        }
         if selections.is_empty() {
-            let isa_errors = indexer_errors
-                .0
-                .iter()
-                .map(|(k, v)| (k, v.len()))
-                .filter(|(_, l)| *l > 0)
-                .collect::<BTreeMap<&IndexerSelectionError, usize>>();
-
-            return Err(Error::NoSuitableIndexer(anyhow!(
-                "Indexer selection errors: {:?}",
-                isa_errors
-            )));
+            continue;
         }
 
         for selection in &mut selections {
@@ -632,9 +592,7 @@ async fn handle_client_query_inner(
             // 6. The indexer is seen as being behind and is unnecessarily penalized
             let deterministic_query =
                 make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)
-                    .ok_or_else(|| {
-                        Error::InvalidQuery(anyhow!("Failed to set block constraints"))
-                    })?;
+                    .ok_or_else(|| Error::Internal(anyhow!("failed to set block constraints")))?;
 
             let optimistic_query = optimistic_query(
                 context.clone(),
@@ -667,30 +625,32 @@ async fn handle_client_query_inner(
                         optimistic_query,
                     )
                     .await;
-                    let _ = outcome_tx.try_send(response.map(|response| QueryOutcome {
-                        response,
-                        selection,
-                    }));
+                    let _ = outcome_tx.try_send((selection, response));
                 }
                 .instrument(span),
             );
         }
         for _ in 0..selections_len {
             match outcome_rx.recv().await {
-                Some(Err(_)) | None => (),
-                Some(Ok(outcome)) => {
+                None => (),
+                Some((selection, Err(err))) => {
+                    indexer_errors.insert(selection.indexing.indexer, err);
+                }
+                Some((selection, Ok(outcome))) => {
                     let total_indexer_fees = USD(total_indexer_fees.0 / grt_per_usd.0);
                     let _ = ctx.budgeter.feedback.send(total_indexer_fees);
 
-                    return Ok(outcome);
+                    tracing::debug!(?indexer_errors);
+
+                    return Ok((selection, outcome));
                 }
             };
         }
     }
 
-    Err(Error::NoSuitableIndexer(anyhow!(
-        "Indexer queries attempted: {}",
-        total_indexer_queries
+    tracing::debug!(?indexer_errors);
+    Err(Error::BadIndexers(IndexerErrors::new(
+        indexer_errors.into_values(),
     )))
 }
 
@@ -748,7 +708,7 @@ async fn handle_indexer_query(
     let observation = match &result {
         Ok(_) => Ok(()),
         Err(IndexerError::Timeout) => Err(IndexerErrorObservation::Timeout),
-        Err(IndexerError::BlockError(_)) => {
+        Err(IndexerError::Unavailable(MissingBlock)) => {
             Err(IndexerErrorObservation::IndexingBehind { latest_query_block })
         }
         Err(_) => Err(IndexerErrorObservation::Other),
@@ -790,7 +750,7 @@ async fn handle_indexer_query_inner(
     let indexer_errors = serde_json::from_str::<
         graphql_http::http::response::ResponseBody<Box<RawValue>>,
     >(&response.payload.body)
-    .map_err(|_| IndexerError::UnexpectedPayload)?
+    .map_err(|err| IndexerError::BadResponse(err.to_string()))?
     .errors
     .into_iter()
     .map(|err| err.message)
@@ -804,15 +764,16 @@ async fn handle_indexer_query_inner(
     indexer_errors
         .iter()
         .try_for_each(|err| check_block_error(err))
-        .map_err(IndexerError::BlockError)?;
+        .map_err(|_| IndexerError::Unavailable(MissingBlock))?;
 
     for error in &indexer_errors {
         if miscategorized_unattestable(error) {
             let _ = ctx.observations.write(Update::Penalty {
                 indexing: selection.indexing,
             });
-            tracing::info!(%error, "penalizing for unattestable error");
-            return Err(IndexerError::UnattestableError(StatusCode::OK));
+            return Err(IndexerError::BadResponse(
+                "unattestable response".to_string(),
+            ));
         }
     }
 
@@ -829,7 +790,7 @@ async fn handle_indexer_query_inner(
             }
         }
 
-        return Err(IndexerError::NoAttestation);
+        return Err(IndexerError::BadResponse("no attestation".to_string()));
     }
 
     if let Some(attestation) = &response.payload.attestation {
@@ -845,9 +806,10 @@ async fn handle_indexer_query_inner(
         let response = response.payload.body.to_string();
         let payload = serialize_attestation(attestation, allocation, deterministic_query, response);
         ctx.kafka_client.send("gateway_attestations", &payload);
-        if let Err(attestation_verification_err) = verified {
-            tracing::debug!(%attestation_verification_err);
-            return Err(IndexerError::BadAttestation);
+        if let Err(err) = verified {
+            return Err(IndexerError::BadResponse(
+                anyhow!("bad attestation: {err}").to_string(),
+            ));
         }
     }
 
@@ -871,7 +833,7 @@ fn count_top_level_selection_sets(ctx: &AgoraContext<String>) -> anyhow::Result<
 pub fn indexer_fee(
     cost_model: &Option<Ptr<CostModel>>,
     context: &mut AgoraContext<'_, String>,
-) -> Result<GRT, &'static str> {
+) -> Result<GRT, IndexerError> {
     match cost_model
         .as_ref()
         .map(|model| model.cost_with_context(context))
@@ -881,13 +843,7 @@ pub fn indexer_fee(
             let fee = U256::try_from_be_slice(&fee.to_bytes_be()).unwrap_or(U256::MAX);
             Ok(GRT(UDecimal18::from_raw_u256(fee)))
         }
-        Some(Err(CostError::CostModelFail | CostError::QueryNotCosted)) => Err("QueryNotCosted"),
-        Some(Err(
-            CostError::QueryNotSupported
-            | CostError::QueryInvalid
-            | CostError::FailedToParseQuery
-            | CostError::FailedToParseVariables,
-        )) => Err("MalformedQuery"),
+        Some(Err(_)) => Err(IndexerError::Unavailable(NoFee)),
     }
 }
 
