@@ -18,20 +18,20 @@ use crate::indexers::indexing_statuses::{self, IndexingStatusResponse};
 use crate::indexers::version;
 use crate::topology::Deployment;
 
-pub struct IndexingStatus {
-    pub chain: String,
+#[derive(Clone)]
+pub struct Status {
     pub block: BlockPointer,
     pub min_block: Option<u64>,
     pub cost_model: Option<Ptr<CostModel>>,
     pub legacy_scalar: bool,
 }
 
-pub async fn indexing_statuses(
+pub async fn statuses(
     deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
     client: reqwest::Client,
     min_version: Version,
     geoip: Option<GeoIP>,
-) -> Eventual<Ptr<HashMap<Indexing, IndexingStatus>>> {
+) -> Eventual<Ptr<HashMap<Indexing, Status>>> {
     let (indexing_statuses_tx, indexing_statuses_rx) = Eventual::new();
     let actor: &'static Mutex<Actor> = Box::leak(Box::new(Mutex::new(Actor {
         min_version,
@@ -39,7 +39,8 @@ pub async fn indexing_statuses(
         dns_resolver: DNSResolver::tokio_from_system_conf().unwrap(),
         geoblocking_cache: EpochCache::new(),
         cost_model_cache: EpochCache::new(),
-        indexing_statuses: indexing_statuses_tx,
+        indexing_statuses: Default::default(),
+        indexing_statuses_tx,
     })));
 
     // Joining this eventual with a timer is unnecessary, as long as deployments update at a regular
@@ -65,7 +66,8 @@ struct Actor {
     dns_resolver: DNSResolver,
     geoblocking_cache: EpochCache<String, Result<(), String>, 2>,
     cost_model_cache: EpochCache<CostModelSource, Result<Ptr<CostModel>, String>, 2>,
-    indexing_statuses: EventualWriter<Ptr<HashMap<Indexing, IndexingStatus>>>,
+    indexing_statuses: HashMap<Indexing, Status>,
+    indexing_statuses_tx: EventualWriter<Ptr<HashMap<Indexing, Status>>>,
 }
 
 async fn update_statuses(
@@ -94,11 +96,15 @@ async fn update_statuses(
     }))
     .await
     .into_iter()
-    .flatten()
-    .collect();
+    .flatten();
 
     let mut actor = actor.lock().await;
-    actor.indexing_statuses.write(Ptr::new(statuses));
+    for (indexing, status) in statuses {
+        actor.indexing_statuses.insert(indexing, status);
+    }
+    let statuses = actor.indexing_statuses.clone();
+    actor.indexing_statuses_tx.write(Ptr::new(statuses));
+
     actor.geoblocking_cache.increment_epoch();
     actor.cost_model_cache.increment_epoch();
 }
@@ -108,7 +114,7 @@ async fn update_indexer(
     client: reqwest::Client,
     indexer: Address,
     url: Url,
-) -> Result<Vec<(Indexing, IndexingStatus)>, String> {
+) -> Result<Vec<(Indexing, Status)>, String> {
     let version_url = url
         .join("version")
         .map_err(|err| format!("IndexerVersionError({err})"))?;
@@ -208,7 +214,7 @@ async fn query_status(
     indexer: Address,
     url: Url,
     version: Version,
-) -> Result<Vec<(Indexing, IndexingStatus)>, String> {
+) -> Result<Vec<(Indexing, Status)>, String> {
     let status_url = url.join("status").map_err(|err| err.to_string())?;
     let statuses = query_indexer_for_indexing_statuses(client.clone(), status_url.into()).await?;
 
@@ -256,8 +262,7 @@ async fn query_status(
             let chain = &status.chains.get(0)?;
             let cost_model = cost_models.remove(&indexing.deployment);
             let block_status = chain.latest_block.as_ref()?;
-            let status = IndexingStatus {
-                chain: chain.network.clone(),
+            let status = Status {
                 block: BlockPointer {
                     number: block_status.number.parse().ok()?,
                     hash: block_status.hash,
