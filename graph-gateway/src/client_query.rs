@@ -42,7 +42,7 @@ use uuid::Uuid;
 
 use crate::auth::{AuthHandler, AuthToken};
 use crate::block_constraints::{block_constraints, make_query_deterministic, BlockConstraint};
-use crate::budgets::{self, Budgeter};
+use crate::budgets::Budgeter;
 use crate::chains::BlockCache;
 use crate::indexer_client::{check_block_error, IndexerClient, IndexerError, ResponsePayload};
 use crate::indexers::indexing;
@@ -498,14 +498,15 @@ async fn handle_client_query_inner(
         .network_params
         .grt_per_usd
         .ok_or_else(|| Error::Internal(anyhow!("Missing exchange rate")))?;
-    let budget_query_count = count_top_level_selection_sets(&context)
+    // TODO: In the future, we should factor this into our budget somehow.
+    let agora_query_count = count_top_level_selection_sets(&context)
         .map_err(Error::InvalidQuery)?
         .max(1) as u64;
     let candidate_fees: Vec<USD> = candidates
         .iter()
         .map(|c| USD(c.fee.0 / grt_per_usd.0))
         .collect();
-    let mut budget = ctx.budgeter.budget(budget_query_count, &candidate_fees);
+    let mut budget = ctx.budgeter.budget(&candidate_fees);
     if let Some(user_budget) = user_settings.budget {
         // Security: Consumers can and will set their budget to unreasonably high values.
         // This `.min` prevents the budget from being set far beyond what it would be
@@ -517,7 +518,7 @@ async fn handle_client_query_inner(
     let budget = GRT(budget.0 * grt_per_usd.0);
     tracing::info!(
         target: reports::CLIENT_QUERY_TARGET,
-        query_count = budget_query_count,
+        query_count = agora_query_count,
         budget_grt = f64::from(budget.0) as f32,
     );
     candidates.retain(|c| c.fee <= budget);
@@ -585,7 +586,7 @@ async fn handle_client_query_inner(
             // TODO: In a future where indexers are expected put more effort into setting cost
             // models, we should pay selected indexers the maximum fee of the alternatives
             // (where `fee <= budget`).
-            let min_fee = budget.0 * UDecimal18::try_from(0.75).unwrap();
+            let min_fee = budget.0 * UDecimal18::try_from(0.75 / selections_len as f64).unwrap();
             selection.fee = GRT(selection.fee.0.max(min_fee));
         }
         total_indexer_fees = GRT(total_indexer_fees.0 + selections.iter().map(|s| s.fee.0).sum());
@@ -679,10 +680,7 @@ async fn handle_client_query_inner(
                 Some(Err(_)) | None => (),
                 Some(Ok(outcome)) => {
                     let total_indexer_fees = USD(total_indexer_fees.0 / grt_per_usd.0);
-                    let _ = ctx.budgeter.feedback.send(budgets::Feedback {
-                        fees: total_indexer_fees,
-                        query_count: budget_query_count,
-                    });
+                    let _ = ctx.budgeter.feedback.send(total_indexer_fees);
 
                     return Ok(outcome);
                 }
