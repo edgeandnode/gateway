@@ -61,7 +61,7 @@ pub struct Config {
     pub port_api: u16,
     /// private metrics port
     pub port_metrics: u16,
-    /// Target for indexer fees paid per query
+    /// Target for indexer fees paid per request
     pub query_fees_target: f64,
     /// Scalar TAP config (receipt signing)
     pub scalar: Scalar,
