@@ -159,6 +159,7 @@ pub struct Subscriptions {
     /// Kafka topic to report subscription queries
     pub kafka_topic: Option<String>,
     /// Query key signers that don't require payment
+    #[serde(default)]
     pub special_signers: Vec<Address>,
     /// Subscriptions subgraph URL
     #[serde_as(as = "DisplayFromStr")]

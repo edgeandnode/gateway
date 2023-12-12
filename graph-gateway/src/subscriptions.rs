@@ -4,10 +4,10 @@ use alloy_primitives::Address;
 use chrono::{DateTime, NaiveDateTime, TimeZone as _, Utc};
 use serde::{de::Error, Deserialize, Deserializer};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Subscription {
     pub signers: Vec<Address>,
-    pub queries_per_minute: u32,
+    pub rate: u128,
 }
 
 #[derive(Clone, Debug, Deserialize)]

@@ -239,7 +239,6 @@ async fn main() {
             subgraph_client::Client::builder(http_client.clone(), subscriptions.subgraph.clone())
                 .with_auth_token(subscriptions.ticket.clone())
                 .build(),
-            subscription_tiers,
         ),
     };
     let auth_handler = AuthHandler::create(
@@ -252,6 +251,7 @@ async fn main() {
             .collect(),
         config.api_key_payment_required,
         subscriptions,
+        subscription_tiers,
         config
             .subscriptions
             .iter()
