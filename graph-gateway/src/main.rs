@@ -28,23 +28,20 @@ use thegraph::types::{attestation, DeploymentId};
 use tokio::spawn;
 use tower_http::cors::{self, CorsLayer};
 
+use graph_gateway::auth::AuthHandler;
+use graph_gateway::budgets::Budgeter;
+use graph_gateway::chains::{ethereum, BlockCache};
+use graph_gateway::config::{Config, ExchangeRateProvider};
+use graph_gateway::geoip::GeoIP;
+use graph_gateway::indexer_client::IndexerClient;
+use graph_gateway::indexers::indexing;
 use graph_gateway::indexings_blocklist::indexings_blocklist;
+use graph_gateway::receipts::ReceiptSigner;
+use graph_gateway::reports::{self, KafkaClient};
+use graph_gateway::topology::{Deployment, GraphNetwork};
 use graph_gateway::{
-    auth::AuthHandler,
-    budgets::Budgeter,
-    chains::{ethereum, BlockCache},
-    client_query,
-    config::{Config, ExchangeRateProvider},
-    geoip::GeoIP,
-    indexer_client::IndexerClient,
-    indexing::{indexing_statuses, IndexingStatus},
-    indexings_blocklist, ipfs, network_subgraph,
-    receipts::ReceiptSigner,
-    reports,
-    reports::KafkaClient,
-    subgraph_studio, subscriptions_subgraph,
-    topology::{Deployment, GraphNetwork},
-    vouchers, JsonResponse,
+    client_query, indexings_blocklist, ipfs, network_subgraph, subgraph_studio,
+    subscriptions_subgraph, vouchers, JsonResponse,
 };
 use indexer_selection::{actor::Update, BlockStatus, Indexing};
 use prelude::{buffer_queue::QueueWriter, *};
@@ -173,7 +170,7 @@ async fn main() {
         Eventual::from_value(Ptr::default())
     };
 
-    let indexing_statuses = indexing_statuses(
+    let indexing_statuses = indexing::statuses(
         network.deployments.clone(),
         http_client.clone(),
         config.min_indexer_version,
@@ -429,7 +426,7 @@ async fn write_indexer_inputs(
     update_writer: &QueueWriter<Update>,
     receipt_signer: &ReceiptSigner,
     deployments: &HashMap<DeploymentId, Arc<Deployment>>,
-    indexing_statuses: &HashMap<Indexing, IndexingStatus>,
+    indexing_statuses: &HashMap<Indexing, indexing::Status>,
 ) {
     tracing::info!(
         deployments = deployments.len(),
