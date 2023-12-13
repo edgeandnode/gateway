@@ -19,17 +19,20 @@ async fn query_indexer_indexing_statuses() {
         .parse()
         .expect("Invalid status url");
 
-    let test_deployment = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
+    let test_deployments = [
+        test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH"),
+        test_deployment_id("QmSqxfDGyGenGFPkqw9sqnYar4XgzaioVWNvhw5QQ3RB1U"),
+    ];
 
     //// When
-    let request = indexing_statuses::query(client, status_url);
+    let request = indexing_statuses::query(client, status_url, &test_deployments);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
 
     //// Then
     assert_matches!(response, Ok(resp) => {
-        assert!(!resp.indexing_statuses.is_empty());
-        assert!(resp.indexing_statuses.iter().any(|status| status.subgraph == test_deployment));
+        assert!(resp.indexing_statuses.len() == 2);
+        assert!(test_deployments.iter().all(|deployment| resp.indexing_statuses.iter().any(|status| &status.subgraph == deployment)));
     });
 }
