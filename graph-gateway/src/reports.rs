@@ -1,7 +1,7 @@
-use std::error::Error;
 use std::fmt;
 
 use alloy_primitives::Address;
+use prelude::unix_timestamp;
 use prost::Message as _;
 use rdkafka::error::KafkaResult;
 use serde::Deserialize;
@@ -11,14 +11,8 @@ use toolshed::concat_bytes;
 use tracing::span;
 use tracing_subscriber::{filter::FilterFn, layer, prelude::*, registry, EnvFilter, Layer};
 
-use prelude::{sip24_hash, unix_timestamp};
-
-use crate::{
-    client_query,
-    indexer_client::{IndexerError, ResponsePayload},
-};
-
-// TODO: integrate Prometheus metrics
+use crate::errors::{self, IndexerError};
+use crate::indexer_client::ResponsePayload;
 
 pub const CLIENT_QUERY_TARGET: &str = "client_query";
 pub const INDEXER_QUERY_TARGET: &str = "indexer_query";
@@ -167,7 +161,11 @@ impl tracing_subscriber::field::Visit for CollectFields<'_> {
         self.0.insert(field.name().to_owned(), value.into());
     }
 
-    fn record_error(&mut self, field: &tracing::field::Field, value: &(dyn Error + 'static)) {
+    fn record_error(
+        &mut self,
+        field: &tracing::field::Field,
+        value: &(dyn std::error::Error + 'static),
+    ) {
         self.0
             .insert(field.name().to_owned(), value.to_string().into());
     }
@@ -411,27 +409,29 @@ fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json::Val
     );
 }
 
-pub fn status<T>(result: &Result<T, client_query::Error>) -> (String, i32) {
+pub fn status<T>(result: &Result<T, errors::Error>) -> (String, i32) {
     match result {
-        Ok(_) => ("200 OK".to_string(), StatusCode::Success.into()),
+        Ok(_) => (
+            "200 OK".to_string(),
+            SubscriptionQueryStatusCode::Success.into(),
+        ),
         Err(err) => match err {
-            client_query::Error::Internal(_) | client_query::Error::L2GatewayError(_) => {
-                (err.to_string(), StatusCode::InternalError.into())
-            }
-            client_query::Error::InvalidAuth(_)
-            | client_query::Error::InvalidDeploymentId(_)
-            | client_query::Error::InvalidQuery(_)
-            | client_query::Error::InvalidSubgraph(_)
-            | client_query::Error::SubgraphChainNotSupported(_) => {
-                (err.to_string(), StatusCode::UserError.into())
-            }
-            client_query::Error::BlockNotFound(_)
-            | client_query::Error::DeploymentNotFound(_)
-            | client_query::Error::NoIndexers
-            | client_query::Error::NoSuitableIndexer(_)
-            | client_query::Error::SubgraphNotFound(_) => {
-                (err.to_string(), StatusCode::NotFound.into())
-            }
+            errors::Error::Internal(_) => (
+                err.to_string(),
+                SubscriptionQueryStatusCode::InternalError.into(),
+            ),
+            errors::Error::Auth(_) | errors::Error::BadQuery(_) => (
+                err.to_string(),
+                SubscriptionQueryStatusCode::UserError.into(),
+            ),
+            errors::Error::BlockNotFound(_)
+            | errors::Error::ChainNotFound(_)
+            | errors::Error::SubgraphNotFound(_)
+            | errors::Error::NoIndexers
+            | errors::Error::BadIndexers(_) => (
+                err.to_string(),
+                SubscriptionQueryStatusCode::NotFound.into(),
+            ),
         },
     }
 }
@@ -441,7 +441,7 @@ pub struct GatewaySubscriptionQueryResult {
     /// Set to the value of the CF-Ray header, otherwise a generated UUID
     #[prost(string, tag = "1")]
     pub query_id: String,
-    #[prost(enumeration = "StatusCode", tag = "2")]
+    #[prost(enumeration = "SubscriptionQueryStatusCode", tag = "2")]
     pub status_code: i32,
     #[prost(string, tag = "3")]
     pub status_message: String,
@@ -471,53 +471,44 @@ pub struct GatewaySubscriptionQueryResult {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, prost::Enumeration)]
 #[repr(i32)]
-pub enum StatusCode {
+pub enum SubscriptionQueryStatusCode {
     Success = 0,
     InternalError = 1,
     UserError = 2,
     NotFound = 3,
 }
 
-pub fn legacy_status<T>(result: &Result<T, client_query::Error>) -> (String, u32) {
+pub fn legacy_status<T>(result: &Result<T, errors::Error>) -> (String, u32) {
     match result {
         Ok(_) => ("200 OK".to_string(), 0),
         Err(err) => match err {
-            client_query::Error::BlockNotFound(_) => ("Unresolved block".to_string(), 604610595),
-            client_query::Error::DeploymentNotFound(_) => (err.to_string(), 628859297),
-            client_query::Error::Internal(_) | client_query::Error::L2GatewayError(_) => {
-                ("Internal error".to_string(), 816601499)
-            }
-            client_query::Error::InvalidAuth(_) => ("Invalid API key".to_string(), 888904173),
-            client_query::Error::InvalidDeploymentId(_) => (err.to_string(), 19391651),
-            client_query::Error::InvalidQuery(_) => ("Invalid query".to_string(), 595700117),
-            client_query::Error::InvalidSubgraph(_) => (err.to_string(), 2992863035),
-            client_query::Error::NoIndexers => (
+            errors::Error::BlockNotFound(_) => ("Unresolved block".to_string(), 604610595),
+            errors::Error::Internal(_) => ("Internal error".to_string(), 816601499),
+            errors::Error::Auth(_) => ("Invalid API key".to_string(), 888904173),
+            errors::Error::BadQuery(_) => ("Invalid query".to_string(), 595700117),
+            errors::Error::NoIndexers => (
                 "No indexers found for subgraph deployment".to_string(),
                 1621366907,
             ),
-            client_query::Error::NoSuitableIndexer(_) => (
+            errors::Error::BadIndexers(_) => (
                 "No suitable indexer found for subgraph deployment".to_string(),
                 510359393,
             ),
-            client_query::Error::SubgraphChainNotSupported(_) => (err.to_string(), 1760440045),
-            client_query::Error::SubgraphNotFound(_) => (err.to_string(), 2599148187),
+            errors::Error::ChainNotFound(_) => (err.to_string(), 1760440045),
+            errors::Error::SubgraphNotFound(_) => (err.to_string(), 2599148187),
         },
     }
 }
 
-// 32-bit status, encoded as `| 31:28 prefix | 27:0 data |` (big-endian)
+// Like much of this file. This is maintained is a partially backward-compatible state for data
+// science, and should be deleted ASAP.
 pub fn indexer_attempt_status_code(result: &Result<ResponsePayload, IndexerError>) -> u32 {
     let (prefix, data) = match &result {
-        // prefix 0x0, followed by the HTTP status code
         Ok(_) => (0x0, 200_u32.to_be()),
-        Err(IndexerError::NoAttestation) | Err(IndexerError::BadAttestation) => (0x1, 0x0),
-        Err(IndexerError::UnattestableError(_)) => (0x2, 0x0),
+        Err(IndexerError::Internal(_)) => (0x1, 0x0),
+        Err(IndexerError::Unavailable(_)) => (0x2, 0x0),
         Err(IndexerError::Timeout) => (0x3, 0x0),
-        Err(IndexerError::UnexpectedPayload) => (0x4, 0x0),
-        Err(IndexerError::BlockError(_)) => (0x5, 0x0),
-        Err(IndexerError::NoAllocation) => (0x7, 0x0),
-        // prefix 0x6, followed by a 28-bit hash of the error message
-        Err(IndexerError::Other(msg)) => (0x6, sip24_hash(&msg) as u32),
+        Err(IndexerError::BadResponse(_)) => (0x4, 0x0),
     };
     (prefix << 28) | (data & (u32::MAX >> 4))
 }

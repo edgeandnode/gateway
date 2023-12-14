@@ -62,7 +62,6 @@ pub enum SelectionError {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InputError {
-    MalformedQuery,
     MissingNetworkParams,
 }
 
@@ -70,9 +69,7 @@ pub enum InputError {
 pub enum IndexerError {
     NoStatus,
     NoStake,
-    NoAllocation,
     MissingRequiredBlock,
-    QueryNotCosted,
     FeeTooHigh,
     NaN,
 }

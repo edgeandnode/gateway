@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use alloy_primitives::{BlockHash, BlockNumber};
+use anyhow::{anyhow, bail};
 use cost_model::Context;
 use graphql::graphql_parser::query::{
     Definition, Document, OperationDefinition, Selection, Text, Value,
@@ -10,6 +11,8 @@ use indexer_selection::UnresolvedBlock;
 use itertools::Itertools as _;
 use serde_json::{self, json};
 use thegraph::types::BlockPointer;
+
+use crate::errors::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {
@@ -31,7 +34,7 @@ impl BlockConstraint {
 
 pub fn block_constraints<'c>(
     context: &'c Context<'c, String>,
-) -> Option<BTreeSet<BlockConstraint>> {
+) -> Result<BTreeSet<BlockConstraint>, Error> {
     let mut constraints = BTreeSet::new();
     let vars = &context.variables;
     // ba6c90f1-3baf-45be-ac1c-f60733404436
@@ -52,32 +55,38 @@ pub fn block_constraints<'c>(
             }
             OperationDefinition::Query(_)
             | OperationDefinition::Mutation(_)
-            | OperationDefinition::Subscription(_) => return None,
+            | OperationDefinition::Subscription(_) => {
+                return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
+            }
         };
         for selection in &selection_set.items {
             let selection_field = match selection {
                 Selection::Field(field) => field,
-                Selection::FragmentSpread(_) | Selection::InlineFragment(_) => return None,
+                Selection::FragmentSpread(_) | Selection::InlineFragment(_) => {
+                    return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
+                }
             };
             let constraint = match selection_field
                 .arguments
                 .iter()
                 .find(|(k, _)| *k == "block")
             {
-                Some((_, arg)) => field_constraint(vars, &defaults, arg)?,
+                Some((_, arg)) => {
+                    field_constraint(vars, &defaults, arg).map_err(Error::BadQuery)?
+                }
                 None => BlockConstraint::Unconstrained,
             };
             constraints.insert(constraint);
         }
     }
-    Some(constraints)
+    Ok(constraints)
 }
 
 pub fn make_query_deterministic(
     mut ctx: Context<'_, String>,
     resolved: &BTreeSet<BlockPointer>,
     latest: &BlockPointer,
-) -> Option<String> {
+) -> Result<String, Error> {
     let vars = &ctx.variables;
     // Similar walk as ba6c90f1-3baf-45be-ac1c-f60733404436. But now including variables, and
     // mutating as we go.
@@ -98,12 +107,16 @@ pub fn make_query_deterministic(
             }
             OperationDefinition::Query(_)
             | OperationDefinition::Mutation(_)
-            | OperationDefinition::Subscription(_) => return None,
+            | OperationDefinition::Subscription(_) => {
+                return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
+            }
         };
         for selection in &mut selection_set.items {
             let selection_field = match selection {
                 Selection::Field(field) => field,
-                Selection::FragmentSpread(_) | Selection::InlineFragment(_) => return None,
+                Selection::FragmentSpread(_) | Selection::InlineFragment(_) => {
+                    return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
+                }
             };
             match selection_field
                 .arguments
@@ -111,15 +124,22 @@ pub fn make_query_deterministic(
                 .find(|(k, _)| *k == "block")
             {
                 Some((_, arg)) => {
-                    match field_constraint(vars, &defaults, arg)? {
+                    match field_constraint(vars, &defaults, arg).map_err(Error::BadQuery)? {
                         BlockConstraint::Hash(_) => (),
                         BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
                             *arg = deterministic_block(&latest.hash);
                         }
                         BlockConstraint::Number(number) => {
-                            let block = resolved.iter().find(|b| b.number == number);
-                            debug_assert!(block.is_some());
-                            *arg = deterministic_block(&block?.hash);
+                            let block =
+                                resolved
+                                    .iter()
+                                    .find(|b| b.number == number)
+                                    .ok_or_else(|| {
+                                        Error::Internal(anyhow!(
+                                            "failed to resolve block: {number}"
+                                        ))
+                                    })?;
+                            *arg = deterministic_block(&block.hash);
                         }
                     };
                 }
@@ -146,7 +166,7 @@ pub fn make_query_deterministic(
     serde_json::to_string(
         &json!({ "query": Document { definitions }.to_string(), "variables": ctx.variables }),
     )
-    .ok()
+    .map_err(|err| Error::Internal(anyhow!("failed to serialize query: {err}")))
 }
 
 fn deterministic_block<'c>(hash: &BlockHash) -> Value<'c, String> {
@@ -160,14 +180,17 @@ fn field_constraint(
     vars: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
     field: &Value<'_, String>,
-) -> Option<BlockConstraint> {
+) -> anyhow::Result<BlockConstraint> {
     match field {
         Value::Object(fields) => parse_constraint(vars, defaults, fields),
-        Value::Variable(name) => match vars.get(name)? {
+        Value::Variable(name) => match vars
+            .get(name)
+            .ok_or_else(|| anyhow!("missing variable: {name}"))?
+        {
             Value::Object(fields) => parse_constraint(vars, defaults, fields),
-            _ => None,
+            _ => Err(anyhow!("malformed block constraint")),
         },
-        _ => None,
+        _ => Err(anyhow!("malformed block constraint")),
     }
 }
 
@@ -175,17 +198,20 @@ fn parse_constraint<'c, T: Text<'c>>(
     vars: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
     fields: &BTreeMap<T::Value, Value<'c, T>>,
-) -> Option<BlockConstraint> {
-    let field = fields.iter().at_most_one().ok()?;
+) -> anyhow::Result<BlockConstraint> {
+    let field = fields
+        .iter()
+        .at_most_one()
+        .map_err(|_| anyhow!("conflicting block constraints"))?;
     match field {
-        None => Some(BlockConstraint::Unconstrained),
+        None => Ok(BlockConstraint::Unconstrained),
         Some((k, v)) => match (k.as_ref(), v) {
             ("hash", hash) => parse_hash(hash, vars, defaults).map(BlockConstraint::Hash),
             ("number", number) => parse_number(number, vars, defaults).map(BlockConstraint::Number),
             ("number_gte", number) => {
                 parse_number(number, vars, defaults).map(BlockConstraint::NumberGTE)
             }
-            _ => None,
+            _ => Err(anyhow!("unexpected block constraint: {}", k.as_ref())),
         },
     }
 }
@@ -194,17 +220,21 @@ fn parse_hash<'c, T: Text<'c>>(
     hash: &Value<'c, T>,
     variables: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
-) -> Option<BlockHash> {
+) -> anyhow::Result<BlockHash> {
     match hash {
-        Value::String(hash) => hash.parse().ok(),
+        Value::String(hash) => hash
+            .parse()
+            .map_err(|err| anyhow!("malformed block hash: {err}")),
         Value::Variable(name) => match variables
             .get(name.as_ref())
             .or_else(|| defaults.get(name.as_ref()))
         {
-            Some(Value::String(hash)) => hash.parse().ok(),
-            _ => None,
+            Some(Value::String(hash)) => hash
+                .parse()
+                .map_err(|err| anyhow!("malformed block hash: {err}")),
+            _ => Err(anyhow!("missing variable: {}", name.as_ref())),
         },
-        _ => None,
+        _ => Err(anyhow!("malformed block constraint")),
     }
 }
 
@@ -212,7 +242,7 @@ fn parse_number<'c, T: Text<'c>>(
     number: &Value<'c, T>,
     variables: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
-) -> Option<u64> {
+) -> anyhow::Result<BlockNumber> {
     let n = match number {
         Value::Int(n) => n,
         Value::Variable(name) => match variables
@@ -220,11 +250,13 @@ fn parse_number<'c, T: Text<'c>>(
             .or_else(|| defaults.get(name.as_ref()))
         {
             Some(Value::Int(n)) => n,
-            _ => return None,
+            _ => bail!("missing variable: {}", name.as_ref()),
         },
-        _ => return None,
+        _ => bail!("malformed block number"),
     };
-    n.as_i64()?.try_into().ok()
+    n.as_i64()
+        .and_then(|n| n.try_into().ok())
+        .ok_or_else(|| anyhow!("block number out of range"))
 }
 
 #[cfg(test)]
@@ -240,31 +272,36 @@ mod tests {
         use BlockConstraint::*;
         let hash: BlockHash = bytes_from_id(54321).into();
         let tests = [
-            ("{ a }", Some(vec![Unconstrained])),
-            ("{ a(abc:true) }", Some(vec![Unconstrained])),
-            ("{ a(block:{number:10}) }", Some(vec![Number(10)])),
-            ("{ a(block:{number:10,number_gte:11}) }", None),
+            ("{ a }", Ok(vec![Unconstrained])),
+            ("{ a(abc:true) }", Ok(vec![Unconstrained])),
+            ("{ a(block:{number:10}) }", Ok(vec![Number(10)])),
+            (
+                "{ a(block:{number:10,number_gte:11}) }",
+                Err("bad query: conflicting block constraints"),
+            ),
             (
                 "{ a(block:{number:1}) b(block:{number:2}) }",
-                Some(vec![Number(1), Number(2)]),
+                Ok(vec![Number(1), Number(2)]),
             ),
             (
                 &format!("{{ a(block:{{hash:{:?}}})}}", hash.to_string()),
-                Some(vec![Hash(hash)]),
+                Ok(vec![Hash(hash)]),
             ),
             (
                 "{ a(block:{number_gte:1}) b }",
-                Some(vec![NumberGTE(1), Unconstrained]),
+                Ok(vec![NumberGTE(1), Unconstrained]),
             ),
             (
                 "query($n: Int = 1) { a(block:{number_gte:$n}) }",
-                Some(vec![NumberGTE(1)]),
+                Ok(vec![NumberGTE(1)]),
             ),
         ];
         for (query, expected) in tests {
             let context = Context::new(query, "").unwrap();
-            let constraints = block_constraints(&context);
-            let expected = expected.map(|v| BTreeSet::from_iter(v.iter().cloned()));
+            let constraints = block_constraints(&context).map_err(|e| e.to_string());
+            let expected = expected
+                .map(|v| BTreeSet::from_iter(v.iter().cloned()))
+                .map_err(ToString::to_string);
             assert_eq!(constraints, expected);
         }
     }

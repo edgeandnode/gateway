@@ -6,6 +6,7 @@ Graph Gateway
 
 - [overview](docs/overview.md)
 - [configuration](docs/configuration.md)
-- [metrics](docs/metrics.md)
+- [errors](docs/errors.md)
 - [logs](docs/logs.md)
+- [metrics](docs/metrics.md)
 - [releases](docs/releases.md)

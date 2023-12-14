@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use alloy_primitives::BlockNumber;
-use axum::http::StatusCode;
 use indexer_selection::Selection;
 use serde::Deserialize;
 use thegraph::types::attestation::Attestation;
 
+use crate::errors::{IndexerError, UnavailableReason::*};
 use crate::receipts::{ReceiptSigner, ReceiptStatus, ScalarReceipt};
 
 pub struct IndexerResponse {
@@ -18,18 +18,6 @@ pub struct IndexerResponse {
 pub struct ResponsePayload {
     pub body: Arc<String>,
     pub attestation: Option<Attestation>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum IndexerError {
-    NoAllocation,
-    NoAttestation,
-    UnattestableError(StatusCode),
-    BadAttestation,
-    Timeout,
-    UnexpectedPayload,
-    BlockError(BlockError),
-    Other(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,7 +41,6 @@ pub struct IndexerClient {
 }
 
 impl IndexerClient {
-    #[tracing::instrument(skip_all)]
     pub async fn query_indexer(
         &self,
         selection: &Selection,
@@ -62,12 +49,12 @@ impl IndexerClient {
         let url = selection
             .url
             .join(&format!("subgraphs/id/{:?}", selection.indexing.deployment))
-            .map_err(|err| IndexerError::Other(err.to_string()))?;
+            .map_err(|_| IndexerError::Unavailable(NoStatus))?;
         let receipt = self
             .receipt_signer
             .create_receipt(&selection.indexing, &selection.fee)
             .await
-            .ok_or(IndexerError::NoAllocation)?;
+            .ok_or(IndexerError::Internal("failed to create receipt"))?;
 
         let result = self
             .client
@@ -90,34 +77,29 @@ impl IndexerClient {
 
         let response = match result {
             Ok(response) => response,
-            // We need to observe timeouts differently in the ISA, so we discriminate them here.
             Err(err) if err.is_timeout() => return Err(IndexerError::Timeout),
-            Err(err) => {
-                tracing::trace!(response_status = ?err.status());
-                return match err.status() {
-                    Some(status) if status.is_server_error() => {
-                        Err(IndexerError::UnattestableError(status))
-                    }
-                    _ => Err(IndexerError::Other(err.to_string())),
-                };
-            }
+            Err(err) => match err.status() {
+                Some(status) => return Err(IndexerError::BadResponse(status.as_u16().to_string())),
+                _ if err.is_connect() => {
+                    return Err(IndexerError::BadResponse("failed to connect".to_string()))
+                }
+                _ => return Err(IndexerError::BadResponse(err.to_string())),
+            },
         };
         let response_status = response.status();
-        tracing::trace!(%response_status);
         let payload = response
             .json::<IndexerResponsePayload>()
             .await
-            .map_err(|err| IndexerError::Other(err.to_string()))?;
+            .map_err(|err| IndexerError::BadResponse(err.to_string()))?;
         let graphql_response = match payload.graphql_response {
             Some(graphql_response) => graphql_response,
             None => {
                 let err = payload
                     .error
-                    .unwrap_or_else(|| "GraphQL response not found".to_string());
-                return Err(IndexerError::Other(err));
+                    .unwrap_or_else(|| "missing GraphQL response".to_string());
+                return Err(IndexerError::BadResponse(err));
             }
         };
-        tracing::debug!(response_len = graphql_response.len());
         Ok(IndexerResponse {
             status: response_status.as_u16(),
             receipt,
