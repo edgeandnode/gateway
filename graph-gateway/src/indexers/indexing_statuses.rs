@@ -2,7 +2,8 @@ use std::borrow::Cow;
 
 use alloy_primitives::BlockHash;
 use graphql_http::http_client::ReqwestExt;
-use indoc::indoc;
+use indoc::formatdoc;
+use itertools::Itertools;
 use serde::{Deserialize, Deserializer};
 use thegraph::types::DeploymentId;
 use toolshed::url::Url;
@@ -10,38 +11,34 @@ use toolshed::url::Url;
 pub async fn query(
     client: reqwest::Client,
     status_url: Url,
+    deployments: &[DeploymentId],
 ) -> anyhow::Result<IndexingStatusesResponse> {
-    let res = client
-        .post(status_url.0)
-        .send_graphql(INDEXING_STATUSES_QUERY_DOCUMENT)
-        .await;
-    match res {
+    let deployments = deployments.iter().map(|d| format!("\"{d}\"")).join(",");
+    let query = formatdoc! {
+        r#"{{
+            indexingStatuses(subgraphs: [{deployments}]) {{
+                subgraph
+                chains {{
+                    network
+                    latestBlock {{
+                        number
+                        hash
+                    }}
+                    earliestBlock {{
+                        number
+                        hash
+                    }}
+                }}
+            }}
+        }}"#
+    };
+    match client.post(status_url.0).send_graphql(query).await {
         Ok(res) => Ok(res?),
-        Err(e) => Err(anyhow::anyhow!(
-            "Error sending indexing statuses query: {}",
-            e
+        Err(err) => Err(anyhow::anyhow!(
+            "Error sending indexing statuses query: {err}"
         )),
     }
 }
-
-pub const INDEXING_STATUSES_QUERY_DOCUMENT: &str = indoc! {
-    r#"{
-        indexingStatuses(subgraphs: []) {
-            subgraph
-            chains {
-                network
-                latestBlock {
-                    number
-                    hash
-                }
-                earliestBlock {
-                    number
-                    hash
-                }
-            }
-        }
-    }"#
-};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,6 +84,8 @@ mod tests {
 
     mod response {
         use super::*;
+
+        use indoc::indoc;
 
         #[test]
         fn deserialize_indexing_statuses_response() {
