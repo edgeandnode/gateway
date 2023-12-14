@@ -76,24 +76,32 @@ async fn update_statuses(
     deployments: &HashMap<DeploymentId, Arc<Deployment>>,
 ) {
     // There can only be one URL per indexer entity in the network subgraph
-    let indexers: HashMap<Address, Url> = deployments
-        .values()
-        .flat_map(|deployment| &deployment.indexers)
-        .map(|indexer| (indexer.id, indexer.url.clone()))
-        .collect();
-
-    let statuses = join_all(indexers.into_iter().map(move |(indexer, url)| {
-        let client = client.clone();
-        async move {
-            match update_indexer(actor, client, indexer, url).await {
-                Ok(indexings) => indexings,
-                Err(indexer_status_err) => {
-                    tracing::warn!(indexer_status_err);
-                    vec![]
-                }
-            }
+    let mut indexers: HashMap<Address, (Url, Vec<DeploymentId>)> = Default::default();
+    for deployment in deployments.values() {
+        for indexer in &deployment.indexers {
+            let (_, deployments) = indexers
+                .entry(indexer.id)
+                .or_insert_with(|| (indexer.url.clone(), vec![]));
+            deployments.push(deployment.id);
         }
-    }))
+    }
+
+    let statuses = join_all(
+        indexers
+            .into_iter()
+            .map(move |(indexer, (url, deployments))| {
+                let client = client.clone();
+                async move {
+                    match update_indexer(actor, client, indexer, url, deployments).await {
+                        Ok(indexings) => indexings,
+                        Err(indexer_status_err) => {
+                            tracing::warn!(indexer_status_err);
+                            vec![]
+                        }
+                    }
+                }
+            }),
+    )
     .await
     .into_iter()
     .flatten();
@@ -114,6 +122,7 @@ async fn update_indexer(
     client: reqwest::Client,
     indexer: Address,
     url: Url,
+    deployments: Vec<DeploymentId>,
 ) -> Result<Vec<(Indexing, Status)>, String> {
     let version_url = url
         .join("version")
@@ -127,7 +136,7 @@ async fn update_indexer(
     apply_geoblocking(&mut locked_actor, &url).await?;
     drop(locked_actor);
 
-    query_status(actor, &client, indexer, url, version)
+    query_status(actor, &client, indexer, url, deployments, version)
         .await
         .map_err(|err| format!("IndexerStatusError({err})"))
 }
@@ -176,8 +185,9 @@ async fn apply_geoblocking(actor: &mut Actor, url: &Url) -> Result<(), String> {
 async fn query_indexer_for_indexing_statuses(
     client: reqwest::Client,
     status_url: Url,
+    deployments: Vec<DeploymentId>,
 ) -> Result<Vec<IndexingStatusResponse>, String> {
-    indexing_statuses::query(client, status_url)
+    indexing_statuses::query(client, status_url, &deployments)
         .await
         .map_err(|err| err.to_string())
         .map(|res| res.indexing_statuses)
@@ -213,10 +223,12 @@ async fn query_status(
     client: &reqwest::Client,
     indexer: Address,
     url: Url,
+    deployments: Vec<DeploymentId>,
     version: Version,
 ) -> Result<Vec<(Indexing, Status)>, String> {
     let status_url = url.join("status").map_err(|err| err.to_string())?;
-    let statuses = query_indexer_for_indexing_statuses(client.clone(), status_url.into()).await?;
+    let statuses =
+        query_indexer_for_indexing_statuses(client.clone(), status_url.into(), deployments).await?;
 
     let cost_url = url.join("cost").map_err(|err| err.to_string())?;
     let cost_models = query_indexer_for_cost_models(
