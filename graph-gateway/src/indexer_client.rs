@@ -79,8 +79,9 @@ impl IndexerClient {
             Ok(response) => response,
             Err(err) if err.is_timeout() => return Err(IndexerError::Timeout),
             Err(err) => match err.status() {
-                Some(status) if status.is_server_error() => {
-                    return Err(IndexerError::BadResponse(status.to_string()))
+                Some(status) => return Err(IndexerError::BadResponse(status.as_u16().to_string())),
+                _ if err.is_connect() => {
+                    return Err(IndexerError::BadResponse("failed to connect".to_string()))
                 }
                 _ => return Err(IndexerError::BadResponse(err.to_string())),
             },
