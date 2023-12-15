@@ -95,7 +95,7 @@ async fn update_statuses(
                     match update_indexer(actor, client, indexer, url, deployments).await {
                         Ok(indexings) => indexings,
                         Err(indexer_status_err) => {
-                            tracing::warn!(indexer_status_err);
+                            tracing::warn!(%indexer, indexer_status_err);
                             vec![]
                         }
                     }

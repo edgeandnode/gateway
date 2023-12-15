@@ -1,7 +1,9 @@
 use std::borrow::Cow;
 
 use alloy_primitives::BlockHash;
-use graphql_http::http_client::ReqwestExt;
+use anyhow::{bail, ensure};
+use futures::future::join_all;
+use graphql_http::http_client::ReqwestExt as _;
 use indoc::formatdoc;
 use itertools::Itertools;
 use serde::{Deserialize, Deserializer};
@@ -13,31 +15,47 @@ pub async fn query(
     status_url: Url,
     deployments: &[DeploymentId],
 ) -> anyhow::Result<IndexingStatusesResponse> {
-    let deployments = deployments.iter().map(|d| format!("\"{d}\"")).join(",");
-    let query = formatdoc! {
-        r#"{{
-            indexingStatuses(subgraphs: [{deployments}]) {{
-                subgraph
-                chains {{
-                    network
-                    latestBlock {{
-                        number
-                        hash
-                    }}
-                    earliestBlock {{
-                        number
-                        hash
+    let queries = deployments.chunks(100).map(|deployments| {
+        let deployments = deployments.iter().map(|d| format!("\"{d}\"")).join(",");
+        let query = formatdoc! {
+            r#"{{
+                indexingStatuses(subgraphs: [{deployments}]) {{
+                    subgraph
+                    chains {{
+                        network
+                        latestBlock {{
+                            number
+                            hash
+                        }}
+                        earliestBlock {{
+                            number
+                            hash
+                        }}
                     }}
                 }}
-            }}
-        }}"#
-    };
-    match client.post(status_url.0).send_graphql(query).await {
-        Ok(res) => Ok(res?),
-        Err(err) => Err(anyhow::anyhow!(
-            "Error sending indexing statuses query: {err}"
-        )),
+            }}"#
+        };
+        client.post(status_url.0.clone()).send_graphql(query)
+    });
+    let results: Vec<Result<IndexingStatusesResponse, String>> = join_all(queries)
+        .await
+        .into_iter()
+        .map(|r| match r {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(err)) => Err(err.to_string()),
+            Err(err) => Err(err.to_string()),
+        })
+        .collect();
+    ensure!(!results.is_empty(), "no results");
+    if results.iter().all(|r| r.is_err()) {
+        let error = results.into_iter().find_map(|r| r.err()).unwrap();
+        bail!("{error}");
     }
+    let indexing_statuses: Vec<IndexingStatusResponse> = results
+        .into_iter()
+        .flat_map(|r| r.into_iter().flat_map(|r| r.indexing_statuses))
+        .collect();
+    Ok(IndexingStatusesResponse { indexing_statuses })
 }
 
 #[derive(Debug, Deserialize)]
