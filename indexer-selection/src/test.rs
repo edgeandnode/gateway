@@ -79,7 +79,7 @@ impl Topology {
         update_writer: &mut QueueWriter<Update>,
     ) -> Self {
         let deployments = (0..rng.gen_range(config.deployments.clone()))
-            .map(|id| DeploymentId(bytes_from_id(id).into()))
+            .map(|id| bytes_from_id(id).into())
             .collect();
         let blocks = (0..rng.gen_range(config.blocks.clone()))
             .map(|id| BlockPointer {
@@ -288,7 +288,7 @@ fn favor_higher_version() {
         .map(|i| Candidate {
             indexing: Indexing {
                 indexer: bytes_from_id(0).into(),
-                deployment: DeploymentId(bytes_from_id(i).into()),
+                deployment: bytes_from_id(i).into(),
             },
             fee: GRT(UDecimal18::from(1)),
         })
