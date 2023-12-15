@@ -10,3 +10,4 @@ Graph Gateway
 - [logs](docs/logs.md)
 - [metrics](docs/metrics.md)
 - [releases](docs/releases.md)
+- [query fees](docs/query-fees.md)
