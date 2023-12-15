@@ -3,11 +3,11 @@ use std::time::{Duration, Instant};
 
 use alloy_primitives::Address;
 use anyhow::Result;
-use prelude::test_utils::{bytes_from_id, init_test_tracing};
-use prelude::{UDecimal18, GRT};
 use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 use rand_distr::Normal;
-use thegraph::types::DeploymentId;
+
+use prelude::test_utils::{bytes_from_id, init_test_tracing};
+use prelude::{UDecimal18, GRT};
 
 use crate::{
     BlockStatus, Candidate, IndexerErrorObservation, Indexing, IndexingStatus, Selection, State,
@@ -43,7 +43,7 @@ pub async fn simulate(
 ) -> Result<Results> {
     init_test_tracing();
 
-    let deployment = DeploymentId(bytes_from_id(1).into());
+    let deployment = bytes_from_id(1).into();
     let mut results = Results {
         client_queries: 10_000,
         ..Default::default()
