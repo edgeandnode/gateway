@@ -750,7 +750,7 @@ async fn handle_indexer_query_inner(
 
     tracing::info!(
         target: reports::INDEXER_QUERY_TARGET,
-        indexer_errors = indexer_errors.join(","),
+        indexer_errors = indexer_errors.join("; "),
     );
 
     indexer_errors
@@ -763,9 +763,12 @@ async fn handle_indexer_query_inner(
             let _ = ctx.observations.write(Update::Penalty {
                 indexing: selection.indexing,
             });
-            return Err(IndexerError::BadResponse(
-                "unattestable response".to_string(),
-            ));
+            let message = if !indexer_errors.is_empty() {
+                format!("unattestable response: {}", indexer_errors.join("; "))
+            } else {
+                "unattestable response".to_string()
+            };
+            return Err(IndexerError::BadResponse(message));
         }
     }
 
@@ -782,7 +785,12 @@ async fn handle_indexer_query_inner(
             }
         }
 
-        return Err(IndexerError::BadResponse("no attestation".to_string()));
+        let message = if !indexer_errors.is_empty() {
+            format!("no attestation: {}", indexer_errors.join("; "))
+        } else {
+            "no attestation".to_string()
+        };
+        return Err(IndexerError::BadResponse(message));
     }
 
     if let Some(attestation) = &response.payload.attestation {
