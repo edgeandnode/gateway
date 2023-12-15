@@ -81,11 +81,13 @@ impl std::fmt::Display for IndexerErrors {
 impl IndexerErrors {
     /// Sort errors in order of descending occurrence for display.
     pub fn new<Errors: IntoIterator<Item = IndexerError>>(errors: Errors) -> Self {
-        let mut errors = errors.into_iter().collect_vec();
-        let mut occurrences: BTreeMap<IndexerError, usize> = Default::default();
+        let errors = errors.into_iter().collect_vec();
+        let mut occurrences: BTreeMap<&IndexerError, usize> = Default::default();
         for error in &errors {
-            *occurrences.entry(error.clone()).or_insert(0) += 1;
+            *occurrences.entry(error).or_insert(0) += 1;
         }
+        // dedup
+        let mut errors = occurrences.keys().map(|&e| e.clone()).collect_vec();
         errors.sort_unstable_by_key(|error| *occurrences.get(error).unwrap());
         errors.reverse();
         Self(errors)
