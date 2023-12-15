@@ -96,14 +96,14 @@ pub async fn handle_query(
     let ray_id = headers.get("cf-ray").and_then(|value| value.to_str().ok());
     let query_id = ray_id.map(ToString::to_string).unwrap_or_else(query_id);
 
-    let auth_input = headers
+    let bearer_token = headers
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok())
         .map(|header| header.trim_start_matches("Bearer").trim())
         .unwrap_or("");
     let auth = ctx
         .auth_handler
-        .parse_token(auth_input)
+        .parse_bearer_token(bearer_token)
         .context("Invalid auth");
 
     let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
@@ -151,7 +151,7 @@ pub async fn handle_query(
         selector,
     );
     span.in_scope(|| {
-        tracing::debug!(%auth_input);
+        tracing::debug!(%bearer_token);
     });
 
     let domain = headers
@@ -334,15 +334,15 @@ async fn handle_client_query_inner(
         .ok_or_else(|| Error::ChainNotFound(subgraph_chain))?;
 
     match &auth {
-        AuthToken::ApiKey(api_key) => tracing::info!(
+        AuthToken::StudioApiKey(api_key) => tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
             user_address = ?api_key.user_address,
             api_key = %api_key.key,
         ),
-        AuthToken::Ticket(payload) => tracing::info!(
+        AuthToken::SubscriptionsAuthToken(claims) => tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
-            user_address = ?payload.user(),
-            ticket_payload = serde_json::to_string(payload).unwrap(),
+            user_address = ?claims.user(),
+            ticket_payload = serde_json::to_string(claims).unwrap(),
         ),
     };
 

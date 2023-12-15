@@ -4,13 +4,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use alloy_primitives::Address;
-use anyhow::{anyhow, bail, ensure, Result};
+use anyhow::{anyhow, bail, ensure};
 use eventuals::{Eventual, EventualExt, Ptr};
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
-use graph_subscriptions::TicketPayload;
-use prelude::USD;
+use thegraph::subscriptions::auth::{parse_auth_token, verify_auth_token_claims, AuthTokenClaims};
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
+
+use prelude::USD;
 
 use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::subscriptions::Subscription;
@@ -34,9 +35,9 @@ pub struct UserSettings {
 
 pub enum AuthToken {
     /// API key from the Subgraph Studio Database.
-    ApiKey(Arc<APIKey>),
-    /// Ticket associated with a subscription.
-    Ticket(TicketPayload),
+    StudioApiKey(Arc<APIKey>),
+    /// Auth token associated with a subscription.
+    SubscriptionsAuthToken(AuthTokenClaims),
 }
 
 impl AuthHandler {
@@ -78,7 +79,7 @@ impl AuthHandler {
         handler
     }
 
-    pub fn parse_token(&self, input: &str) -> Result<AuthToken> {
+    pub fn parse_bearer_token(&self, input: &str) -> anyhow::Result<AuthToken> {
         ensure!(!input.is_empty(), "Not found");
 
         // We assume that Studio API keys are 32 hex digits.
@@ -89,12 +90,15 @@ impl AuthHandler {
                 .value_immediate()
                 .unwrap_or_default()
                 .get(input)
-                .map(|api_key| AuthToken::ApiKey(api_key.clone()))
+                .map(|api_key| AuthToken::StudioApiKey(api_key.clone()))
                 .ok_or_else(|| anyhow!("API key not found"));
         }
 
-        let (payload, _) = TicketPayload::from_ticket_base64(input)?;
-        Ok(AuthToken::Ticket(payload))
+        // Parse and verify the as a Subscriptions auth token
+        let (claims, signature) = parse_auth_token(input)?;
+        verify_auth_token_claims(&claims, &signature)?;
+
+        Ok(AuthToken::SubscriptionsAuthToken(claims))
     }
 
     pub async fn check_token(
@@ -102,9 +106,9 @@ impl AuthHandler {
         token: &AuthToken,
         deployments: &[Arc<Deployment>],
         domain: &str,
-    ) -> Result<()> {
+    ) -> anyhow::Result<()> {
         // Enforce the API key payment status, unless it's being subsidized.
-        if let AuthToken::ApiKey(api_key) = &token {
+        if let AuthToken::StudioApiKey(api_key) = &token {
             if self.api_key_payment_required
                 && !api_key.is_subsidized
                 && !self.special_api_keys.contains(&api_key.key)
@@ -119,8 +123,8 @@ impl AuthHandler {
 
         // Check deployment allowlist
         let allowed_deployments: Vec<DeploymentId> = match token {
-            AuthToken::ApiKey(api_key) => api_key.deployments.clone(),
-            AuthToken::Ticket(payload) => payload
+            AuthToken::StudioApiKey(api_key) => api_key.deployments.clone(),
+            AuthToken::SubscriptionsAuthToken(claims) => claims
                 .allowed_deployments
                 .iter()
                 .flat_map(|s| s.split(','))
@@ -136,8 +140,8 @@ impl AuthHandler {
 
         // Check subgraph allowlist
         let allowed_subgraphs: Vec<SubgraphId> = match token {
-            AuthToken::ApiKey(api_key) => api_key.subgraphs.clone(),
-            AuthToken::Ticket(payload) => payload
+            AuthToken::StudioApiKey(api_key) => api_key.subgraphs.clone(),
+            AuthToken::SubscriptionsAuthToken(claims) => claims
                 .allowed_subgraphs
                 .iter()
                 .flat_map(|s| s.split(','))
@@ -156,8 +160,10 @@ impl AuthHandler {
 
         // Check domain allowlist
         let allowed_domains: Vec<&str> = match token {
-            AuthToken::ApiKey(api_key) => api_key.domains.iter().map(|s| s.as_str()).collect(),
-            AuthToken::Ticket(payload) => payload
+            AuthToken::StudioApiKey(api_key) => {
+                api_key.domains.iter().map(|s| s.as_str()).collect()
+            }
+            AuthToken::SubscriptionsAuthToken(claims) => claims
                 .allowed_domains
                 .iter()
                 .flat_map(|s| s.split(','))
@@ -170,22 +176,19 @@ impl AuthHandler {
 
         // Check rate limit for subscriptions. This step should be last to avoid invalid queries
         // taking up the rate limit.
-        let ticket_payload = match token {
-            AuthToken::ApiKey(_) => return Ok(()),
-            AuthToken::Ticket(payload) => payload,
+        let auth_token = match token {
+            AuthToken::StudioApiKey(_) => return Ok(()),
+            AuthToken::SubscriptionsAuthToken(claims) => claims,
         };
 
         // This is safe, since we have already verified the signature and the claimed signer match.
         // This is placed before the subscriptions domain check to allow the same special query keys to be used across
         // testnet & mainnet.
-        if self
-            .special_query_key_signers
-            .contains(&Address::from(ticket_payload.signer.0))
-        {
+        if self.special_query_key_signers.contains(&auth_token.signer) {
             return Ok(());
         }
 
-        let user: Address = ticket_payload.user().0.into();
+        let user = auth_token.user();
         let subscription = self
             .subscriptions
             .value_immediate()
@@ -206,7 +209,7 @@ impl AuthHandler {
             "Subscription not found for user {user}"
         );
 
-        let signer: Address = ticket_payload.signer.0.into();
+        let signer = auth_token.signer;
         ensure!(
             (signer == user) || subscription.signers.contains(&signer),
             "Signer {signer} not authorized for user {user}",
@@ -214,15 +217,15 @@ impl AuthHandler {
 
         let matches_subscriptions_domain = self
             .subscription_domains
-            .get(&ticket_payload.chain_id)
-            .map(|contract| contract == &Address::from(ticket_payload.contract.0))
+            .get(&auth_token.chain_id.into())
+            .map(|contract| contract == &auth_token.contract)
             .unwrap_or(false);
         ensure!(
             matches_subscriptions_domain,
             "Query key chain_id or contract not allowed"
         );
 
-        let user: Address = ticket_payload.user().0.into();
+        let user = auth_token.user();
         let counters = match self.subscription_query_counters.try_read() {
             Ok(counters) => counters,
             // Just skip if we can't acquire the read lock. This is a relaxed operation anyway.
@@ -251,7 +254,7 @@ impl AuthHandler {
 
     pub async fn query_settings(&self, token: &AuthToken) -> UserSettings {
         let budget = match token {
-            AuthToken::ApiKey(api_key) => api_key.max_budget,
+            AuthToken::StudioApiKey(api_key) => api_key.max_budget,
             _ => None,
         };
         UserSettings { budget }

@@ -48,6 +48,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloy-chains"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4df496257fe2fae392687ef30207325c50c68520108a94798b0c6cc1a6102f70"
+dependencies = [
+ "num_enum 0.7.1",
+ "serde",
+ "strum 0.25.0",
+]
+
+[[package]]
 name = "alloy-primitives"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4123,18 +4134,23 @@ dependencies = [
 
 [[package]]
 name = "thegraph"
-version = "0.1.1"
-source = "git+https://github.com/edgeandnode/toolshed?tag=thegraph-v0.1.1#5694de09fad473489012866c3fbca85a5eae098b"
+version = "0.2.0"
+source = "git+https://github.com/edgeandnode/toolshed?tag=thegraph-v0.2.0#cc929e022852a107f76282afc221cfd17886ae70"
 dependencies = [
+ "alloy-chains",
  "alloy-primitives",
  "alloy-sol-types",
  "async-graphql",
+ "base64 0.21.5",
  "bs58",
+ "ethers",
  "ethers-core",
  "graphql-http",
  "indoc",
+ "lazy_static",
  "reqwest",
  "serde",
+ "serde_cbor_2",
  "serde_json",
  "serde_with 3.4.0",
  "sha3",

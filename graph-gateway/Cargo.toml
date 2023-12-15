@@ -45,7 +45,7 @@ serde_with = "3.1"
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", tag = "tap_core-v0.7.0" }
-thegraph = { workspace = true, features = ["subgraph-client"] }
+thegraph = { workspace = true, features = ["subgraph-client", "subscriptions"] }
 thiserror = "1.0.40"
 tokio.workspace = true
 toolshed.workspace = true
