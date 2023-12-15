@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use alloy_primitives::{Address, BlockNumber, U256};
 use alloy_sol_types::Eip712Domain;
-use anyhow::{anyhow, bail, Context as _};
+use anyhow::{anyhow, Context as _};
 use axum::extract::OriginalUri;
 use axum::http::{HeaderValue, Request, Uri};
 use axum::middleware::Next;
@@ -19,7 +19,6 @@ use axum::{
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::{Eventual, Ptr};
 use futures::future::join_all;
-use graphql::graphql_parser::query::{OperationDefinition, SelectionSet};
 use indexer_selection::Candidate;
 use indexer_selection::{
     actor::Update, BlockRequirements, IndexerError as SelectionError, IndexerErrorObservation,
@@ -395,7 +394,30 @@ async fn handle_client_query_inner(
         %variables,
     );
 
-    let mut candidates: Vec<Candidate> = candidates
+    let grt_per_usd = ctx
+        .isa_state
+        .latest()
+        .network_params
+        .grt_per_usd
+        .ok_or_else(|| Error::Internal(anyhow!("missing exchange rate")))?;
+    let mut budget = GRT(ctx.budgeter.query_fees_target.0 * grt_per_usd.0);
+    let user_settings = ctx.auth_handler.query_settings(&auth).await;
+    if let Some(user_budget) = user_settings.budget {
+        // Security: Consumers can and will set their budget to unreasonably high values.
+        // This `.min` prevents the budget from being set far beyond what it would be
+        // automatically. The reason this is important is because sometimes queries are
+        // subsidized and we would be at-risk to allow arbitrarily high values.
+        let max_budget = GRT(budget.0 * UDecimal18::from(10));
+        budget = GRT(user_budget.0 * grt_per_usd.0).min(max_budget);
+    }
+    let budget = GRT(budget.0 * grt_per_usd.0);
+    tracing::info!(
+        target: reports::CLIENT_QUERY_TARGET,
+        query_count = 1,
+        budget_grt = f64::from(budget.0) as f32,
+    );
+
+    let candidates: Vec<Candidate> = candidates
         .into_iter()
         .filter_map(|indexing| {
             let cost_model = ctx
@@ -403,7 +425,8 @@ async fn handle_client_query_inner(
                 .value_immediate()
                 .and_then(|m| m.get(&indexing).and_then(|s| s.cost_model.clone()));
             let fee = match indexer_fee(&cost_model, &mut context) {
-                Ok(fee) => fee,
+                // Clamp indexer fee to the budget.
+                Ok(fee) => fee.min(budget),
                 Err(err) => {
                     indexer_errors.insert(indexing.indexer, err);
                     return None;
@@ -454,39 +477,6 @@ async fn handle_client_query_inner(
         )));
     }
 
-    let user_settings = ctx.auth_handler.query_settings(&auth).await;
-
-    let grt_per_usd = ctx
-        .isa_state
-        .latest()
-        .network_params
-        .grt_per_usd
-        .ok_or_else(|| Error::Internal(anyhow!("missing exchange rate")))?;
-    // TODO: In the future, we should factor this into our budget somehow.
-    let agora_query_count = count_top_level_selection_sets(&context)
-        .map_err(Error::BadQuery)?
-        .max(1) as u64;
-    let candidate_fees: Vec<USD> = candidates
-        .iter()
-        .map(|c| USD(c.fee.0 / grt_per_usd.0))
-        .collect();
-    let mut budget = ctx.budgeter.budget(&candidate_fees);
-    if let Some(user_budget) = user_settings.budget {
-        // Security: Consumers can and will set their budget to unreasonably high values.
-        // This `.min` prevents the budget from being set far beyond what it would be
-        // automatically. The reason this is important is because sometimes queries are
-        // subsidized and we would be at-risk to allow arbitrarily high values.
-        let max_budget = USD(budget.0 * UDecimal18::from(10));
-        budget = user_budget.min(max_budget);
-    }
-    let budget = GRT(budget.0 * grt_per_usd.0);
-    tracing::info!(
-        target: reports::CLIENT_QUERY_TARGET,
-        query_count = agora_query_count,
-        budget_grt = f64::from(budget.0) as f32,
-    );
-    candidates.retain(|c| c.fee <= budget);
-
     let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
     let mut utility_params = UtilityParameters {
         budget,
@@ -532,7 +522,7 @@ async fn handle_client_query_inner(
                     SelectionError::NoStatus => IndexerError::Unavailable(NoStatus),
                     SelectionError::NoStake => IndexerError::Unavailable(NoStake),
                     SelectionError::MissingRequiredBlock => IndexerError::Unavailable(MissingBlock),
-                    SelectionError::FeeTooHigh => IndexerError::Unavailable(FeeTooHigh),
+                    SelectionError::FeeTooHigh => IndexerError::Internal("fee too high"),
                     SelectionError::NaN => IndexerError::Internal("NaN"),
                 };
                 indexer_errors.insert(*indexer, error);
@@ -543,11 +533,14 @@ async fn handle_client_query_inner(
         }
 
         for selection in &mut selections {
-            // TODO: In a future where indexers are expected put more effort into setting cost
-            // models, we should pay selected indexers the maximum fee of the alternatives
-            // (where `fee <= budget`).
-            let min_fee = budget.0 * UDecimal18::try_from(0.75 / selections_len as f64).unwrap();
-            selection.fee = GRT(selection.fee.0.max(min_fee));
+            let min_fee = ctx
+                .budgeter
+                .min_indexer_fees
+                .value_immediate()
+                .unwrap_or_default();
+            let min_fee =
+                GRT((min_fee.0 * grt_per_usd.0) / UDecimal18::from(selections_len as u128));
+            selection.fee = selection.fee.max(min_fee);
         }
         total_indexer_fees = GRT(total_indexer_fees.0 + selections.iter().map(|s| s.fee.0).sum());
         tracing::info!(
@@ -813,20 +806,6 @@ async fn handle_indexer_query_inner(
     }
 
     Ok(response.payload)
-}
-
-fn count_top_level_selection_sets(ctx: &AgoraContext<String>) -> anyhow::Result<usize> {
-    let selection_sets = ctx
-        .operations
-        .iter()
-        .map(|op| match op {
-            OperationDefinition::SelectionSet(selection_set) => Ok(selection_set),
-            OperationDefinition::Query(query) => Ok(&query.selection_set),
-            OperationDefinition::Mutation(_) => bail!("Mutations not yet supported"),
-            OperationDefinition::Subscription(_) => bail!("Subscriptions not yet supported"),
-        })
-        .collect::<anyhow::Result<Vec<&SelectionSet<String>>>>()?;
-    Ok(selection_sets.into_iter().map(|set| set.items.len()).sum())
 }
 
 pub fn indexer_fee(

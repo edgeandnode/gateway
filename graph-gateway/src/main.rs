@@ -378,6 +378,10 @@ async fn main() {
             "/subscription-tiers",
             routing::get(handle_subscription_tiers).with_state(subscription_tiers),
         )
+        .route(
+            "/budget",
+            routing::get(|| async { budgeter.query_fees_target.0.to_string() }),
+        )
         .nest("/api", api)
         .layer(middleware::from_fn_with_state(rate_limiter, ip_rate_limit));
 

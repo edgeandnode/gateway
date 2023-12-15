@@ -10,51 +10,39 @@ use crate::metrics::METRICS;
 
 pub struct Budgeter {
     pub feedback: mpsc::UnboundedSender<USD>,
-    query_fees_target: USD,
-    budget_limit: Eventual<USD>,
+    pub query_fees_target: USD,
+    pub min_indexer_fees: Eventual<USD>,
 }
 
 impl Budgeter {
     pub fn new(query_fees_target: USD) -> Self {
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
-        let (mut budget_limit_tx, budget_limit_rx) = Eventual::new();
-        budget_limit_tx.write(query_fees_target);
-        Actor::create(feedback_rx, budget_limit_tx, query_fees_target);
+        let (mut min_indexer_fees_tx, min_indexer_fees_rx) = Eventual::new();
+        min_indexer_fees_tx.write(query_fees_target);
+        Actor::create(feedback_rx, min_indexer_fees_tx, query_fees_target);
         Self {
             feedback: feedback_tx,
             query_fees_target,
-            budget_limit: budget_limit_rx,
+            min_indexer_fees: min_indexer_fees_rx,
         }
-    }
-
-    pub fn budget(&self, candidate_fees: &[USD]) -> USD {
-        let budget_min = USD(UDecimal18::try_from(10e-6).unwrap());
-        let budget_max = USD(self.query_fees_target.0 * UDecimal18::from(2));
-
-        let budget_limit = self
-            .budget_limit
-            .value_immediate()
-            .unwrap_or(self.query_fees_target);
-        let max_fee = candidate_fees.iter().max().cloned().unwrap_or_default();
-        max_fee.max(budget_limit).clamp(budget_min, budget_max)
     }
 }
 
 struct Actor {
     feedback: mpsc::UnboundedReceiver<USD>,
-    budget_limit: EventualWriter<USD>,
+    min_indexer_fees: EventualWriter<USD>,
     controller: Controller,
 }
 
 impl Actor {
     fn create(
         feedback: mpsc::UnboundedReceiver<USD>,
-        budget_limit: EventualWriter<USD>,
+        min_indexer_fees: EventualWriter<USD>,
         query_fees_target: USD,
     ) {
         let mut actor = Actor {
             feedback,
-            budget_limit,
+            min_indexer_fees,
             controller: Controller::new(query_fees_target),
         };
         let mut budget_timer = interval(Duration::from_secs(1));
@@ -76,9 +64,9 @@ impl Actor {
         if self.controller.recent_count == 0 {
             return;
         }
-        let budget_limit = self.controller.control_variable();
-        tracing::debug!(?budget_limit);
-        self.budget_limit.write(budget_limit);
+        let min_indexer_fees = self.controller.control_variable();
+        tracing::debug!(?min_indexer_fees);
+        self.min_indexer_fees.write(min_indexer_fees);
     }
 }
 
@@ -121,6 +109,11 @@ impl Controller {
         let i: f64 = self.error_history.frames().iter().sum();
         let k_i = 0.2;
         let control_variable = (i * k_i) * target;
-        USD(UDecimal18::try_from(target + control_variable).unwrap_or_default())
+
+        let min = UDecimal18::try_from(10e-6).unwrap_or_default();
+        let max = self.query_fees_target.0;
+        USD(UDecimal18::try_from(control_variable)
+            .unwrap_or_default()
+            .clamp(min, max))
     }
 }
