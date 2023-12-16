@@ -55,7 +55,6 @@ fn base_indexing_status() -> IndexingStatus {
             behind_reported_block: false,
             min_block: None,
         }),
-        versions_behind: 0,
     }
 }
 
@@ -265,6 +264,7 @@ async fn fuzz() {
                 Candidate {
                     fee: *topology.fees.get(&indexing).unwrap(),
                     indexing,
+                    versions_behind: 0,
                 }
             })
             .collect();
@@ -284,6 +284,10 @@ async fn fuzz() {
 fn favor_higher_version() {
     let mut rng = SmallRng::from_entropy();
 
+    let mut versions_behind = [rng.gen_range(0..3), rng.gen_range(0..3)];
+    if versions_behind[0] == versions_behind[1] {
+        versions_behind[1] += 1;
+    }
     let candidates: Vec<Candidate> = (0..2)
         .map(|i| Candidate {
             indexing: Indexing {
@@ -291,12 +295,9 @@ fn favor_higher_version() {
                 deployment: bytes_from_id(i).into(),
             },
             fee: GRT(UDecimal18::from(1)),
+            versions_behind: versions_behind[i],
         })
         .collect();
-    let mut versions_behind = [rng.gen_range(0..3), rng.gen_range(0..3)];
-    if versions_behind[0] == versions_behind[1] {
-        versions_behind[1] += 1;
-    }
 
     let mut state = State {
         network_params: NetworkParameters {
@@ -307,17 +308,11 @@ fn favor_higher_version() {
     };
     state.indexings.insert(
         candidates[0].indexing,
-        IndexingState::new(IndexingStatus {
-            versions_behind: versions_behind[0],
-            ..base_indexing_status()
-        }),
+        IndexingState::new(base_indexing_status()),
     );
     state.indexings.insert(
         candidates[1].indexing,
-        IndexingState::new(IndexingStatus {
-            versions_behind: versions_behind[1],
-            ..base_indexing_status()
-        }),
+        IndexingState::new(base_indexing_status()),
     );
 
     let params = utiliy_params(
