@@ -417,6 +417,13 @@ async fn handle_client_query_inner(
         budget_grt = f64::from(budget.0) as f32,
     );
 
+    let versions_behind: BTreeMap<DeploymentId, u8> = deployments
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(index, deployment)| (deployment.id, index.try_into().unwrap_or(u8::MAX)))
+        .collect();
+
     let candidates: Vec<Candidate> = candidates
         .into_iter()
         .filter_map(|indexing| {
@@ -432,7 +439,11 @@ async fn handle_client_query_inner(
                     return None;
                 }
             };
-            Some(Candidate { indexing, fee })
+            Some(Candidate {
+                indexing,
+                fee,
+                versions_behind: *versions_behind.get(&indexing.deployment).unwrap_or(&0),
+            })
         })
         .collect();
 
