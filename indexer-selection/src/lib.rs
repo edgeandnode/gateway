@@ -44,6 +44,7 @@ const MIN_SCORE_CUTOFF: f64 = 0.25;
 pub struct Candidate {
     pub indexing: Indexing,
     pub fee: GRT,
+    pub versions_behind: u8,
 }
 
 #[derive(Clone, Debug)]
@@ -288,7 +289,7 @@ impl State {
             params,
             reliability,
             perf_success,
-            state.status.versions_behind,
+            candidate.versions_behind,
             blocks_behind,
             slashable_usd,
             zero_allocation,
@@ -300,7 +301,7 @@ impl State {
         Ok(SelectionFactors {
             indexing: candidate.indexing,
             url: state.status.url.clone(),
-            versions_behind: state.status.versions_behind,
+            versions_behind: candidate.versions_behind,
             reliability,
             perf_success,
             perf_failure: state.perf_failure.expected_value(),

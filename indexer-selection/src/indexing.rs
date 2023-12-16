@@ -35,7 +35,6 @@ pub struct IndexingStatus {
     pub stake: GRT,
     pub allocation: GRT,
     pub block: Option<BlockStatus>,
-    pub versions_behind: u8,
 }
 
 /// We compare candidate indexers based on their last reported block. Any observation of the indexer

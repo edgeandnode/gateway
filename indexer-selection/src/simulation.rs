@@ -71,7 +71,6 @@ pub async fn simulate(
                     behind_reported_block: false,
                     min_block: None,
                 }),
-                versions_behind: 0,
             },
         );
     }
@@ -84,6 +83,7 @@ pub async fn simulate(
                 deployment,
             },
             fee: c.fee,
+            versions_behind: 0,
         })
         .collect();
     let characteristics: HashMap<&Address, &IndexerCharacteristics> =
