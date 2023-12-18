@@ -410,7 +410,6 @@ async fn handle_client_query_inner(
         let max_budget = GRT(budget.0 * UDecimal18::from(10));
         budget = GRT(user_budget.0 * grt_per_usd.0).min(max_budget);
     }
-    let budget = GRT(budget.0 * grt_per_usd.0);
     tracing::info!(
         target: reports::CLIENT_QUERY_TARGET,
         query_count = 1,
