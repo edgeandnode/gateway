@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use alloy_primitives::Address;
-use anyhow::{anyhow, bail, ensure};
+use anyhow::{bail, ensure};
 use eventuals::{Eventual, EventualExt, Ptr};
 use graph_subscriptions::subscription_tier::SubscriptionTiers;
-use thegraph::subscriptions::auth::{parse_auth_token, verify_auth_token_claims, AuthTokenClaims};
+use thegraph::subscriptions::auth::AuthTokenClaims;
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
 
@@ -16,6 +16,12 @@ use prelude::USD;
 use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
+
+use self::common::{are_deployments_authorized, are_subgraphs_authorized, is_domain_authorized};
+
+mod common;
+mod studio;
+mod subscriptions;
 
 pub struct AuthHandler {
     pub api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
@@ -80,25 +86,22 @@ impl AuthHandler {
     }
 
     pub fn parse_bearer_token(&self, input: &str) -> anyhow::Result<AuthToken> {
-        ensure!(!input.is_empty(), "Not found");
-
-        // We assume that Studio API keys are 32 hex digits.
-        let mut api_key_buf = [0_u8; 16];
-        if let Ok(()) = faster_hex::hex_decode(input.as_bytes(), &mut api_key_buf) {
-            return self
-                .api_keys
-                .value_immediate()
-                .unwrap_or_default()
-                .get(input)
-                .map(|api_key| AuthToken::StudioApiKey(api_key.clone()))
-                .ok_or_else(|| anyhow!("API key not found"));
+        // Ensure the bearer token is not empty
+        if input.is_empty() {
+            return Err(anyhow::anyhow!("Not found"));
         }
 
-        // Parse and verify the as a Subscriptions auth token
-        let (claims, signature) = parse_auth_token(input)?;
-        verify_auth_token_claims(&claims, &signature)?;
+        // First, parse the bearer token as it was a Studio API key
+        if let Ok(api_key) = studio::parse_bearer_token(self, input) {
+            return Ok(AuthToken::StudioApiKey(api_key));
+        }
 
-        Ok(AuthToken::SubscriptionsAuthToken(claims))
+        // Otherwise, parse and verify the as a Subscriptions auth token
+        if let Ok(claims) = subscriptions::parse_bearer_token(self, input) {
+            return Ok(AuthToken::SubscriptionsAuthToken(claims));
+        }
+
+        Err(anyhow::anyhow!("Invalid auth token"))
     }
 
     pub async fn check_token(
@@ -133,9 +136,7 @@ impl AuthHandler {
         };
         tracing::debug!(?allowed_deployments);
         let allow_deployment = allowed_deployments.is_empty()
-            || deployments
-                .iter()
-                .any(|deployment| allowed_deployments.contains(&deployment.id));
+            || are_deployments_authorized(&allowed_deployments, deployments);
         ensure!(allow_deployment, "Deployment not authorized");
 
         // Check subgraph allowlist
@@ -150,12 +151,7 @@ impl AuthHandler {
         };
         tracing::debug!(?allowed_subgraphs);
         let allow_subgraph = allowed_subgraphs.is_empty()
-            || deployments.iter().any(|deployment| {
-                deployment
-                    .subgraphs
-                    .iter()
-                    .any(|subgraph| allowed_subgraphs.contains(subgraph))
-            });
+            || are_subgraphs_authorized(&allowed_subgraphs, deployments);
         ensure!(allow_subgraph, "Subgraph not authorized by user");
 
         // Check domain allowlist
@@ -258,61 +254,5 @@ impl AuthHandler {
             _ => None,
         };
         UserSettings { budget }
-    }
-}
-
-pub fn is_domain_authorized(authorized: &[&str], origin: &str) -> bool {
-    fn match_domain(pattern: &str, origin: &str) -> bool {
-        if pattern.starts_with('*') {
-            origin.ends_with(pattern.trim_start_matches('*'))
-        } else {
-            origin == pattern
-        }
-    }
-    authorized
-        .iter()
-        .any(|pattern| match_domain(pattern, origin))
-}
-
-#[cfg(test)]
-mod test {
-    use super::is_domain_authorized;
-
-    #[test]
-    fn authorized_domains() {
-        let authorized_domains = [
-            "example.com",
-            "localhost",
-            "a.b.c",
-            "*.d.e",
-            "*-foo.vercel.app",
-        ];
-        let tests = [
-            ("", false),
-            ("example.com", true),
-            ("subdomain.example.com", false),
-            ("localhost", true),
-            ("badhost", false),
-            ("a.b.c", true),
-            ("c", false),
-            ("b.c", false),
-            ("d.b.c", false),
-            ("a", false),
-            ("a.b", false),
-            ("e", false),
-            ("d.e", false),
-            ("z.d.e", true),
-            ("-foo.vercel.app", true),
-            ("foo.vercel.app", false),
-            ("bar-foo.vercel.app", true),
-            ("bar.foo.vercel.app", false),
-        ];
-        for (input, expected) in tests {
-            assert_eq!(
-                expected,
-                is_domain_authorized(&authorized_domains, input),
-                "match '{input}'"
-            );
-        }
     }
 }
