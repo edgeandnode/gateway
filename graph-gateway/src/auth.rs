@@ -96,7 +96,7 @@ impl AuthHandler {
             return Ok(AuthToken::StudioApiKey(api_key));
         }
 
-        // Otherwise, parse and verify the as a Subscriptions auth token
+        // Otherwise, parse the bearer token as a Subscriptions auth token
         if let Ok(claims) = subscriptions::parse_bearer_token(self, input) {
             return Ok(AuthToken::SubscriptionsAuthToken(claims));
         }
@@ -135,9 +135,10 @@ impl AuthHandler {
                 .collect(),
         };
         tracing::debug!(?allowed_deployments);
-        let allow_deployment = allowed_deployments.is_empty()
-            || are_deployments_authorized(&allowed_deployments, deployments);
-        ensure!(allow_deployment, "Deployment not authorized");
+
+        if !are_deployments_authorized(&allowed_deployments, deployments) {
+            return Err(anyhow::anyhow!("Deployment not authorized by user"));
+        }
 
         // Check subgraph allowlist
         let allowed_subgraphs: Vec<SubgraphId> = match token {
@@ -150,9 +151,10 @@ impl AuthHandler {
                 .collect(),
         };
         tracing::debug!(?allowed_subgraphs);
-        let allow_subgraph = allowed_subgraphs.is_empty()
-            || are_subgraphs_authorized(&allowed_subgraphs, deployments);
-        ensure!(allow_subgraph, "Subgraph not authorized by user");
+
+        if !are_subgraphs_authorized(&allowed_subgraphs, deployments) {
+            return Err(anyhow::anyhow!("Subgraph not authorized by user"));
+        }
 
         // Check domain allowlist
         let allowed_domains: Vec<&str> = match token {
@@ -166,9 +168,10 @@ impl AuthHandler {
                 .collect(),
         };
         tracing::debug!(?allowed_domains);
-        let allow_domain =
-            allowed_domains.is_empty() || is_domain_authorized(&allowed_domains, domain);
-        ensure!(allow_domain, "Domain not authorized by user");
+
+        if !is_domain_authorized(&allowed_domains, domain) {
+            return Err(anyhow::anyhow!("Domain not authorized by user"));
+        }
 
         // Check rate limit for subscriptions. This step should be last to avoid invalid queries
         // taking up the rate limit.
