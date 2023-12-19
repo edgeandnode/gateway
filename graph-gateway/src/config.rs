@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 use alloy_primitives::{Address, B256, U256};
+use gateway_common::config::Chain;
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
 use prelude::UDecimal18;
 use secp256k1::SecretKey;
@@ -81,15 +82,6 @@ pub struct Config {
 pub struct AttestationConfig {
     pub chain_id: String,
     pub dispute_manager: Address,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, Deserialize)]
-pub struct Chain {
-    /// The first name is used in logs, the others are aliases also supported in subgraph manifests.
-    pub names: Vec<String>,
-    #[serde_as(as = "DisplayFromStr")]
-    pub rpc: Url,
 }
 
 #[serde_as]

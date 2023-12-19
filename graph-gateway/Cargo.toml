@@ -18,6 +18,7 @@ ethers = { version = "2.0.10", default-features = false, features = ["abigen"] }
 eventuals = "0.6.7"
 faster-hex = "0.9.0"
 futures = "0.3"
+gateway-common = { path = "../common" }
 graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "334d18b" }
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
 graphql-http = { git = "https://github.com/edgeandnode/toolshed.git", tag = "graphql-http-v0.1.1", features = [

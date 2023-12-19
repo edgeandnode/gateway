@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::interval;
 use tracing::Instrument;
 
-use crate::{block_constraints::*, metrics::*};
+use crate::{block_constraints::BlockConstraint, metrics::*};
 
 pub mod block_rate;
 pub mod ethereum;
