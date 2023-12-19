@@ -19,14 +19,7 @@ use axum::{
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::{Eventual, Ptr};
 use futures::future::join_all;
-use indexer_selection::Candidate;
-use indexer_selection::{
-    actor::Update, BlockRequirements, IndexerError as SelectionError, IndexerErrorObservation,
-    Indexing, InputError, Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
-};
 use lazy_static::lazy_static;
-use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
-use prelude::{UDecimal18, USD};
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
@@ -38,14 +31,25 @@ use toolshed::url::Url;
 use tracing::Instrument;
 use uuid::Uuid;
 
+use gateway_common::{
+    block_constraints::BlockConstraint,
+    chains::BlockCache,
+    errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*},
+    metrics::{with_metric, METRICS},
+};
+use indexer_selection::Candidate;
+use indexer_selection::{
+    actor::Update, BlockRequirements, IndexerError as SelectionError, IndexerErrorObservation,
+    Indexing, InputError, Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
+};
+use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
+use prelude::{UDecimal18, USD};
+
 use crate::auth::{AuthHandler, AuthToken};
-use crate::block_constraints::{block_constraints, make_query_deterministic, BlockConstraint};
+use crate::block_constraints::{block_constraints, make_query_deterministic};
 use crate::budgets::Budgeter;
-use crate::chains::BlockCache;
-use crate::errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*};
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::indexers::indexing;
-use crate::metrics::{with_metric, METRICS};
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};

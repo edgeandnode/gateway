@@ -5,8 +5,8 @@ use indexer_selection::Selection;
 use serde::Deserialize;
 use thegraph::types::attestation::Attestation;
 
-use crate::errors::{IndexerError, UnavailableReason::*};
 use crate::receipts::{ReceiptSigner, ReceiptStatus, ScalarReceipt};
+use gateway_common::errors::{IndexerError, UnavailableReason::*};
 
 pub struct IndexerResponse {
     pub status: u16,

@@ -28,9 +28,9 @@ use thegraph::types::{attestation, DeploymentId};
 use tokio::spawn;
 use tower_http::cors::{self, CorsLayer};
 
+use gateway_common::chains::{ethereum, BlockCache};
 use graph_gateway::auth::AuthHandler;
 use graph_gateway::budgets::Budgeter;
-use graph_gateway::chains::{ethereum, BlockCache};
 use graph_gateway::config::{Config, ExchangeRateProvider};
 use graph_gateway::geoip::GeoIP;
 use graph_gateway::indexer_client::IndexerClient;

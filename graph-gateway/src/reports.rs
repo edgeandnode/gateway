@@ -1,6 +1,7 @@
 use std::fmt;
 
 use alloy_primitives::Address;
+use gateway_common::errors::{self, IndexerError};
 use prelude::unix_timestamp;
 use prost::Message as _;
 use rdkafka::error::KafkaResult;
@@ -11,7 +12,6 @@ use toolshed::concat_bytes;
 use tracing::span;
 use tracing_subscriber::{filter::FilterFn, layer, prelude::*, registry, EnvFilter, Layer};
 
-use crate::errors::{self, IndexerError};
 use crate::indexer_client::ResponsePayload;
 
 pub const CLIENT_QUERY_TARGET: &str = "client_query";

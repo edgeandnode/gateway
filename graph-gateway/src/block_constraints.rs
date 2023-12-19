@@ -7,30 +7,11 @@ use graphql::graphql_parser::query::{
     Definition, Document, OperationDefinition, Selection, Text, Value,
 };
 use graphql::{IntoStaticValue as _, StaticValue};
-use indexer_selection::UnresolvedBlock;
 use itertools::Itertools as _;
 use serde_json::{self, json};
 use thegraph::types::BlockPointer;
 
-use crate::errors::Error;
-
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub enum BlockConstraint {
-    Unconstrained,
-    Hash(BlockHash),
-    Number(BlockNumber),
-    NumberGTE(BlockNumber),
-}
-
-impl BlockConstraint {
-    pub fn into_unresolved(self) -> Option<UnresolvedBlock> {
-        match self {
-            Self::Unconstrained => None,
-            Self::Hash(h) => Some(UnresolvedBlock::WithHash(h)),
-            Self::Number(n) | Self::NumberGTE(n) => Some(UnresolvedBlock::WithNumber(n)),
-        }
-    }
-}
+use gateway_common::{block_constraints::BlockConstraint, errors::Error};
 
 pub fn block_constraints<'c>(
     context: &'c Context<'c, String>,

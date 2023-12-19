@@ -6,7 +6,7 @@ use prelude::*;
 use tokio::time::interval;
 use tokio::{select, spawn, sync::mpsc};
 
-use crate::metrics::METRICS;
+use gateway_common::metrics::METRICS;
 
 pub struct Budgeter {
     pub feedback: mpsc::UnboundedSender<USD>,

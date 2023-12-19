@@ -1,14 +1,14 @@
 use alloy_primitives::{Address, FixedBytes, U256};
 use axum::{body::Bytes, extract::State, http::StatusCode};
+use gateway_common::metrics::METRICS;
 use lazy_static::lazy_static;
+use receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher};
+use secp256k1::SecretKey;
 use secp256k1::{PublicKey, Secp256k1};
 use serde::Deserialize;
 use serde_json::json;
 
-use receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher};
-use secp256k1::SecretKey;
-
-use crate::{json_response, metrics::*, JsonResponse};
+use crate::{json_response, JsonResponse};
 
 lazy_static! {
     static ref SECP256K1: Secp256k1<secp256k1::All> = Secp256k1::new();
