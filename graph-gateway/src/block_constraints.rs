@@ -11,7 +11,7 @@ use itertools::Itertools as _;
 use serde_json::{self, json};
 use thegraph::types::BlockPointer;
 
-use gateway_common::{block_constraints::BlockConstraint, errors::Error};
+use gateway_framework::{block_constraints::BlockConstraint, errors::Error};
 
 pub fn block_constraints<'c>(
     context: &'c Context<'c, String>,
@@ -244,7 +244,7 @@ fn parse_number<'c, T: Text<'c>>(
 mod tests {
     use std::iter::FromIterator;
 
-    use prelude::test_utils::bytes_from_id;
+    use gateway_common::utils::testing::bytes_from_id;
 
     use super::*;
 

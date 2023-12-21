@@ -6,14 +6,15 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
 use ethers::signers::Wallet;
 use eventuals::{Eventual, Ptr};
-use indexer_selection::Indexing;
-use prelude::GRT;
 use rand::RngCore;
 pub use receipts::{QueryStatus as ReceiptStatus, ReceiptPool};
 use secp256k1::SecretKey;
 use tap_core::eip_712_signed_message::EIP712SignedMessage;
 use tap_core::tap_receipt::Receipt;
 use tokio::sync::{Mutex, RwLock};
+
+use gateway_common::types::GRT;
+use indexer_selection::Indexing;
 
 pub struct ReceiptSigner {
     signer: SecretKey,

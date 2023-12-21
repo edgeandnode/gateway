@@ -1,11 +1,12 @@
 use std::hash::{Hash as _, Hasher as _};
+use std::io::{Cursor, Write as _};
+use std::sync::Once;
 
 use alloy_primitives::Address;
-use prelude::test_utils::bytes_from_id;
 use siphasher::sip::SipHasher24;
-use thegraph::types::DeploymentId;
+use thegraph::types::{BlockPointer, DeploymentId};
 
-use crate::BlockPointer;
+use crate::utils::tracing::init_tracing;
 
 pub const TEST_KEY: &str = "244226452948404D635166546A576E5A7234753778217A25432A462D4A614E64";
 
@@ -33,4 +34,16 @@ pub fn test_allocation_id(indexer: &Address, deployment: &DeploymentId) -> Addre
     indexer.hash(&mut hasher);
     deployment.hash(&mut hasher);
     bytes_from_id(hasher.finish() as usize).into()
+}
+
+pub fn bytes_from_id<const N: usize>(id: usize) -> [u8; N] {
+    let mut buf = [0u8; N];
+    let mut cursor = Cursor::new(buf.as_mut());
+    let _ = cursor.write(&id.to_le_bytes());
+    buf
+}
+
+pub fn init_test_tracing() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| init_tracing(false))
 }

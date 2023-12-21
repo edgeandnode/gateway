@@ -4,14 +4,17 @@ use std::ops::RangeInclusive;
 
 use alloy_primitives::Address;
 use anyhow::{bail, ensure};
-use prelude::buffer_queue::QueueWriter;
-use prelude::test_utils::bytes_from_id;
-use prelude::{buffer_queue, double_buffer, UDecimal18, GRT};
 use rand::rngs::SmallRng;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng, RngCore as _, SeedableRng as _};
 use thegraph::types::{BlockPointer, DeploymentId};
 use tokio::spawn;
+use toolshed::{buffer_queue, double_buffer};
+
+use gateway_common::{
+    types::{UDecimal18, GRT},
+    utils::testing::bytes_from_id,
+};
 
 use crate::actor::{process_updates, Update};
 use crate::{
@@ -75,7 +78,7 @@ impl Topology {
     async fn gen(
         rng: &mut SmallRng,
         config: &Config,
-        update_writer: &mut QueueWriter<Update>,
+        update_writer: &mut buffer_queue::QueueWriter<Update>,
     ) -> Self {
         let deployments = (0..rng.gen_range(config.deployments.clone()))
             .map(|id| bytes_from_id(id).into())

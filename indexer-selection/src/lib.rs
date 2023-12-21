@@ -9,11 +9,12 @@ use std::{
 use alloy_primitives::{Address, BlockHash, BlockNumber};
 use num_traits::Zero as _;
 pub use ordered_float::NotNan;
-use prelude::*;
 use rand::{prelude::SmallRng, Rng as _};
 use score::{expected_individual_score, ExpectedValue};
 use thegraph::types::{BlockPointer, DeploymentId};
 use toolshed::url::Url;
+
+use gateway_common::types::{UDecimal18, GRT};
 
 use crate::score::{select_indexers, SelectionFactors};
 pub use crate::{
@@ -33,8 +34,10 @@ mod score;
 pub mod simulation;
 #[cfg(test)]
 mod test;
-pub mod test_utils;
 mod utility;
+
+#[global_allocator]
+static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 /// If an indexer's score is penalized such that it falls below this proportion of the max indexer
 /// score, then the indexer will be discarded from the set of indexers to select from.

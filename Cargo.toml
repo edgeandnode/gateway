@@ -1,5 +1,10 @@
 [workspace]
-members = ["graph-gateway", "indexer-selection", "prelude", "common"]
+members = [
+    "graph-gateway",
+    "indexer-selection",
+    "gateway-common",
+    "gateway-framework",
+]
 resolver = "2"
 
 [profile.release]
@@ -12,7 +17,11 @@ debug = true
 
 [workspace.dependencies]
 anyhow = "1.0"
-alloy-primitives = { version = "0.5.0", features = ["serde"] }
+alloy-primitives = { version = "0.5.3", features = ["serde"] }
+graphql = { git = "https://github.com/edgeandnode/toolshed", branch = "main", default-features = false }
+graphql-http = { git = "https://github.com/edgeandnode/toolshed.git", branch = "main", features = [
+    "http-reqwest",
+] }
 rand = { version = "0.8", features = ["small_rng"] }
 reqwest = { version = "0.11", default-features = false, features = [
     "json",
@@ -21,6 +30,7 @@ reqwest = { version = "0.11", default-features = false, features = [
 ] }
 serde = { version = "1.0", features = ["derive"] }
 siphasher = "1.0.0"
+snmalloc-rs = "0.3"
 tokio = { version = "1.24", features = [
     "macros",
     "parking_lot",
@@ -28,6 +38,11 @@ tokio = { version = "1.24", features = [
     "sync",
     "time",
 ] }
-toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "v0.4.0" }
-thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.2.0" }
+toolshed = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
+thegraph = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
 tracing = { version = "0.1", default-features = false }
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "parking_lot",
+    "json",
+] }

@@ -1,8 +1,9 @@
 use std::ops::RangeInclusive;
 use std::time::{Duration, Instant};
 
-use prelude::GRT;
 use toolshed::url::Url;
+
+use gateway_common::types::GRT;
 
 use crate::decay::ISADecayBuffer;
 use crate::performance::*;

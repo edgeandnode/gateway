@@ -28,22 +28,25 @@ use serde_json::value::RawValue;
 use thegraph::types::{attestation, BlockPointer, DeploymentId, SubgraphId};
 use tokio::sync::mpsc;
 use toolshed::url::Url;
+use toolshed::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader};
 use tracing::Instrument;
 use uuid::Uuid;
 
 use gateway_common::{
+    types::{UDecimal18, GRT, USD},
+    utils::timestamp::unix_timestamp,
+};
+use gateway_framework::{
     block_constraints::BlockConstraint,
     chains::BlockCache,
     errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*},
     metrics::{with_metric, METRICS},
 };
-use indexer_selection::Candidate;
 use indexer_selection::{
-    actor::Update, BlockRequirements, IndexerError as SelectionError, IndexerErrorObservation,
-    Indexing, InputError, Selection, UnresolvedBlock, UtilityParameters, SELECTION_LIMIT,
+    actor::Update, BlockRequirements, Candidate, IndexerError as SelectionError,
+    IndexerErrorObservation, Indexing, InputError, Selection, UnresolvedBlock, UtilityParameters,
+    SELECTION_LIMIT,
 };
-use prelude::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader, unix_timestamp, GRT};
-use prelude::{UDecimal18, USD};
 
 use crate::auth::{AuthHandler, AuthToken};
 use crate::block_constraints::{block_constraints, make_query_deterministic};

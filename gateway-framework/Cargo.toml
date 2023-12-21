@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "gateway-common"
+name = "gateway-framework"
 version = "0.0.1"
 
 [dependencies]
@@ -10,16 +10,13 @@ eventuals = "0.6.7"
 indexer-selection = { path = "../indexer-selection" }
 itertools = "0.12.0"
 lazy_static = "1.4.0"
-prelude = { path = "../prelude" }
 prometheus = "0.13.3"
 reqwest.workspace = true
-# rand.workspace = true
-# siphasher.workspace = true
 serde.workspace = true
 serde_json = "1.0.108"
 serde_with = "3.4.0"
 thegraph.workspace = true
-thiserror = "1.0.40"
+thiserror = "1.0.51"
 tokio.workspace = true
 toolshed.workspace = true
 tracing.workspace = true

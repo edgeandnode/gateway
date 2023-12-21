@@ -1,0 +1,10 @@
+[package]
+edition = "2021"
+name = "gateway-common"
+version = "0.0.1"
+
+[dependencies]
+alloy-primitives.workspace = true
+siphasher.workspace = true
+thegraph.workspace = true
+tracing-subscriber.workspace = true

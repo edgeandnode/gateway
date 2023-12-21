@@ -11,7 +11,7 @@ use thegraph::subscriptions::auth::AuthTokenClaims;
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
 
-use prelude::USD;
+use gateway_common::types::USD;
 
 use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::subscriptions::Subscription;

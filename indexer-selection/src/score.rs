@@ -3,9 +3,10 @@ use std::time::{Duration, Instant};
 use alloy_primitives::U256;
 use arrayvec::ArrayVec;
 use ordered_float::NotNan;
-use prelude::{UDecimal18, GRT};
 use rand::{prelude::SliceRandom as _, Rng};
 use toolshed::url::Url;
+
+use gateway_common::types::{UDecimal18, GRT};
 
 use crate::performance::performance_utility;
 use crate::utility::{weighted_product_model, UtilityFactor};

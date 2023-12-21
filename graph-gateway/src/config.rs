@@ -3,14 +3,15 @@ use std::str::FromStr;
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 use alloy_primitives::{Address, B256, U256};
-use gateway_common::config::Chain;
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
-use prelude::UDecimal18;
 use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DeserializeAs, DisplayFromStr, FromInto};
+use thegraph::types::UDecimal18;
 use toolshed::url::Url;
+
+use gateway_framework::config::Chain;
 
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 

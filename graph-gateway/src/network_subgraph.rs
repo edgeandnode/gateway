@@ -4,10 +4,11 @@ use std::time::Duration;
 use alloy_primitives::{Address, U256};
 use anyhow::anyhow;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
-use prelude::*;
 use serde::Deserialize;
-use thegraph::client as subgraph_client;
-use thegraph::types::{DeploymentId, SubgraphId};
+use thegraph::{
+    client as subgraph_client,
+    types::{DeploymentId, SubgraphId, UDecimal18},
+};
 use tokio::sync::Mutex;
 
 pub struct Data {
