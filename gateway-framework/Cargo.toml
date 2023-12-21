@@ -6,7 +6,9 @@ version = "0.0.1"
 [dependencies]
 alloy-primitives.workspace = true
 anyhow.workspace = true
+ethers = "2.0.11"
 eventuals = "0.6.7"
+gateway-common = { path = "../gateway-common" }
 indexer-selection = { path = "../indexer-selection" }
 itertools = "0.12.0"
 lazy_static = "1.4.0"
