@@ -33,7 +33,7 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 use gateway_common::{
-    types::{UDecimal18, GRT, USD},
+    types::{Indexing, UDecimal18, GRT, USD},
     utils::timestamp::unix_timestamp,
 };
 use gateway_framework::{
@@ -44,7 +44,7 @@ use gateway_framework::{
 };
 use indexer_selection::{
     actor::Update, BlockRequirements, Candidate, IndexerError as SelectionError,
-    IndexerErrorObservation, Indexing, InputError, Selection, UnresolvedBlock, UtilityParameters,
+    IndexerErrorObservation, InputError, Selection, UnresolvedBlock, UtilityParameters,
     SELECTION_LIMIT,
 };
 

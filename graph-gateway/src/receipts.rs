@@ -13,8 +13,7 @@ use tap_core::eip_712_signed_message::EIP712SignedMessage;
 use tap_core::tap_receipt::Receipt;
 use tokio::sync::{Mutex, RwLock};
 
-use gateway_common::types::GRT;
-use indexer_selection::Indexing;
+use gateway_common::types::{Indexing, GRT};
 
 pub struct ReceiptSigner {
     signer: SecretKey,

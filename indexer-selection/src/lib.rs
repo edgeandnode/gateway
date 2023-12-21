@@ -11,10 +11,10 @@ use num_traits::Zero as _;
 pub use ordered_float::NotNan;
 use rand::{prelude::SmallRng, Rng as _};
 use score::{expected_individual_score, ExpectedValue};
-use thegraph::types::{BlockPointer, DeploymentId};
+use thegraph::types::BlockPointer;
 use toolshed::url::Url;
 
-use gateway_common::types::{UDecimal18, GRT};
+use gateway_common::types::{Indexing, UDecimal18, GRT};
 
 use crate::score::{select_indexers, SelectionFactors};
 pub use crate::{
@@ -120,12 +120,6 @@ impl Display for UnresolvedBlock {
             Self::WithNumber(number) => write!(f, "{number}"),
         }
     }
-}
-
-#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Indexing {
-    pub indexer: Address,
-    pub deployment: DeploymentId,
 }
 
 #[derive(Default, Debug, Eq, PartialEq)]
