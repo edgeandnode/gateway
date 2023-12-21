@@ -38,6 +38,7 @@ use gateway_common::{
 };
 use gateway_framework::{
     block_constraints::BlockConstraint,
+    budgets::Budgeter,
     chains::BlockCache,
     errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*},
     metrics::{with_metric, METRICS},
@@ -51,7 +52,6 @@ use indexer_selection::{
 
 use crate::auth::{AuthHandler, AuthToken};
 use crate::block_constraints::{block_constraints, make_query_deterministic};
-use crate::budgets::Budgeter;
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::indexers::indexing;
 use crate::reports::{self, serialize_attestation, KafkaClient};

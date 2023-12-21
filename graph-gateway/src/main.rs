@@ -38,13 +38,13 @@ use gateway_common::types::{Indexing, GRT, USD};
 use gateway_framework::geoip::GeoIP;
 use gateway_framework::scalar::ReceiptSigner;
 use gateway_framework::{
+    budgets::Budgeter,
     chains::{ethereum, BlockCache},
     ipfs, json,
     network::{exchange_rate, network_subgraph},
     scalar,
 };
 use graph_gateway::auth::AuthHandler;
-use graph_gateway::budgets::Budgeter;
 use graph_gateway::config::{Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
