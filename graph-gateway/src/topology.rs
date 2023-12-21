@@ -12,9 +12,7 @@ use tokio::sync::RwLock;
 use toolshed::url::Url;
 
 use gateway_common::types::GRT;
-use gateway_framework::network::network_subgraph;
-
-use crate::ipfs;
+use gateway_framework::{ipfs, network::network_subgraph};
 
 /// Representation of the graph network being used to serve queries
 #[derive(Clone)]

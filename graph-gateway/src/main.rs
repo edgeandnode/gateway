@@ -38,6 +38,7 @@ use gateway_common::types::{GRT, USD};
 use gateway_framework::geoip::GeoIP;
 use gateway_framework::{
     chains::{ethereum, BlockCache},
+    ipfs,
     network::{exchange_rate, network_subgraph},
 };
 use graph_gateway::auth::AuthHandler;
@@ -50,7 +51,7 @@ use graph_gateway::receipts::ReceiptSigner;
 use graph_gateway::reports::{self, KafkaClient};
 use graph_gateway::topology::{Deployment, GraphNetwork};
 use graph_gateway::{
-    client_query, indexings_blocklist, ipfs, subgraph_studio, subscriptions_subgraph, vouchers,
+    client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph, vouchers,
     JsonResponse,
 };
 use indexer_selection::{actor::Update, BlockStatus, Indexing};
