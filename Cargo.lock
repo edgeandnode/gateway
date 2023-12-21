@@ -1865,16 +1865,19 @@ dependencies = [
  "indexer-selection",
  "itertools 0.12.0",
  "lazy_static",
+ "maxminddb",
  "prometheus",
  "reqwest",
  "serde",
  "serde_json",
  "serde_with 3.4.0",
+ "siphasher 1.0.0",
  "thegraph",
  "thiserror",
  "tokio",
  "toolshed",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1949,7 +1952,6 @@ dependencies = [
  "indoc",
  "itertools 0.12.0",
  "lazy_static",
- "maxminddb",
  "primitive-types",
  "prometheus",
  "prost",

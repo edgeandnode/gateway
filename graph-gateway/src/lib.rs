@@ -8,7 +8,6 @@ pub mod block_constraints;
 pub mod budgets;
 pub mod client_query;
 pub mod config;
-pub mod geoip;
 pub mod indexer_client;
 pub mod indexers;
 pub mod indexings_blocklist;
