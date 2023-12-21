@@ -35,7 +35,10 @@ use toolshed::{
 use tower_http::cors::{self, CorsLayer};
 
 use gateway_common::types::{GRT, USD};
-use gateway_framework::chains::{ethereum, BlockCache};
+use gateway_framework::{
+    chains::{ethereum, BlockCache},
+    network::network_subgraph,
+};
 use graph_gateway::auth::AuthHandler;
 use graph_gateway::budgets::Budgeter;
 use graph_gateway::config::{Config, ExchangeRateProvider};
@@ -47,8 +50,8 @@ use graph_gateway::receipts::ReceiptSigner;
 use graph_gateway::reports::{self, KafkaClient};
 use graph_gateway::topology::{Deployment, GraphNetwork};
 use graph_gateway::{
-    client_query, indexings_blocklist, ipfs, network_subgraph, subgraph_studio,
-    subscriptions_subgraph, vouchers, JsonResponse,
+    client_query, indexings_blocklist, ipfs, subgraph_studio, subscriptions_subgraph, vouchers,
+    JsonResponse,
 };
 use indexer_selection::{actor::Update, BlockStatus, Indexing};
 
