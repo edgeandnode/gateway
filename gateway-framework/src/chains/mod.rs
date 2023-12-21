@@ -4,10 +4,10 @@ use std::time::Duration;
 use alloy_primitives::{BlockHash, BlockNumber};
 use eventuals::{Eventual, EventualWriter};
 use indexer_selection::UnresolvedBlock;
-use prelude::epoch_cache::EpochCache;
 use thegraph::types::BlockPointer;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::interval;
+use toolshed::epoch_cache::EpochCache;
 use tracing::Instrument;
 
 use crate::{block_constraints::BlockConstraint, metrics::*};

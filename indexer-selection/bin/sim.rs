@@ -2,10 +2,11 @@ use std::io::{stdin, BufRead as _};
 
 use anyhow::Result;
 
-use indexer_selection::{
-    simulation::*, test_utils::gen_blocks, BlockRequirements, Selection, UtilityParameters,
+use gateway_common::{
+    types::{UDecimal18, GRT},
+    utils::testing::gen_blocks,
 };
-use prelude::*;
+use indexer_selection::{simulation::*, BlockRequirements, Selection, UtilityParameters};
 
 #[tokio::main]
 async fn main() -> Result<()> {

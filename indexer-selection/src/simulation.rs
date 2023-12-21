@@ -6,8 +6,10 @@ use anyhow::Result;
 use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 use rand_distr::Normal;
 
-use prelude::test_utils::{bytes_from_id, init_test_tracing};
-use prelude::{UDecimal18, GRT};
+use gateway_common::{
+    types::{UDecimal18, GRT},
+    utils::testing::{bytes_from_id, init_test_tracing},
+};
 
 use crate::{
     BlockStatus, Candidate, IndexerErrorObservation, Indexing, IndexingStatus, Selection, State,

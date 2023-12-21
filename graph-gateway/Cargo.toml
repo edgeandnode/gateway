@@ -18,19 +18,17 @@ ethers = { version = "2.0.10", default-features = false, features = ["abigen"] }
 eventuals = "0.6.7"
 faster-hex = "0.9.0"
 futures = "0.3"
-gateway-common = { path = "../common" }
+gateway-common = { path = "../gateway-common" }
+gateway-framework = { path = "../gateway-framework" }
 graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "334d18b" }
-graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed.git", tag = "graphql-http-v0.1.1", features = [
-    "http-reqwest",
-] }
+graphql.workspace = true
+graphql-http.workspace = true
 hex = "0.4"
 indexer-selection = { path = "../indexer-selection" }
 indoc = "2.0.3"
 itertools = "0.12.0"
 lazy_static = "1.4"
 maxminddb = "0.23"
-prelude = { path = "../prelude" }
 primitive-types = "0.12.1"
 prometheus = { version = "0.13", default-features = false }
 prost = "0.12.1"
@@ -53,11 +51,7 @@ toolshed.workspace = true
 tower = "0.4.13"
 tower-http = { version = "0.4.0", features = ["cors"] }
 tracing.workspace = true
-tracing-subscriber = { version = "0.3.16", features = [
-    "env-filter",
-    "json",
-    "parking_lot",
-] }
+tracing-subscriber.workspace = true
 trust-dns-resolver = "0.23.0"
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
 

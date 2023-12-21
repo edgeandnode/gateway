@@ -2,11 +2,12 @@ use std::{collections::HashMap, error::Error, sync::Arc};
 
 use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
-use prelude::{UDecimal18, USD};
 use serde::Deserialize;
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::{sync::Mutex, time::Duration};
 use toolshed::url::Url;
+
+use gateway_common::types::{UDecimal18, USD};
 
 #[derive(Clone, Debug, Default)]
 pub struct APIKey {

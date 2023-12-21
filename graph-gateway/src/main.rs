@@ -23,12 +23,19 @@ use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
-use thegraph::client as subgraph_client;
-use thegraph::types::{attestation, DeploymentId};
+use thegraph::{
+    client as subgraph_client,
+    types::{attestation, DeploymentId},
+};
 use tokio::spawn;
+use toolshed::{
+    buffer_queue::{self, QueueWriter},
+    double_buffer,
+};
 use tower_http::cors::{self, CorsLayer};
 
-use gateway_common::chains::{ethereum, BlockCache};
+use gateway_common::types::{GRT, USD};
+use gateway_framework::chains::{ethereum, BlockCache};
 use graph_gateway::auth::AuthHandler;
 use graph_gateway::budgets::Budgeter;
 use graph_gateway::config::{Config, ExchangeRateProvider};
@@ -44,7 +51,6 @@ use graph_gateway::{
     subscriptions_subgraph, vouchers, JsonResponse,
 };
 use indexer_selection::{actor::Update, BlockStatus, Indexing};
-use prelude::{buffer_queue::QueueWriter, *};
 
 // Moving the `exchange_rate` module to `lib.rs` makes the doctests to fail during the compilation
 // step. This module is only used here, so let's keep it here for now.

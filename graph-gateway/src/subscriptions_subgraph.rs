@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
-use prelude::unix_timestamp;
+use gateway_common::utils::timestamp::unix_timestamp;
 use thegraph::client as subgraph_client;
 use tokio::sync::Mutex;
 

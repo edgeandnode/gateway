@@ -1,11 +1,13 @@
-use crate::*;
-use anyhow::Result;
 use std::{
     fs::{self, File},
     io::{self, Cursor, Write as _},
     path::PathBuf,
     sync::Once,
 };
+
+use anyhow::Result;
+
+use crate::utils::tracing::init_tracing;
 
 pub const BASIC_QUERY: &str = "{ entities { id } }";
 

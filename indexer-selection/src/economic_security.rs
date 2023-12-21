@@ -1,4 +1,4 @@
-use prelude::*;
+use gateway_common::types::{UDecimal18, GRT, USD};
 
 #[derive(Default)]
 pub struct NetworkParameters {
@@ -17,7 +17,9 @@ impl NetworkParameters {
 
 #[cfg(test)]
 mod tests {
-    use crate::{test_utils::*, utility::ConcaveUtilityParameters};
+    use gateway_common::utils::testing::assert_within;
+
+    use crate::utility::ConcaveUtilityParameters;
 
     use super::*;
 

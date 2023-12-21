@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use alloy_primitives::BlockNumber;
-use indexer_selection::Selection;
 use serde::Deserialize;
 use thegraph::types::attestation::Attestation;
 
+use gateway_framework::errors::{IndexerError, UnavailableReason::*};
+use indexer_selection::Selection;
+
 use crate::receipts::{ReceiptSigner, ReceiptStatus, ScalarReceipt};
-use gateway_common::errors::{IndexerError, UnavailableReason::*};
 
 pub struct IndexerResponse {
     pub status: u16,

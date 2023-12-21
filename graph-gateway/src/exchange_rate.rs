@@ -9,9 +9,10 @@ use ethers::{
     providers::Provider,
 };
 use eventuals::{Eventual, EventualExt, EventualWriter};
-use prelude::{UDecimal18, GRT};
 use tokio::sync::Mutex;
 use toolshed::url::Url;
+
+use gateway_common::types::{UDecimal18, GRT};
 
 abigen!(
     UniswapV3Pool,

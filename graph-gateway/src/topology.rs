@@ -6,11 +6,12 @@ use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt, Ptr};
 use futures::future::join_all;
 use itertools::Itertools;
-use prelude::GRT;
 use serde::Deserialize;
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
 use toolshed::url::Url;
+
+use gateway_common::types::GRT;
 
 use crate::{ipfs, network_subgraph};
 

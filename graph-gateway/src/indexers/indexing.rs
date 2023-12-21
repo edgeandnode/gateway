@@ -5,11 +5,13 @@ use cost_model::CostModel;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
 use indexer_selection::Indexing;
-use prelude::epoch_cache::EpochCache;
 use semver::Version;
 use thegraph::types::{BlockPointer, DeploymentId};
 use tokio::sync::Mutex;
-use toolshed::url::{url::Host, Url};
+use toolshed::{
+    epoch_cache::EpochCache,
+    url::{url::Host, Url},
+};
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 
 use crate::geoip::GeoIP;

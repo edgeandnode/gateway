@@ -1,12 +1,13 @@
 use alloy_primitives::{Address, FixedBytes, U256};
 use axum::{body::Bytes, extract::State, http::StatusCode};
-use gateway_common::metrics::METRICS;
 use lazy_static::lazy_static;
 use receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher};
 use secp256k1::SecretKey;
 use secp256k1::{PublicKey, Secp256k1};
 use serde::Deserialize;
 use serde_json::json;
+
+use gateway_framework::metrics::METRICS;
 
 use crate::{json_response, JsonResponse};
 

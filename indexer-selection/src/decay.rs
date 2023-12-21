@@ -140,7 +140,7 @@ mod test {
 
     use arrayvec::ArrayVec;
 
-    use crate::test_utils::assert_within;
+    use gateway_common::utils::testing::assert_within;
 
     use super::*;
 
