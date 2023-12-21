@@ -56,6 +56,9 @@ use indexer_selection::{actor::Update, BlockStatus, Indexing};
 // step. This module is only used here, so let's keep it here for now.
 mod exchange_rate;
 
+#[global_allocator]
+static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
+
 #[tokio::main]
 async fn main() {
     let config_path = env::args()

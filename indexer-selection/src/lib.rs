@@ -36,9 +36,6 @@ pub mod simulation;
 mod test;
 mod utility;
 
-#[global_allocator]
-static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
-
 /// If an indexer's score is penalized such that it falls below this proportion of the max indexer
 /// score, then the indexer will be discarded from the set of indexers to select from.
 const MIN_SCORE_CUTOFF: f64 = 0.25;
