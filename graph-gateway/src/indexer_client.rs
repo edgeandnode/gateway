@@ -4,10 +4,11 @@ use alloy_primitives::BlockNumber;
 use serde::Deserialize;
 use thegraph::types::attestation::Attestation;
 
-use gateway_framework::errors::{IndexerError, UnavailableReason::*};
+use gateway_framework::{
+    errors::{IndexerError, UnavailableReason::*},
+    scalar::{ReceiptSigner, ReceiptStatus, ScalarReceipt},
+};
 use indexer_selection::Selection;
-
-use crate::receipts::{ReceiptSigner, ReceiptStatus, ScalarReceipt};
 
 pub struct IndexerResponse {
     pub status: u16,
