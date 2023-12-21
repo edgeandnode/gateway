@@ -35,12 +35,13 @@ use toolshed::{
 use tower_http::cors::{self, CorsLayer};
 
 use gateway_common::types::{Indexing, GRT, USD};
+use gateway_framework::geoip::GeoIP;
+use gateway_framework::scalar::ReceiptSigner;
 use gateway_framework::{
     chains::{ethereum, BlockCache},
-    geoip::GeoIP,
-    ipfs,
+    ipfs, json,
     network::{exchange_rate, network_subgraph},
-    scalar::ReceiptSigner,
+    scalar,
 };
 use graph_gateway::auth::AuthHandler;
 use graph_gateway::budgets::Budgeter;
@@ -50,10 +51,7 @@ use graph_gateway::indexers::indexing;
 use graph_gateway::indexings_blocklist::indexings_blocklist;
 use graph_gateway::reports::{self, KafkaClient};
 use graph_gateway::topology::{Deployment, GraphNetwork};
-use graph_gateway::{
-    client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph, vouchers,
-    JsonResponse,
-};
+use graph_gateway::{client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph};
 use indexer_selection::{actor::Update, BlockStatus};
 
 #[global_allocator]
@@ -370,17 +368,17 @@ async fn main() {
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/collect-receipts",
-            routing::post(vouchers::handle_collect_receipts).with_state(legacy_signer),
+            routing::post(scalar::handle_collect_receipts).with_state(legacy_signer),
         )
         .route(
             "/partial-voucher",
-            routing::post(vouchers::handle_partial_voucher)
+            routing::post(scalar::handle_partial_voucher)
                 .with_state(legacy_signer)
                 .layer(DefaultBodyLimit::max(3_000_000)),
         )
         .route(
             "/voucher",
-            routing::post(vouchers::handle_voucher).with_state(legacy_signer),
+            routing::post(scalar::handle_voucher).with_state(legacy_signer),
         )
         // Temporary route. Will be replaced by gateway metadata (GSP).
         .route(
@@ -422,7 +420,7 @@ async fn ip_rate_limit<B>(
     ConnectInfo(info): ConnectInfo<SocketAddr>,
     req: Request<B>,
     next: middleware::Next<B>,
-) -> Result<Response, JsonResponse> {
+) -> Result<Response, json::JsonResponse> {
     if limiter.check_limited(info.ip().to_string()) {
         return Err(graphql_error_response("Too many requests, try again later"));
     }
@@ -431,9 +429,9 @@ async fn ip_rate_limit<B>(
 
 async fn handle_subscription_tiers(
     State(tiers): State<&'static SubscriptionTiers>,
-) -> JsonResponse {
+) -> json::JsonResponse {
     let response = serde_json::to_value(tiers.as_ref()).unwrap();
-    graph_gateway::json_response([], response)
+    json::json_response([], response)
 }
 
 async fn write_indexer_inputs(
@@ -497,6 +495,6 @@ async fn handle_metrics() -> impl axum::response::IntoResponse {
     (StatusCode::OK, buffer)
 }
 
-fn graphql_error_response<S: ToString>(message: S) -> JsonResponse {
-    graph_gateway::json_response([], json!({"errors": [{"message": message.to_string()}]}))
+fn graphql_error_response<S: ToString>(message: S) -> json::JsonResponse {
+    json::json_response([], json!({"errors": [{"message": message.to_string()}]}))
 }

@@ -18,6 +18,11 @@ debug = true
 [workspace.dependencies]
 anyhow = "1.0"
 alloy-primitives = { version = "0.5.3", features = ["serde"] }
+axum = { version = "0.6.15", default-features = false, features = [
+    "json",
+    "tokio",
+    "original-uri",
+] }
 graphql = { git = "https://github.com/edgeandnode/toolshed", branch = "main", default-features = false }
 graphql-http = { git = "https://github.com/edgeandnode/toolshed.git", branch = "main", features = [
     "http-reqwest",

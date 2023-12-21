@@ -7,11 +7,7 @@ version = "16.1.2"
 alloy-primitives.workspace = true
 alloy-sol-types = "0.5.0"
 anyhow.workspace = true
-axum = { version = "0.6.15", default-features = false, features = [
-    "json",
-    "tokio",
-    "original-uri",
-] }
+
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3367d76" }
 ethers = { version = "2.0.10", default-features = false, features = ["abigen"] }
@@ -54,6 +50,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 trust-dns-resolver = "0.23.0"
 uuid = { version = "1.0", default-features = false, features = ["v4"] }
+axum.workspace = true
 
 [dev-dependencies]
 assert_matches = "1.5.0"

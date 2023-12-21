@@ -7,9 +7,9 @@ use secp256k1::{PublicKey, Secp256k1};
 use serde::Deserialize;
 use serde_json::json;
 
-use gateway_framework::metrics::METRICS;
+use crate::metrics::METRICS;
 
-use crate::{json_response, JsonResponse};
+use crate::json::{json_response, JsonResponse};
 
 lazy_static! {
     static ref SECP256K1: Secp256k1<secp256k1::All> = Secp256k1::new();
