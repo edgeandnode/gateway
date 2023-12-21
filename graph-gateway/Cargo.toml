@@ -28,7 +28,6 @@ indexer-selection = { path = "../indexer-selection" }
 indoc = "2.0.3"
 itertools = "0.12.0"
 lazy_static = "1.4"
-maxminddb = "0.23"
 primitive-types = "0.12.1"
 prometheus = { version = "0.13", default-features = false }
 prost = "0.12.1"

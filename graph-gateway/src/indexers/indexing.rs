@@ -4,7 +4,6 @@ use alloy_primitives::Address;
 use cost_model::CostModel;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
-use indexer_selection::Indexing;
 use semver::Version;
 use thegraph::types::{BlockPointer, DeploymentId};
 use tokio::sync::Mutex;
@@ -14,7 +13,9 @@ use toolshed::{
 };
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 
-use crate::geoip::GeoIP;
+use gateway_framework::geoip::GeoIP;
+use indexer_selection::Indexing;
+
 use crate::indexers::cost_models::{self, CostModelQuery, CostModelSourceResponse};
 use crate::indexers::indexing_statuses::{self, IndexingStatusResponse};
 use crate::indexers::version;
