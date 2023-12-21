@@ -3,6 +3,7 @@ pub mod chains;
 pub mod config;
 pub mod errors;
 pub mod geoip;
+pub mod ipfs;
 pub mod metrics;
 pub mod network;
 pub mod utils;
