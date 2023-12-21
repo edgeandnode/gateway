@@ -1,6 +1,5 @@
 pub mod auth;
 pub mod block_constraints;
-pub mod budgets;
 pub mod client_query;
 pub mod config;
 pub mod indexer_client;

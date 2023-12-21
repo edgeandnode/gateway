@@ -6,7 +6,8 @@ use tokio::time::interval;
 use tokio::{select, spawn, sync::mpsc};
 
 use gateway_common::types::{UDecimal18, USD};
-use gateway_framework::metrics::METRICS;
+
+use crate::metrics::METRICS;
 
 pub struct Budgeter {
     pub feedback: mpsc::UnboundedSender<USD>,
