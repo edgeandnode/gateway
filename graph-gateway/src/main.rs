@@ -37,7 +37,7 @@ use tower_http::cors::{self, CorsLayer};
 use gateway_common::types::{GRT, USD};
 use gateway_framework::{
     chains::{ethereum, BlockCache},
-    network::network_subgraph,
+    network::{exchange_rate, network_subgraph},
 };
 use graph_gateway::auth::AuthHandler;
 use graph_gateway::budgets::Budgeter;
@@ -54,10 +54,6 @@ use graph_gateway::{
     JsonResponse,
 };
 use indexer_selection::{actor::Update, BlockStatus, Indexing};
-
-// Moving the `exchange_rate` module to `lib.rs` makes the doctests to fail during the compilation
-// step. This module is only used here, so let's keep it here for now.
-mod exchange_rate;
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;

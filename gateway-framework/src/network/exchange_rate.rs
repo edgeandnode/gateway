@@ -16,7 +16,7 @@ use gateway_common::types::{UDecimal18, GRT};
 
 abigen!(
     UniswapV3Pool,
-    "graph-gateway/src/contract_abis/UniswapV3Pool.json",
+    "gateway-framework/src/contract_abis/UniswapV3Pool.json",
     event_derives(serde::Deserialize, serde::Serialize);
 );
 
