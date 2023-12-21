@@ -1860,6 +1860,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "axum",
  "ethers",
  "eventuals",
  "gateway-common",

@@ -4,6 +4,7 @@ pub mod config;
 pub mod errors;
 pub mod geoip;
 pub mod ipfs;
+pub mod json;
 pub mod metrics;
 pub mod network;
 pub mod scalar;
