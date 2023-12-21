@@ -34,7 +34,7 @@ use toolshed::{
 };
 use tower_http::cors::{self, CorsLayer};
 
-use gateway_common::types::{GRT, USD};
+use gateway_common::types::{Indexing, GRT, USD};
 use gateway_framework::geoip::GeoIP;
 use gateway_framework::{
     chains::{ethereum, BlockCache},
@@ -54,7 +54,7 @@ use graph_gateway::{
     client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph, vouchers,
     JsonResponse,
 };
-use indexer_selection::{actor::Update, BlockStatus, Indexing};
+use indexer_selection::{actor::Update, BlockStatus};
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;

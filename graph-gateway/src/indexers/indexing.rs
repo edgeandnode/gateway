@@ -13,8 +13,8 @@ use toolshed::{
 };
 use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 
+use gateway_common::types::Indexing;
 use gateway_framework::geoip::GeoIP;
-use indexer_selection::Indexing;
 
 use crate::indexers::cost_models::{self, CostModelQuery, CostModelSourceResponse};
 use crate::indexers::indexing_statuses::{self, IndexingStatusResponse};

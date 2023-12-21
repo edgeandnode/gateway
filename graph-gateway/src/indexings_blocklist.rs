@@ -9,7 +9,7 @@ use thegraph::types::DeploymentId;
 use tokio::sync::Mutex;
 use toolshed::url::Url;
 
-use indexer_selection::Indexing;
+use gateway_common::types::Indexing;
 
 use crate::indexers::public_poi;
 use crate::indexers::public_poi::ProofOfIndexingInfo;
