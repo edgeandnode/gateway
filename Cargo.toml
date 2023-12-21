@@ -22,12 +22,16 @@ graphql = { git = "https://github.com/edgeandnode/toolshed", branch = "main", de
 graphql-http = { git = "https://github.com/edgeandnode/toolshed.git", branch = "main", features = [
     "http-reqwest",
 ] }
+hex = "0.4"
+primitive-types = "0.12.1"
 rand = { version = "0.8", features = ["small_rng"] }
+receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "89a821c" }
 reqwest = { version = "0.11", default-features = false, features = [
     "json",
     "default-tls",
     "gzip",
 ] }
+secp256k1 = { version = "0.24", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 siphasher = "1.0.0"
 tokio = { version = "1.24", features = [

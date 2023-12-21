@@ -6,4 +6,5 @@ pub mod geoip;
 pub mod ipfs;
 pub mod metrics;
 pub mod network;
+pub mod scalar;
 pub mod utils;

@@ -35,11 +35,12 @@ use toolshed::{
 use tower_http::cors::{self, CorsLayer};
 
 use gateway_common::types::{Indexing, GRT, USD};
-use gateway_framework::geoip::GeoIP;
 use gateway_framework::{
     chains::{ethereum, BlockCache},
+    geoip::GeoIP,
     ipfs,
     network::{exchange_rate, network_subgraph},
+    scalar::ReceiptSigner,
 };
 use graph_gateway::auth::AuthHandler;
 use graph_gateway::budgets::Budgeter;
@@ -47,7 +48,6 @@ use graph_gateway::config::{Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
 use graph_gateway::indexings_blocklist::indexings_blocklist;
-use graph_gateway::receipts::ReceiptSigner;
 use graph_gateway::reports::{self, KafkaClient};
 use graph_gateway::topology::{Deployment, GraphNetwork};
 use graph_gateway::{

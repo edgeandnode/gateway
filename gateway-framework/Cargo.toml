@@ -5,20 +5,27 @@ version = "0.0.1"
 
 [dependencies]
 alloy-primitives.workspace = true
+alloy-sol-types = "0.5.3"
 anyhow.workspace = true
 ethers = "2.0.11"
 eventuals = "0.6.7"
 gateway-common = { path = "../gateway-common" }
+hex.workspace = true
 indexer-selection = { path = "../indexer-selection" }
 itertools = "0.12.0"
 lazy_static = "1.4.0"
 maxminddb = "0.23"
+primitive-types.workspace = true
 prometheus = "0.13.3"
+rand.workspace = true
+receipts.workspace = true
 reqwest.workspace = true
+secp256k1.workspace = true
 serde.workspace = true
 serde_json = "1.0.108"
 serde_with = "3.4.0"
 siphasher.workspace = true
+tap_core = "0.7.0"
 thegraph.workspace = true
 thiserror = "1.0.51"
 tokio.workspace = true
