@@ -42,7 +42,7 @@ impl KafkaClient {
     }
 }
 
-pub fn init(kafka: &'static KafkaClient, log_json: bool, subscriptions_topic: Option<String>) {
+pub fn init(kafka: &'static KafkaClient, log_json: bool) {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::try_new("info,graph_gateway=debug").unwrap());
 
@@ -53,11 +53,7 @@ pub fn init(kafka: &'static KafkaClient, log_json: bool, subscriptions_topic: Op
             .with_current_span(false)
     });
 
-    let kafka_layer = KafkaLayer {
-        client: kafka,
-        subscriptions_topic,
-    }
-    .with_filter(FilterFn::new(|metadata| {
+    let kafka_layer = KafkaLayer { client: kafka }.with_filter(FilterFn::new(|metadata| {
         (metadata.target() == CLIENT_QUERY_TARGET) || (metadata.target() == INDEXER_QUERY_TARGET)
     }));
 
@@ -71,7 +67,6 @@ pub fn init(kafka: &'static KafkaClient, log_json: bool, subscriptions_topic: Op
 
 struct KafkaLayer {
     client: &'static KafkaClient,
-    subscriptions_topic: Option<String>,
 }
 
 impl<S> Layer<S> for KafkaLayer
@@ -131,9 +126,7 @@ where
 
         let fields: Map<String, serde_json::Value> = extensions.remove().unwrap();
         match event.metadata().target() {
-            CLIENT_QUERY_TARGET => {
-                report_client_query(self.client, fields, self.subscriptions_topic.as_deref())
-            }
+            CLIENT_QUERY_TARGET => report_client_query(self.client, fields),
             INDEXER_QUERY_TARGET => report_indexer_query(self.client, fields),
             _ => unreachable!("invalid event target for KafkaLayer"),
         }
@@ -200,31 +193,21 @@ impl tracing_subscriber::field::Visit for CollectFields<'_> {
     }
 }
 
-fn report_client_query(
-    kafka: &KafkaClient,
-    fields: Map<String, serde_json::Value>,
-    subscriptions_topic: Option<&str>,
-) {
+fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Value>) {
     #[derive(Deserialize)]
     struct Fields {
         query_id: String,
         graph_env: String,
-        status_message: String,
-        status_code: i32,
         legacy_status_message: String,
         legacy_status_code: u32,
         start_time_ms: u64,
         deployment: Option<String>,
         user_address: Option<String>,
         api_key: Option<String>,
-        ticket_payload: Option<String>,
         subgraph_chain: Option<String>,
         query_count: Option<u32>,
         budget_grt: Option<f32>,
         indexer_fees_grt: Option<f32>,
-        query: Option<String>,
-        variables: Option<String>,
-        domain: Option<String>,
     }
     let fields = match serde_json::from_value::<Fields>(fields.into()) {
         Ok(fields) => fields,
@@ -240,49 +223,6 @@ fn report_client_query(
     let timestamp = unix_timestamp();
     let response_time_ms = timestamp.saturating_sub(fields.start_time_ms) as u32;
 
-    // data science: TODO: what relies on this?
-    let log = serde_json::to_string(&json!({
-        "target": CLIENT_QUERY_TARGET,
-        "level": "INFO",
-        "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
-        "fields": {
-            "message": "Client query",
-            "query_id": &fields.query_id,
-            "ray_id": &fields.query_id, // In production this will be the Ray ID.
-            "query": fields.query.as_deref().unwrap_or(""),
-            "variables": fields.variables.as_deref().unwrap_or(""),
-        },
-    }))
-    .unwrap();
-    println!("{log}");
-
-    if let (Some(ticket_payload), Some(subscriptions_topic)) =
-        (fields.ticket_payload, subscriptions_topic)
-    {
-        let payload = GatewaySubscriptionQueryResult {
-            query_id: fields.query_id.clone(),
-            status_code: fields.status_code,
-            status_message: fields.status_message.clone(),
-            response_time_ms,
-            ticket_user: fields.user_address.clone().unwrap_or_default(),
-            ticket_payload,
-            deployment: fields.deployment.clone(),
-            subgraph_chain: fields.subgraph_chain.clone(),
-            query_count: fields.query_count,
-            query_budget: fields.budget_grt,
-            indexer_fees: fields.indexer_fees_grt,
-            domain: fields.domain.filter(|d| !d.is_empty()),
-        };
-        kafka.send(subscriptions_topic, &payload.encode_to_vec());
-    }
-
-    // The following are maintained for backwards compatibility of existing data science
-    // systems. They only apply to queries using Studio API keys.
-    let api_key = match fields.api_key {
-        Some(api_key) => api_key,
-        None => return,
-    };
-
     // data science: bigquery datasets still rely on this log line
     let log = serde_json::to_string(&json!({
         "target": CLIENT_QUERY_TARGET,
@@ -294,7 +234,8 @@ fn report_client_query(
             "ray_id": &fields.query_id, // In production this will be the Ray ID.
             "deployment": fields.deployment.as_deref().unwrap_or(""),
             "network": fields.subgraph_chain.as_deref().unwrap_or(""),
-            "api_key": &api_key,
+            "user": &fields.user_address,
+            "api_key": &fields.api_key,
             "query_count": fields.query_count.unwrap_or(0),
             "budget": fields.budget_grt.unwrap_or(0.0).to_string(),
             "fee": fields.indexer_fees_grt.unwrap_or(0.0),
@@ -311,7 +252,8 @@ fn report_client_query(
         "ray_id": &fields.query_id, // In production this will be the Ray ID.
         "graph_env": &fields.graph_env,
         "timestamp": timestamp,
-        "api_key": &api_key,
+        "user": &fields.user_address,
+        "api_key": &fields.api_key,
         "deployment": &fields.deployment.as_deref().unwrap_or(""),
         "network": &fields.subgraph_chain.as_deref().unwrap_or(""),
         "response_time_ms": response_time_ms,
@@ -410,75 +352,6 @@ fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json::Val
         "gateway_indexer_attempts",
         &serde_json::to_vec(&kafka_msg).unwrap(),
     );
-}
-
-pub fn status<T>(result: &Result<T, errors::Error>) -> (String, i32) {
-    match result {
-        Ok(_) => (
-            "200 OK".to_string(),
-            SubscriptionQueryStatusCode::Success.into(),
-        ),
-        Err(err) => match err {
-            errors::Error::Internal(_) => (
-                err.to_string(),
-                SubscriptionQueryStatusCode::InternalError.into(),
-            ),
-            errors::Error::Auth(_) | errors::Error::BadQuery(_) => (
-                err.to_string(),
-                SubscriptionQueryStatusCode::UserError.into(),
-            ),
-            errors::Error::BlockNotFound(_)
-            | errors::Error::ChainNotFound(_)
-            | errors::Error::SubgraphNotFound(_)
-            | errors::Error::NoIndexers
-            | errors::Error::BadIndexers(_) => (
-                err.to_string(),
-                SubscriptionQueryStatusCode::NotFound.into(),
-            ),
-        },
-    }
-}
-
-#[derive(Clone, PartialEq, prost::Message)]
-pub struct GatewaySubscriptionQueryResult {
-    /// Set to the value of the CF-Ray header, otherwise a generated UUID
-    #[prost(string, tag = "1")]
-    pub query_id: String,
-    #[prost(enumeration = "SubscriptionQueryStatusCode", tag = "2")]
-    pub status_code: i32,
-    #[prost(string, tag = "3")]
-    pub status_message: String,
-    #[prost(uint32, tag = "4")]
-    pub response_time_ms: u32,
-    /// `user` field from ticket payload, 0x-prefixed hex
-    #[prost(string, tag = "5")]
-    pub ticket_user: String,
-    /// ticket payload, JSON
-    #[prost(string, tag = "6")]
-    pub ticket_payload: String,
-    /// Subgraph Deployment ID, CIDv0 ("Qm" hash)
-    #[prost(string, optional, tag = "7")]
-    pub deployment: Option<String>,
-    /// Chain name indexed by subgraph deployment
-    #[prost(string, optional, tag = "8")]
-    pub subgraph_chain: Option<String>,
-    #[prost(uint32, optional, tag = "9")]
-    pub query_count: Option<u32>,
-    #[prost(float, optional, tag = "10")]
-    pub query_budget: Option<f32>,
-    #[prost(float, optional, tag = "11")]
-    pub indexer_fees: Option<f32>,
-    #[prost(string, optional, tag = "12")]
-    pub domain: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, prost::Enumeration)]
-#[repr(i32)]
-pub enum SubscriptionQueryStatusCode {
-    Success = 0,
-    InternalError = 1,
-    UserError = 2,
-    NotFound = 3,
 }
 
 pub fn legacy_status<T>(result: &Result<T, errors::Error>) -> (String, u32) {
