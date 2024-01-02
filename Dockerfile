@@ -1,4 +1,4 @@
-FROM rust:1.74-bullseye AS build
+FROM rust:1.75-bullseye AS build
 
 ARG GH_USER
 ARG GH_TOKEN
