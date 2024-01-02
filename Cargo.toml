@@ -14,7 +14,6 @@ lto = "thin"
 inherits = "release"
 debug = true
 
-
 [workspace.dependencies]
 anyhow = "1.0"
 alloy-primitives = { version = "0.5.3", features = ["serde"] }
@@ -47,7 +46,7 @@ tokio = { version = "1.24", features = [
     "time",
 ] }
 toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "toolshed-v0.5.0" }
-thegraph = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
+thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "toolshed-v0.5.0" }
 tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",

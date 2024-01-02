@@ -1882,7 +1882,7 @@ dependencies = [
  "thegraph",
  "thiserror",
  "tokio",
- "toolshed 0.5.0 (git+https://github.com/edgeandnode/toolshed?tag=toolshed-v0.5.0)",
+ "toolshed",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1952,7 +1952,7 @@ dependencies = [
  "gateway-framework",
  "graph-subscriptions",
  "graphql 0.3.0",
- "graphql-http",
+ "graphql-http 0.1.1 (git+https://github.com/edgeandnode/toolshed?branch=main)",
  "hex",
  "hyper",
  "indexer-selection",
@@ -1978,7 +1978,7 @@ dependencies = [
  "thegraph",
  "thiserror",
  "tokio",
- "toolshed 0.5.0 (git+https://github.com/edgeandnode/toolshed?tag=toolshed-v0.5.0)",
+ "toolshed",
  "tower",
  "tower-http",
  "tracing",
@@ -2020,6 +2020,19 @@ dependencies = [
  "firestorm",
  "graphql-parser",
  "serde",
+]
+
+[[package]]
+name = "graphql-http"
+version = "0.1.1"
+source = "git+https://github.com/edgeandnode/toolshed?tag=toolshed-v0.5.0#211f7d7c4ede10f35b6ebd123a4d3ec8342c9f5e"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -2372,7 +2385,7 @@ dependencies = [
  "siphasher 1.0.0",
  "thegraph",
  "tokio",
- "toolshed 0.5.0 (git+https://github.com/edgeandnode/toolshed?tag=toolshed-v0.5.0)",
+ "toolshed",
  "tracing",
  "tracing-subscriber",
 ]
@@ -4767,7 +4780,7 @@ dependencies = [
 [[package]]
 name = "thegraph"
 version = "0.2.0"
-source = "git+https://github.com/edgeandnode/toolshed?branch=main#89bcc61b5ed9c2001bb8556b08e6f481afad9d42"
+source = "git+https://github.com/edgeandnode/toolshed?tag=toolshed-v0.5.0#211f7d7c4ede10f35b6ebd123a4d3ec8342c9f5e"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
@@ -4777,7 +4790,7 @@ dependencies = [
  "bs58",
  "ethers",
  "ethers-core",
- "graphql-http",
+ "graphql-http 0.1.1 (git+https://github.com/edgeandnode/toolshed?tag=toolshed-v0.5.0)",
  "indoc",
  "lazy_static",
  "reqwest",
@@ -4787,7 +4800,7 @@ dependencies = [
  "serde_with 3.4.0",
  "sha3",
  "thiserror",
- "toolshed 0.5.0 (git+https://github.com/edgeandnode/toolshed?branch=main)",
+ "toolshed",
  "tracing",
 ]
 
@@ -5001,15 +5014,6 @@ dependencies = [
 name = "toolshed"
 version = "0.5.0"
 source = "git+https://github.com/edgeandnode/toolshed?tag=toolshed-v0.5.0#211f7d7c4ede10f35b6ebd123a4d3ec8342c9f5e"
-dependencies = [
- "tokio",
- "url",
-]
-
-[[package]]
-name = "toolshed"
-version = "0.5.0"
-source = "git+https://github.com/edgeandnode/toolshed?branch=main#89bcc61b5ed9c2001bb8556b08e6f481afad9d42"
 dependencies = [
  "tokio",
  "url",
