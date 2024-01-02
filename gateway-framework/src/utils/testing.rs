@@ -1,11 +1,7 @@
 use std::{
-    fs::{self, File},
-    io::{self, Cursor, Write as _},
-    path::PathBuf,
+    io::{Cursor, Write as _},
     sync::Once,
 };
-
-use anyhow::Result;
 
 use crate::utils::tracing::init_tracing;
 
@@ -21,15 +17,4 @@ pub fn bytes_from_id<const N: usize>(id: usize) -> [u8; N] {
 pub fn init_test_tracing() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| init_tracing(false))
-}
-
-pub fn create_test_output(path: &str) -> Result<File> {
-    let dir = PathBuf::try_from("test-outputs").unwrap();
-    match fs::create_dir(&dir) {
-        Ok(()) => (),
-        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
-        Err(err) => anyhow::bail!(err),
-    };
-    let path = dir.join(path);
-    Ok(File::create(path)?)
 }

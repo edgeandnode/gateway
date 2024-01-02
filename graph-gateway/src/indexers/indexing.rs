@@ -274,7 +274,7 @@ async fn query_status(
                 indexer,
                 deployment: status.subgraph,
             };
-            let chain = &status.chains.get(0)?;
+            let chain = &status.chains.first()?;
             let cost_model = cost_models.remove(&indexing.deployment);
             let block_status = chain.latest_block.as_ref()?;
             let status = Status {
