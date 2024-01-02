@@ -6,7 +6,6 @@ use alloy_primitives::Address;
 use eventuals::{Eventual, Ptr};
 use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
 use thegraph::subscriptions::auth::{parse_auth_token, verify_auth_token_claims, AuthTokenClaims};
-use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
 
 use crate::subscriptions::Subscription;
@@ -81,29 +80,13 @@ pub async fn check_token(
     deployments: &[Arc<Deployment>],
     domain: &str,
 ) -> anyhow::Result<()> {
-    // Check deployment allowlist
-    let allowed_deployments: Vec<DeploymentId> = auth_token
-        .allowed_deployments
-        .iter()
-        .flat_map(|s| s.split(','))
-        .filter_map(|s| s.parse::<DeploymentId>().ok())
-        .collect();
-    tracing::debug!(?allowed_deployments);
-
-    if !are_deployments_authorized(&allowed_deployments, deployments) {
+    tracing::debug!(allowed_deployments = ?auth_token.allowed_deployments);
+    if !are_deployments_authorized(&auth_token.allowed_deployments, deployments) {
         return Err(anyhow::anyhow!("Deployment not authorized by user"));
     }
 
-    // Check subgraph allowlist
-    let allowed_subgraphs: Vec<SubgraphId> = auth_token
-        .allowed_subgraphs
-        .iter()
-        .flat_map(|s| s.split(','))
-        .filter_map(|s| s.parse::<SubgraphId>().ok())
-        .collect();
-    tracing::debug!(?allowed_subgraphs);
-
-    if !are_subgraphs_authorized(&allowed_subgraphs, deployments) {
+    tracing::debug!(allowed_subgraphs = ?auth_token.allowed_subgraphs);
+    if !are_subgraphs_authorized(&auth_token.allowed_subgraphs, deployments) {
         return Err(anyhow::anyhow!("Subgraph not authorized by user"));
     }
 
@@ -126,7 +109,7 @@ pub async fn check_token(
         return Ok(());
     }
 
-    let chain_id = auth_token.chain_id.id();
+    let chain_id = auth_token.chain_id();
     let contract = auth_token.contract;
     let signer = auth_token.signer;
     let user = auth_token.user();
