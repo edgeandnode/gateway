@@ -80,13 +80,19 @@ pub async fn check_token(
     deployments: &[Arc<Deployment>],
     domain: &str,
 ) -> anyhow::Result<()> {
-    tracing::debug!(allowed_deployments = ?auth_token.allowed_deployments);
-    if !are_deployments_authorized(&auth_token.allowed_deployments, deployments) {
+    // Check deployment allowlist
+    let allowed_deployments = &auth_token.allowed_deployments;
+    tracing::debug!(?allowed_deployments);
+
+    if !are_deployments_authorized(allowed_deployments, deployments) {
         return Err(anyhow::anyhow!("Deployment not authorized by user"));
     }
 
-    tracing::debug!(allowed_subgraphs = ?auth_token.allowed_subgraphs);
-    if !are_subgraphs_authorized(&auth_token.allowed_subgraphs, deployments) {
+    // Check subgraph allowlist
+    let allowed_subgraphs = &auth_token.allowed_subgraphs;
+    tracing::debug!(?allowed_subgraphs);
+
+    if !are_subgraphs_authorized(allowed_subgraphs, deployments) {
         return Err(anyhow::anyhow!("Subgraph not authorized by user"));
     }
 
@@ -94,7 +100,7 @@ pub async fn check_token(
     let allowed_domains: Vec<&str> = auth_token
         .allowed_domains
         .iter()
-        .flat_map(|s| s.split(','))
+        .map(AsRef::as_ref)
         .collect();
     tracing::debug!(?allowed_domains);
 
@@ -110,8 +116,8 @@ pub async fn check_token(
     }
 
     let chain_id = auth_token.chain_id();
-    let contract = auth_token.contract;
-    let signer = auth_token.signer;
+    let contract = auth_token.contract();
+    let signer = auth_token.signer();
     let user = auth_token.user();
 
     // If no active subscription is found, assume the user is not subscribed. And
