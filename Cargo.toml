@@ -22,8 +22,8 @@ axum = { version = "0.6.15", default-features = false, features = [
     "tokio",
     "original-uri",
 ] }
-graphql = { git = "https://github.com/edgeandnode/toolshed", branch = "main", default-features = false }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed.git", branch = "main", features = [
+graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
+graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-http-v0.1.1", features = [
     "http-reqwest",
 ] }
 hex = "0.4"
@@ -38,6 +38,7 @@ reqwest = { version = "0.11", default-features = false, features = [
 secp256k1 = { version = "0.24", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 siphasher = "1.0.0"
+thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.3.0" }
 tokio = { version = "1.24", features = [
     "macros",
     "parking_lot",
@@ -46,7 +47,6 @@ tokio = { version = "1.24", features = [
     "time",
 ] }
 toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "toolshed-v0.5.0" }
-thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "toolshed-v0.5.0" }
 tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",
