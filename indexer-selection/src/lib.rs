@@ -231,7 +231,7 @@ impl State {
         // world should not generally bring our expected score down below the minimum requirements
         // set forth by this equation.
         let mut score_cutoff: NotNan<f64> =
-            NotNan::new(rng.gen_range(MIN_SCORE_CUTOFF..1.0)).unwrap();
+            NotNan::new(rng.gen_range(MIN_SCORE_CUTOFF..=1.0)).unwrap();
         score_cutoff = max_score * score_cutoff;
         // Filter out indexers below the cutoff. This avoids a situation where most indexers have
         // terrible scores, only a few have good scores, and the good indexers are often passed over
