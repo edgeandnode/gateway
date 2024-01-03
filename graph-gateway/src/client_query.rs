@@ -41,6 +41,7 @@ use gateway_framework::{
     chains::BlockCache,
     errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*},
     metrics::{with_metric, METRICS},
+    scalar::ScalarReceipt,
 };
 use indexer_selection::{
     actor::Update, BlockRequirements, Candidate, IndexerError as SelectionError,
@@ -754,7 +755,11 @@ async fn handle_indexer_query_inner(
     }
 
     let allocation = response.receipt.allocation();
-    tracing::info!(target: reports::INDEXER_QUERY_TARGET, ?allocation);
+    tracing::info!(
+        target: reports::INDEXER_QUERY_TARGET,
+        ?allocation,
+        legacy_scalar = matches!(&response.receipt, ScalarReceipt::Legacy(_)),
+    );
 
     let indexer_errors = serde_json::from_str::<
         graphql_http::http::response::ResponseBody<Box<RawValue>>,

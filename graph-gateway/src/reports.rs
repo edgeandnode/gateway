@@ -344,6 +344,7 @@ fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json::Val
         url: String,
         blocks_behind: u64,
         fee_grt: f32,
+        legacy_scalar: Option<bool>,
         allocation: Option<String>,
         indexer_errors: Option<String>,
     }
@@ -396,6 +397,7 @@ fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json::Val
         "indexer": &fields.indexer,
         "url": &fields.url,
         "fee": fields.fee_grt,
+        "legacy_scalar": fields.legacy_scalar.unwrap_or(false),
         "utility": 1.0,
         "blocks_behind": fields.blocks_behind,
         "response_time_ms": fields.response_time_ms,
