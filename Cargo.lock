@@ -1874,6 +1874,7 @@ dependencies = [
  "receipts",
  "reqwest",
  "secp256k1",
+ "semver 1.0.21",
  "serde",
  "serde_json",
  "serde_with 3.4.0",

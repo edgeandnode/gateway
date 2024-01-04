@@ -1,8 +1,11 @@
 pub use semver::Version;
 use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr};
 
+#[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct IndexerVersion {
+    #[serde_as(as = "DisplayFromStr")]
     pub version: Version,
 }
 

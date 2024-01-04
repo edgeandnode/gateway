@@ -27,8 +27,8 @@ prost = "0.12.1"
 rand.workspace = true
 rdkafka = { version = "0.35.0", features = ["gssapi", "tracing"] }
 reqwest.workspace = true
-semver = { version = "1.0", features = ["serde"] }
 secp256k1.workspace = true
+semver.worksapce = true
 serde.workspace = true
 serde_json = { version = "1.0", features = ["raw_value"] }
 serde_with = "3.1"
