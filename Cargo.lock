@@ -1878,7 +1878,7 @@ dependencies = [
  "serde_json",
  "serde_with 3.4.0",
  "siphasher 1.0.0",
- "tap_core 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tap_core",
  "thegraph",
  "thiserror",
  "tokio",
@@ -1944,7 +1944,6 @@ dependencies = [
  "axum",
  "chrono",
  "cost-model",
- "ethers",
  "eventuals",
  "faster-hex",
  "futures",
@@ -1953,18 +1952,15 @@ dependencies = [
  "graph-subscriptions",
  "graphql 0.3.0",
  "graphql-http",
- "hex",
  "hyper",
  "indexer-selection",
  "indoc",
  "itertools 0.12.0",
  "lazy_static",
- "primitive-types",
  "prometheus",
  "prost",
  "rand",
  "rdkafka",
- "receipts",
  "reqwest",
  "secp256k1",
  "semver 1.0.21",
@@ -1974,7 +1970,6 @@ dependencies = [
  "serde_yaml",
  "simple-rate-limiter",
  "snmalloc-rs",
- "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?tag=tap_core-v0.7.0)",
  "thegraph",
  "thiserror",
  "tokio",
@@ -2369,12 +2364,10 @@ dependencies = [
  "permutation",
  "rand",
  "rand_distr",
- "siphasher 1.0.0",
  "thegraph",
  "tokio",
  "toolshed",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -4696,30 +4689,6 @@ name = "tap_core"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b684316a94bf1ab08d6c32c578b5efec441278594d066f27d619edb478d926c6"
-dependencies = [
- "alloy-primitives",
- "alloy-sol-types",
- "anyhow",
- "async-trait",
- "ethereum-types",
- "ethers",
- "ethers-contract",
- "ethers-contract-derive",
- "ethers-core",
- "rand",
- "rand_core",
- "rstest",
- "serde",
- "strum 0.24.1",
- "strum_macros 0.24.3",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "tap_core"
-version = "0.7.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?tag=tap_core-v0.7.0#63df2b586fbb5d9661123bc9dcabd212a94ea2bf"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
