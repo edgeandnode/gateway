@@ -10,7 +10,6 @@ anyhow.workspace = true
 
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3367d76" }
-ethers = { version = "2.0.10", default-features = false, features = ["abigen"] }
 eventuals = "0.6.7"
 faster-hex = "0.9.0"
 futures = "0.3"
@@ -19,17 +18,14 @@ gateway-framework = { path = "../gateway-framework" }
 graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "334d18b" }
 graphql.workspace = true
 graphql-http.workspace = true
-hex.workspace = true
 indexer-selection = { path = "../indexer-selection" }
 indoc = "2.0.3"
 itertools = "0.12.0"
 lazy_static = "1.4"
-primitive-types.workspace = true
 prometheus = { version = "0.13", default-features = false }
 prost = "0.12.1"
 rand.workspace = true
 rdkafka = { version = "0.35.0", features = ["gssapi", "tracing"] }
-receipts.workspace = true
 reqwest.workspace = true
 semver = { version = "1.0", features = ["serde"] }
 secp256k1.workspace = true
@@ -39,7 +35,6 @@ serde_with = "3.1"
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", tag = "tap_core-v0.7.0" }
 thegraph = { workspace = true, features = ["subgraph-client", "subscriptions"] }
 thiserror = "1.0.40"
 tokio.workspace = true
