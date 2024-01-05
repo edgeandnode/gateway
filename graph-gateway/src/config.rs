@@ -6,10 +6,9 @@ use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr, FromInto};
-use thegraph::types::UDecimal18;
 use toolshed::url::Url;
 
-use gateway_framework::config::{Chain, Hidden, HiddenSecretKey};
+use gateway_framework::config::{Chain, ExchangeRateProvider, Hidden, HiddenSecretKey};
 
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 
@@ -81,16 +80,6 @@ pub struct Config {
 pub struct AttestationConfig {
     pub chain_id: String,
     pub dispute_manager: Address,
-}
-
-#[serde_as]
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-pub enum ExchangeRateProvider {
-    /// Ethereum RPC provider
-    Rpc(#[serde_as(as = "DisplayFromStr")] Url),
-    /// Fixed conversion rate of GRT/USD
-    Fixed(#[serde_as(as = "DisplayFromStr")] UDecimal18),
 }
 
 #[derive(Debug, Deserialize)]

@@ -4,6 +4,7 @@ use alloy_primitives::B256;
 use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_with::{serde_as, DeserializeAs, DisplayFromStr};
+use thegraph::types::UDecimal18;
 use toolshed::url::Url;
 
 #[serde_as]
@@ -13,6 +14,16 @@ pub struct Chain {
     pub names: Vec<String>,
     #[serde_as(as = "DisplayFromStr")]
     pub rpc: Url,
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum ExchangeRateProvider {
+    /// Ethereum RPC provider
+    Rpc(#[serde_as(as = "DisplayFromStr")] Url),
+    /// Fixed conversion rate of GRT/USD
+    Fixed(#[serde_as(as = "DisplayFromStr")] UDecimal18),
 }
 
 #[derive(Deserialize)]
