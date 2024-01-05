@@ -6,7 +6,6 @@ use std::time::Duration;
 use alloy_primitives::Address;
 use axum::extract::FromRef;
 use eventuals::{Eventual, EventualExt, Ptr};
-use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use thegraph::subscriptions::auth::AuthTokenClaims;
 use tokio::sync::RwLock;
 
@@ -26,7 +25,7 @@ pub struct AuthHandler {
     pub special_query_key_signers: Arc<HashSet<Address>>,
     pub api_key_payment_required: bool,
     pub subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
-    pub subscription_tiers: &'static SubscriptionTiers,
+    pub subscription_rate_per_query: u128,
     pub subscription_domains: Arc<HashMap<u64, Address>>,
     pub subscription_query_counters: Arc<RwLock<HashMap<Address, AtomicUsize>>>,
 }
@@ -48,7 +47,7 @@ impl FromRef<AuthHandler> for subscriptions::AuthHandler {
         Self {
             subscriptions: auth.subscriptions.clone(),
             special_signers: auth.special_query_key_signers.clone(),
-            tiers: auth.subscription_tiers,
+            rate_per_query: auth.subscription_rate_per_query,
             subscription_domains: auth.subscription_domains.clone(),
             query_counters: auth.subscription_query_counters.clone(),
         }
@@ -74,7 +73,7 @@ impl AuthHandler {
         special_query_key_signers: HashSet<Address>,
         api_key_payment_required: bool,
         subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
-        subscription_tiers: &'static SubscriptionTiers,
+        subscription_rate_per_query: u128,
         subscription_domains: HashMap<u64, Address>,
     ) -> &'static Self {
         let handler: &'static Self = Box::leak(Box::new(Self {
@@ -83,7 +82,7 @@ impl AuthHandler {
             special_query_key_signers: Arc::new(special_query_key_signers),
             api_key_payment_required,
             subscriptions,
-            subscription_tiers,
+            subscription_rate_per_query,
             subscription_domains: Arc::new(subscription_domains),
             subscription_query_counters: Default::default(),
         }));

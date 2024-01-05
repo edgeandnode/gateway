@@ -18,7 +18,6 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
-use graph_subscriptions::subscription_tier::SubscriptionTiers;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use serde_json::json;
@@ -236,10 +235,6 @@ async fn main() {
         None => Eventual::from_value(Ptr::default()),
     };
 
-    let subscription_tiers = config.subscriptions.as_ref().map(|s| s.tiers.clone());
-    let subscription_tiers: &'static SubscriptionTiers =
-        Box::leak(Box::new(subscription_tiers.unwrap_or_default()));
-
     let subscriptions = match &config.subscriptions {
         None => Eventual::from_value(Ptr::default()),
         Some(subscriptions) => subscriptions_subgraph::Client::create(
@@ -258,7 +253,11 @@ async fn main() {
             .collect(),
         config.api_key_payment_required,
         subscriptions,
-        subscription_tiers,
+        config
+            .subscriptions
+            .as_ref()
+            .map(|s| s.rate_per_query)
+            .unwrap_or(0),
         config
             .subscriptions
             .iter()
@@ -380,11 +379,6 @@ async fn main() {
             "/voucher",
             routing::post(scalar::handle_voucher).with_state(legacy_signer),
         )
-        // Temporary route. Will be replaced by gateway metadata (GSP).
-        .route(
-            "/subscription-tiers",
-            routing::get(handle_subscription_tiers).with_state(subscription_tiers),
-        )
         .route(
             "/budget",
             routing::get(|| async { budgeter.query_fees_target.0.to_string() }),
@@ -425,13 +419,6 @@ async fn ip_rate_limit<B>(
         return Err(graphql_error_response("Too many requests, try again later"));
     }
     Ok(next.run(req).await)
-}
-
-async fn handle_subscription_tiers(
-    State(tiers): State<&'static SubscriptionTiers>,
-) -> json::JsonResponse {
-    let response = serde_json::to_value(tiers.as_ref()).unwrap();
-    json::json_response([], response)
 }
 
 async fn write_indexer_inputs(
