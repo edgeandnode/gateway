@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use eventuals::{Eventual, EventualExt};
+use thegraph::client as subgraph_client;
 use tokio::spawn;
 use toolshed::buffer_queue::QueueWriter;
 use toolshed::{buffer_queue, double_buffer};
@@ -13,7 +14,7 @@ use crate::chains::{ethereum, BlockCache};
 use crate::config::ExchangeRateProvider;
 use crate::gateway::http::GatewayConfig;
 use crate::geoip::GeoIP;
-use crate::network::exchange_rate;
+use crate::network::{exchange_rate, network_subgraph};
 
 pub trait GatewayImpl {}
 
@@ -74,6 +75,13 @@ impl Gateway {
             update_writer.clone(),
             Update::GRTPerUSD,
         );
+
+        let network_subgraph_client =
+            subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
+        let network_subgraph_data =
+            network_subgraph::Client::create(network_subgraph_client, config.l2_gateway.is_some())
+                .await
+                .unwrap();
     }
 }
 
