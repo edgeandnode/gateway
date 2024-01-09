@@ -5,6 +5,8 @@
     ':semanticCommits',
     ':semanticCommitTypeAll(chore)',
     'helpers:pinGitHubActionDigests',
+    // Encrypted GitHub PAT (expires 2025-01-01)
+    ':githubComToken(wcFMA/xDdHCJBTolARAAhIfOStlg2H8rzlqLUWMvY2QtCAZ9R0QwES/y+rMqd4vNRhIwHmt5Tp8s/4Ma7O9CpNAb1lTV4yiZEPMCqrwV5gHZKdEr1jrmOnHUjzRF8MVqBqVDu7jrtDKwKlCSQ7yFX+0TS/wwLj7T+ZwsoYZbMSr0NjlqoIky/d8LbL/LzXqebiN+CXc++Zo2JeOrxuGptoWLU37Ef8gCWVasn0jUQwzIhTFz8SYvPE+gHRR4sjcVIM0TG/JBfle8vzm0YRWWxRkEzKIYFWW4VYVmVlYKDLUucE+DEaQDM2xGXuLFCgQycpbaBXNzV3W+MZZGPwI8IdazXQJujY6QlMzE4aof3JZwShqWPNixff36CjHHnf8hSfPxK/2b8jciPjy79Hl9sQAkvGmlTjJ4zZd33WShdRbWrYj7hwWVvoEJbF+7JC1MSdA7395FvHgLoxtx3HqJuqr6UCBDvwQ4KXQQ/RCiD7d4LqRU9rEjrm6Q+wYhxIGZeMbR8AMh+nw9+KX+SaIP2m9E7DfX2ePc655pTmuuoT10Ymklk8JsFQp6wIX6srpSatiUO/e57pXNzPNVsMvezixGdzmfEBSYQIgmHynFdFFeRNebnegcn3Rf1nooLAk2sMduyNVgKeTxwLw1/AZP9FszQ0fYYpcrEX/CGF2YVyBBtYjhJ2Oc7NImHRfwb2zSegHDuFeGNsGYGl5iob86uF4IXs77+zAn2eTo4ZqzN6MDEX+LS4tpRY38WPK73BT7cyOeG6Jkcu4iUQgdSU1TYFn18k9k+fWrWJZZQVeoE6JD12X2rgFev1Fp9Nwqy55hp+lo49CRyg7PGw6Fb5fj+HM8X9GE5vJ93pu4)',
   ],
   schedule: [
     'before 6am on Monday',
