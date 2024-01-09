@@ -49,4 +49,4 @@ axum.workspace = true
 
 [dev-dependencies]
 assert_matches = "1.5.0"
-hyper = "0.14.24"
+hyper = "0.14.28"
