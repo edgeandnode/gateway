@@ -16,7 +16,7 @@ debug = true
 
 [workspace.dependencies]
 anyhow = "1.0"
-alloy-primitives = { version = "0.5.3", features = ["serde"] }
+alloy-primitives = { version = "0.5.4", features = ["serde"] }
 axum = { version = "0.6.15", default-features = false, features = [
     "json",
     "tokio",
