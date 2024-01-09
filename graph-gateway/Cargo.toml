@@ -28,7 +28,7 @@ rand.workspace = true
 rdkafka = { version = "0.35.0", features = ["gssapi", "tracing"] }
 reqwest.workspace = true
 secp256k1.workspace = true
-semver.worksapce = true
+semver.workspace = true
 serde.workspace = true
 serde_json = { version = "1.0", features = ["raw_value"] }
 serde_with = "3.1"
@@ -36,7 +36,7 @@ serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
 thegraph = { workspace = true, features = ["subgraph-client", "subscriptions"] }
-thiserror = "1.0.56"
+thiserror.workspace = true
 tokio.workspace = true
 toolshed.workspace = true
 tower = "0.4.13"
