@@ -5,8 +5,6 @@
     ':semanticCommits',
     ':semanticCommitTypeAll(chore)',
     'helpers:pinGitHubActionDigests',
-    // Encrypted GitHub PAT (expires on 2025-01-01)
-    ':githubComToken(wcFMA/xDdHCJBTolAQ//W48NEjE1xxPSuzeiufm0yp/+hlCKVmWxbERoI64m6JzBqz8/7VK6cQcZeig2a1iFK/wsN4rjT6By45WtBxpc1Xb6oL4eWw9yDePkA+/Dxm/0Mm4cZ2zj0NaqKUyz6koAo+XnGJv8343T9S3KhTg7/8qo/8I4nfxoz+WgU7XBnxVCdZ+zMoRbSgQvuQQ7x7gSVmOAkoktm+vaFQ8PCp1k8hwyioJ7qiAJyDEJTMno8ir/E9CJ64I2FUWzWuBXAxsJ8Sjds6d8MCTydaHEwHFuwmcy92bR5SyOzNuTAY7Zj2CFkrXnh0pqIuIDN9Y/QwRhOZ3HLtglOn72WfjPI7jkQYHCjCGn3ffVCdSW0YAwCwwEf0mBjchd0aflypyyqig5SwhBV2JAU2klYqnPxEcWTKV0uR5ZZ+OjNCtRv6BmG0JYLKLtlLFMQvQ8/cecnWxNSaS4/0cBw+cdW/v5FsWNCG1+M6A3f993b40FihgmGam7u1hCSpMMjN1TQUIRrkWBcwMnubMRgHB9AMU2jnVFIFkT0mdvK55vNOoYbsMUGclj8gmDGYRSFRWB9Bo/NCMAMnSIGsW28fNYTlL3huucUHj6ZAWcEiW3KGrJSHbKDqLbsrW5/xEfUwTkr++mJHOMVqAMDjRhRdiLLrAsijlBBh9mZylYX8afj/k6PafO8FvSegFSq0ywWc8QVpocEMjyrM6S+Fqscl+N6OIsV4hug61rW7hI5SWRaLOZjfY05VCuZMcAE3QLP9kvclJbJt0hIsSReCA5AW7Rsqhd+4zbkuX7JbD1+yIQi1Jhk5PlbkmJzOZNCKvVegrQd6fpR2B+R2odxMrzfAmXO4U4)',
   ],
   schedule: [
     'before 6am on Monday',
@@ -16,7 +14,17 @@
   lockFileMaintenance: {
     enabled: true,
   },
-  "customEnvVariables": {
+  hostRules: [
+    {
+      matchHost: "github.com",
+      hostType: "github",
+      encrypted: {
+        // Encrypted GitHub PAT (expires on 2025-01-01)
+        token: 'wcFMA/xDdHCJBTolAQ//W48NEjE1xxPSuzeiufm0yp/+hlCKVmWxbERoI64m6JzBqz8/7VK6cQcZeig2a1iFK/wsN4rjT6By45WtBxpc1Xb6oL4eWw9yDePkA+/Dxm/0Mm4cZ2zj0NaqKUyz6koAo+XnGJv8343T9S3KhTg7/8qo/8I4nfxoz+WgU7XBnxVCdZ+zMoRbSgQvuQQ7x7gSVmOAkoktm+vaFQ8PCp1k8hwyioJ7qiAJyDEJTMno8ir/E9CJ64I2FUWzWuBXAxsJ8Sjds6d8MCTydaHEwHFuwmcy92bR5SyOzNuTAY7Zj2CFkrXnh0pqIuIDN9Y/QwRhOZ3HLtglOn72WfjPI7jkQYHCjCGn3ffVCdSW0YAwCwwEf0mBjchd0aflypyyqig5SwhBV2JAU2klYqnPxEcWTKV0uR5ZZ+OjNCtRv6BmG0JYLKLtlLFMQvQ8/cecnWxNSaS4/0cBw+cdW/v5FsWNCG1+M6A3f993b40FihgmGam7u1hCSpMMjN1TQUIRrkWBcwMnubMRgHB9AMU2jnVFIFkT0mdvK55vNOoYbsMUGclj8gmDGYRSFRWB9Bo/NCMAMnSIGsW28fNYTlL3huucUHj6ZAWcEiW3KGrJSHbKDqLbsrW5/xEfUwTkr++mJHOMVqAMDjRhRdiLLrAsijlBBh9mZylYX8afj/k6PafO8FvSegFSq0ywWc8QVpocEMjyrM6S+Fqscl+N6OIsV4hug61rW7hI5SWRaLOZjfY05VCuZMcAE3QLP9kvclJbJt0hIsSReCA5AW7Rsqhd+4zbkuX7JbD1+yIQi1Jhk5PlbkmJzOZNCKvVegrQd6fpR2B+R2odxMrzfAmXO4U4',
+      }
+    },
+  ],
+  customEnvVariables: {
     "GIT_CONFIG_COUNT": "1",
     "GIT_CONFIG_KEY_0": "url.https://${token}@github.com/.insteadOf",
     "GIT_CONFIG_VALUE_0": "ssh://git@github.com/",
