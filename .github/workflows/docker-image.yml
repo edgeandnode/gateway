@@ -17,7 +17,7 @@ jobs:
 
       - name: Docker meta
         id: docker_meta
-        uses: crazy-max/ghaction-docker-meta@9be43f076db7f0f4ac30d81183fc9d956b9e9eb6 # v1
+        uses: docker/metadata-action@dbef88086f6cef02e264edb7dbf63250c17cef6c # v5
         with:
           images: ghcr.io/edgeandnode/graph-gateway
           tag-sha: true
