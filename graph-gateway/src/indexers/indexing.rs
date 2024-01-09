@@ -4,6 +4,7 @@ use alloy_primitives::Address;
 use cost_model::CostModel;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
+use hickory_resolver::TokioAsyncResolver as DNSResolver;
 use semver::Version;
 use thegraph::types::{BlockPointer, DeploymentId};
 use tokio::sync::Mutex;
@@ -11,7 +12,6 @@ use toolshed::{
     epoch_cache::EpochCache,
     url::{url::Host, Url},
 };
-use trust_dns_resolver::TokioAsyncResolver as DNSResolver;
 
 use gateway_common::types::Indexing;
 use gateway_framework::geoip::GeoIP;

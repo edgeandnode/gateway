@@ -43,7 +43,7 @@ tower = "0.4.13"
 tower-http = { version = "0.4.0", features = ["cors"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
-trust-dns-resolver = "0.23.0"
+hickory-resolver = "0.24.0"
 uuid = { version = "1.6", default-features = false, features = ["v4"] }
 axum.workspace = true
 
