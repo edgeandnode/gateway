@@ -32,7 +32,7 @@ jobs:
           override: true
 
       - name: Cache Cargo build files
-        uses: Leafwing-Studios/cargo-cache@v1
+        uses: Leafwing-Studios/cargo-cache@5edda26afa3d28be5d6ee87d4c69c246e3ee37fb # v1
 
       - name: Prepare build env
         run: |
