@@ -19,7 +19,7 @@ graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payme
 graphql.workspace = true
 graphql-http.workspace = true
 indexer-selection = { path = "../indexer-selection" }
-indoc = "2.0.3"
+indoc = "2.0.4"
 itertools = "0.12.0"
 lazy_static = "1.4"
 prometheus = { version = "0.13", default-features = false }
