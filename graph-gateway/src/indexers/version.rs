@@ -1,35 +1,22 @@
-pub use semver::Version;
+use semver::Version;
 use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr};
 
-#[serde_as]
-#[derive(Debug, Deserialize)]
-pub struct IndexerVersion {
-    #[serde_as(as = "DisplayFromStr")]
-    pub version: Version,
+pub async fn query_indexer_service_version(
+    client: &reqwest::Client,
+    version_url: reqwest::Url,
+) -> anyhow::Result<Version> {
+    let response = client
+        .get(version_url)
+        .send()
+        .await?
+        .json::<IndexerVersion>()
+        .await?;
+    Ok(response.version)
 }
 
-pub mod client {
-    use toolshed::url::Url;
-
-    use super::IndexerVersion;
-
-    /// Sends a version query to the indexer and returns the version.
-    pub async fn send_version_query(
-        client: reqwest::Client,
-        version_url: Url,
-    ) -> anyhow::Result<IndexerVersion> {
-        let version = client
-            .get(version_url.0)
-            .send()
-            .await
-            .map_err(|err| anyhow::anyhow!("IndexerVersionError({err})"))?
-            .json::<IndexerVersion>()
-            .await
-            .map_err(|err| anyhow::anyhow!("IndexerVersionError({err})"))?;
-
-        Ok(version)
-    }
+#[derive(Debug, Deserialize)]
+struct IndexerVersion {
+    version: Version,
 }
 
 #[cfg(test)]

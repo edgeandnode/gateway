@@ -1,6 +1,7 @@
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 
 use alloy_primitives::Address;
+use anyhow::{anyhow, ensure};
 use cost_model::CostModel;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
@@ -16,8 +17,8 @@ use toolshed::{
 use gateway_common::types::Indexing;
 use gateway_framework::geoip::GeoIP;
 
-use crate::indexers::cost_models::{self, CostModelQuery, CostModelSourceResponse};
-use crate::indexers::indexing_statuses::{self, IndexingStatusResponse};
+use crate::indexers::cost_models::{self, CostModelQuery};
+use crate::indexers::indexing_statuses;
 use crate::indexers::version;
 use crate::topology::Deployment;
 
@@ -95,10 +96,10 @@ async fn update_statuses(
             .map(move |(indexer, (url, deployments))| {
                 let client = client.clone();
                 async move {
-                    match update_indexer(actor, client, indexer, url, deployments).await {
+                    match update_indexer(actor, &client, indexer, url, deployments).await {
                         Ok(indexings) => indexings,
                         Err(indexer_status_err) => {
-                            tracing::warn!(%indexer, indexer_status_err);
+                            tracing::warn!(%indexer, %indexer_status_err);
                             vec![]
                         }
                     }
@@ -121,36 +122,39 @@ async fn update_statuses(
 
 async fn update_indexer(
     actor: &'static Mutex<Actor>,
-    client: reqwest::Client,
+    client: &reqwest::Client,
     indexer: Address,
     url: Url,
     deployments: Vec<DeploymentId>,
-) -> Result<Vec<(Indexing, Status)>, String> {
+) -> anyhow::Result<Vec<(Indexing, Status)>> {
     let version_url = url
         .join("version")
-        .map_err(|err| format!("IndexerVersionError({err})"))?;
-    let version = query_indexer_version(client.clone(), version_url.into()).await?;
+        .map_err(|err| anyhow!("IndexerVersionError({err})"))?;
+    let service_version = version::query_indexer_service_version(client, version_url)
+        .await
+        .map_err(|err| anyhow::anyhow!("IndexerVersionError({err})"))?;
 
     let mut locked_actor = actor.lock().await;
-    if version < locked_actor.min_version {
-        return Err(format!("IndexerVersionBelowMinimum({version})"));
-    }
+    ensure!(
+        service_version >= locked_actor.min_version,
+        "IndexerServiceVersionBelowMinimum({service_version})",
+    );
     apply_geoblocking(&mut locked_actor, &url).await?;
     drop(locked_actor);
 
-    query_status(actor, &client, indexer, url, deployments, version)
+    query_status(actor, client, indexer, url, deployments, service_version)
         .await
-        .map_err(|err| format!("IndexerStatusError({err})"))
+        .map_err(|err| anyhow!("IndexerStatusError({err})"))
 }
 
-async fn apply_geoblocking(actor: &mut Actor, url: &Url) -> Result<(), String> {
+async fn apply_geoblocking(actor: &mut Actor, url: &Url) -> anyhow::Result<()> {
     let geoip = match &actor.geoip {
         Some(geoip) => geoip,
         None => return Ok(()),
     };
     let key = url.to_string();
     if let Some(result) = actor.geoblocking_cache.get(&key) {
-        return result.clone();
+        return result.clone().map_err(|err| anyhow!(err));
     }
     async fn apply_geoblocking_inner(
         dns_resolver: &DNSResolver,
@@ -179,45 +183,7 @@ async fn apply_geoblocking(actor: &mut Actor, url: &Url) -> Result<(), String> {
     }
     let result = apply_geoblocking_inner(&actor.dns_resolver, geoip, url).await;
     actor.geoblocking_cache.insert(key, result.clone());
-    result
-}
-
-/// Convenience wrapper method around [`client::send_indexing_statuses_query`] to map the result
-/// types to the expected by [`query_status`] method.
-async fn query_indexer_for_indexing_statuses(
-    client: reqwest::Client,
-    status_url: Url,
-    deployments: Vec<DeploymentId>,
-) -> Result<Vec<IndexingStatusResponse>, String> {
-    indexing_statuses::query(client, status_url, &deployments)
-        .await
-        .map_err(|err| err.to_string())
-        .map(|res| res.indexing_statuses)
-}
-
-/// Convenience wrapper method around [`client::send_cost_model_query`] to map the result
-/// types to the expected by [`query_status`] method.
-async fn query_indexer_for_cost_models(
-    client: reqwest::Client,
-    cost_url: Url,
-    deployments: Vec<DeploymentId>,
-) -> Result<Vec<CostModelSourceResponse>, String> {
-    cost_models::query(client, cost_url, CostModelQuery { deployments })
-        .await
-        .map_err(|err| err.to_string())
-        .map(|res| res.cost_models)
-}
-
-/// Convenience wrapper method around [`client::send_version_query`] to map the result
-/// types to the expected by [`update_indexer`] method.
-async fn query_indexer_version(
-    client: reqwest::Client,
-    version_url: Url,
-) -> Result<Version, String> {
-    version::client::send_version_query(client, version_url)
-        .await
-        .map_err(|err| err.to_string())
-        .map(|res| res.version)
+    result.map_err(|err| anyhow!(err))
 }
 
 async fn query_status(
@@ -227,19 +193,15 @@ async fn query_status(
     url: Url,
     deployments: Vec<DeploymentId>,
     version: Version,
-) -> Result<Vec<(Indexing, Status)>, String> {
-    let status_url = url.join("status").map_err(|err| err.to_string())?;
-    let statuses =
-        query_indexer_for_indexing_statuses(client.clone(), status_url.into(), deployments).await?;
+) -> anyhow::Result<Vec<(Indexing, Status)>> {
+    let status_url = url.join("status")?;
+    let statuses = indexing_statuses::query(client, status_url, &deployments).await?;
 
-    let cost_url = url.join("cost").map_err(|err| err.to_string())?;
-    let cost_models = query_indexer_for_cost_models(
-        client.clone(),
-        cost_url.into(),
-        statuses.iter().map(|stat| stat.subgraph).collect(),
-    )
-    .await
-    .unwrap_or_default();
+    let cost_url = url.join("cost")?;
+    let deployments = statuses.iter().map(|stat| stat.subgraph).collect();
+    let cost_models = cost_models::query(client, cost_url, CostModelQuery { deployments })
+        .await
+        .unwrap_or_default();
 
     let mut actor = actor.lock().await;
     let mut cost_models = cost_models
