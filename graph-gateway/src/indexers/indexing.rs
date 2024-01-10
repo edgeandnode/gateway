@@ -33,12 +33,14 @@ pub struct Status {
 pub async fn statuses(
     deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
     client: reqwest::Client,
-    min_version: Version,
+    min_graph_node_version: Version,
+    min_indexer_service_version: Version,
     geoip: Option<GeoIP>,
 ) -> Eventual<Ptr<HashMap<Indexing, Status>>> {
     let (indexing_statuses_tx, indexing_statuses_rx) = Eventual::new();
     let actor: &'static Mutex<Actor> = Box::leak(Box::new(Mutex::new(Actor {
-        min_version,
+        min_graph_node_version,
+        min_indexer_service_version,
         geoip,
         dns_resolver: DNSResolver::tokio_from_system_conf().unwrap(),
         geoblocking_cache: Default::default(),
@@ -65,7 +67,8 @@ pub async fn statuses(
 }
 
 struct Actor {
-    min_version: Version,
+    min_graph_node_version: Version,
+    min_indexer_service_version: Version,
     geoip: Option<GeoIP>,
     dns_resolver: DNSResolver,
     geoblocking_cache: HashMap<String, Result<(), String>>,
@@ -133,11 +136,21 @@ async fn update_indexer(
     let service_version = version::query_indexer_service_version(client, version_url)
         .await
         .map_err(|err| anyhow::anyhow!("IndexerVersionError({err})"))?;
+    let status_url = url.join("status")?;
+    let graph_node_version = version::query_graph_node_version(client, status_url).await;
 
     let mut locked_actor = actor.lock().await;
     ensure!(
-        service_version >= locked_actor.min_version,
+        service_version >= locked_actor.min_indexer_service_version,
         "IndexerServiceVersionBelowMinimum({service_version})",
+    );
+    // TODO: Strongly enforce graph-node version, by removing this statement, after more indexers
+    // update their indexer-service.
+    let graph_node_version =
+        graph_node_version.unwrap_or_else(|_| locked_actor.min_graph_node_version.clone());
+    ensure!(
+        graph_node_version >= locked_actor.min_graph_node_version,
+        "GraphNodeVersionBelowMinimum({graph_node_version})",
     );
     apply_geoblocking(&mut locked_actor, &url).await?;
     drop(locked_actor);

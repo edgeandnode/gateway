@@ -45,7 +45,10 @@ pub struct Config {
     /// L2 gateway to forward client queries to
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub l2_gateway: Option<Url>,
-    /// Minimum indexer software version that will receive queries
+    /// Minimum graph-node version that will receive queries
+    #[serde_as(as = "DisplayFromStr")]
+    pub min_graph_node_version: Version,
+    /// Minimum indexer-service version that will receive queries
     #[serde_as(as = "DisplayFromStr")]
     pub min_indexer_version: Version,
     /// Network subgraph query path
