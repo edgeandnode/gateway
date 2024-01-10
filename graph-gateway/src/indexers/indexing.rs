@@ -263,7 +263,7 @@ async fn query_status(
     drop(actor);
 
     // TODO: Minimum indexer version supporting Scalar TAP (temporary, as non-TAP Scalar is deprecated)
-    let min_scalar_tap_version: Version = "100.0.0".parse().unwrap();
+    let min_scalar_tap_version: Version = "1.0.0".parse().unwrap();
     let legacy_scalar = version < min_scalar_tap_version;
 
     Ok(statuses
