@@ -8,13 +8,12 @@ use indoc::formatdoc;
 use itertools::Itertools;
 use serde::{Deserialize, Deserializer};
 use thegraph::types::DeploymentId;
-use toolshed::url::Url;
 
 pub async fn query(
-    client: reqwest::Client,
-    status_url: Url,
+    client: &reqwest::Client,
+    status_url: reqwest::Url,
     deployments: &[DeploymentId],
-) -> anyhow::Result<IndexingStatusesResponse> {
+) -> anyhow::Result<Vec<IndexingStatusResponse>> {
     let queries = deployments.chunks(100).map(|deployments| {
         let deployments = deployments.iter().map(|d| format!("\"{d}\"")).join(",");
         let query = formatdoc! {
@@ -35,7 +34,7 @@ pub async fn query(
                 }}
             }}"#
         };
-        client.post(status_url.0.clone()).send_graphql(query)
+        client.post(status_url.clone()).send_graphql(query)
     });
     let results: Vec<Result<IndexingStatusesResponse, String>> = join_all(queries)
         .await
@@ -55,13 +54,13 @@ pub async fn query(
         .into_iter()
         .flat_map(|r| r.into_iter().flat_map(|r| r.indexing_statuses))
         .collect();
-    Ok(IndexingStatusesResponse { indexing_statuses })
+    Ok(indexing_statuses)
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct IndexingStatusesResponse {
-    pub indexing_statuses: Vec<IndexingStatusResponse>,
+struct IndexingStatusesResponse {
+    indexing_statuses: Vec<IndexingStatusResponse>,
 }
 
 #[derive(Debug, Deserialize)]

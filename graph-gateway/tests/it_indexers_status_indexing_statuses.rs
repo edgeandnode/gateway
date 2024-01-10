@@ -25,14 +25,14 @@ async fn query_indexer_indexing_statuses() {
     ];
 
     //// When
-    let request = indexing_statuses::query(client, status_url, &test_deployments);
+    let request = indexing_statuses::query(&client, status_url, &test_deployments);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
 
     //// Then
-    assert_matches!(response, Ok(resp) => {
-        assert!(resp.indexing_statuses.len() == 2);
-        assert!(test_deployments.iter().all(|deployment| resp.indexing_statuses.iter().any(|status| &status.subgraph == deployment)));
+    assert_matches!(response, Ok(indexing_statuses) => {
+        assert!(indexing_statuses.len() == 2);
+        assert!(test_deployments.iter().all(|deployment| indexing_statuses.iter().any(|status| &status.subgraph == deployment)));
     });
 }

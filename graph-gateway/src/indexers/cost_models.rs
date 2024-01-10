@@ -4,21 +4,27 @@ use indoc::indoc;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use thegraph::types::DeploymentId;
-use toolshed::url::Url;
+
+#[derive(Deserialize)]
+pub struct CostModelSource {
+    pub deployment: DeploymentId,
+    pub model: String,
+    pub variables: Option<String>,
+}
 
 pub async fn query(
-    client: reqwest::Client,
-    status_url: Url,
+    client: &reqwest::Client,
+    status_url: reqwest::Url,
     query: CostModelQuery,
-) -> anyhow::Result<CostModelResponse> {
-    let res = client.post(status_url.0).send_graphql(query).await;
+) -> anyhow::Result<Vec<CostModelSource>> {
+    let res = client.post(status_url).send_graphql(query).await;
     match res {
         Ok(res) => Ok(res?),
         Err(e) => Err(anyhow::anyhow!("Error sending cost model query: {}", e)),
     }
 }
 
-pub(super) const COST_MODEL_QUERY_DOCUMENT: &str = indoc! {
+const COST_MODEL_QUERY_DOCUMENT: &str = indoc! {
     r#"query ($deployments: [String!]!) {
         costModels(deployments: $deployments) {
             deployment
@@ -41,17 +47,4 @@ impl IntoDocumentWithVariables for CostModelQuery {
     fn into_document_with_variables(self) -> (Document, Self::Variables) {
         (COST_MODEL_QUERY_DOCUMENT.into_document(), self)
     }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CostModelResponse {
-    pub cost_models: Vec<CostModelSourceResponse>,
-}
-
-#[derive(Deserialize)]
-pub struct CostModelSourceResponse {
-    pub deployment: DeploymentId,
-    pub model: String,
-    pub variables: Option<String>,
 }
