@@ -189,14 +189,16 @@ pub async fn handle_query(
     });
 
     span.in_scope(|| {
-        let (status_message, status_code) = reports::status(&result);
+        let status_message = match &result {
+            Ok(_) => "200 OK".to_string(),
+            Err(err) => err.to_string(),
+        };
         let (legacy_status_message, legacy_status_code) = reports::legacy_status(&result);
         tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
             start_time_ms = timestamp,
             deployment,
             %status_message,
-            status_code,
             %legacy_status_message,
             legacy_status_code,
         );
@@ -349,7 +351,6 @@ async fn handle_client_query_inner(
         AuthToken::SubscriptionsAuthToken(claims) => tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
             user_address = ?claims.user(),
-            ticket_payload = serde_json::to_string(claims).unwrap(),
         ),
     };
 

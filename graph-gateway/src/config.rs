@@ -146,8 +146,6 @@ pub struct Scalar {
 pub struct Subscriptions {
     /// Subscriptions contract domains
     pub domains: Vec<SubscriptionsDomain>,
-    /// Kafka topic to report subscription queries
-    pub kafka_topic: Option<String>,
     /// Query key signers that don't require payment
     #[serde(default)]
     pub special_signers: Vec<Address>,
