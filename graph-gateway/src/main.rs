@@ -173,6 +173,7 @@ async fn main() {
     let indexing_statuses = indexing::statuses(
         network.deployments.clone(),
         http_client.clone(),
+        config.min_graph_node_version,
         config.min_indexer_version,
         geoip,
     )

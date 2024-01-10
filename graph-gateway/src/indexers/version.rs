@@ -1,3 +1,4 @@
+use graphql_http::http_client::ReqwestExt as _;
 use semver::Version;
 use serde::Deserialize;
 
@@ -12,6 +13,20 @@ pub async fn query_indexer_service_version(
         .json::<IndexerVersion>()
         .await?;
     Ok(response.version)
+}
+
+pub async fn query_graph_node_version(
+    client: &reqwest::Client,
+    status_url: reqwest::Url,
+) -> anyhow::Result<Version> {
+    let query = "{ version { version } }";
+    let response: GraphNodeVersion = client.post(status_url).send_graphql(query).await??;
+    Ok(response.version.version)
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphNodeVersion {
+    version: IndexerVersion,
 }
 
 #[derive(Debug, Deserialize)]
