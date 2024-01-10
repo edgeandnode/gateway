@@ -1,11 +1,10 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use alloy_primitives::{Address, U256};
-use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
 use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr, FromInto};
+use serde_with::{serde_as, DisplayFromStr};
 use thegraph::types::UDecimal18;
 use toolshed::url::Url;
 
@@ -157,10 +156,10 @@ pub struct Subscriptions {
     pub subgraph: Url,
     /// Subscriptions ticket for internal queries
     pub ticket: Option<String>,
-    /// Subscription tiers
-    #[serde(default)]
-    #[serde_as(as = "FromInto<Vec<SubscriptionTier>>")]
-    pub tiers: SubscriptionTiers,
+    /// Subscription rate required per query per minute.
+    /// e.g. If 0.01 USDC (6 decimals) is required per query per minute, then this should be set to
+    /// 10000.
+    pub rate_per_query: u128,
 }
 
 #[serde_as]

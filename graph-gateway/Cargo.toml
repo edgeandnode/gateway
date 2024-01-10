@@ -15,7 +15,7 @@ faster-hex = "0.9.0"
 futures = "0.3"
 gateway-common = { path = "../gateway-common" }
 gateway-framework = { path = "../gateway-framework" }
-graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "334d18b" }
+graph-subscriptions = { git = "https://github.com/edgeandnode/subscription-payments", rev = "c69f6c1" }
 graphql.workspace = true
 graphql-http.workspace = true
 indexer-selection = { path = "../indexer-selection" }

@@ -4,7 +4,6 @@ use std::sync::{atomic, Arc};
 
 use alloy_primitives::Address;
 use eventuals::{Eventual, Ptr};
-use graph_subscriptions::subscription_tier::{SubscriptionTier, SubscriptionTiers};
 use thegraph::subscriptions::auth::{parse_auth_token, verify_auth_token_claims, AuthTokenClaims};
 use tokio::sync::RwLock;
 
@@ -25,10 +24,8 @@ pub struct AuthHandler {
     /// Auth token signers that don't require payment.
     pub(super) special_signers: Arc<HashSet<Address>>,
 
-    /// The subscription tiers.
-    // TODO(LNSD): In general 'static references are not a good idea.
-    //             We should consider using an `Arc`.
-    pub(super) tiers: &'static SubscriptionTiers,
+    /// Subscription rate required per query per minute.
+    pub(super) rate_per_query: u128,
 
     /// A map between the chain id and the subscription contract address.
     pub(super) subscription_domains: Arc<HashMap<u64, Address>>,
@@ -46,11 +43,6 @@ impl AuthHandler {
     /// Returns `true` if the given address corresponds to a special signer.
     pub fn is_special_signer(&self, address: &Address) -> bool {
         self.special_signers.contains(address)
-    }
-
-    /// Returns the subscription tiers for the rate.
-    pub fn tier_for_rate(&self, rate: u128) -> SubscriptionTier {
-        self.tiers.tier_for_rate(rate)
     }
 
     /// Whether the given chain id and contract address match the allowed subscription domains.
@@ -129,12 +121,15 @@ pub async fn check_token(
             rate: 0,
         });
 
-    let subscription_tier = auth.tier_for_rate(subscription.rate);
+    let queries_per_minute = subscription
+        .rate
+        .checked_div(auth.rate_per_query)
+        .unwrap_or(0) as usize;
     tracing::debug!(
         subscription_payment_rate = subscription.rate,
-        queries_per_minute = subscription_tier.queries_per_minute,
+        queries_per_minute,
     );
-    if subscription_tier.queries_per_minute == 0 {
+    if queries_per_minute == 0 {
         return Err(anyhow::anyhow!("Subscription not found for user {}", user));
     }
 
@@ -169,12 +164,7 @@ pub async fn check_token(
             let count = counter.fetch_add(1, atomic::Ordering::Relaxed);
             // Note that counters are for 1 minute intervals.
             // 5720d5ea-cfc3-4862-865b-52b4508a4c14
-            let limit = subscription_tier.queries_per_minute as usize;
-
-            // This error message should remain constant, since the graph-subscriptions-api
-            // relies on it to track rate limited conditions.
-            // TODO: Monthly limits should use the message "Monthly query limit exceeded"
-            if count >= limit {
+            if count >= queries_per_minute {
                 return Err(anyhow::anyhow!("Rate limit exceeded"));
             }
         }
