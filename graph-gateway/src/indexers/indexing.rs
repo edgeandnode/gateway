@@ -40,7 +40,7 @@ pub async fn statuses(
         min_version,
         geoip,
         dns_resolver: DNSResolver::tokio_from_system_conf().unwrap(),
-        geoblocking_cache: EpochCache::new(),
+        geoblocking_cache: Default::default(),
         cost_model_cache: EpochCache::new(),
         indexing_statuses: Default::default(),
         indexing_statuses_tx,
@@ -67,7 +67,7 @@ struct Actor {
     min_version: Version,
     geoip: Option<GeoIP>,
     dns_resolver: DNSResolver,
-    geoblocking_cache: EpochCache<String, Result<(), String>, 2>,
+    geoblocking_cache: HashMap<String, Result<(), String>>,
     cost_model_cache: EpochCache<CostModelSource, Result<Ptr<CostModel>, String>, 2>,
     indexing_statuses: HashMap<Indexing, Status>,
     indexing_statuses_tx: EventualWriter<Ptr<HashMap<Indexing, Status>>>,
@@ -116,7 +116,6 @@ async fn update_statuses(
     let statuses = actor.indexing_statuses.clone();
     actor.indexing_statuses_tx.write(Ptr::new(statuses));
 
-    actor.geoblocking_cache.increment_epoch();
     actor.cost_model_cache.increment_epoch();
 }
 
