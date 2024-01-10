@@ -29,7 +29,7 @@ graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql
 hex = "0.4"
 primitive-types = "0.12.2"
 rand = { version = "0.8", features = ["small_rng"] }
-receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "89a821c" }
+receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "8bc8f13" }
 reqwest = { version = "0.11", default-features = false, features = [
     "json",
     "default-tls",
