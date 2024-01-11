@@ -20,7 +20,9 @@ jobs:
         uses: docker/metadata-action@dbef88086f6cef02e264edb7dbf63250c17cef6c # v5
         with:
           images: ghcr.io/edgeandnode/graph-gateway
-          tag-sha: true
+          tags: |
+            type=ref,event=tag
+            type=sha
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3
