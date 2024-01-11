@@ -75,7 +75,8 @@ impl Client {
             .paginated_query::<ActiveSubscription>(query)
             .await?;
         if active_subscriptions_response.is_empty() {
-            return Err("Discarding empty update (active_subscriptions)".to_string());
+            tracing::warn!("discarding empty update (active_subscriptions)");
+            return Ok(());
         }
 
         let subscriptions_map = active_subscriptions_response
