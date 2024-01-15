@@ -12,10 +12,10 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::{self, Context};
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, State},
-    http::{self, status::StatusCode, Request},
+    http::{self, Request, status::StatusCode},
     middleware,
     response::Response,
-    routing, Router, Server,
+    Router, routing, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use prometheus::{self, Encoder as _};
@@ -32,25 +32,27 @@ use toolshed::{
     double_buffer,
 };
 use tower_http::cors::{self, CorsLayer};
+use uuid::Uuid;
 
-use gateway_common::types::{Indexing, GRT, USD};
-use gateway_framework::geoip::GeoIP;
-use gateway_framework::scalar::ReceiptSigner;
+use gateway_common::types::{GRT, Indexing, USD};
 use gateway_framework::{
     budgets::Budgeter,
-    chains::{ethereum, BlockCache},
+    chains::{BlockCache, ethereum},
     ipfs, json,
     network::{exchange_rate, network_subgraph},
     scalar,
 };
+use gateway_framework::geoip::GeoIP;
+use gateway_framework::scalar::ReceiptSigner;
+use graph_gateway::{client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph};
 use graph_gateway::auth::AuthHandler;
+use graph_gateway::client_query::query_id::SetQueryIdLayer;
 use graph_gateway::config::{Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
 use graph_gateway::indexings_blocklist::indexings_blocklist;
 use graph_gateway::reports::{self, KafkaClient};
 use graph_gateway::topology::{Deployment, GraphNetwork};
-use graph_gateway::{client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph};
 use indexer_selection::{actor::Update, BlockStatus};
 
 #[global_allocator]
@@ -68,6 +70,9 @@ async fn main() {
         .context("Failed to parse JSON config")
         .unwrap();
 
+    // Get the gateway ID from the config or generate a new one.
+    let gateway_id = config.gateway_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+
     let config_repr = format!("{config:#?}");
 
     // Instantiate the Kafka client
@@ -80,7 +85,7 @@ async fn main() {
     };
 
     reports::init(kafka_client, config.log_json);
-    tracing::info!("Graph gateway starting...");
+    tracing::info!("Graph gateway starting... ID: {}", gateway_id);
     tracing::debug!(config = %config_repr);
 
     let (isa_state, isa_writer) = double_buffer!(indexer_selection::State::default());
@@ -356,6 +361,9 @@ async fn main() {
                         .allow_headers(cors::Any)
                         .allow_methods([http::Method::OPTIONS, http::Method::POST]),
                 )
+                // Set the query ID on the request.
+                .layer(SetQueryIdLayer::new(gateway_id))
+                // Handle legacy in-path auth, and convert it into a header.
                 .layer(middleware::from_fn(client_query::legacy_auth_adapter)),
         );
 

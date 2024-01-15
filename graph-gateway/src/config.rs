@@ -15,6 +15,12 @@ use crate::indexers::public_poi::ProofOfIndexingInfo;
 #[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct Config {
+    /// The Gateway unique identifier. This ID is used to identify the Gateway in the network
+    /// and traceability purposes.
+    ///
+    /// If not provided a UUID is generated.
+    #[serde(default)]
+    pub gateway_id: Option<String>,
     /// Respect the payment state of API keys (disable for testnets)
     pub api_key_payment_required: bool,
     pub attestations: AttestationConfig,
