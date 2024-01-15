@@ -80,6 +80,7 @@ pub struct Context {
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, indexing::Status>>>,
     pub attestation_domain: &'static Eip712Domain,
+    pub bad_indexers: &'static HashSet<Address>,
     pub indexings_blocklist: Eventual<Ptr<HashSet<Indexing>>>,
     pub isa_state: DoubleBufferReader<indexer_selection::State>,
     pub observations: QueueWriter<Update>,
@@ -383,7 +384,7 @@ async fn handle_client_query_inner(
         .value_immediate()
         .unwrap_or_default();
     candidates.retain(|candidate| {
-        if blocklist.contains(candidate) {
+        if blocklist.contains(candidate) || ctx.bad_indexers.contains(&candidate.indexer) {
             indexer_errors.insert(candidate.indexer, IndexerError::Unavailable(NoStatus));
             return false;
         }

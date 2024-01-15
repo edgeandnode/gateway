@@ -170,6 +170,9 @@ async fn main() {
         Eventual::from_value(Ptr::default())
     };
 
+    let bad_indexers: &'static HashSet<Address> =
+        Box::leak(Box::new(config.bad_indexers.into_iter().collect()));
+
     let indexing_statuses = indexing::statuses(
         network.deployments.clone(),
         http_client.clone(),
@@ -285,6 +288,7 @@ async fn main() {
         network,
         indexing_statuses,
         attestation_domain,
+        bad_indexers,
         indexings_blocklist,
         block_caches,
         observations: update_writer,
