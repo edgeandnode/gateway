@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::str::FromStr;
-use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -14,12 +13,11 @@ use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{header, HeaderMap, Response, StatusCode},
-    RequestPartsExt,
+    Extension, RequestPartsExt,
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::{Eventual, Ptr};
 use futures::future::join_all;
-use lazy_static::lazy_static;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
@@ -30,7 +28,6 @@ use tokio::sync::mpsc;
 use toolshed::url::Url;
 use toolshed::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader};
 use tracing::Instrument;
-use uuid::Uuid;
 
 use gateway_common::{
     types::{Indexing, UDecimal18, GRT, USD},
@@ -58,14 +55,9 @@ use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
 
-fn query_id() -> String {
-    lazy_static! {
-        static ref GATEWAY_ID: Uuid = Uuid::new_v4();
-    }
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
-    let local_id = COUNTER.fetch_add(1, atomic::Ordering::Relaxed);
-    format!("{}-{:x}", *GATEWAY_ID, local_id)
-}
+use self::query_id::QueryId;
+
+pub mod query_id;
 
 #[derive(Clone)]
 pub struct Context {
@@ -94,6 +86,7 @@ pub struct QueryBody {
 
 pub async fn handle_query(
     State(ctx): State<Context>,
+    Extension(query_id): Extension<QueryId>,
     OriginalUri(original_uri): OriginalUri,
     Path(params): Path<BTreeMap<String, String>>,
     headers: HeaderMap,
@@ -101,8 +94,6 @@ pub async fn handle_query(
 ) -> Response<String> {
     let start_time = Instant::now();
     let timestamp = unix_timestamp();
-    let ray_id = headers.get("cf-ray").and_then(|value| value.to_str().ok());
-    let query_id = ray_id.map(ToString::to_string).unwrap_or_else(query_id);
 
     let bearer_token = headers
         .get(header::AUTHORIZATION)
