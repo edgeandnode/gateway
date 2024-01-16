@@ -45,9 +45,9 @@ use gateway_framework::{
     scalar,
 };
 use graph_gateway::auth::AuthHandler;
+use graph_gateway::client_query::context::Context;
 use graph_gateway::client_query::legacy_auth_adapter::legacy_auth_adapter;
 use graph_gateway::client_query::query_id::SetQueryIdLayer;
-use graph_gateway::client_query::Context;
 use graph_gateway::config::{Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
