@@ -7,13 +7,12 @@ use alloy_primitives::{Address, BlockNumber, U256};
 use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, Context as _};
 use axum::extract::OriginalUri;
-use axum::http::{HeaderValue, Request, Uri};
-use axum::middleware::Next;
+use axum::http::Uri;
 use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{header, HeaderMap, Response, StatusCode},
-    Extension, RequestPartsExt,
+    Extension,
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::{Eventual, Ptr};
@@ -57,6 +56,7 @@ use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unatt
 
 use self::query_id::QueryId;
 
+pub mod legacy_auth_adapter;
 pub mod query_id;
 
 #[derive(Clone)]
@@ -893,40 +893,6 @@ async fn optimistic_query(
     make_query_deterministic(ctx, resolved, &optimistic_block).ok()
 }
 
-/// This adapter middleware extracts the authorization token from the `api_key` path parameter,
-/// and adds it to the request in the `Authorization` header.
-///
-/// If the request already has an `Authorization` header, it is left unchanged.
-/// If the request does not have an `api_key` path parameter, it is left unchanged.
-///
-/// This is a temporary adapter middleware to allow legacy clients to use the new auth scheme.
-pub async fn legacy_auth_adapter<B>(
-    request: Request<B>,
-    next: Next<B>,
-) -> axum::response::Response {
-    // If the request already has an `Authorization` header, don't do anything
-    if request.headers().contains_key(header::AUTHORIZATION) {
-        return next.run(request).await;
-    }
-
-    let (mut parts, body) = request.into_parts();
-
-    // Extract the `api_key` from the path and add it to the Authorization header
-    if let Ok(Path(path)) = parts.extract::<Path<BTreeMap<String, String>>>().await {
-        if let Some(api_key) = path.get("api_key") {
-            parts.headers.insert(
-                header::AUTHORIZATION,
-                HeaderValue::from_str(&format!("Bearer {}", api_key)).unwrap(),
-            );
-        }
-    }
-
-    // reconstruct the request
-    let request = Request::from_parts(parts, body);
-
-    next.run(request).await
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -978,135 +944,5 @@ mod test {
             expected,
             super::l2_request_path(&original, Some(l2_subgraph))
         );
-    }
-
-    mod legacy_auth_adapter {
-        use axum::body::Body;
-        use axum::http::header::AUTHORIZATION;
-        use axum::http::Method;
-        use axum::routing::{get, post};
-        use axum::{middleware, Router};
-        use tower::ServiceExt;
-
-        use super::*;
-
-        fn test_router() -> Router {
-            async fn handler(headers: HeaderMap) -> String {
-                headers
-                    .get(AUTHORIZATION)
-                    .and_then(|header| header.to_str().ok())
-                    .unwrap_or_default()
-                    .to_owned()
-            }
-
-            let api = Router::new()
-                .route("/subgraphs/id/:subgraph_id", post(handler))
-                .route("/:api_key/subgraphs/id/:subgraph_id", post(handler))
-                .route("/deployments/id/:deployment_id", post(handler))
-                .route("/:api_key/deployments/id/:deployment_id", post(handler))
-                .layer(middleware::from_fn(legacy_auth_adapter));
-            Router::new()
-                .route("/", get(|| async { "OK" }))
-                .nest("/api", api)
-        }
-
-        fn test_body() -> Body {
-            Body::from("test")
-        }
-
-        #[tokio::test]
-        async fn test_preexistent_auth_header() {
-            // Given
-            let app = test_router();
-
-            let api_key = "deadbeefdeadbeefdeadbeefdeadbeef"; // 32 hex digits
-            let auth_header = format!("Bearer {api_key}");
-
-            let request = Request::builder()
-                .method(Method::POST)
-                .uri("/api/subgraphs/id/456")
-                .header(AUTHORIZATION, auth_header.clone())
-                .body(test_body())
-                .unwrap();
-
-            // When
-            let res = app.oneshot(request).await.unwrap();
-
-            // Then
-            assert_eq!(res.status(), StatusCode::OK);
-
-            let body = hyper::body::to_bytes(res).await.unwrap();
-            assert_eq!(&body[..], auth_header.as_bytes());
-        }
-
-        #[tokio::test]
-        async fn test_legacy_auth() {
-            // Given
-            let app = test_router();
-
-            let api_key = "deadbeefdeadbeefdeadbeefdeadbeef"; // 32 hex digits
-            let auth_header = format!("Bearer {api_key}");
-
-            let request = Request::builder()
-                .method(Method::POST)
-                .uri(format!("/api/{api_key}/subgraphs/id/456"))
-                .body(test_body())
-                .unwrap();
-
-            // When
-            let res = app.oneshot(request).await.unwrap();
-
-            // Then
-            assert_eq!(res.status(), StatusCode::OK);
-
-            let body = hyper::body::to_bytes(res).await.unwrap();
-            assert_eq!(&body[..], auth_header.as_bytes());
-        }
-
-        #[tokio::test]
-        async fn test_legacy_auth_with_preexistent_auth_header() {
-            // Given
-            let app = test_router();
-
-            let api_key = "deadbeefdeadbeefdeadbeefdeadbeef"; // 32 hex digits
-            let auth_header = "Bearer 123";
-
-            let request = Request::builder()
-                .method(Method::POST)
-                .uri(format!("/api/{api_key}/subgraphs/id/456"))
-                .header(AUTHORIZATION, auth_header)
-                .body(test_body())
-                .unwrap();
-
-            // When
-            let res = app.oneshot(request).await.unwrap();
-
-            // Then
-            assert_eq!(res.status(), StatusCode::OK);
-
-            let body = hyper::body::to_bytes(res).await.unwrap();
-            assert_eq!(&body[..], auth_header.as_bytes());
-        }
-
-        #[tokio::test]
-        async fn test_no_auth() {
-            // Given
-            let app = test_router();
-
-            let request = Request::builder()
-                .method(Method::POST)
-                .uri("/api/subgraphs/id/456")
-                .body(test_body())
-                .unwrap();
-
-            // When
-            let res = app.oneshot(request).await.unwrap();
-
-            // Then
-            assert_eq!(res.status(), StatusCode::OK);
-
-            let body = hyper::body::to_bytes(res).await.unwrap();
-            assert_eq!(&body[..], b"");
-        }
     }
 }

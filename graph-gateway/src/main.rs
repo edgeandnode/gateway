@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
-use anyhow::{self, Context};
+use anyhow::{self, Context as _};
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, State},
     http::{self, status::StatusCode, Request},
@@ -45,7 +45,9 @@ use gateway_framework::{
     scalar,
 };
 use graph_gateway::auth::AuthHandler;
+use graph_gateway::client_query::legacy_auth_adapter::legacy_auth_adapter;
 use graph_gateway::client_query::query_id::SetQueryIdLayer;
+use graph_gateway::client_query::Context;
 use graph_gateway::config::{Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
@@ -282,7 +284,7 @@ async fn main() {
     tracing::info!("Waiting for ISA setup...");
     update_writer.flush().await.unwrap();
 
-    let client_query_ctx = client_query::Context {
+    let client_query_ctx = Context {
         indexer_selection_retry_limit: config.indexer_selection_retry_limit,
         l2_gateway: config.l2_gateway,
         indexer_client: IndexerClient {
@@ -367,7 +369,7 @@ async fn main() {
                 // Set the query ID on the request.
                 .layer(SetQueryIdLayer::new(gateway_id))
                 // Handle legacy in-path auth, and convert it into a header.
-                .layer(middleware::from_fn(client_query::legacy_auth_adapter)),
+                .layer(middleware::from_fn(legacy_auth_adapter)),
         );
 
     let router = Router::new()
