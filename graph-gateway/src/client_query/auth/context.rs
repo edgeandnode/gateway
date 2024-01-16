@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{self, AtomicUsize};
-use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::{atomic, Arc};
 use std::time::Duration;
 
 use alloy_primitives::Address;
 use axum::extract::FromRef;
 use eventuals::{Eventual, EventualExt, Ptr};
-use thegraph::subscriptions::auth::AuthTokenClaims;
 use tokio::sync::RwLock;
 
 use gateway_common::types::USD;
@@ -15,11 +14,11 @@ use crate::subgraph_studio::APIKey;
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
 
-mod common;
-mod studio;
-mod subscriptions;
+use super::studio;
+use super::subscriptions;
+use super::AuthToken;
 
-pub struct AuthHandler {
+pub struct AuthContext {
     pub api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     pub special_api_keys: Arc<HashSet<String>>,
     pub special_query_key_signers: Arc<HashSet<Address>>,
@@ -30,9 +29,8 @@ pub struct AuthHandler {
     pub subscription_query_counters: Arc<RwLock<HashMap<Address, AtomicUsize>>>,
 }
 
-// TODO(LNSD): Use `client_query::Context` instead of `AuthHandler`.
-impl FromRef<AuthHandler> for studio::AuthHandler {
-    fn from_ref(auth: &AuthHandler) -> Self {
+impl FromRef<AuthContext> for studio::AuthContext {
+    fn from_ref(auth: &AuthContext) -> Self {
         Self {
             studio_keys: auth.api_keys.clone(),
             special_api_keys: auth.special_api_keys.clone(),
@@ -41,9 +39,8 @@ impl FromRef<AuthHandler> for studio::AuthHandler {
     }
 }
 
-// TODO(LNSD): Use `client_query::Context` instead of `AuthHandler`.
-impl FromRef<AuthHandler> for subscriptions::AuthHandler {
-    fn from_ref(auth: &AuthHandler) -> Self {
+impl FromRef<AuthContext> for subscriptions::AuthContext {
+    fn from_ref(auth: &AuthContext) -> Self {
         Self {
             subscriptions: auth.subscriptions.clone(),
             special_signers: auth.special_query_key_signers.clone(),
@@ -59,14 +56,7 @@ pub struct UserSettings {
     pub budget: Option<USD>,
 }
 
-pub enum AuthToken {
-    /// API key from the Subgraph Studio Database.
-    StudioApiKey(Arc<APIKey>),
-    /// Auth token associated with a subscription.
-    SubscriptionsAuthToken(AuthTokenClaims),
-}
-
-impl AuthHandler {
+impl AuthContext {
     pub fn create(
         api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
         special_api_keys: HashSet<String>,
@@ -112,13 +102,13 @@ impl AuthHandler {
         }
 
         // First, parse the bearer token as it was a Studio API key
-        let auth_handler = studio::AuthHandler::from_ref(self);
+        let auth_handler = studio::AuthContext::from_ref(self);
         if let Ok(api_key) = studio::parse_bearer_token(&auth_handler, input) {
             return Ok(AuthToken::StudioApiKey(api_key));
         }
 
         // Otherwise, parse the bearer token as a Subscriptions auth token
-        let auth_handler = subscriptions::AuthHandler::from_ref(self);
+        let auth_handler = subscriptions::AuthContext::from_ref(self);
         if let Ok(claims) = subscriptions::parse_bearer_token(&auth_handler, input) {
             return Ok(AuthToken::SubscriptionsAuthToken(claims));
         }
@@ -134,17 +124,17 @@ impl AuthHandler {
     ) -> anyhow::Result<()> {
         match token {
             AuthToken::StudioApiKey(api_key) => {
-                let auth_handler = studio::AuthHandler::from_ref(self);
+                let auth_handler = studio::AuthContext::from_ref(self);
                 studio::check_token(&auth_handler, api_key, deployments, domain).await
             }
             AuthToken::SubscriptionsAuthToken(auth_token) => {
-                let auth_handler = subscriptions::AuthHandler::from_ref(self);
+                let auth_handler = subscriptions::AuthContext::from_ref(self);
                 subscriptions::check_token(&auth_handler, auth_token, deployments, domain).await
             }
         }
     }
 
-    pub async fn query_settings(&self, token: &AuthToken) -> UserSettings {
+    pub fn query_settings(&self, token: &AuthToken) -> UserSettings {
         let budget = match token {
             AuthToken::StudioApiKey(api_key) => api_key.max_budget,
             _ => None,

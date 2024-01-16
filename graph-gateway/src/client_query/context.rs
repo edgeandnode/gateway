@@ -12,18 +12,19 @@ use gateway_framework::budgets::Budgeter;
 use gateway_framework::chains::BlockCache;
 use indexer_selection::actor::Update;
 
-use crate::auth::AuthHandler;
 use crate::indexer_client::IndexerClient;
 use crate::indexers::indexing;
 use crate::reports::KafkaClient;
 use crate::topology::GraphNetwork;
+
+use super::auth::AuthContext;
 
 #[derive(Clone)]
 pub struct Context {
     pub indexer_client: IndexerClient,
     pub kafka_client: &'static KafkaClient,
     pub graph_env_id: String,
-    pub auth_handler: &'static AuthHandler,
+    pub auth_handler: &'static AuthContext,
     pub budgeter: &'static Budgeter,
     pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,

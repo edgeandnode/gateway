@@ -44,7 +44,7 @@ use gateway_framework::{
     network::{exchange_rate, network_subgraph},
     scalar,
 };
-use graph_gateway::auth::AuthHandler;
+use graph_gateway::client_query::auth::AuthContext;
 use graph_gateway::client_query::context::Context;
 use graph_gateway::client_query::legacy_auth_adapter::legacy_auth_adapter;
 use graph_gateway::client_query::query_id::SetQueryIdLayer;
@@ -250,7 +250,7 @@ async fn main() {
                 .build(),
         ),
     };
-    let auth_handler = AuthHandler::create(
+    let auth_handler = AuthContext::create(
         api_keys,
         HashSet::from_iter(config.special_api_keys),
         config

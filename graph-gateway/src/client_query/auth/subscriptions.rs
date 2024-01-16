@@ -13,28 +13,28 @@ use crate::topology::Deployment;
 use super::common::{are_deployments_authorized, are_subgraphs_authorized, is_domain_authorized};
 
 /// App state (a.k.a [Context](crate::client_query::Context)) sub-state.
-pub struct AuthHandler {
+pub struct AuthContext {
     /// A map between the Subscription's user address and the actual
     /// active subscription.
     ///
     /// Subscriptions are fetched periodically (every 30s) from the Subscriptions subgraph by
     /// the gateway using the [`subscriptions_subgraph` client](crate::subscriptions_subgraph::Client).
-    pub(super) subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
+    pub(crate) subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
 
     /// Auth token signers that don't require payment.
-    pub(super) special_signers: Arc<HashSet<Address>>,
+    pub(crate) special_signers: Arc<HashSet<Address>>,
 
     /// Subscription rate required per query per minute.
-    pub(super) rate_per_query: u128,
+    pub(crate) rate_per_query: u128,
 
     /// A map between the chain id and the subscription contract address.
-    pub(super) subscription_domains: Arc<HashMap<u64, Address>>,
+    pub(crate) subscription_domains: Arc<HashMap<u64, Address>>,
 
     /// Subscription query counters.
-    pub(super) query_counters: Arc<RwLock<HashMap<Address, AtomicUsize>>>,
+    pub(crate) query_counters: Arc<RwLock<HashMap<Address, AtomicUsize>>>,
 }
 
-impl AuthHandler {
+impl AuthContext {
     /// Get the subscription associated with the auth token claims user.
     pub fn get_subscription_for_user(&self, user: &Address) -> Option<Subscription> {
         self.subscriptions.value_immediate()?.get(user).cloned()
@@ -54,7 +54,7 @@ impl AuthHandler {
     }
 }
 
-pub fn parse_bearer_token(_auth: &AuthHandler, token: &str) -> anyhow::Result<AuthTokenClaims> {
+pub fn parse_bearer_token(_auth: &AuthContext, token: &str) -> anyhow::Result<AuthTokenClaims> {
     let (claims, signature) =
         parse_auth_token(token).map_err(|_| anyhow::anyhow!("Invalid auth token"))?;
 
@@ -67,7 +67,7 @@ pub fn parse_bearer_token(_auth: &AuthHandler, token: &str) -> anyhow::Result<Au
 }
 
 pub async fn check_token(
-    auth: &AuthHandler,
+    auth: &AuthContext,
     auth_token: &AuthTokenClaims,
     deployments: &[Arc<Deployment>],
     domain: &str,
