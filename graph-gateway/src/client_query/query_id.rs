@@ -92,7 +92,7 @@ where
                 let query_id = QueryId::from_header_value(ray_id);
                 req.extensions_mut().insert(query_id);
             } else {
-                let query_count = self.counter.fetch_add(1, atomic::Ordering::SeqCst);
+                let query_count = self.counter.fetch_add(1, atomic::Ordering::Relaxed);
                 let query_id =
                     QueryId::new_from_gateway_id_and_count(&self.gateway_id, query_count);
                 req.extensions_mut().insert(query_id);
