@@ -49,12 +49,13 @@ use indexer_selection::{
 
 use crate::auth::{AuthHandler, AuthToken};
 use crate::block_constraints::{block_constraints, make_query_deterministic};
-use crate::client_query::query_id::QueryId;
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::indexers::indexing;
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
+
+use self::query_id::QueryId;
 
 pub mod query_id;
 
