@@ -55,6 +55,7 @@ impl std::fmt::Debug for QueryId {
 /// derived from the gateway ID and a counter will be used.
 ///
 /// The middleware inserts the query ID into the request extensions.
+#[derive(Clone, Debug)]
 pub struct SetQueryId<S> {
     inner: S,
     gateway_id: String,
@@ -105,7 +106,7 @@ where
 /// Set query id extensions.
 ///
 /// This layer applies the [`SetQueryId`] middleware.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SetQueryIdLayer {
     gateway_id: String,
     counter: Arc<AtomicU64>,

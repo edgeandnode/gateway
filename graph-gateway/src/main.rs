@@ -12,10 +12,10 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::{self, Context};
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, State},
-    http::{self, Request, status::StatusCode},
+    http::{self, status::StatusCode, Request},
     middleware,
     response::Response,
-    Router, routing, Server,
+    routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use prometheus::{self, Encoder as _};
@@ -34,17 +34,16 @@ use toolshed::{
 use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
-use gateway_common::types::{GRT, Indexing, USD};
+use gateway_common::types::{Indexing, GRT, USD};
+use gateway_framework::geoip::GeoIP;
+use gateway_framework::scalar::ReceiptSigner;
 use gateway_framework::{
     budgets::Budgeter,
-    chains::{BlockCache, ethereum},
+    chains::{ethereum, BlockCache},
     ipfs, json,
     network::{exchange_rate, network_subgraph},
     scalar,
 };
-use gateway_framework::geoip::GeoIP;
-use gateway_framework::scalar::ReceiptSigner;
-use graph_gateway::{client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph};
 use graph_gateway::auth::AuthHandler;
 use graph_gateway::client_query::query_id::SetQueryIdLayer;
 use graph_gateway::config::{Config, ExchangeRateProvider};
@@ -53,6 +52,7 @@ use graph_gateway::indexers::indexing;
 use graph_gateway::indexings_blocklist::indexings_blocklist;
 use graph_gateway::reports::{self, KafkaClient};
 use graph_gateway::topology::{Deployment, GraphNetwork};
+use graph_gateway::{client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph};
 use indexer_selection::{actor::Update, BlockStatus};
 
 #[global_allocator]
@@ -71,7 +71,10 @@ async fn main() {
         .unwrap();
 
     // Get the gateway ID from the config or generate a new one.
-    let gateway_id = config.gateway_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let gateway_id = config
+        .gateway_id
+        .clone()
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
 
     let config_repr = format!("{config:#?}");
 
