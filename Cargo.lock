@@ -306,9 +306,9 @@ checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
 
 [[package]]
 name = "async-compression"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc2d0cfb2a7388d34f590e76686704c494ed7aaceed62ee1ba35cbf363abc2a5"
+checksum = "a116f46a969224200a0a97f29cfd4c50e7534e4b4826bd23ea2c3c533039c82c"
 dependencies = [
  "flate2",
  "futures-core",
@@ -1947,7 +1947,7 @@ dependencies = [
  "gateway-framework",
  "graph-subscriptions",
  "graphql 0.3.0",
- "graphql-http 0.1.1",
+ "graphql-http",
  "headers",
  "hickory-resolver",
  "hyper",
@@ -2017,21 +2017,8 @@ dependencies = [
 
 [[package]]
 name = "graphql-http"
-version = "0.1.1"
-source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-http-v0.1.1#1eb97feb7b188324529926300135ffe723989c10"
-dependencies = [
- "anyhow",
- "async-trait",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "graphql-http"
 version = "0.2.0"
-source = "git+https://github.com/edgeandnode/toolshed.git?tag=graphql-http-v0.2.0#94b7b1982bb1d95300975e40c25d3c7f78107ce2"
+source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-http-v0.2.0#94b7b1982bb1d95300975e40c25d3c7f78107ce2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2733,9 +2720,9 @@ checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.4.12"
+version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4cd1a83af159aa67994778be9070f0ae1bd732942279cabb14f86f986a21456"
+checksum = "01cda141df6706de531b6c46c3a33ecca755538219bd484262fa09410c13539c"
 
 [[package]]
 name = "lock_api"
@@ -4816,7 +4803,7 @@ dependencies = [
  "bs58",
  "ethers",
  "ethers-core",
- "graphql-http 0.2.0",
+ "graphql-http",
  "indoc",
  "lazy_static",
  "reqwest",
