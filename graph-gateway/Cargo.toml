@@ -48,5 +48,5 @@ uuid = { version = "1.6", default-features = false, features = ["v4"] }
 
 [dev-dependencies]
 assert_matches = "1.5.0"
-hyper = "0.14.28"
+hyper = "1.1.0"
 tower-test = "0.4.0"
