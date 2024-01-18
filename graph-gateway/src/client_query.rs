@@ -20,7 +20,6 @@ use futures::future::join_all;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
-use serde_json::json;
 use serde_json::value::RawValue;
 use thegraph::types::{attestation, BlockPointer, DeploymentId, SubgraphId};
 use tokio::sync::mpsc;
@@ -56,6 +55,7 @@ use self::context::Context;
 use self::query_id::QueryId;
 
 pub mod context;
+mod graphql;
 pub mod legacy_auth_adapter;
 pub mod query_id;
 
@@ -190,7 +190,7 @@ pub async fn handle_query(
                 .body(body.to_string())
                 .unwrap()
         }
-        Err(err) => error_response(err),
+        Err(err) => graphql::error_response(err),
     }
 }
 
@@ -221,15 +221,19 @@ async fn forward_request_to_l2(
         .and_then(|response| response.error_for_status())
     {
         Ok(response) => response,
-        Err(err) => return error_response(Error::Internal(anyhow!("L2 gateway error: {err}"))),
+        Err(err) => {
+            return graphql::error_response(Error::Internal(anyhow!("L2 gateway error: {err}")))
+        }
     };
     let status = response.status();
     if !status.is_success() {
-        return error_response(Error::Internal(anyhow!("L2 gateway error: {status}")));
+        return graphql::error_response(Error::Internal(anyhow!("L2 gateway error: {status}")));
     }
     let body = match response.text().await {
         Ok(body) => body,
-        Err(err) => return error_response(Error::Internal(anyhow!("L2 gateway error: {err}"))),
+        Err(err) => {
+            return graphql::error_response(Error::Internal(anyhow!("L2 gateway error: {err}")))
+        }
     };
     Response::builder()
         .status(status)
@@ -249,19 +253,6 @@ fn l2_request_path(original_path: &Uri, l2_subgraph_id: Option<SubgraphId>) -> S
         path.replace_range(replace_start..replace_end, &l2_subgraph_id.to_string());
     }
     path
-}
-
-fn graphql_error_response<S: ToString>(message: S) -> String {
-    let json_error = json!({"errors": [{"message": message.to_string()}]});
-    serde_json::to_string(&json_error).expect("failed to serialize error response")
-}
-
-fn error_response(err: Error) -> Response<String> {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(graphql_error_response(err))
-        .unwrap()
 }
 
 async fn resolve_subgraph_deployments(
