@@ -46,7 +46,6 @@ use indexer_selection::{
     SELECTION_LIMIT,
 };
 
-use crate::auth::AuthToken;
 use crate::block_constraints::{block_constraints, make_query_deterministic};
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::reports::{self, serialize_attestation, KafkaClient};
@@ -54,10 +53,12 @@ use crate::topology::{Deployment, GraphNetwork, Subgraph};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
 
 use self::attestation_header::GraphAttestation;
+use self::auth::AuthToken;
 use self::context::Context;
 use self::query_id::QueryId;
 
 mod attestation_header;
+pub mod auth;
 pub mod context;
 mod graphql;
 pub mod legacy_auth_adapter;
@@ -372,7 +373,7 @@ async fn handle_client_query_inner(
         .grt_per_usd
         .ok_or_else(|| Error::Internal(anyhow!("missing exchange rate")))?;
     let mut budget = GRT(ctx.budgeter.query_fees_target.0 * grt_per_usd.0);
-    let user_settings = ctx.auth_handler.query_settings(&auth).await;
+    let user_settings = ctx.auth_handler.query_settings(&auth);
     if let Some(user_budget) = user_settings.budget {
         // Security: Consumers can and will set their budget to unreasonably high values.
         // This `.min` prevents the budget from being set far beyond what it would be

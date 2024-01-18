@@ -33,27 +33,27 @@ pub fn parse_studio_api_key(value: &str) -> Result<[u8; 16], ParseError> {
 }
 
 /// App state (a.k.a [Context](crate::client_query::Context)) sub-state.
-pub struct AuthHandler {
+pub struct AuthContext {
     /// A map between Studio auth bearer token string and the Studio [ApiKey].
     ///
     /// API keys are fetched periodically (every 30s) from the Studio API by the gateway using the
     /// [`subgraph_studio` client](crate::subgraph_studio::Client).
-    pub(super) studio_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
+    pub(crate) studio_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
 
     /// Special API keys that don't require payment.
     ///
     /// An API key is considered special when does not require payment and is not subsidized, i.e., these
     /// keys won't be rejected due to non-payment.
-    pub(super) special_api_keys: Arc<HashSet<String>>,
+    pub(crate) special_api_keys: Arc<HashSet<String>>,
 
     /// Whether all API keys require payment.
     ///
     /// This is used to disable the payment requirement on testnets. If this is `true`, then all API keys require
     /// payment, unless they are subsidized or special.
-    pub(super) api_key_payment_required: bool,
+    pub(crate) api_key_payment_required: bool,
 }
 
-impl AuthHandler {
+impl AuthContext {
     /// Get the Studio API key associated with the given bearer token string.
     pub fn get_api_key(&self, token: &str) -> Option<Arc<APIKey>> {
         self.studio_keys.value_immediate()?.get(token).cloned()
@@ -76,7 +76,7 @@ impl AuthHandler {
     }
 }
 
-pub fn parse_bearer_token(auth: &AuthHandler, token: &str) -> anyhow::Result<Arc<APIKey>> {
+pub fn parse_bearer_token(auth: &AuthContext, token: &str) -> anyhow::Result<Arc<APIKey>> {
     // Check if the bearer token is a valid 32 hex digits key
     if parse_studio_api_key(token).is_err() {
         return Err(anyhow::anyhow!("Invalid api key format"));
@@ -88,7 +88,7 @@ pub fn parse_bearer_token(auth: &AuthHandler, token: &str) -> anyhow::Result<Arc
 }
 
 pub async fn check_token(
-    auth: &AuthHandler,
+    auth: &AuthContext,
     api_key: &Arc<APIKey>,
     deployments: &[Arc<Deployment>],
     domain: &str,
