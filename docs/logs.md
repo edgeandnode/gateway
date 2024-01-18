@@ -11,6 +11,7 @@
 ## client requests
 
 Available log fields:
+
 - `query_id`: identifies the client request.For any request containing a CF-Ray header (Cloudflare Ray ID), the `query_id` will be set to the header value. Filtering log entries by the `query_id` will show all the log events associated with handling the request.
 - `selector`: subgraph or deployment ID used in the client request path. Indexer requests are always associated with a `deployment` as well.
 - `deployments`: set of relevant deployments
@@ -21,13 +22,13 @@ Available log fields:
 - `user_address`: user address associated with the API key or query key
 - `query`
 - `variables`
-- `query_count`: queries included in the request
 - `budget_grt`
 - `indexer_fees_grt`
 
 ## indexer requests
 
 Available log fields:
+
 - `url`
 - `blocks_behind`
 - `fee_grt`
