@@ -7,7 +7,7 @@ version = "17.0.0"
 alloy-primitives.workspace = true
 alloy-sol-types = "0.6.0"
 anyhow.workspace = true
-
+axum.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3367d76" }
 eventuals = "0.6.7"
@@ -17,6 +17,8 @@ gateway-common = { path = "../gateway-common" }
 gateway-framework = { path = "../gateway-framework" }
 graphql.workspace = true
 graphql-http.workspace = true
+headers = "0.3.9"
+hickory-resolver = "0.24.0"
 indexer-selection = { path = "../indexer-selection" }
 indoc = "2.0.4"
 itertools = "0.12.0"
@@ -42,10 +44,7 @@ tower = "0.4.13"
 tower-http = { version = "0.4.0", features = ["cors"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
-hickory-resolver = "0.24.0"
 uuid = { version = "1.6", default-features = false, features = ["v4"] }
-axum.workspace = true
-headers = "0.3.9"
 
 [dev-dependencies]
 assert_matches = "1.5.0"
