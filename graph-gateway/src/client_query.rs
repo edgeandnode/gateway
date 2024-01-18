@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -15,7 +15,7 @@ use axum::{
     Extension,
 };
 use cost_model::{Context as AgoraContext, CostModel};
-use eventuals::{Eventual, Ptr};
+use eventuals::Ptr;
 use futures::future::join_all;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
@@ -24,8 +24,8 @@ use serde_json::json;
 use serde_json::value::RawValue;
 use thegraph::types::{attestation, BlockPointer, DeploymentId, SubgraphId};
 use tokio::sync::mpsc;
+use toolshed::buffer_queue::QueueWriter;
 use toolshed::url::Url;
-use toolshed::{buffer_queue::QueueWriter, double_buffer::DoubleBufferReader};
 use tracing::Instrument;
 
 use gateway_common::{
@@ -34,7 +34,6 @@ use gateway_common::{
 };
 use gateway_framework::{
     block_constraints::BlockConstraint,
-    budgets::Budgeter,
     chains::BlockCache,
     errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*},
     metrics::{with_metric, METRICS},
@@ -46,37 +45,19 @@ use indexer_selection::{
     SELECTION_LIMIT,
 };
 
-use crate::auth::{AuthHandler, AuthToken};
+use crate::auth::AuthToken;
 use crate::block_constraints::{block_constraints, make_query_deterministic};
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
-use crate::indexers::indexing;
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
 
+use self::context::Context;
 use self::query_id::QueryId;
 
+pub mod context;
 pub mod legacy_auth_adapter;
 pub mod query_id;
-
-#[derive(Clone)]
-pub struct Context {
-    pub indexer_client: IndexerClient,
-    pub kafka_client: &'static KafkaClient,
-    pub graph_env_id: String,
-    pub auth_handler: &'static AuthHandler,
-    pub budgeter: &'static Budgeter,
-    pub indexer_selection_retry_limit: usize,
-    pub l2_gateway: Option<Url>,
-    pub block_caches: &'static HashMap<String, &'static BlockCache>,
-    pub network: GraphNetwork,
-    pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, indexing::Status>>>,
-    pub attestation_domain: &'static Eip712Domain,
-    pub bad_indexers: &'static HashSet<Address>,
-    pub indexings_blocklist: Eventual<Ptr<HashSet<Indexing>>>,
-    pub isa_state: DoubleBufferReader<indexer_selection::State>,
-    pub observations: QueueWriter<Update>,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct QueryBody {
