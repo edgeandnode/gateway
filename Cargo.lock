@@ -1945,7 +1945,6 @@ dependencies = [
  "futures",
  "gateway-common",
  "gateway-framework",
- "graph-subscriptions",
  "graphql 0.3.0",
  "graphql-http",
  "headers",
@@ -1978,21 +1977,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid 1.6.1",
-]
-
-[[package]]
-name = "graph-subscriptions"
-version = "0.1.0"
-source = "git+https://github.com/edgeandnode/subscription-payments?rev=c69f6c1#c69f6c1bdc8002cef588d75e8e53fb2e4cf09f52"
-dependencies = [
- "anyhow",
- "base64 0.21.7",
- "chrono",
- "ethers",
- "hex",
- "serde",
- "serde_cbor_2",
- "serde_with",
 ]
 
 [[package]]
