@@ -17,6 +17,7 @@ use axum::{
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
 use futures::future::join_all;
+use headers::ContentType;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
@@ -27,6 +28,7 @@ use toolshed::buffer_queue::QueueWriter;
 use toolshed::url::Url;
 use tracing::Instrument;
 
+use gateway_common::utils::http_ext::HttpBuilderExt;
 use gateway_common::{
     types::{Indexing, UDecimal18, GRT, USD},
     utils::timestamp::unix_timestamp,
@@ -51,9 +53,11 @@ use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
 
+use self::attestation_header::GraphAttestation;
 use self::context::Context;
 use self::query_id::QueryId;
 
+mod attestation_header;
 pub mod context;
 mod graphql;
 pub mod legacy_auth_adapter;
@@ -178,18 +182,12 @@ pub async fn handle_query(
     });
 
     match result {
-        Ok((_, ResponsePayload { body, attestation })) => {
-            let attestation = attestation
-                .as_ref()
-                .and_then(|attestation| serde_json::to_string(attestation).ok())
-                .unwrap_or_default();
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/json")
-                .header("Graph-Attestation", attestation)
-                .body(body.to_string())
-                .unwrap()
-        }
+        Ok((_, ResponsePayload { body, attestation })) => Response::builder()
+            .status(StatusCode::OK)
+            .header_typed(ContentType::json())
+            .header_typed(GraphAttestation(attestation))
+            .body(body.to_string())
+            .unwrap(),
         Err(err) => graphql::error_response(err),
     }
 }
