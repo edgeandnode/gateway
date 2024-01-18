@@ -1,3 +1,5 @@
+// TODO(LNSD): Move to `thegraph` crate
+
 use axum::http::{HeaderName, HeaderValue};
 use headers::Error;
 use thegraph::types::Attestation;
@@ -17,11 +19,13 @@ pub struct GraphAttestation(pub Option<Attestation>);
 
 impl GraphAttestation {
     /// Create a new `GraphAttestation` header from the given attestation.
+    #[cfg(test)]
     pub fn new(value: Attestation) -> Self {
         Self(Some(value))
     }
 
     /// Create a new empty `GraphAttestation` typed header.
+    #[cfg(test)]
     pub fn empty() -> Self {
         Self(None)
     }
