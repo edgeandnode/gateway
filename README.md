@@ -11,3 +11,4 @@ Graph Gateway
 - [metrics](docs/metrics.md)
 - [releases](docs/releases.md)
 - [query fees](docs/query-fees.md)
+- [incident response](docs/incident-response.md)
