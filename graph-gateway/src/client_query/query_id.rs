@@ -88,15 +88,19 @@ where
 
     fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
         if req.extensions().get::<QueryId>().is_none() {
-            if let Some(ray_id) = req.headers().get(&CLOUDFLARE_RAY_ID) {
-                let query_id = QueryId::from_header_value(ray_id);
-                req.extensions_mut().insert(query_id);
+            let query_id = if let Some(ray_id) = req.headers().get(&CLOUDFLARE_RAY_ID) {
+                QueryId::from_header_value(ray_id)
             } else {
                 let query_count = self.counter.fetch_add(1, atomic::Ordering::Relaxed);
-                let query_id =
-                    QueryId::new_from_gateway_id_and_count(&self.gateway_id, query_count);
-                req.extensions_mut().insert(query_id);
-            }
+                QueryId::new_from_gateway_id_and_count(&self.gateway_id, query_count)
+            };
+
+            // Set the query ID on the current span. The query tracing middleware sets the span's query_id
+            // field to field::Empty.  We set it here to the actual query ID.
+            tracing::span::Span::current().record("query_id", tracing::field::display(&query_id));
+
+            // Set the query ID on the request extensions
+            req.extensions_mut().insert(query_id);
         }
 
         self.inner.call(req)
