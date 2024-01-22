@@ -4,13 +4,14 @@ use std::time::{Duration, Instant};
 
 use alloy_primitives::{Address, BlockNumber, U256};
 use alloy_sol_types::Eip712Domain;
-use anyhow::{anyhow, Context as _};
+use anyhow::anyhow;
 use axum::extract::OriginalUri;
 use axum::http::Uri;
 use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{header, HeaderMap, Response, StatusCode},
+    Extension,
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
@@ -71,6 +72,7 @@ pub struct QueryBody {
 
 pub async fn handle_query(
     State(ctx): State<Context>,
+    Extension(auth): Extension<AuthToken>,
     OriginalUri(original_uri): OriginalUri,
     Path(params): Path<BTreeMap<String, String>>,
     headers: HeaderMap,
@@ -80,16 +82,6 @@ pub async fn handle_query(
 
     let start_time = Instant::now();
     let timestamp = unix_timestamp();
-
-    let bearer_token = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())
-        .map(|header| header.trim_start_matches("Bearer").trim())
-        .unwrap_or("");
-    let auth = ctx
-        .auth_handler
-        .parse_bearer_token(bearer_token)
-        .context("Invalid auth");
 
     let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
 
@@ -131,22 +123,20 @@ pub async fn handle_query(
         }
     }
 
-    tracing::debug!(%bearer_token);
-
+    // TODO(LNSD): Move origin header parsing to an extractor.
     let domain = headers
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| Some(v.parse::<Url>().ok()?.host_str()?.to_string()))
         .unwrap_or("".to_string());
 
-    let result = match (auth, resolved_deployments) {
-        (Ok(auth), Ok((deployments, _))) => {
+    let result = match resolved_deployments {
+        Ok((deployments, _)) => {
             handle_client_query_inner(&ctx, deployments, payload, auth, domain)
                 .instrument(span.clone())
                 .await
         }
-        (Err(auth_err), _) => Err(Error::Auth(auth_err)),
-        (_, Err(subgraph_resolution_err)) => Err(subgraph_resolution_err),
+        Err(subgraph_resolution_err) => Err(subgraph_resolution_err),
     };
 
     let deployment: Option<String> = result
