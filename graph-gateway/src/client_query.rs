@@ -11,7 +11,6 @@ use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{header, HeaderMap, Response, StatusCode},
-    Extension,
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
@@ -54,7 +53,6 @@ use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unatt
 use self::attestation_header::GraphAttestation;
 use self::auth::AuthToken;
 use self::context::Context;
-use self::query_id::QueryId;
 
 mod attestation_header;
 pub mod auth;
@@ -62,6 +60,7 @@ pub mod context;
 mod graphql;
 pub mod legacy_auth_adapter;
 pub mod query_id;
+pub mod query_tracing;
 pub mod require_auth;
 
 #[derive(Debug, Deserialize)]
@@ -72,12 +71,13 @@ pub struct QueryBody {
 
 pub async fn handle_query(
     State(ctx): State<Context>,
-    Extension(query_id): Extension<QueryId>,
     OriginalUri(original_uri): OriginalUri,
     Path(params): Path<BTreeMap<String, String>>,
     headers: HeaderMap,
     payload: Bytes,
 ) -> Response<String> {
+    let span = tracing::span::Span::current();
+
     let start_time = Instant::now();
     let timestamp = unix_timestamp();
 
@@ -92,6 +92,19 @@ pub async fn handle_query(
         .context("Invalid auth");
 
     let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
+
+    // This is very useful for investigating gateway logs in production.
+    let selector = match &resolved_deployments {
+        Ok((_, Some(subgraph))) => subgraph.id.to_string(),
+        Ok((deployments, None)) => deployments
+            .iter()
+            .map(|d| d.id.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        Err(_) => "".to_string(),
+    };
+    span.record("selector", tracing::field::display(selector));
+
     // We only resolve a subgraph when a subgraph ID is given as a URL param.
     let subgraph = resolved_deployments
         .as_ref()
@@ -118,26 +131,7 @@ pub async fn handle_query(
         }
     }
 
-    // This is very useful for investigating gateway logs in production.
-    let selector = match &resolved_deployments {
-        Ok((_, Some(subgraph))) => subgraph.id.to_string(),
-        Ok((deployments, None)) => deployments
-            .iter()
-            .map(|d| d.id.to_string())
-            .collect::<Vec<_>>()
-            .join(","),
-        Err(_) => "".to_string(),
-    };
-    let span = tracing::info_span!(
-        target: reports::CLIENT_QUERY_TARGET,
-        "client_query",
-        %query_id,
-        graph_env = %ctx.graph_env_id,
-        selector,
-    );
-    span.in_scope(|| {
-        tracing::debug!(%bearer_token);
-    });
+    tracing::debug!(%bearer_token);
 
     let domain = headers
         .get(header::ORIGIN)
@@ -166,7 +160,7 @@ pub async fn handle_query(
         h.observe((Instant::now() - start_time).as_secs_f64())
     });
 
-    span.in_scope(|| {
+    {
         let status_message = match &result {
             Ok(_) => "200 OK".to_string(),
             Err(err) => err.to_string(),
@@ -180,7 +174,7 @@ pub async fn handle_query(
             %legacy_status_message,
             legacy_status_code,
         );
-    });
+    }
 
     match result {
         Ok((_, ResponsePayload { body, attestation })) => Response::builder()

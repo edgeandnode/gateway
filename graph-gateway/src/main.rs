@@ -48,6 +48,7 @@ use graph_gateway::client_query::auth::AuthContext;
 use graph_gateway::client_query::context::Context;
 use graph_gateway::client_query::legacy_auth_adapter::legacy_auth_adapter;
 use graph_gateway::client_query::query_id::SetQueryIdLayer;
+use graph_gateway::client_query::query_tracing::QueryTracingLayer;
 use graph_gateway::config::{Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
@@ -292,7 +293,6 @@ async fn main() {
             receipt_signer,
         },
         kafka_client,
-        graph_env_id: config.graph_env_id.clone(),
         auth_handler,
         budgeter,
         network,
@@ -337,7 +337,6 @@ async fn main() {
         .pipe(|_| rate_limiter.rotate_slots())
         .forever();
 
-    let api_port = config.port_api;
     let api = Router::new()
         .route(
             "/deployments/id/:deployment_id",
@@ -366,6 +365,8 @@ async fn main() {
                         .allow_headers(cors::Any)
                         .allow_methods([http::Method::OPTIONS, http::Method::POST]),
                 )
+                // Set up the query tracing span.
+                .layer(QueryTracingLayer::new(config.graph_env_id.clone()))
                 // Set the query ID on the request.
                 .layer(SetQueryIdLayer::new(gateway_id))
                 // Handle legacy in-path auth, and convert it into a header.
@@ -399,7 +400,7 @@ async fn main() {
 
     Server::bind(&SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        api_port,
+        config.port_api,
     ))
     // disable Nagel's algorithm
     .tcp_nodelay(true)

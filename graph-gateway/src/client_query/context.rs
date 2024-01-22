@@ -23,7 +23,6 @@ use super::auth::AuthContext;
 pub struct Context {
     pub indexer_client: IndexerClient,
     pub kafka_client: &'static KafkaClient,
-    pub graph_env_id: String,
     pub auth_handler: &'static AuthContext,
     pub budgeter: &'static Budgeter,
     pub indexer_selection_retry_limit: usize,
