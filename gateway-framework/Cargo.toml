@@ -25,7 +25,7 @@ secp256k1.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json = "1.0.111"
-serde_with = "3.4.0"
+serde_with = "3.5.0"
 siphasher.workspace = true
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol.git", rev = "aa973d1" }
 thegraph.workspace = true
