@@ -50,7 +50,7 @@ where
     }
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
-        // Create a tracin span for the client query and enter it. This way events created by the different layers
+        // Create a tracing span for the client query and enter it. This way events created by the different layers
         // in the middleware stack are associated with it.
         let client_query_span = tracing::info_span!(
             target: QUERY_SPAN_TARGET,
