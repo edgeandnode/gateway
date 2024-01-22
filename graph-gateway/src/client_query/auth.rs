@@ -11,6 +11,7 @@ mod context;
 mod studio;
 mod subscriptions;
 
+#[derive(Clone, Debug)]
 pub enum AuthToken {
     /// API key from the Subgraph Studio Database.
     StudioApiKey(Arc<APIKey>),

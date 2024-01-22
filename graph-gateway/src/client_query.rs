@@ -63,6 +63,7 @@ pub mod context;
 mod graphql;
 pub mod legacy_auth_adapter;
 pub mod query_id;
+pub mod require_auth;
 
 #[derive(Debug, Deserialize)]
 pub struct QueryBody {
@@ -865,55 +866,259 @@ async fn optimistic_query(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn l2_request_path() {
-        let deployment: DeploymentId = "QmdveVMs7nAvdBPxNoaMMAYgNcuSroneMctZDnZUgbPPP3"
-            .parse()
-            .unwrap();
-        let l1_subgraph: SubgraphId = "EMRitnR1t3drKrDQSmJMSmHBPB2sGotgZE12DzWNezDn"
-            .parse()
-            .unwrap();
-        let l2_subgraph: SubgraphId = "CVHoVSrdiiYvLcH4wocDCazJ1YuixHZ1SKt34UWmnQcC"
-            .parse()
-            .unwrap();
+    mod l2_gateway_forwarding {
+        use super::*;
 
-        // test deployment route
-        let mut original = format!("/api/deployments/id/{deployment}").parse().unwrap();
-        let mut expected = format!("/api/deployments/id/{deployment}");
-        assert_eq!(
-            expected,
-            super::l2_request_path(&original, Some(l2_subgraph))
-        );
+        #[tokio::test]
+        async fn l2_request_path() {
+            let deployment: DeploymentId = "QmdveVMs7nAvdBPxNoaMMAYgNcuSroneMctZDnZUgbPPP3"
+                .parse()
+                .unwrap();
+            let l1_subgraph: SubgraphId = "EMRitnR1t3drKrDQSmJMSmHBPB2sGotgZE12DzWNezDn"
+                .parse()
+                .unwrap();
+            let l2_subgraph: SubgraphId = "CVHoVSrdiiYvLcH4wocDCazJ1YuixHZ1SKt34UWmnQcC"
+                .parse()
+                .unwrap();
 
-        // test subgraph route
-        original = format!("/api/subgraphs/id/{l1_subgraph}").parse().unwrap();
-        expected = format!("/api/subgraphs/id/{l2_subgraph}");
-        assert_eq!(
-            expected,
-            super::l2_request_path(&original, Some(l2_subgraph))
-        );
+            // test deployment route
+            let mut original = format!("/api/deployments/id/{deployment}").parse().unwrap();
+            let mut expected = format!("/api/deployments/id/{deployment}");
+            assert_eq!(
+                expected,
+                super::l2_request_path(&original, Some(l2_subgraph))
+            );
 
-        // test subgraph route with API key prefix
-        original = format!("/api/deadbeefdeadbeefdeadbeefdeadbeef/subgraphs/id/{l1_subgraph}")
-            .parse()
-            .unwrap();
-        expected = format!("/api/deadbeefdeadbeefdeadbeefdeadbeef/subgraphs/id/{l2_subgraph}");
-        assert_eq!(
-            expected,
-            super::l2_request_path(&original, Some(l2_subgraph))
-        );
+            // test subgraph route
+            original = format!("/api/subgraphs/id/{l1_subgraph}").parse().unwrap();
+            expected = format!("/api/subgraphs/id/{l2_subgraph}");
+            assert_eq!(
+                expected,
+                super::l2_request_path(&original, Some(l2_subgraph))
+            );
 
-        // test subgraph route with version constraint
-        original = format!("/api/subgraphs/id/{l1_subgraph}^0.0.1")
-            .parse()
-            .unwrap();
-        expected = format!("/api/subgraphs/id/{l2_subgraph}^0.0.1");
-        assert_eq!(
-            expected,
-            super::l2_request_path(&original, Some(l2_subgraph))
-        );
+            // test subgraph route with API key prefix
+            original = format!("/api/deadbeefdeadbeefdeadbeefdeadbeef/subgraphs/id/{l1_subgraph}")
+                .parse()
+                .unwrap();
+            expected = format!("/api/deadbeefdeadbeefdeadbeefdeadbeef/subgraphs/id/{l2_subgraph}");
+            assert_eq!(
+                expected,
+                super::l2_request_path(&original, Some(l2_subgraph))
+            );
+
+            // test subgraph route with version constraint
+            original = format!("/api/subgraphs/id/{l1_subgraph}^0.0.1")
+                .parse()
+                .unwrap();
+            expected = format!("/api/subgraphs/id/{l2_subgraph}^0.0.1");
+            assert_eq!(
+                expected,
+                super::l2_request_path(&original, Some(l2_subgraph))
+            );
+        }
+    }
+
+    mod require_req_auth {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        use assert_matches::assert_matches;
+        use axum::body::BoxBody;
+        use axum::http::{Method, Request, StatusCode};
+        use axum::routing::post;
+        use axum::{middleware, Extension, Router};
+        use eventuals::{Eventual, Ptr};
+        use headers::{Authorization, ContentType, HeaderMapExt};
+        use hyper::Body;
+        use tower::ServiceExt;
+
+        use crate::subgraph_studio::APIKey;
+
+        use super::auth::{AuthContext, AuthToken};
+        use super::legacy_auth_adapter::legacy_auth_adapter;
+        use super::require_auth::RequireAuthorizationLayer;
+
+        /// Create a test authorization context.
+        fn test_auth_ctx(key: Option<&str>) -> AuthContext {
+            let mut ctx = AuthContext {
+                api_keys: Eventual::from_value(Ptr::new(Default::default())),
+                special_api_keys: Default::default(),
+                special_query_key_signers: Default::default(),
+                api_key_payment_required: false,
+                subscriptions: Eventual::from_value(Ptr::new(Default::default())),
+                subscription_rate_per_query: 0,
+                subscription_domains: Default::default(),
+                subscription_query_counters: Default::default(),
+            };
+            if let Some(key) = key {
+                ctx.api_keys = Eventual::from_value(Ptr::new(HashMap::from([(
+                    key.into(),
+                    Arc::new(APIKey {
+                        key: key.into(),
+                        ..Default::default()
+                    }),
+                )])));
+            }
+            ctx
+        }
+
+        /// Create a test request without an `Authorization` header or `AuthToken` extension.
+        fn test_req_unauthenticated() -> Request<Body> {
+            Request::builder()
+                .method(Method::POST)
+                .uri("/subgraphs/id/123")
+                .body(Body::empty())
+                .unwrap()
+        }
+
+        /// Create a test request with an `Authorization` header.
+        fn test_req_with_auth_header(token: &str) -> Request<Body> {
+            let mut req = Request::builder()
+                .method(Method::POST)
+                .uri("/subgraphs/id/123")
+                .body(Body::empty())
+                .unwrap();
+
+            let bearer_token = Authorization::bearer(token).expect("valid bearer token");
+            req.headers_mut().typed_insert(bearer_token);
+
+            req
+        }
+
+        /// Create a test request with legacy authorization-in-path scheme.
+        fn test_req_with_legacy_auth(token: &str) -> Request<Body> {
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/{token}/subgraphs/id/123"))
+                .body(Body::empty())
+                .unwrap()
+        }
+
+        /// Create a test router that requires authorization and also supports legacy authorization-in-path
+        /// scheme.
+        fn test_router(auth_ctx: AuthContext) -> Router {
+            async fn handler(Extension(auth): Extension<AuthToken>) -> String {
+                match auth {
+                    AuthToken::StudioApiKey(api_key) => api_key.key.clone(),
+                    _ => unreachable!(),
+                }
+            }
+
+            Router::new()
+                .route("/subgraphs/id/:subgraph_id", post(handler))
+                .route("/:api_key/subgraphs/id/:subgraph_id", post(handler))
+                .layer(
+                    tower::ServiceBuilder::new()
+                        .layer(middleware::from_fn(legacy_auth_adapter))
+                        .layer(RequireAuthorizationLayer::new(auth_ctx)),
+                )
+        }
+
+        /// Deserialize a GraphQL response body.
+        async fn deserialize_graphql_response_body<T>(
+            body: &mut BoxBody,
+        ) -> serde_json::Result<graphql_http::http::response::ResponseBody<T>>
+        where
+            for<'de> T: serde::Deserialize<'de>,
+        {
+            let body = hyper::body::to_bytes(body).await.expect("valid body");
+            serde_json::from_slice(body.as_ref())
+        }
+
+        /// Parse text response body.
+        async fn parse_text_response_body(body: &mut BoxBody) -> anyhow::Result<String> {
+            let body = hyper::body::to_bytes(body).await.expect("valid body");
+            let text = String::from_utf8(body.to_vec())?;
+            Ok(text)
+        }
+
+        #[tokio::test]
+        async fn reject_non_authorized_request() {
+            //* Given
+            let app = test_router(test_auth_ctx(None));
+
+            let req = test_req_unauthenticated();
+
+            //* When
+            let mut res = app.oneshot(req).await.expect("to be infallible");
+
+            //* Then
+            assert_eq!(res.status(), StatusCode::OK);
+            assert_eq!(
+                res.headers().typed_get::<ContentType>(),
+                Some(ContentType::json())
+            );
+            assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
+                assert_eq!(res_body.errors.len(), 1);
+                assert_eq!(res_body.errors[0].message, "auth error: Missing Authorization header");
+            });
+        }
+
+        #[tokio::test]
+        async fn reject_authorized_request_with_invalid_api_key() {
+            //* Given
+            let api_key = "0123456789abcdef0123456789abcdef";
+
+            // We do not insert the API key into the auth context, so it will be rejected
+            let app = test_router(test_auth_ctx(None));
+
+            let req = test_req_with_auth_header(api_key);
+
+            //* When
+            let mut res = app.oneshot(req).await.expect("to be infallible");
+
+            //* Then
+            assert_eq!(res.status(), StatusCode::OK);
+            assert_eq!(
+                res.headers().typed_get::<ContentType>(),
+                Some(ContentType::json())
+            );
+            assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
+                assert_eq!(res_body.errors.len(), 1);
+                assert_eq!(res_body.errors[0].message, "auth error: Invalid bearer token: Invalid auth token");
+            });
+        }
+
+        #[tokio::test]
+        async fn accept_authorized_request() {
+            //* Given
+            let api_key = "0123456789abcdef0123456789abcdef";
+
+            let app = test_router(test_auth_ctx(Some(api_key)));
+
+            let req = test_req_with_auth_header(api_key);
+
+            //* When
+            let mut res = app.oneshot(req).await.expect("to be infallible");
+
+            //* Then
+            assert_eq!(res.status(), StatusCode::OK);
+            assert_matches!(parse_text_response_body(res.body_mut()).await, Ok(res_body) => {
+                assert_eq!(res_body, api_key);
+            });
+        }
+
+        #[tokio::test]
+        async fn accept_authorized_request_with_legacy_scheme() {
+            //* Given
+            let api_key = "0123456789abcdef0123456789abcdef";
+
+            let app = test_router(test_auth_ctx(Some(api_key)));
+
+            let req = test_req_with_legacy_auth(api_key);
+
+            //* When
+            let mut res = app.oneshot(req).await.expect("to be infallible");
+
+            //* Then
+            assert_eq!(res.status(), StatusCode::OK);
+            assert_matches!(parse_text_response_body(res.body_mut()).await, Ok(res_body) => {
+                assert_eq!(res_body, api_key);
+            });
+        }
     }
 }

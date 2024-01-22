@@ -18,6 +18,7 @@ use super::studio;
 use super::subscriptions;
 use super::AuthToken;
 
+#[derive(Clone)]
 pub struct AuthContext {
     pub api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
     pub special_api_keys: Arc<HashSet<String>>,
