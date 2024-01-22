@@ -224,6 +224,16 @@ impl GraphNetwork {
             transferred_to_l2,
         }))
     }
+
+    /// Get the subgraph by ID ([SubgraphId]), if it exists.
+    pub fn subgraph_by_id(&self, id: &SubgraphId) -> Option<Subgraph> {
+        self.subgraphs.value_immediate()?.get(id).cloned()
+    }
+
+    /// Get the deployment by ID ([DeploymentId]), if it exists.
+    pub fn deployment_by_id(&self, id: &DeploymentId) -> Option<Arc<Deployment>> {
+        self.deployments.value_immediate()?.get(id).cloned()
+    }
 }
 
 struct IpfsCache {

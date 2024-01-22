@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -260,24 +259,31 @@ async fn resolve_subgraph_deployments(
     params: &BTreeMap<String, String>,
 ) -> Result<(Vec<Arc<Deployment>>, Option<Subgraph>), Error> {
     if let Some(id) = params.get("subgraph_id") {
-        let id = SubgraphId::from_str(id)
+        // Parse the subgraph ID
+        let id: SubgraphId = id
+            .parse()
             .map_err(|_| Error::SubgraphNotFound(anyhow!("invalid subgraph ID: {id}")))?;
+
+        // Get the subgraph by ID
         let subgraph = network
-            .subgraphs
-            .value_immediate()
-            .and_then(|subgraphs| subgraphs.get(&id).cloned())
+            .subgraph_by_id(&id)
             .ok_or_else(|| Error::SubgraphNotFound(anyhow!("{id}")))?;
+
+        // Get the subgraph's deployments (versions = deployments)
         let versions = subgraph.deployments.clone();
         Ok((versions, Some(subgraph)))
     } else if let Some(id) = params.get("deployment_id") {
+        // Parse the deployment ID
         let id: DeploymentId = id
             .parse()
             .map_err(|_| Error::SubgraphNotFound(anyhow!("invalid deployment ID: {id}")))?;
-        network
-            .deployments
-            .value_immediate()
-            .and_then(|deployments| Some((vec![deployments.get(&id)?.clone()], None)))
-            .ok_or_else(|| Error::SubgraphNotFound(anyhow!("deployment not found: {id}")))
+
+        // Get the deployment by ID, no subgraph
+        let deployment = network
+            .deployment_by_id(&id)
+            .ok_or_else(|| Error::SubgraphNotFound(anyhow!("deployment not found: {id}")))?;
+
+        Ok((vec![deployment], None))
     } else {
         Err(Error::SubgraphNotFound(anyhow!("missing identifier")))
     }
