@@ -341,19 +341,19 @@ async fn main() {
     let api = Router::new()
         .route(
             "/deployments/id/:deployment_id",
-            routing::post(client_query::handle_query),
+            routing::post(client_query::handle_deployment_id_query),
         )
         .route(
             "/:api_key/deployments/id/:deployment_id",
-            routing::post(client_query::handle_query),
+            routing::post(client_query::handle_deployment_id_query),
         )
         .route(
             "/subgraphs/id/:subgraph_id",
-            routing::post(client_query::handle_query),
+            routing::post(client_query::handle_subgraph_id_query),
         )
         .route(
             "/:api_key/subgraphs/id/:subgraph_id",
-            routing::post(client_query::handle_query),
+            routing::post(client_query::handle_subgraph_id_query),
         )
         .with_state(client_query_ctx)
         .layer(

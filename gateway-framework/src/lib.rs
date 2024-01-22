@@ -4,6 +4,7 @@ pub mod chains;
 pub mod config;
 pub mod errors;
 pub mod geoip;
+pub mod graphql;
 pub mod ipfs;
 pub mod json;
 pub mod metrics;

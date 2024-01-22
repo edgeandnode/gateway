@@ -1857,10 +1857,13 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "assert_matches",
  "axum",
  "ethers",
  "eventuals",
  "gateway-common",
+ "graphql-http 0.2.1",
+ "headers",
  "hex",
  "indexer-selection",
  "itertools 0.12.0",
@@ -2007,7 +2010,7 @@ dependencies = [
 [[package]]
 name = "graphql-http"
 version = "0.2.0"
-source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-http-v0.2.0#94b7b1982bb1d95300975e40c25d3c7f78107ce2"
+source = "git+https://github.com/edgeandnode/toolshed.git?tag=graphql-http-v0.2.0#94b7b1982bb1d95300975e40c25d3c7f78107ce2"
 dependencies = [
  "anyhow",
  "async-trait",

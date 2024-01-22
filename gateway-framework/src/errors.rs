@@ -1,7 +1,11 @@
 use std::collections::BTreeMap;
 
-use indexer_selection::UnresolvedBlock;
+use axum::response::{IntoResponse, Response};
 use itertools::Itertools;
+
+use indexer_selection::UnresolvedBlock;
+
+use crate::graphql;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -30,6 +34,12 @@ pub enum Error {
     /// order of how many of the potential indexers failed for that reason.
     #[error("bad indexers: {0}")]
     BadIndexers(IndexerErrors),
+}
+
+impl IntoResponse for Error {
+    fn into_response(self) -> Response {
+        graphql::error_response(self).into_response()
+    }
 }
 
 pub struct IndexerErrors(Vec<IndexerError>);
