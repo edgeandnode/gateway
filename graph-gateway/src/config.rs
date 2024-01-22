@@ -26,6 +26,7 @@ pub struct Config {
     pub attestations: AttestationConfig,
     /// List of indexer addresses to block. This should only be used temprorarily, to compensate for
     /// indexer-selection imperfections.
+    #[serde(default)]
     pub bad_indexers: Vec<Address>,
     pub chains: Vec<Chain>,
     /// Ethereum RPC provider, or fixed exchange rate for testing
