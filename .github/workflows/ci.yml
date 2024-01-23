@@ -15,6 +15,8 @@ env:
   RUSTFLAGS: "-C link-arg=-fuse-ld=lld -D warnings"
   GH_USER: ${{ github.repository_owner }}
   GH_TOKEN: ${{ secrets.GH_PRIVATE_TOKEN }}
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 jobs:
   check_and_test:
@@ -24,22 +26,31 @@ jobs:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
           components: rustfmt, clippy
-          profile: minimal
-          override: true
 
-      - name: Cache Cargo build files
-        uses: Leafwing-Studios/cargo-cache@5edda26afa3d28be5d6ee87d4c69c246e3ee37fb # v1
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@8417cffc2ec64127ad83077aceaa8631f7cdc83e # v0.0.3
+
+      - name: Cache Cargo files
+        uses: actions/cache@13aacd865c20de90d75de3b17ebe84f7a17d57d2  # v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          save-always: true
 
       - name: Prepare build env
         run: |
           git config --global credential.helper store
           git config --global --replace-all url.https://github.com/.insteadOf ssh://git@github.com/
           git config --global --add url.https://github.com/.insteadOf git@github.com:
-          mkdir ~/.cargo && echo "[net]\ngit-fetch-with-cli = true" > ~/.cargo/config.toml
+          mkdir -p ~/.cargo && echo "[net]\ngit-fetch-with-cli = true" > ~/.cargo/config.toml
           (echo url=https://github.com; echo "username=${GH_USER}"; echo "password=${GH_TOKEN}"; echo ) | git credential approve
           sudo apt-get install -y lld librdkafka-dev libsasl2-dev
 
