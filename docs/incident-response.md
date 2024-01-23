@@ -33,7 +33,14 @@ For indexers, note that automated allocation management might not allocate to a 
 
 ### Bad/Inconsistent Query Responses
 
-- Graphix is a useful tool to checked if allocated indexers have divergent POIs, and might indicate give hints about which indexers might have the POI driving the bad responses.
+- Graphix is a useful tool to check if allocated indexers have divergent POIs, and might indicate which indexers are delivering the bad responses.
+
+  If tools like Graphix are not available, you can query the relevant indexers manually to get their POIs:
+  ```bash
+  curl ${indexer_url}/status \
+    -H 'content-type: application/json' \
+    -d '{"query": "{ publicProofsOfIndexing(requests: [{deployment: \"${deployment}\" blockNumber: ${block_number}}]) { deployment proofOfIndexing block { number } } }"}'
+  ```
 
 - If a POI is identified that should be blocked, it should be added to the gateway config’s `poi_blocklist`.
 
