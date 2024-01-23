@@ -49,6 +49,7 @@ use graph_gateway::client_query::context::Context;
 use graph_gateway::client_query::legacy_auth_adapter::legacy_auth_adapter;
 use graph_gateway::client_query::query_id::SetQueryIdLayer;
 use graph_gateway::client_query::query_tracing::QueryTracingLayer;
+use graph_gateway::client_query::require_auth::RequireAuthorizationLayer;
 use graph_gateway::config::{Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
@@ -357,7 +358,7 @@ async fn main() {
         .with_state(client_query_ctx)
         .layer(
             // ServiceBuilder works by composing all layers into one such that they run top to
-            // bottom, and then the response would bubble back up through the layers in reverse.
+            // bottom, and then the response would bubble back up through the layers in reverse
             tower::ServiceBuilder::new()
                 .layer(
                     CorsLayer::new()
@@ -365,17 +366,19 @@ async fn main() {
                         .allow_headers(cors::Any)
                         .allow_methods([http::Method::OPTIONS, http::Method::POST]),
                 )
-                // Set up the query tracing span.
+                // Set up the query tracing span
                 .layer(QueryTracingLayer::new(config.graph_env_id.clone()))
-                // Set the query ID on the request.
+                // Set the query ID on the request
                 .layer(SetQueryIdLayer::new(gateway_id))
-                // Handle legacy in-path auth, and convert it into a header.
-                .layer(middleware::from_fn(legacy_auth_adapter)),
+                // Handle legacy in-path auth, and convert it into a header
+                .layer(middleware::from_fn(legacy_auth_adapter))
+                // Require the query to be authorized
+                .layer(RequireAuthorizationLayer::new(auth_handler.clone())),
         );
 
     let router = Router::new()
         .route("/", routing::get(|| async { "Ready to roll!" }))
-        // This path is required by NGINX ingress controller.
+        // This path is required by NGINX ingress controller
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/collect-receipts",
