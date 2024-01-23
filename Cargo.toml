@@ -17,13 +17,13 @@ debug = true
 [workspace.dependencies]
 anyhow = "1.0"
 alloy-primitives = { version = "0.6.0", features = ["serde"] }
-axum = { version = "0.6.15", default-features = false, features = [
+axum = { version = "0.6.20", default-features = false, features = [
     "json",
     "tokio",
     "original-uri",
 ] }
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-http-v0.2.0", features = [
+graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-http-v0.2.1", features = [
     "http-reqwest",
 ] }
 hex = "0.4"
