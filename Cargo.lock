@@ -1948,7 +1948,7 @@ dependencies = [
  "gateway-common",
  "gateway-framework",
  "graphql 0.3.0",
- "graphql-http",
+ "graphql-http 0.2.1",
  "headers",
  "hickory-resolver",
  "hyper",
@@ -2007,6 +2007,19 @@ dependencies = [
 name = "graphql-http"
 version = "0.2.0"
 source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-http-v0.2.0#94b7b1982bb1d95300975e40c25d3c7f78107ce2"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "graphql-http"
+version = "0.2.1"
+source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-http-v0.2.1#b2ba62e7eedf24b98f999797c4955527de6c3e64"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4791,7 +4804,7 @@ dependencies = [
  "bs58",
  "ethers",
  "ethers-core",
- "graphql-http",
+ "graphql-http 0.2.0",
  "indoc",
  "lazy_static",
  "reqwest",

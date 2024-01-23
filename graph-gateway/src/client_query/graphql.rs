@@ -1,19 +1,19 @@
 use axum::http::{Response, StatusCode};
+use graphql_http::http::response::{IntoError as IntoGraphqlResponseError, ResponseBody};
 use headers::ContentType;
-use serde_json::json;
 
 use gateway_common::utils::http_ext::HttpBuilderExt;
 
 /// Serialize an error into a GraphQL error response.
 ///
 /// This helper function serializes an error into a GraphQL error response JSON string.
-fn error_response_body(message: impl ToString) -> String {
-    let response_body = json!({"errors": [{"message": message.to_string()}]});
+fn error_response_body(message: impl IntoGraphqlResponseError) -> String {
+    let response_body: ResponseBody<()> = ResponseBody::from_error(message);
     serde_json::to_string(&response_body).expect("failed to serialize error response")
 }
 
 /// Create a GraphQL error response.
-pub fn error_response(err: impl ToString) -> Response<String> {
+pub fn error_response(err: impl IntoGraphqlResponseError) -> Response<String> {
     Response::builder()
         .status(StatusCode::OK)
         .header_typed(ContentType::json())
