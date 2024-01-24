@@ -472,7 +472,7 @@ async fn write_indexer_inputs(
             stake: indexer.staked_tokens,
             allocation: indexer.allocated_tokens,
             block: Some(BlockStatus {
-                reported_number: status.block.number,
+                reported_number: status.block,
                 behind_reported_block: false,
                 min_block: status.min_block,
             }),

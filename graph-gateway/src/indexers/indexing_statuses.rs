@@ -1,12 +1,9 @@
-use std::borrow::Cow;
-
-use alloy_primitives::BlockHash;
 use anyhow::{bail, ensure};
 use futures::future::join_all;
 use graphql_http::http_client::ReqwestExt as _;
 use indoc::formatdoc;
 use itertools::Itertools;
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use thegraph::types::DeploymentId;
 
 pub async fn query(
@@ -24,11 +21,9 @@ pub async fn query(
                         network
                         latestBlock {{
                             number
-                            hash
                         }}
                         earliestBlock {{
                             number
-                            hash
                         }}
                     }}
                 }}
@@ -80,19 +75,6 @@ pub struct ChainStatus {
 #[derive(Debug, Deserialize)]
 pub struct BlockStatus {
     pub number: String,
-    #[serde(deserialize_with = "deserialize_bad_hex")]
-    pub hash: BlockHash,
-}
-
-fn deserialize_bad_hex<'de, D>(deserializer: D) -> Result<BlockHash, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = Cow::<str>::deserialize(deserializer)?;
-    if s == "0x0" {
-        return Ok(BlockHash::ZERO);
-    }
-    s.parse().map_err(serde::de::Error::custom)
 }
 
 #[cfg(test)]
