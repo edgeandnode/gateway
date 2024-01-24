@@ -1,13 +1,13 @@
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, BlockNumber};
 use anyhow::{anyhow, ensure};
 use cost_model::CostModel;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
 use hickory_resolver::TokioAsyncResolver as DNSResolver;
 use semver::Version;
-use thegraph::types::{BlockPointer, DeploymentId};
+use thegraph::types::DeploymentId;
 use tokio::sync::Mutex;
 use toolshed::{
     epoch_cache::EpochCache,
@@ -24,8 +24,8 @@ use crate::topology::Deployment;
 
 #[derive(Clone)]
 pub struct Status {
-    pub block: BlockPointer,
-    pub min_block: Option<u64>,
+    pub block: BlockNumber,
+    pub min_block: Option<BlockNumber>,
     pub cost_model: Option<Ptr<CostModel>>,
     pub legacy_scalar: bool,
 }
@@ -252,10 +252,7 @@ async fn query_status(
             let cost_model = cost_models.remove(&indexing.deployment);
             let block_status = chain.latest_block.as_ref()?;
             let status = Status {
-                block: BlockPointer {
-                    number: block_status.number.parse().ok()?,
-                    hash: block_status.hash,
-                },
+                block: block_status.number.parse().ok()?,
                 min_block: chain
                     .earliest_block
                     .as_ref()
