@@ -669,10 +669,6 @@ async fn handle_indexer_query_inner(
         }
     }
 
-    if !ctx.deployment.expect_attestation {
-        return Ok(response.payload);
-    }
-
     if response.payload.attestation.is_none() {
         // TODO: This is a temporary hack to handle errors that were previously miscategorized as
         //  unattestable in graph-node.
