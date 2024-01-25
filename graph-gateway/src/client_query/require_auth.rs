@@ -1,7 +1,6 @@
 //! Authorization middleware.
 
 use std::future::Future;
-
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -11,11 +10,11 @@ use headers::{Authorization, HeaderMapExt, Origin};
 use tower::Service;
 
 use gateway_framework::errors::Error;
+use gateway_framework::graphql;
 
 use crate::reports;
 
 use super::auth::{AuthContext, AuthToken};
-use super::graphql;
 
 #[pin_project::pin_project(project = KindProj)]
 enum Kind<F> {

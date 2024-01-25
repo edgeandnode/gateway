@@ -5,6 +5,7 @@ use thegraph::types::SubgraphId;
 use toolshed::url::Url;
 
 use gateway_framework::errors::Error;
+use gateway_framework::graphql;
 
 pub async fn forward_request_to_l2(
     client: &reqwest::Client,
@@ -34,23 +35,17 @@ pub async fn forward_request_to_l2(
     {
         Ok(response) => response,
         Err(err) => {
-            return crate::client_query::graphql::error_response(Error::Internal(anyhow!(
-                "L2 gateway error: {err}"
-            )))
+            return graphql::error_response(Error::Internal(anyhow!("L2 gateway error: {err}")))
         }
     };
     let status = response.status();
     if !status.is_success() {
-        return crate::client_query::graphql::error_response(Error::Internal(anyhow!(
-            "L2 gateway error: {status}"
-        )));
+        return graphql::error_response(Error::Internal(anyhow!("L2 gateway error: {status}")));
     }
     let body = match response.text().await {
         Ok(body) => body,
         Err(err) => {
-            return crate::client_query::graphql::error_response(Error::Internal(anyhow!(
-                "L2 gateway error: {err}"
-            )))
+            return graphql::error_response(Error::Internal(anyhow!("L2 gateway error: {err}")))
         }
     };
     Response::builder()
