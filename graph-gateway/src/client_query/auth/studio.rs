@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use eventuals::{Eventual, Ptr};
+use thegraph::types::{DeploymentId, SubgraphId};
 
 use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::topology::Deployment;
@@ -85,6 +86,18 @@ pub fn parse_bearer_token(auth: &AuthContext, token: &str) -> anyhow::Result<Arc
     // Retrieve the API Key associated with the bearer token
     auth.get_api_key(token)
         .ok_or_else(|| anyhow::anyhow!("API key not found"))
+}
+
+/// Check if the given deployment is authorized by the given API key.
+pub fn is_deployment_authorized(api_key: &Arc<APIKey>, deployment: &DeploymentId) -> bool {
+    let allowed_deployments = &api_key.deployments;
+    common::is_deployment_authorized(allowed_deployments, deployment)
+}
+
+/// Check if the given subgraph is authorized by the given API key.
+pub fn is_subgraph_authorized(api_key: &Arc<APIKey>, subgraph: &SubgraphId) -> bool {
+    let allowed_subgraphs = &api_key.subgraphs;
+    common::is_subgraph_authorized(allowed_subgraphs, subgraph)
 }
 
 /// Check if the given domain is authorized by the given API key.
