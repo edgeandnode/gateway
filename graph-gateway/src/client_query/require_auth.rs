@@ -154,7 +154,7 @@ where
 
         // Check if the request origin domain is authorized
         let origin = req.headers().typed_get::<Origin>().unwrap_or(Origin::NULL);
-        tracing::info!(target: reports::CLIENT_QUERY_TARGET, domain = %origin.hostname());
+        tracing::debug!(domain = %origin.hostname());
 
         if !auth_token.is_domain_authorized(origin.hostname()) {
             // If the request origin domain is not allowed, return an error response
