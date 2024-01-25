@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
 
-use super::common::{are_deployments_authorized, are_subgraphs_authorized, is_domain_authorized};
+use super::common;
 
 /// App state (a.k.a [Context](crate::client_query::Context)) sub-state.
 pub struct AuthContext {
@@ -66,38 +66,33 @@ pub fn parse_bearer_token(_auth: &AuthContext, token: &str) -> anyhow::Result<Au
     Ok(claims)
 }
 
-pub async fn check_token(
-    auth: &AuthContext,
-    auth_token: &AuthTokenClaims,
-    deployments: &[Arc<Deployment>],
-    domain: &str,
-) -> anyhow::Result<()> {
-    // Check deployment allowlist
-    let allowed_deployments = &auth_token.allowed_deployments;
-    tracing::debug!(?allowed_deployments);
-
-    if !are_deployments_authorized(allowed_deployments, deployments) {
-        return Err(anyhow::anyhow!("Deployment not authorized by user"));
-    }
-
-    // Check subgraph allowlist
-    let allowed_subgraphs = &auth_token.allowed_subgraphs;
-    tracing::debug!(?allowed_subgraphs);
-
-    if !are_subgraphs_authorized(allowed_subgraphs, deployments) {
-        return Err(anyhow::anyhow!("Subgraph not authorized by user"));
-    }
-
-    // Check domain allowlist
+/// Check if the given domain is authorized by the auth token claims.
+pub fn is_domain_authorized(auth_token: &AuthTokenClaims, domain: &str) -> bool {
+    // Get domain allowlist
     let allowed_domains: Vec<&str> = auth_token
         .allowed_domains
         .iter()
         .map(AsRef::as_ref)
         .collect();
-    tracing::debug!(?allowed_domains);
 
-    if !is_domain_authorized(&allowed_domains, domain) {
-        return Err(anyhow::anyhow!("Domain not authorized by user"));
+    common::is_domain_authorized(&allowed_domains, domain)
+}
+
+pub async fn check_token(
+    auth: &AuthContext,
+    auth_token: &AuthTokenClaims,
+    deployments: &[Arc<Deployment>],
+) -> anyhow::Result<()> {
+    // Check deployment allowlist
+    let allowed_deployments = &auth_token.allowed_deployments;
+    if !common::are_deployments_authorized(allowed_deployments, deployments) {
+        return Err(anyhow::anyhow!("Deployment not authorized by user"));
+    }
+
+    // Check subgraph allowlist
+    let allowed_subgraphs = &auth_token.allowed_subgraphs;
+    if !common::are_subgraphs_authorized(allowed_subgraphs, deployments) {
+        return Err(anyhow::anyhow!("Subgraph not authorized by user"));
     }
 
     // This is safe, since we have already verified the signature and the claimed signer match in
@@ -144,7 +139,7 @@ pub async fn check_token(
         ));
     }
 
-    // Check if the if the auth token chain id and contract are among
+    // Check if the auth token chain id and contract are among
     // the allowed subscriptions domains.
     if !auth.is_domain_allowed(chain_id, &contract) {
         return Err(anyhow::anyhow!(

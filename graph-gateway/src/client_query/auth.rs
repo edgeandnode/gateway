@@ -18,3 +18,15 @@ pub enum AuthToken {
     /// Auth token associated with a subscription.
     SubscriptionsAuthToken(AuthTokenClaims),
 }
+
+impl AuthToken {
+    /// Check if the given origin domain is authorized for this auth token.    
+    pub fn is_domain_authorized(&self, domain: &str) -> bool {
+        match self {
+            AuthToken::StudioApiKey(api_key) => studio::is_domain_authorized(api_key, domain),
+            AuthToken::SubscriptionsAuthToken(claims) => {
+                subscriptions::is_domain_authorized(claims, domain)
+            }
+        }
+    }
+}
