@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "graph-gateway"
-version = "17.0.0"
+version = "17.1.0"
 
 [dependencies]
 alloy-primitives.workspace = true
@@ -22,7 +22,6 @@ hickory-resolver = "0.24.0"
 indexer-selection = { path = "../indexer-selection" }
 indoc = "2.0.4"
 itertools = "0.12.0"
-lazy_static = "1.4"
 pin-project = "1.1.4"
 prometheus = { version = "0.13", default-features = false }
 prost = "0.12.3"
