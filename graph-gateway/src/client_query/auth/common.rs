@@ -17,6 +17,11 @@ pub fn are_deployments_authorized(
             .any(|deployment| authorized.contains(&deployment.id))
 }
 
+/// Check if the given deployment is authorized by the given authorized deployments.
+pub fn is_deployment_authorized(authorized: &[DeploymentId], deployment: &DeploymentId) -> bool {
+    authorized.is_empty() || authorized.contains(deployment)
+}
+
 /// Check if any of the given deployments are authorized by the given authorized subgraphs.
 ///
 /// If the authorized subgraphs set is empty, all deployments are considered authorized.
@@ -31,6 +36,11 @@ pub fn are_subgraphs_authorized(
                 .iter()
                 .any(|subgraph_id| authorized.contains(subgraph_id))
         })
+}
+
+/// Check if the given subgraph is authorized by the given authorized subgraphs.
+pub fn is_subgraph_authorized(authorized: &[SubgraphId], subgraph: &SubgraphId) -> bool {
+    authorized.is_empty() || authorized.contains(subgraph)
 }
 
 /// Check if the query origin domain is authorized.

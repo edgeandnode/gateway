@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use axum::extract::OriginalUri;
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::State,
     http::{HeaderMap, Response, StatusCode},
     Extension,
 };
@@ -20,7 +20,7 @@ use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph::types::{attestation, BlockPointer, DeploymentId, SubgraphId};
+use thegraph::types::{attestation, BlockPointer, DeploymentId};
 use tokio::sync::mpsc;
 use toolshed::buffer_queue::QueueWriter;
 use tracing::Instrument;
@@ -44,6 +44,7 @@ use indexer_selection::{
 };
 
 use crate::block_constraints::{block_constraints, make_query_deterministic};
+use crate::client_query::query_selector::QuerySelector;
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
@@ -61,6 +62,7 @@ mod graphql;
 mod l2_forwarding;
 pub mod legacy_auth_adapter;
 pub mod query_id;
+mod query_selector;
 pub mod query_tracing;
 pub mod require_auth;
 
@@ -74,28 +76,32 @@ pub async fn handle_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthToken>,
     OriginalUri(original_uri): OriginalUri,
-    Path(params): Path<BTreeMap<String, String>>,
+    selector: QuerySelector,
     headers: HeaderMap,
     payload: Bytes,
 ) -> Response<String> {
-    let span = tracing::span::Span::current();
-
     let start_time = Instant::now();
     let timestamp = unix_timestamp();
 
-    let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &params).await;
+    // Check if the query selector is authorized by the auth token
+    match &selector {
+        QuerySelector::Subgraph(id) => {
+            if !auth.is_subgraph_authorized(id) {
+                return graphql::error_response(Error::Auth(anyhow!(
+                    "Subgraph not authorized by user"
+                )));
+            }
+        }
+        QuerySelector::Deployment(id) => {
+            if !auth.is_deployment_authorized(id) {
+                return graphql::error_response(Error::Auth(anyhow!(
+                    "Deployment not authorized by user"
+                )));
+            }
+        }
+    }
 
-    // This is very useful for investigating gateway logs in production
-    let selector = match &resolved_deployments {
-        Ok((_, Some(subgraph))) => subgraph.id.to_string(),
-        Ok((deployments, None)) => deployments
-            .iter()
-            .map(|d| d.id.to_string())
-            .collect::<Vec<_>>()
-            .join(","),
-        Err(_) => "".to_string(),
-    };
-    span.record("selector", tracing::field::display(selector));
+    let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &selector).await;
 
     // We only resolve a subgraph when a subgraph ID is given as a URL param.
     let subgraph = resolved_deployments
@@ -126,7 +132,7 @@ pub async fn handle_query(
     let result = match resolved_deployments {
         Ok((deployments, _)) => {
             handle_client_query_inner(&ctx, deployments, payload, auth)
-                .instrument(span.clone())
+                .in_current_span()
                 .await
         }
         Err(subgraph_resolution_err) => Err(subgraph_resolution_err),
@@ -173,36 +179,27 @@ pub async fn handle_query(
 
 async fn resolve_subgraph_deployments(
     network: &GraphNetwork,
-    params: &BTreeMap<String, String>,
+    selector: &QuerySelector,
 ) -> Result<(Vec<Arc<Deployment>>, Option<Subgraph>), Error> {
-    if let Some(id) = params.get("subgraph_id") {
-        // Parse the subgraph ID
-        let id: SubgraphId = id
-            .parse()
-            .map_err(|_| Error::SubgraphNotFound(anyhow!("invalid subgraph ID: {id}")))?;
+    match selector {
+        QuerySelector::Subgraph(subgraph_id) => {
+            // Get the subgraph by ID
+            let subgraph = network
+                .subgraph_by_id(subgraph_id)
+                .ok_or_else(|| Error::SubgraphNotFound(anyhow!("{subgraph_id}")))?;
 
-        // Get the subgraph by ID
-        let subgraph = network
-            .subgraph_by_id(&id)
-            .ok_or_else(|| Error::SubgraphNotFound(anyhow!("{id}")))?;
+            // Get the subgraph's deployments (versions = deployments)
+            let versions = subgraph.deployments.clone();
+            Ok((versions, Some(subgraph)))
+        }
+        QuerySelector::Deployment(deployment_id) => {
+            // Get the deployment by ID, no subgraph
+            let deployment = network.deployment_by_id(deployment_id).ok_or_else(|| {
+                Error::SubgraphNotFound(anyhow!("deployment not found: {deployment_id}"))
+            })?;
 
-        // Get the subgraph's deployments (versions = deployments)
-        let versions = subgraph.deployments.clone();
-        Ok((versions, Some(subgraph)))
-    } else if let Some(id) = params.get("deployment_id") {
-        // Parse the deployment ID
-        let id: DeploymentId = id
-            .parse()
-            .map_err(|_| Error::SubgraphNotFound(anyhow!("invalid deployment ID: {id}")))?;
-
-        // Get the deployment by ID, no subgraph
-        let deployment = network
-            .deployment_by_id(&id)
-            .ok_or_else(|| Error::SubgraphNotFound(anyhow!("deployment not found: {id}")))?;
-
-        Ok((vec![deployment], None))
-    } else {
-        Err(Error::SubgraphNotFound(anyhow!("missing identifier")))
+            Ok((vec![deployment], None))
+        }
     }
 }
 

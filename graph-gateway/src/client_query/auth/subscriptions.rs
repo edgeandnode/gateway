@@ -5,6 +5,7 @@ use std::sync::{atomic, Arc};
 use alloy_primitives::Address;
 use eventuals::{Eventual, Ptr};
 use thegraph::subscriptions::auth::{parse_auth_token, verify_auth_token_claims, AuthTokenClaims};
+use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
 
 use crate::subscriptions::Subscription;
@@ -64,6 +65,18 @@ pub fn parse_bearer_token(_auth: &AuthContext, token: &str) -> anyhow::Result<Au
     }
 
     Ok(claims)
+}
+
+/// Check if the given deployment is authorized by the given API key.
+pub fn is_deployment_authorized(auth_token: &AuthTokenClaims, deployment: &DeploymentId) -> bool {
+    let allowed_deployments = &auth_token.allowed_deployments;
+    common::is_deployment_authorized(allowed_deployments, deployment)
+}
+
+/// Check if the given subgraph is authorized by the given API key.
+pub fn is_subgraph_authorized(auth_token: &AuthTokenClaims, subgraph: &SubgraphId) -> bool {
+    let allowed_subgraphs = &auth_token.allowed_subgraphs;
+    common::is_subgraph_authorized(allowed_subgraphs, subgraph)
 }
 
 /// Check if the given domain is authorized by the auth token claims.
