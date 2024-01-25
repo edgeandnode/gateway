@@ -83,19 +83,22 @@ pub async fn handle_query(
     let start_time = Instant::now();
     let timestamp = unix_timestamp();
 
-    // Check if the query selector is authorized by the user
+    // Check if the query selector is authorized by the auth token
     match &selector {
-        QuerySelector::Subgraph(id) if !auth.is_subgraph_authorized(id) => {
-            return graphql::error_response(Error::Auth(anyhow!(
-                "Subgraph not authorized by user"
-            )));
+        QuerySelector::Subgraph(id) => {
+            if !auth.is_subgraph_authorized(id) {
+                return graphql::error_response(Error::Auth(anyhow!(
+                    "Subgraph not authorized by user"
+                )));
+            }
         }
-        QuerySelector::Deployment(id) if !auth.is_deployment_authorized(id) => {
-            return graphql::error_response(Error::Auth(anyhow!(
-                "Deployment not authorized by user"
-            )));
+        QuerySelector::Deployment(id) => {
+            if !auth.is_deployment_authorized(id) {
+                return graphql::error_response(Error::Auth(anyhow!(
+                    "Deployment not authorized by user"
+                )));
+            }
         }
-        _ => (),
     }
 
     let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &selector).await;
