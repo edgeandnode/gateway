@@ -38,9 +38,8 @@ pub struct Subgraph {
 pub struct Deployment {
     pub id: DeploymentId,
     pub manifest: Arc<Manifest>,
-    pub expect_attestation: bool,
-    /// An indexer may have multiple active allocations on a deployment. We collapse them into a single logical
-    /// allocation using the largest allocation ID and sum of the allocated tokens.
+    /// An indexer may have multiple active allocations on a deployment. We collapse them into a
+    /// single logical allocation using the largest allocation ID and sum of the allocated tokens.
     pub indexers: Vec<Arc<Indexer>>,
     /// A deployment may be associated with multiple subgraphs.
     pub subgraphs: BTreeSet<SubgraphId>,
@@ -218,7 +217,6 @@ impl GraphNetwork {
         Some(Arc::new(Deployment {
             id,
             manifest,
-            expect_attestation: version.subgraph_deployment.denied_at == 0,
             subgraphs,
             indexers,
             transferred_to_l2,
