@@ -7,7 +7,7 @@ use eventuals::{Eventual, Ptr};
 use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::topology::Deployment;
 
-use super::common::{are_deployments_authorized, are_subgraphs_authorized, is_domain_authorized};
+use super::common;
 
 /// Errors that may occur when parsing a Studio API key.
 #[derive(Debug, thiserror::Error)]
@@ -87,11 +87,21 @@ pub fn parse_bearer_token(auth: &AuthContext, token: &str) -> anyhow::Result<Arc
         .ok_or_else(|| anyhow::anyhow!("API key not found"))
 }
 
+/// Check if the given domain is authorized by the given API key.
+pub fn is_domain_authorized(api_key: &Arc<APIKey>, domain: &str) -> bool {
+    let allowed_domains = &api_key
+        .domains
+        .iter()
+        .map(AsRef::as_ref)
+        .collect::<Vec<_>>();
+
+    common::is_domain_authorized(allowed_domains, domain)
+}
+
 pub async fn check_token(
     auth: &AuthContext,
     api_key: &Arc<APIKey>,
     deployments: &[Arc<Deployment>],
-    domain: &str,
 ) -> anyhow::Result<()> {
     // Enforce the API key payment status, unless it's being subsidized.
     if auth.is_payment_required() && !api_key.is_subsidized && !auth.is_special_key(api_key) {
@@ -104,30 +114,14 @@ pub async fn check_token(
 
     // Check deployment allowlist
     let allowed_deployments = &api_key.deployments;
-
-    tracing::debug!(?allowed_deployments);
-    if !are_deployments_authorized(allowed_deployments, deployments) {
+    if !common::are_deployments_authorized(allowed_deployments, deployments) {
         return Err(anyhow::anyhow!("Deployment not authorized by user"));
     }
 
     // Check subgraph allowlist
     let allowed_subgraphs = &api_key.subgraphs;
-
-    tracing::debug!(?allowed_subgraphs);
-    if !are_subgraphs_authorized(allowed_subgraphs, deployments) {
+    if !common::are_subgraphs_authorized(allowed_subgraphs, deployments) {
         return Err(anyhow::anyhow!("Subgraph not authorized by user"));
-    }
-
-    // Check domain allowlist
-    let allowed_domains = &api_key
-        .domains
-        .iter()
-        .map(AsRef::as_ref)
-        .collect::<Vec<_>>();
-
-    tracing::debug!(?allowed_domains);
-    if !is_domain_authorized(allowed_domains, domain) {
-        return Err(anyhow::anyhow!("Domain not authorized by user"));
     }
 
     Ok(())

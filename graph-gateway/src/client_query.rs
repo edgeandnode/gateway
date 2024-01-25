@@ -10,12 +10,12 @@ use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{HeaderMap, Response, StatusCode},
-    Extension, TypedHeader,
+    Extension,
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
 use futures::future::join_all;
-use headers::{ContentType, Origin};
+use headers::ContentType;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
@@ -75,7 +75,6 @@ pub async fn handle_query(
     Extension(auth): Extension<AuthToken>,
     OriginalUri(original_uri): OriginalUri,
     Path(params): Path<BTreeMap<String, String>>,
-    origin: Option<TypedHeader<Origin>>,
     headers: HeaderMap,
     payload: Bytes,
 ) -> Response<String> {
@@ -124,30 +123,28 @@ pub async fn handle_query(
         }
     }
 
-    let domain = origin
-        .map(|origin| origin.hostname().to_string())
-        .unwrap_or_default();
     let result = match resolved_deployments {
         Ok((deployments, _)) => {
-            handle_client_query_inner(&ctx, deployments, payload, auth, domain)
+            handle_client_query_inner(&ctx, deployments, payload, auth)
                 .instrument(span.clone())
                 .await
         }
         Err(subgraph_resolution_err) => Err(subgraph_resolution_err),
     };
 
-    let deployment: Option<String> = result
-        .as_ref()
-        .map(|(selection, _)| selection.indexing.deployment.to_string())
-        .ok();
-    let metric_labels = [deployment.as_deref().unwrap_or("")];
-
-    METRICS.client_query.check(&metric_labels, &result);
-    with_metric(&METRICS.client_query.duration, &metric_labels, |h| {
-        h.observe((Instant::now() - start_time).as_secs_f64())
-    });
-
+    // Metrics and tracing
     {
+        let deployment: Option<String> = result
+            .as_ref()
+            .map(|(selection, _)| selection.indexing.deployment.to_string())
+            .ok();
+        let metric_labels = [deployment.as_deref().unwrap_or("")];
+
+        METRICS.client_query.check(&metric_labels, &result);
+        with_metric(&METRICS.client_query.duration, &metric_labels, |h| {
+            h.observe((Instant::now() - start_time).as_secs_f64())
+        });
+
         let status_message = match &result {
             Ok(_) => "200 OK".to_string(),
             Err(err) => err.to_string(),
@@ -214,13 +211,12 @@ async fn handle_client_query_inner(
     mut deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
     auth: AuthToken,
-    domain: String,
 ) -> Result<(Selection, ResponsePayload), Error> {
     let subgraph_chain = deployments
         .last()
         .map(|deployment| deployment.manifest.network.clone())
         .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
-    tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain, domain);
+    tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain);
     // Make sure we only select from deployments indexing the same chain. This simplifies dealing
     // with block constraints later.
     deployments.retain(|deployment| deployment.manifest.network == subgraph_chain);
@@ -232,23 +228,11 @@ async fn handle_client_query_inner(
         .get(&subgraph_chain)
         .ok_or_else(|| Error::ChainNotFound(subgraph_chain))?;
 
-    match &auth {
-        AuthToken::StudioApiKey(api_key) => tracing::info!(
-            target: reports::CLIENT_QUERY_TARGET,
-            user_address = ?api_key.user_address,
-            api_key = %api_key.key,
-        ),
-        AuthToken::SubscriptionsAuthToken(claims) => tracing::info!(
-            target: reports::CLIENT_QUERY_TARGET,
-            user_address = ?claims.user(),
-        ),
-    };
-
     let payload: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
 
     ctx.auth_handler
-        .check_token(&auth, &deployments, &domain)
+        .check_token(&auth, &deployments)
         .await
         .map_err(Error::Auth)?;
 

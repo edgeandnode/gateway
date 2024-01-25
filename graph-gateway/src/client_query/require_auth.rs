@@ -7,10 +7,12 @@ use std::task::{Context, Poll};
 
 use axum::http::Request;
 use headers::authorization::Bearer;
-use headers::{Authorization, HeaderMapExt};
+use headers::{Authorization, HeaderMapExt, Origin};
 use tower::Service;
 
 use gateway_framework::errors::Error;
+
+use crate::reports;
 
 use super::auth::{AuthContext, AuthToken};
 use super::graphql;
@@ -127,18 +129,42 @@ where
             }
         };
 
-        // Parse the bearer token into an `AuthToken` and insert it into the request extensions
-        match self.auth_ctx.parse_bearer_token(bearer.token()) {
-            Ok(token) => {
-                req.extensions_mut().insert(token);
-            }
+        // Parse the bearer token into an `AuthToken`
+        let auth_token = match self.auth_ctx.parse_bearer_token(bearer.token()) {
+            Ok(token) => token,
             Err(err) => {
                 // If the bearer token is invalid, return an error response
                 return ResponseFuture::error(graphql::error_response(Error::Auth(
                     anyhow::anyhow!("Invalid bearer token: {err}"),
                 )));
             }
+        };
+
+        match &auth_token {
+            AuthToken::StudioApiKey(api_key) => tracing::info!(
+                target: reports::CLIENT_QUERY_TARGET,
+                user_address = ?api_key.user_address,
+                api_key = %api_key.key,
+            ),
+            AuthToken::SubscriptionsAuthToken(claims) => tracing::info!(
+                target: reports::CLIENT_QUERY_TARGET,
+                user_address = ?claims.user(),
+            ),
+        };
+
+        // Check if the request origin domain is authorized
+        let origin = req.headers().typed_get::<Origin>().unwrap_or(Origin::NULL);
+        tracing::info!(target: reports::CLIENT_QUERY_TARGET, domain = %origin.hostname());
+
+        if !auth_token.is_domain_authorized(origin.hostname()) {
+            // If the request origin domain is not allowed, return an error response
+            return ResponseFuture::error(graphql::error_response(Error::Auth(anyhow::anyhow!(
+                "Domain not authorized by user"
+            ))));
         }
+
+        // Insert the `AuthToken` extension into the request
+        req.extensions_mut().insert(auth_token);
 
         ResponseFuture::from_service(self.inner.call(req))
     }

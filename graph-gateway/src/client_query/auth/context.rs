@@ -121,16 +121,15 @@ impl AuthContext {
         &self,
         token: &AuthToken,
         deployments: &[Arc<Deployment>],
-        domain: &str,
     ) -> anyhow::Result<()> {
         match token {
             AuthToken::StudioApiKey(api_key) => {
                 let auth_handler = studio::AuthContext::from_ref(self);
-                studio::check_token(&auth_handler, api_key, deployments, domain).await
+                studio::check_token(&auth_handler, api_key, deployments).await
             }
             AuthToken::SubscriptionsAuthToken(auth_token) => {
                 let auth_handler = subscriptions::AuthContext::from_ref(self);
-                subscriptions::check_token(&auth_handler, auth_token, deployments, domain).await
+                subscriptions::check_token(&auth_handler, auth_token, deployments).await
             }
         }
     }
