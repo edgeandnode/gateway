@@ -26,6 +26,7 @@ use thegraph::{
     client as subgraph_client,
     types::{attestation, DeploymentId},
 };
+use tokio::signal::unix::SignalKind;
 use tokio::spawn;
 use toolshed::{
     buffer_queue::{self, QueueWriter},
@@ -408,8 +409,37 @@ async fn main() {
     // disable Nagel's algorithm
     .tcp_nodelay(true)
     .serve(router.into_make_service_with_connect_info::<SocketAddr>())
+    .with_graceful_shutdown(await_shutdown_signals())
     .await
     .expect("Failed to start API server");
+    tracing::warn!("shutdown");
+}
+
+async fn await_shutdown_signals() {
+    #[cfg(unix)]
+    let sigint = async {
+        tokio::signal::unix::signal(SignalKind::interrupt())
+            .expect("install SIGINT handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let sigint = std::future::pending::<()>();
+
+    #[cfg(unix)]
+    let sigterm = async {
+        tokio::signal::unix::signal(SignalKind::terminate())
+            .expect("install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let sigterm = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = sigint => (),
+        _ = sigterm => (),
+    }
 }
 
 fn update_from_eventual<V, F>(eventual: Eventual<V>, writer: QueueWriter<Update>, f: F)
