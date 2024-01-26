@@ -58,7 +58,6 @@ use self::l2_forwarding::forward_request_to_l2;
 mod attestation_header;
 pub mod auth;
 pub mod context;
-mod graphql;
 mod l2_forwarding;
 pub mod legacy_auth_adapter;
 pub mod query_id;
@@ -79,7 +78,7 @@ pub async fn handle_query(
     selector: QuerySelector,
     headers: HeaderMap,
     payload: Bytes,
-) -> Response<String> {
+) -> Result<Response<String>, Error> {
     let start_time = Instant::now();
     let timestamp = unix_timestamp();
 
@@ -87,37 +86,25 @@ pub async fn handle_query(
     match &selector {
         QuerySelector::Subgraph(id) => {
             if !auth.is_subgraph_authorized(id) {
-                return graphql::error_response(Error::Auth(anyhow!(
-                    "Subgraph not authorized by user"
-                )));
+                return Err(Error::Auth(anyhow!("Subgraph not authorized by user")));
             }
         }
         QuerySelector::Deployment(id) => {
             if !auth.is_deployment_authorized(id) {
-                return graphql::error_response(Error::Auth(anyhow!(
-                    "Deployment not authorized by user"
-                )));
+                return Err(Error::Auth(anyhow!("Deployment not authorized by user")));
             }
         }
     }
 
-    let resolved_deployments = resolve_subgraph_deployments(&ctx.network, &selector).await;
-
-    // We only resolve a subgraph when a subgraph ID is given as a URL param.
-    let subgraph = resolved_deployments
-        .as_ref()
-        .ok()
-        .and_then(|(_, s)| s.as_ref());
+    let (deployments, subgraph) = resolve_subgraph_deployments(&ctx.network, &selector)?;
+    tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
 
     if let Some(l2_url) = ctx.l2_gateway.as_ref() {
         // Forward query to L2 gateway if it's marked as transferred & there are no allocations.
         // abf62a6d-c071-4507-b528-ddc8e250127a
-        let transferred_to_l2 = matches!(
-            resolved_deployments.as_ref(),
-            Ok((deployments, _)) if deployments.iter().all(|d| d.transferred_to_l2),
-        );
+        let transferred_to_l2 = deployments.iter().all(|d| d.transferred_to_l2);
         if transferred_to_l2 {
-            return forward_request_to_l2(
+            return Ok(forward_request_to_l2(
                 &ctx.indexer_client.client,
                 l2_url,
                 &original_uri,
@@ -125,18 +112,13 @@ pub async fn handle_query(
                 payload,
                 subgraph.and_then(|s| s.l2_id),
             )
-            .await;
+            .await);
         }
     }
 
-    let result = match resolved_deployments {
-        Ok((deployments, _)) => {
-            handle_client_query_inner(&ctx, deployments, payload, auth)
-                .in_current_span()
-                .await
-        }
-        Err(subgraph_resolution_err) => Err(subgraph_resolution_err),
-    };
+    let result = handle_client_query_inner(&ctx, deployments, payload, auth)
+        .in_current_span()
+        .await;
 
     // Metrics and tracing
     {
@@ -166,18 +148,19 @@ pub async fn handle_query(
         );
     }
 
-    match result {
-        Ok((_, ResponsePayload { body, attestation })) => Response::builder()
+    result.map(|(_, ResponsePayload { body, attestation })| {
+        Response::builder()
             .status(StatusCode::OK)
             .header_typed(ContentType::json())
             .header_typed(GraphAttestation(attestation))
             .body(body.to_string())
-            .unwrap(),
-        Err(err) => graphql::error_response(err),
-    }
+            .unwrap()
+    })
 }
 
-async fn resolve_subgraph_deployments(
+/// Given a query selector, resolve the subgraph deployments for the query. If the selector is a subgraph ID, return
+/// the subgraph's deployment instances. If the selector is a deployment ID, return the deployment instance.
+fn resolve_subgraph_deployments(
     network: &GraphNetwork,
     selector: &QuerySelector,
 ) -> Result<(Vec<Arc<Deployment>>, Option<Subgraph>), Error> {
@@ -188,12 +171,26 @@ async fn resolve_subgraph_deployments(
                 .subgraph_by_id(subgraph_id)
                 .ok_or_else(|| Error::SubgraphNotFound(anyhow!("{subgraph_id}")))?;
 
-            // Get the subgraph's deployments (versions = deployments)
-            let versions = subgraph.deployments.clone();
+            // Get the subgraph's chain (from the last of its deployments)
+            let subgraph_chain = subgraph
+                .deployments
+                .last()
+                .map(|deployment| deployment.manifest.network.clone())
+                .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
+
+            // Get the subgraph's deployments. Make sure we only select from deployments indexing
+            // the same chain. This simplifies dealing with block constraints later
+            let versions = subgraph
+                .deployments
+                .iter()
+                .filter(|deployment| deployment.manifest.network == subgraph_chain)
+                .cloned()
+                .collect();
+
             Ok((versions, Some(subgraph)))
         }
         QuerySelector::Deployment(deployment_id) => {
-            // Get the deployment by ID, no subgraph
+            // Get the deployment by ID
             let deployment = network.deployment_by_id(deployment_id).ok_or_else(|| {
                 Error::SubgraphNotFound(anyhow!("deployment not found: {deployment_id}"))
             })?;
@@ -205,7 +202,7 @@ async fn resolve_subgraph_deployments(
 
 async fn handle_client_query_inner(
     ctx: &Context,
-    mut deployments: Vec<Arc<Deployment>>,
+    deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
     auth: AuthToken,
 ) -> Result<(Selection, ResponsePayload), Error> {
@@ -214,10 +211,6 @@ async fn handle_client_query_inner(
         .map(|deployment| deployment.manifest.network.clone())
         .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
     tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain);
-    // Make sure we only select from deployments indexing the same chain. This simplifies dealing
-    // with block constraints later.
-    deployments.retain(|deployment| deployment.manifest.network == subgraph_chain);
-    tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
 
     let manifest_min_block = deployments.last().unwrap().manifest.min_block;
     let block_cache = *ctx
