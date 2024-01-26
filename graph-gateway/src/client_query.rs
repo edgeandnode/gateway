@@ -183,7 +183,7 @@ fn resolve_subgraph_deployments(
             let versions = subgraph
                 .deployments
                 .iter()
-                .filter(|deployment| deployment.manifest.network != subgraph_chain)
+                .filter(|deployment| deployment.manifest.network == subgraph_chain)
                 .cloned()
                 .collect();
 
