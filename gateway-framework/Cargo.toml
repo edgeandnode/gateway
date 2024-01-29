@@ -5,7 +5,7 @@ version = "0.0.1"
 
 [dependencies]
 alloy-primitives.workspace = true
-alloy-sol-types = "0.6.0"
+alloy-sol-types = "0.6.2"
 anyhow.workspace = true
 axum.workspace = true
 ethers = "2.0.11"
