@@ -1875,7 +1875,6 @@ dependencies = [
  "receipts",
  "reqwest",
  "secp256k1",
- "semver 1.0.21",
  "serde",
  "serde_json",
  "serde_with",
@@ -1937,7 +1936,7 @@ dependencies = [
 
 [[package]]
 name = "graph-gateway"
-version = "17.0.0"
+version = "17.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -1959,7 +1958,6 @@ dependencies = [
  "indexer-selection",
  "indoc",
  "itertools 0.12.0",
- "lazy_static",
  "pin-project",
  "prometheus",
  "prost",
