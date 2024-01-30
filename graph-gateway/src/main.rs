@@ -141,8 +141,7 @@ async fn main() {
         subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
     let network_subgraph_data =
         network_subgraph::Client::create(network_subgraph_client, config.l2_gateway.is_some())
-            .await
-            .unwrap();
+            .await;
 
     update_writer
         .write(Update::SlashingPercentage(
