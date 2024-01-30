@@ -425,11 +425,6 @@ async fn handle_client_query_inner(
                 GRT((min_fee.0 * grt_per_usd.0) / UDecimal18::from(selections_len as u128));
             selection.fee = selection.fee.max(min_fee);
         }
-        total_indexer_fees = GRT(total_indexer_fees.0 + selections.iter().map(|s| s.fee.0).sum());
-        tracing::info!(
-            target: reports::CLIENT_QUERY_TARGET,
-            indexer_fees_grt = f64::from(total_indexer_fees.0) as f32,
-        );
 
         let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
         for selection in selections {
@@ -480,6 +475,14 @@ async fn handle_client_query_inner(
             )
             .await;
 
+            // When we prepare an optimistic query, we are pessimistically doubling the fee in case
+            // the optimistic query fails and we pay again for the fallback query.
+            let selection_fee = optimistic_query
+                .is_some()
+                .then(|| GRT(selection.fee.0 * 2.into()))
+                .unwrap_or(selection.fee);
+            total_indexer_fees = GRT(total_indexer_fees.0 + selection_fee.0);
+
             let indexer_query_context = indexer_query_context.clone();
             let outcome_tx = outcome_tx.clone();
             // We must manually construct this span before the spawned task, since otherwise
@@ -505,6 +508,12 @@ async fn handle_client_query_inner(
                 .instrument(span),
             );
         }
+
+        tracing::info!(
+            target: reports::CLIENT_QUERY_TARGET,
+            indexer_fees_grt = f64::from(total_indexer_fees.0) as f32,
+        );
+
         for _ in 0..selections_len {
             match outcome_rx.recv().await {
                 None => (),
