@@ -9,7 +9,7 @@ use thegraph::{
     client as subgraph_client,
     types::{DeploymentId, SubgraphId, UDecimal18},
 };
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time::sleep};
 
 pub struct Data {
     pub network_params: NetworkParams,
@@ -72,7 +72,7 @@ impl Client {
     pub async fn create(
         subgraph_client: subgraph_client::Client,
         l2_transfer_support: bool,
-    ) -> anyhow::Result<Data> {
+    ) -> Data {
         let (subgraphs_tx, subgraphs_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
@@ -80,7 +80,15 @@ impl Client {
             l2_transfer_support,
         }));
 
-        let network_params = client.lock().await.network_params().await?;
+        let network_params = loop {
+            match client.lock().await.network_params().await {
+                Ok(network_params) => break network_params,
+                Err(network_params_err) => {
+                    tracing::error!(%network_params_err);
+                    sleep(Duration::from_secs(10)).await;
+                }
+            }
+        };
 
         // 4e072dfe-5cb3-4f86-80f6-b64afeb9dcb2
         eventuals::timer(Duration::from_secs(30))
@@ -95,10 +103,10 @@ impl Client {
             })
             .forever();
 
-        Ok(Data {
+        Data {
             network_params,
             subgraphs: subgraphs_rx,
-        })
+        }
     }
 
     async fn network_params(&mut self) -> anyhow::Result<NetworkParams> {
@@ -120,7 +128,6 @@ impl Client {
             .map_err(|err| anyhow!(err))?
             .graph_network
             .ok_or_else(|| anyhow!("Discarding empty update (graphNetwork)"))?;
-
         Ok(NetworkParams {
             slashing_percentage: UDecimal18::from_raw_u256(
                 U256::from(response.slashing_percentage) * U256::from(1_000_000_000_000_u128),
