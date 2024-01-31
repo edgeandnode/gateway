@@ -274,12 +274,12 @@ async fn handle_client_query_inner(
         .grt_per_usd
         .ok_or_else(|| Error::Internal(anyhow!("missing exchange rate")))?;
     let mut budget = GRT(ctx.budgeter.query_fees_target.0 * grt_per_usd.0);
-    let user_settings = ctx.auth_handler.query_settings(&auth);
-    if let Some(user_budget) = user_settings.budget {
+    let query_settings = auth.query_settings();
+    if let Some(user_budget) = query_settings.budget {
         // Security: Consumers can and will set their budget to unreasonably high values.
         // This `.min` prevents the budget from being set far beyond what it would be
-        // automatically. The reason this is important is because sometimes queries are
-        // subsidized and we would be at-risk to allow arbitrarily high values.
+        // automatically. The reason this is important is that sometimes queries are
+        // subsidized, and we would be at-risk to allow arbitrarily high values.
         let max_budget = GRT(budget.0 * UDecimal18::from(10));
         budget = GRT(user_budget.0 * grt_per_usd.0).min(max_budget);
     }

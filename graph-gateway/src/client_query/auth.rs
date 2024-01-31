@@ -5,7 +5,8 @@ use thegraph::types::{DeploymentId, SubgraphId};
 
 use crate::subgraph_studio::APIKey;
 
-pub use self::context::{AuthContext, UserSettings};
+pub use self::common::QuerySettings;
+pub use self::context::AuthContext;
 
 mod common;
 mod context;
@@ -49,6 +50,18 @@ impl AuthToken {
             AuthToken::StudioApiKey(api_key) => studio::is_domain_authorized(api_key, domain),
             AuthToken::SubscriptionsAuthToken(claims) => {
                 subscriptions::is_domain_authorized(claims, domain)
+            }
+        }
+    }
+
+    /// Get the user settings associated with the auth token.
+    ///
+    /// See [`QuerySettings`] for more information.
+    pub fn query_settings(&self) -> QuerySettings {
+        match self {
+            AuthToken::StudioApiKey(api_key) => studio::get_query_settings(api_key),
+            AuthToken::SubscriptionsAuthToken(token_claims) => {
+                subscriptions::get_query_settings(token_claims)
             }
         }
     }

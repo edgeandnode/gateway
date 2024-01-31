@@ -8,8 +8,6 @@ use axum::extract::FromRef;
 use eventuals::{Eventual, EventualExt, Ptr};
 use tokio::sync::RwLock;
 
-use gateway_common::types::USD;
-
 use crate::subgraph_studio::APIKey;
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
@@ -50,11 +48,6 @@ impl FromRef<AuthContext> for subscriptions::AuthContext {
             query_counters: auth.subscription_query_counters.clone(),
         }
     }
-}
-
-#[derive(Debug)]
-pub struct UserSettings {
-    pub budget: Option<USD>,
 }
 
 impl AuthContext {
@@ -132,13 +125,5 @@ impl AuthContext {
                 subscriptions::check_token(&auth_handler, auth_token, deployments).await
             }
         }
-    }
-
-    pub fn query_settings(&self, token: &AuthToken) -> UserSettings {
-        let budget = match token {
-            AuthToken::StudioApiKey(api_key) => api_key.max_budget,
-            _ => None,
-        };
-        UserSettings { budget }
     }
 }

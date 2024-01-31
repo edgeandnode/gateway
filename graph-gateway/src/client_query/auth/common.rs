@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use thegraph::types::{DeploymentId, SubgraphId};
 
+use gateway_common::types::USD;
+
 use crate::topology::Deployment;
 
 /// Check if the given deployments are authorized by the given authorized deployments.
@@ -63,6 +65,12 @@ pub fn is_domain_authorized(authorized: &[&str], origin: &str) -> bool {
         || authorized
             .iter()
             .any(|pattern| match_domain(pattern, origin))
+}
+
+/// User query settings associated with an auth token.
+#[derive(Debug)]
+pub struct QuerySettings {
+    pub budget: Option<USD>,
 }
 
 #[cfg(test)]

@@ -12,6 +12,7 @@ use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
 
 use super::common;
+use super::common::QuerySettings;
 
 /// App state (a.k.a [Context](crate::client_query::Context)) sub-state.
 pub struct AuthContext {
@@ -89,6 +90,11 @@ pub fn is_domain_authorized(auth_token: &AuthTokenClaims, domain: &str) -> bool 
         .collect();
 
     common::is_domain_authorized(&allowed_domains, domain)
+}
+
+/// Get the user settings associated with the auth token.
+pub fn get_query_settings(_auth: &AuthTokenClaims) -> QuerySettings {
+    QuerySettings { budget: None }
 }
 
 pub async fn check_token(
