@@ -9,6 +9,7 @@ use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::topology::Deployment;
 
 use super::common;
+use super::common::QuerySettings;
 
 /// Errors that may occur when parsing a Studio API key.
 #[derive(Debug, thiserror::Error)]
@@ -109,6 +110,13 @@ pub fn is_domain_authorized(api_key: &Arc<APIKey>, domain: &str) -> bool {
         .collect::<Vec<_>>();
 
     common::is_domain_authorized(allowed_domains, domain)
+}
+
+/// Get the user settings associated with the API key.
+pub fn get_query_settings(api_key: &Arc<APIKey>) -> QuerySettings {
+    QuerySettings {
+        budget: api_key.max_budget,
+    }
 }
 
 pub async fn check_token(
