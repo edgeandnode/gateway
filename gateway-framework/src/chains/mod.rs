@@ -74,6 +74,7 @@ impl BlockCache {
             chain_head_tx,
             blocks_per_minute_tx,
             block_rate_estimator: block_rate::Estimator::new(C::poll_interval()),
+            latest_seen_block: None,
             number_to_hash: EpochCache::new(),
             hash_to_number: EpochCache::new(),
             pending: HashMap::new(),
@@ -105,6 +106,8 @@ struct Actor {
     chain_head_tx: EventualWriter<BlockPointer>,
     blocks_per_minute_tx: EventualWriter<u64>,
     block_rate_estimator: block_rate::Estimator,
+    /// The latest block number seen from the chain head. This is used to avoid processing old chain heads.
+    latest_seen_block: Option<BlockNumber>,
     number_to_hash: EpochCache<BlockNumber, BlockHash, 2>,
     hash_to_number: EpochCache<BlockHash, BlockNumber, 2>,
     pending: HashMap<UnresolvedBlock, Vec<oneshot::Sender<Result<BlockPointer, UnresolvedBlock>>>>,
@@ -131,7 +134,7 @@ impl Actor {
                             ClientMsg::Err(unresolved) => self.handle_err(unresolved).await,
                         },
                         else => break,
-                    };
+                    }
                 }
                 tracing::error!("exit");
             }
@@ -166,6 +169,21 @@ impl Actor {
     }
 
     async fn handle_chain_head(&mut self, head: BlockHead) {
+        // Avoid processing chain heads older than the latest seen block. Such degradation can happen when the
+        // RPC provider reverts to, and reports, a block number prior to the previously known block number.
+        if let Some(latest_seen_block) = self.latest_seen_block {
+            if head.block.number < latest_seen_block {
+                tracing::warn!(
+                    "Skipping update. Received chain head {} <= latest seen block ({})",
+                    head.block.number,
+                    latest_seen_block
+                );
+                return;
+            }
+        }
+        self.latest_seen_block = Some(head.block.number);
+
+        // Remove uncles from the cache
         for uncle in &head.uncles {
             let removed = self.hash_to_number.remove(uncle);
             if let Some(removed) = removed {
