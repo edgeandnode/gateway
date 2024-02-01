@@ -101,7 +101,7 @@ impl ReceiptSigner {
             allocation_id: allocation.0 .0.into(),
             timestamp_ns,
             nonce,
-            value: fee.0.as_u128().unwrap_or(0),
+            value: fee.0.raw_u256().try_into().unwrap_or(0),
         };
         let wallet =
             Wallet::from_bytes(self.signer.as_ref()).expect("failed to prepare receipt wallet");
