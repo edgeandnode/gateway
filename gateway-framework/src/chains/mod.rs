@@ -172,7 +172,7 @@ impl Actor {
         // Avoid processing chain heads older than the latest seen block. Such degradation can happen when the
         // RPC provider reverts to, and reports, a block number prior to the previously known block number.
         if let Some(latest_seen_block) = self.latest_seen_block {
-            if head.block.number <= latest_seen_block {
+            if head.block.number < latest_seen_block {
                 tracing::warn!(
                     "Skipping update. Received chain head {} <= latest seen block ({})",
                     head.block.number,
