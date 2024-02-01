@@ -171,7 +171,6 @@ impl Actor {
     async fn handle_chain_head(&mut self, head: BlockHead) {
         // Avoid processing chain heads older than the latest seen block. Such degradation can happen when the
         // RPC provider reverts to, and reports, a block number prior to the previously known block number.
-        // See: https://www.notion.so/edgeandnode/2024-01-30-Gateway-RPC-issue-Ethereum-mainnet-a109a3f6a89b444290363d7d216bb7aa
         if let Some(latest_seen_block) = self.latest_seen_block {
             if head.block.number <= latest_seen_block {
                 tracing::warn!(
