@@ -641,7 +641,11 @@ async fn handle_indexer_query_inner(
     .map_err(|err| IndexerError::BadResponse(err.to_string()))?
     .errors
     .into_iter()
-    .map(|err| err.message)
+    .map(|mut err| {
+        err.message.truncate(512);
+        err.message.shrink_to_fit();
+        err.message
+    })
     .collect::<Vec<String>>();
 
     tracing::info!(
