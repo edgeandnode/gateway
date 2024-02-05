@@ -85,7 +85,7 @@ async fn update_statuses(
     // There can only be one URL per indexer entity in the network subgraph
     let mut indexers: HashMap<Address, (Url, Vec<DeploymentId>)> = Default::default();
     for deployment in deployments.values() {
-        for indexer in &deployment.indexers {
+        for indexer in deployment.indexers.values() {
             let (_, deployments) = indexers
                 .entry(indexer.id)
                 .or_insert_with(|| (indexer.url.clone(), vec![]));

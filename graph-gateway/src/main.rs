@@ -485,8 +485,8 @@ async fn write_indexer_inputs(
     for (deployment, indexer) in deployments.values().flat_map(|deployment| {
         deployment
             .indexers
-            .iter()
-            .map(move |indexer| (deployment.as_ref(), indexer.as_ref()))
+            .values()
+            .map(|indexer| (deployment.as_ref(), indexer.as_ref()))
     }) {
         let indexing = Indexing {
             indexer: indexer.id,

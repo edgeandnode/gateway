@@ -11,7 +11,7 @@ use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
 use toolshed::url::Url;
 
-use gateway_common::types::GRT;
+use gateway_common::types::{Indexing, GRT};
 use gateway_framework::{ipfs, network::network_subgraph};
 
 /// Representation of the graph network being used to serve queries
@@ -40,7 +40,7 @@ pub struct Deployment {
     pub manifest: Arc<Manifest>,
     /// An indexer may have multiple active allocations on a deployment. We collapse them into a
     /// single logical allocation using the largest allocation ID and sum of the allocated tokens.
-    pub indexers: Vec<Arc<Indexer>>,
+    pub indexers: HashMap<Address, Arc<Indexer>>,
     /// A deployment may be associated with multiple subgraphs.
     pub subgraphs: BTreeSet<SubgraphId>,
     /// Indicates that the deployment should not be served directly by this gateway. This will
@@ -113,7 +113,7 @@ impl GraphNetwork {
                 .values()
                 .flat_map(|subgraph| &subgraph.deployments)
                 .flat_map(|deployment| &deployment.indexers)
-                .map(|indexer| (indexer.id, indexer.clone()))
+                .map(|(id, indexer)| (*id, indexer.clone()))
                 .collect::<HashMap<Address, Arc<Indexer>>>()
                 .into()
         });
@@ -207,7 +207,7 @@ impl GraphNetwork {
                 indexer.allocated_tokens = total_allocation;
                 Some(indexer)
             })
-            .map(Arc::new)
+            .map(|indexer| (indexer.id, indexer.into()))
             .collect();
 
         // abf62a6d-c071-4507-b528-ddc8e250127a
@@ -231,6 +231,16 @@ impl GraphNetwork {
     /// Get the deployment by ID ([DeploymentId]), if it exists.
     pub fn deployment_by_id(&self, id: &DeploymentId) -> Option<Arc<Deployment>> {
         self.deployments.value_immediate()?.get(id).cloned()
+    }
+
+    // Get then indexer data for some deployment.
+    pub fn indexing(&self, indexing: &Indexing) -> Option<Arc<Indexer>> {
+        self.deployments
+            .value_immediate()?
+            .get(&indexing.deployment)?
+            .indexers
+            .get(&indexing.indexer)
+            .cloned()
     }
 }
 

@@ -232,8 +232,8 @@ async fn handle_client_query_inner(
         .iter()
         .flat_map(move |deployment| {
             let id = deployment.id;
-            deployment.indexers.iter().map(move |indexer| Indexing {
-                indexer: indexer.id,
+            deployment.indexers.keys().map(move |indexer| Indexing {
+                indexer: *indexer,
                 deployment: id,
             })
         })
