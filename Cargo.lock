@@ -1957,6 +1957,7 @@ dependencies = [
  "indexer-selection",
  "indoc",
  "itertools 0.12.1",
+ "num-traits",
  "pin-project",
  "prometheus",
  "prost",

@@ -1,4 +1,6 @@
-use gateway_common::types::{UDecimal18, GRT, USD};
+use thegraph::types::UDecimal18;
+
+use crate::tokens::{GRT, USD};
 
 #[derive(Default)]
 pub struct NetworkParameters {

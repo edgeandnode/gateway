@@ -7,16 +7,14 @@ use anyhow::{bail, ensure};
 use rand::rngs::SmallRng;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng, RngCore as _, SeedableRng as _};
-use thegraph::types::{BlockPointer, DeploymentId};
+use thegraph::types::{BlockPointer, DeploymentId, UDecimal18};
 use tokio::spawn;
 use toolshed::{buffer_queue, double_buffer};
 
-use gateway_common::{
-    types::{UDecimal18, GRT},
-    utils::testing::bytes_from_id,
-};
+use gateway_common::utils::testing::bytes_from_id;
 
 use crate::actor::{process_updates, Update};
+use crate::tokens::GRT;
 use crate::{
     BlockRequirements, BlockStatus, Candidate, IndexerError, IndexerErrors, Indexing,
     IndexingState, IndexingStatus, InputError, NetworkParameters, Selection, State,
@@ -38,7 +36,7 @@ struct Topology {
     blocks: Vec<BlockPointer>,
     deployments: HashSet<DeploymentId>,
     indexings: HashMap<Indexing, IndexingStatus>,
-    fees: HashMap<Indexing, GRT>,
+    fees: HashMap<Indexing, u128>,
 }
 
 #[derive(Debug)]
@@ -93,9 +91,9 @@ impl Topology {
             .gen_range(config.indexings.clone()))
             .filter_map(|_| Self::gen_indexing(rng, config, &blocks, &deployments))
             .collect();
-        let fees: HashMap<Indexing, GRT> = indexings
+        let fees: HashMap<Indexing, u128> = indexings
             .keys()
-            .map(|i| (*i, Self::gen_grt(rng, &[0.0, 0.1, 1.0, 2.0])))
+            .map(|i| (*i, Self::gen_grt(rng, &[0.0, 1e17, 1e18, 2e18])))
             .collect();
         let state = Self {
             grt_per_usd: GRT(UDecimal18::from(1)),
@@ -131,7 +129,7 @@ impl Topology {
             deployment: *deployments.iter().choose(rng)?,
         };
         let status = IndexingStatus {
-            stake: Self::gen_grt(rng, &[0.0, 50e3, 100e3, 150e3]),
+            stake: GRT(Self::gen_grt(rng, &[0.0, 50e3, 100e3, 150e3]).into()),
             block: blocks.choose(rng).map(|b| BlockStatus {
                 reported_number: b.number,
                 behind_reported_block: false,
@@ -142,8 +140,8 @@ impl Topology {
         Some((indexing, status))
     }
 
-    fn gen_grt(rng: &mut SmallRng, table: &[f64; 4]) -> GRT {
-        GRT(UDecimal18::try_from(*table.choose(rng).unwrap()).unwrap())
+    fn gen_grt(rng: &mut SmallRng, table: &[f64; 4]) -> u128 {
+        *table.choose(rng).unwrap() as u128
     }
 
     fn gen_request(&self, rng: &mut SmallRng) -> Option<Request> {
@@ -181,7 +179,7 @@ impl Topology {
             Err(_) => bail!("unexpected InputError"),
         };
 
-        let fees = GRT(selections.iter().map(|s| s.fee.0).sum());
+        let fees = GRT(selections.iter().map(|s| s.fee).sum::<u128>().into());
         ensure!(fees <= request.params.budget);
 
         let indexers_dedup: BTreeSet<Address> = request.indexers.iter().copied().collect();
@@ -208,7 +206,7 @@ impl Topology {
                 set_err(IndexerError::NoStatus);
             } else if status.stake == GRT(UDecimal18::from(0)) {
                 set_err(IndexerError::NoStake);
-            } else if fee > request.params.budget {
+            } else if fee > request.params.budget.0.raw_u256().try_into().unwrap() {
                 set_err(IndexerError::FeeTooHigh);
             }
         }
@@ -297,7 +295,7 @@ fn favor_higher_version() {
                 indexer: bytes_from_id(0).into(),
                 deployment: bytes_from_id(i).into(),
             },
-            fee: GRT(UDecimal18::from(1)),
+            fee: 1e18 as u128,
             versions_behind: versions_behind[i],
         })
         .collect();

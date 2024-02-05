@@ -18,10 +18,14 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
+use gateway_framework::budgets::USD;
+use indexer_selection::tokens::GRT;
+use indexer_selection::NotNan;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
+use thegraph::types::UDecimal18;
 use thegraph::{
     client as subgraph_client,
     types::{attestation, DeploymentId},
@@ -35,7 +39,7 @@ use toolshed::{
 use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
-use gateway_common::types::{Indexing, GRT, USD};
+use gateway_common::types::Indexing;
 use gateway_framework::geoip::GeoIP;
 use gateway_framework::scalar::ReceiptSigner;
 use gateway_framework::{
@@ -127,12 +131,16 @@ async fn main() {
     let block_caches: &'static HashMap<String, &'static BlockCache> =
         Box::leak(Box::new(block_caches));
 
-    let grt_per_usd: Eventual<GRT> = match config.exchange_rate_provider {
-        ExchangeRateProvider::Fixed(grt_per_usd) => Eventual::from_value(GRT(grt_per_usd)),
+    let grt_per_usd: Eventual<NotNan<f64>> = match config.exchange_rate_provider {
+        ExchangeRateProvider::Fixed(grt_per_usd) => {
+            Eventual::from_value(NotNan::new(grt_per_usd).expect("NAN exchange rate"))
+        }
         ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await.unwrap(),
     };
     update_from_eventual(
-        grt_per_usd.clone(),
+        grt_per_usd
+            .clone()
+            .map(|grt_per_usd| async move { GRT(UDecimal18::try_from(*grt_per_usd).unwrap()) }),
         update_writer.clone(),
         Update::GRTPerUSD,
     );
@@ -274,11 +282,8 @@ async fn main() {
             .map(|d| (d.chain_id, d.contract))
             .collect(),
     );
-    let query_fees_target = config
-        .query_fees_target
-        .try_into()
-        .map(USD)
-        .expect("invalid query_fees_target");
+    let query_fees_target =
+        USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
     tracing::info!("Waiting for exchange rate...");
@@ -287,8 +292,6 @@ async fn main() {
     update_writer.flush().await.unwrap();
 
     let client_query_ctx = Context {
-        indexer_selection_retry_limit: config.indexer_selection_retry_limit,
-        l2_gateway: config.l2_gateway,
         indexer_client: IndexerClient {
             client: http_client.clone(),
             receipt_signer,
@@ -296,6 +299,9 @@ async fn main() {
         kafka_client,
         auth_handler,
         budgeter,
+        indexer_selection_retry_limit: config.indexer_selection_retry_limit,
+        l2_gateway: config.l2_gateway,
+        grt_per_usd,
         network,
         indexing_statuses,
         attestation_domain,
@@ -498,8 +504,10 @@ async fn write_indexer_inputs(
         };
         let update = indexer_selection::IndexingStatus {
             url: indexer.url.clone(),
-            stake: indexer.staked_tokens,
-            allocation: indexer.allocated_tokens,
+            stake: GRT(UDecimal18::from_raw_u256(U256::from(indexer.staked_tokens))),
+            allocation: GRT(UDecimal18::from_raw_u256(U256::from(
+                indexer.allocated_tokens,
+            ))),
             block: Some(BlockStatus {
                 reported_number: status.block,
                 behind_reported_block: false,

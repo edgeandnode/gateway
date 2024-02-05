@@ -5,7 +5,6 @@ use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-use thegraph::types::UDecimal18;
 use toolshed::url::Url;
 
 use gateway_framework::config::{Chain, Hidden, HiddenSecretKey};
@@ -102,7 +101,7 @@ pub enum ExchangeRateProvider {
     /// Ethereum RPC provider
     Rpc(#[serde_as(as = "DisplayFromStr")] Url),
     /// Fixed conversion rate of GRT/USD
-    Fixed(#[serde_as(as = "DisplayFromStr")] UDecimal18),
+    Fixed(f64),
 }
 
 #[derive(Debug, Deserialize)]

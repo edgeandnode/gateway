@@ -2,12 +2,14 @@ use std::time::Duration;
 
 use eventuals::{Eventual, EventualWriter};
 use indexer_selection::decay::DecayBuffer;
+use indexer_selection::NotNan;
 use tokio::time::interval;
 use tokio::{select, spawn, sync::mpsc};
 
-use gateway_common::types::{UDecimal18, USD};
-
 use crate::metrics::METRICS;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct USD(pub NotNan<f64>);
 
 pub struct Budgeter {
     pub feedback: mpsc::UnboundedSender<USD>,
@@ -82,7 +84,7 @@ impl Controller {
     fn new(query_fees_target: USD) -> Self {
         Self {
             query_fees_target,
-            recent_fees: USD(UDecimal18::from(0)),
+            recent_fees: USD(NotNan::default()),
             recent_count: 0,
             error_history: DecayBuffer::default(),
         }
@@ -101,7 +103,7 @@ impl Controller {
         tracing::debug!(avg_fees = process_variable);
         METRICS.avg_query_fees.set(process_variable);
 
-        self.recent_fees = USD(UDecimal18::from(0));
+        self.recent_fees = USD(NotNan::default());
         self.recent_count = 0;
         self.error_history.decay();
         let error = (target - process_variable) / target;
@@ -111,9 +113,9 @@ impl Controller {
         let k_i = 0.2;
         let control_variable = (i * k_i) * target;
 
-        let min = UDecimal18::try_from(10e-6).unwrap_or_default();
+        let min = NotNan::new(10e-6).unwrap_or_default();
         let max = self.query_fees_target.0;
-        USD(UDecimal18::try_from(control_variable)
+        USD(NotNan::new(control_variable)
             .unwrap_or_default()
             .clamp(min, max))
     }

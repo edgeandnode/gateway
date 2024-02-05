@@ -2,11 +2,11 @@ use std::io::{stdin, BufRead as _};
 
 use anyhow::Result;
 
-use gateway_common::{
-    types::{UDecimal18, GRT},
-    utils::testing::gen_blocks,
+use gateway_common::utils::testing::gen_blocks;
+use indexer_selection::{
+    simulation::*, tokens::GRT, BlockRequirements, Selection, UtilityParameters,
 };
-use indexer_selection::{simulation::*, BlockRequirements, Selection, UtilityParameters};
+use thegraph::types::UDecimal18;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -56,11 +56,11 @@ async fn main() -> Result<()> {
     for selection_limit in [1, 3] {
         let results = simulate(&characteristics, &params, 100, selection_limit).await?;
 
-        let total_cost = GRT(results.selections.iter().map(|s| s.fee.0).sum());
+        let total_cost = results.selections.iter().map(|s| s.fee).sum::<u128>() as f64 * 1e-18;
         eprintln!(
             "| {} | {:.6} | {:.0} | {:.2} | {:.2} | {:.2} |",
             selection_limit,
-            total_cost.0,
+            total_cost,
             results.avg_latency,
             results.avg_blocks_behind,
             results.selections.len() as f64 / results.client_queries as f64,
@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
                 indexer.address,
                 detail,
                 selections.len(),
-                selections.iter().map(|s| s.fee.0).sum::<UDecimal18>(),
+                selections.iter().map(|s| s.fee).sum::<u128>() as f64 * 1e-18,
             );
         }
     }

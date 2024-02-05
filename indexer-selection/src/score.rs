@@ -4,11 +4,11 @@ use alloy_primitives::U256;
 use arrayvec::ArrayVec;
 use ordered_float::NotNan;
 use rand::{prelude::SliceRandom as _, Rng};
+use thegraph::types::UDecimal18;
 use toolshed::url::Url;
 
-use gateway_common::types::{UDecimal18, GRT};
-
 use crate::performance::performance_utility;
+use crate::tokens::GRT;
 use crate::utility::{weighted_product_model, UtilityFactor};
 use crate::{
     BlockRequirements, ConcaveUtilityParameters, Indexing, Selection, UtilityParameters,
@@ -101,7 +101,7 @@ pub fn select_indexers<R: Rng>(
         .map(|f| Selection {
             indexing: f.indexing,
             url: f.url.clone(),
-            fee: f.fee,
+            fee: f.fee.0.as_u128().unwrap_or(0),
             blocks_behind: f.blocks_behind,
         })
         .collect()

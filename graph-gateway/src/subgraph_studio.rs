@@ -2,12 +2,11 @@ use std::{collections::HashMap, error::Error, sync::Arc};
 
 use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
+use indexer_selection::NotNan;
 use serde::Deserialize;
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::{sync::Mutex, time::Duration};
 use toolshed::url::Url;
-
-use gateway_common::types::{UDecimal18, USD};
 
 #[derive(Clone, Debug, Default)]
 pub struct APIKey {
@@ -15,7 +14,7 @@ pub struct APIKey {
     pub is_subsidized: bool,
     pub user_address: Address,
     pub query_status: QueryStatus,
-    pub max_budget: Option<USD>,
+    pub max_budget_usd: Option<NotNan<f64>>,
     pub deployments: Vec<DeploymentId>,
     pub subgraphs: Vec<SubgraphId>,
     pub domains: Vec<String>,
@@ -83,9 +82,7 @@ impl Client {
                     is_subsidized: api_key.is_subsidized,
                     user_address: api_key.user_address.parse().ok()?,
                     query_status: api_key.query_status,
-                    max_budget: api_key
-                        .max_budget
-                        .and_then(|b| UDecimal18::try_from(b).ok().map(USD)),
+                    max_budget_usd: api_key.max_budget.and_then(|b| NotNan::new(b).ok()),
                     subgraphs: api_key
                         .subgraphs
                         .into_iter()

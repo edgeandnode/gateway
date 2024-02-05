@@ -3,11 +3,10 @@ use std::time::{Duration, Instant};
 
 use toolshed::url::Url;
 
-use gateway_common::types::GRT;
-
 use crate::decay::ISADecayBuffer;
 use crate::performance::*;
 use crate::reliability::*;
+use crate::tokens::GRT;
 use crate::{BlockRequirements, IndexerErrorObservation};
 
 pub struct IndexingState {
