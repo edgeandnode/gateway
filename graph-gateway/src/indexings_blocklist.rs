@@ -120,13 +120,7 @@ pub fn deployment_indexer_addresses(
 ) -> Vec<Address> {
     deployments
         .get(deployment_id)
-        .map(|deployment| {
-            deployment
-                .indexers
-                .iter()
-                .map(|indexer| indexer.id)
-                .collect::<Vec<_>>()
-        })
+        .map(|deployment| deployment.indexers.keys().cloned().collect())
         .unwrap_or_default()
 }
 
