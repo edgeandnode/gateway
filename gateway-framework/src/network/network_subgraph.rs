@@ -5,6 +5,7 @@ use alloy_primitives::{Address, U256};
 use anyhow::anyhow;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use serde::Deserialize;
+use serde_with::serde_as;
 use thegraph::{
     client as subgraph_client,
     types::{DeploymentId, SubgraphId, UDecimal18},
@@ -45,20 +46,24 @@ pub struct SubgraphDeployment {
     pub transferred_to_l2: bool,
 }
 
+#[serde_as]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Allocation {
     pub id: Address,
-    pub allocated_tokens: U256,
     pub indexer: Indexer,
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    pub allocated_tokens: u128,
 }
 
+#[serde_as]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Indexer {
     pub id: Address,
     pub url: Option<String>,
-    pub staked_tokens: U256,
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    pub staked_tokens: u128,
 }
 
 pub struct Client {

@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use eventuals::{Eventual, Ptr};
+use indexer_selection::NotNan;
 use toolshed::buffer_queue::QueueWriter;
 use toolshed::double_buffer::DoubleBufferReader;
 use toolshed::url::Url;
@@ -27,6 +28,7 @@ pub struct Context {
     pub budgeter: &'static Budgeter,
     pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,
+    pub grt_per_usd: Eventual<NotNan<f64>>,
     pub block_caches: &'static HashMap<String, &'static BlockCache>,
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, indexing::Status>>>,

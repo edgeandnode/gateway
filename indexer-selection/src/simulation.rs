@@ -6,11 +6,10 @@ use anyhow::Result;
 use rand::{prelude::SmallRng, Rng as _, SeedableRng as _};
 use rand_distr::Normal;
 
-use gateway_common::{
-    types::{UDecimal18, GRT},
-    utils::testing::{bytes_from_id, init_test_tracing},
-};
+use gateway_common::utils::testing::{bytes_from_id, init_test_tracing};
+use thegraph::types::UDecimal18;
 
+use crate::tokens::GRT;
 use crate::{
     BlockStatus, Candidate, IndexerErrorObservation, Indexing, IndexingStatus, Selection, State,
     UtilityParameters,
@@ -84,7 +83,7 @@ pub async fn simulate(
                 indexer: c.address,
                 deployment,
             },
-            fee: c.fee,
+            fee: c.fee.0.raw_u256().try_into().unwrap(),
             versions_behind: 0,
         })
         .collect();

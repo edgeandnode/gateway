@@ -54,7 +54,7 @@ impl IndexerClient {
             .map_err(|_| IndexerError::Unavailable(NoStatus))?;
         let receipt = self
             .receipt_signer
-            .create_receipt(&selection.indexing, &selection.fee)
+            .create_receipt(&selection.indexing, selection.fee)
             .await
             .ok_or(IndexerError::Internal("failed to create receipt"))?;
 

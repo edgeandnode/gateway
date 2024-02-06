@@ -1,5 +1,8 @@
-pub mod indexing;
-pub mod tokens;
+use alloy_primitives::Address;
+use thegraph::types::DeploymentId;
 
-pub use indexing::Indexing;
-pub use tokens::{InvalidDecimalString, UDecimal18, GRT, USD};
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Indexing {
+    pub indexer: Address,
+    pub deployment: DeploymentId,
+}

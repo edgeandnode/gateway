@@ -115,7 +115,7 @@ pub fn is_domain_authorized(api_key: &Arc<APIKey>, domain: &str) -> bool {
 /// Get the user settings associated with the API key.
 pub fn get_query_settings(api_key: &Arc<APIKey>) -> QuerySettings {
     QuerySettings {
-        budget: api_key.max_budget,
+        budget_usd: api_key.max_budget_usd,
     }
 }
 

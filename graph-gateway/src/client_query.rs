@@ -15,21 +15,21 @@ use axum::{
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
 use futures::future::join_all;
+use gateway_framework::budgets::USD;
 use headers::ContentType;
+use indexer_selection::NotNan;
+use num_traits::cast::ToPrimitive as _;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph::types::{attestation, BlockPointer, DeploymentId};
+use thegraph::types::{attestation, BlockPointer, DeploymentId, UDecimal18};
 use tokio::sync::mpsc;
 use toolshed::buffer_queue::QueueWriter;
 use tracing::Instrument;
 
 use gateway_common::utils::http_ext::HttpBuilderExt;
-use gateway_common::{
-    types::{Indexing, UDecimal18, GRT, USD},
-    utils::timestamp::unix_timestamp,
-};
+use gateway_common::{types::Indexing, utils::timestamp::unix_timestamp};
 use gateway_framework::{
     block_constraints::BlockConstraint,
     chains::BlockCache,
@@ -268,25 +268,24 @@ async fn handle_client_query_inner(
     );
 
     let grt_per_usd = ctx
-        .isa_state
-        .latest()
-        .network_params
         .grt_per_usd
+        .value_immediate()
         .ok_or_else(|| Error::Internal(anyhow!("missing exchange rate")))?;
-    let mut budget = GRT(ctx.budgeter.query_fees_target.0 * grt_per_usd.0);
+    let one_grt = NotNan::new(1e18).unwrap();
+    let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
     let query_settings = auth.query_settings();
-    if let Some(user_budget) = query_settings.budget {
+    if let Some(user_budget_usd) = query_settings.budget_usd {
         // Security: Consumers can and will set their budget to unreasonably high values.
         // This `.min` prevents the budget from being set far beyond what it would be
         // automatically. The reason this is important is that sometimes queries are
         // subsidized, and we would be at-risk to allow arbitrarily high values.
-        let max_budget = GRT(budget.0 * UDecimal18::from(10));
-        budget = GRT(user_budget.0 * grt_per_usd.0).min(max_budget);
+        let max_budget = budget * 10;
+        budget = (*(user_budget_usd * grt_per_usd * one_grt) as u128).min(max_budget);
     }
     tracing::info!(
         target: reports::CLIENT_QUERY_TARGET,
         query_count = 1,
-        budget_grt = f64::from(budget.0) as f32,
+        budget_grt = (budget as f64 * 1e-18) as f32,
     );
 
     let versions_behind: BTreeMap<DeploymentId, u8> = deployments
@@ -362,7 +361,7 @@ async fn handle_client_query_inner(
 
     let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
     let mut utility_params = UtilityParameters {
-        budget,
+        budget: indexer_selection::tokens::GRT(UDecimal18::from_raw_u256(U256::from(budget))),
         requirements: block_requirements,
         // 170cbcf3-db7f-404a-be13-2022d9142677
         latest_block: 0,
@@ -370,7 +369,7 @@ async fn handle_client_query_inner(
     };
 
     let mut rng = SmallRng::from_entropy();
-    let mut total_indexer_fees = GRT(UDecimal18::from(0));
+    let mut total_indexer_fees: u128 = 0;
 
     for retry in 0..ctx.indexer_selection_retry_limit {
         // Make sure our observations are up-to-date if retrying.
@@ -421,8 +420,7 @@ async fn handle_client_query_inner(
                 .min_indexer_fees
                 .value_immediate()
                 .unwrap_or_default();
-            let min_fee =
-                GRT((min_fee.0 * grt_per_usd.0) / UDecimal18::from(selections_len as u128));
+            let min_fee = (*(min_fee.0 * grt_per_usd * one_grt) / selections_len as f64) as u128;
             selection.fee = selection.fee.max(min_fee);
         }
 
@@ -475,13 +473,12 @@ async fn handle_client_query_inner(
             )
             .await;
 
+            total_indexer_fees += selection.fee;
             // When we prepare an optimistic query, we are pessimistically doubling the fee in case
             // the optimistic query fails and we pay again for the fallback query.
-            let selection_fee = optimistic_query
-                .is_some()
-                .then(|| GRT(selection.fee.0 * 2.into()))
-                .unwrap_or(selection.fee);
-            total_indexer_fees = GRT(total_indexer_fees.0 + selection_fee.0);
+            if optimistic_query.is_some() {
+                total_indexer_fees += selection.fee;
+            }
 
             let indexer_query_context = indexer_query_context.clone();
             let outcome_tx = outcome_tx.clone();
@@ -511,7 +508,7 @@ async fn handle_client_query_inner(
 
         tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
-            indexer_fees_grt = f64::from(total_indexer_fees.0) as f32,
+            indexer_fees_grt = (total_indexer_fees as f64 * 1e-18) as f32,
         );
 
         for _ in 0..selections_len {
@@ -521,7 +518,8 @@ async fn handle_client_query_inner(
                     indexer_errors.insert(selection.indexing.indexer, err);
                 }
                 Some((selection, Ok(outcome))) => {
-                    let total_indexer_fees = USD(total_indexer_fees.0 / grt_per_usd.0);
+                    let total_indexer_fees =
+                        USD(NotNan::new(total_indexer_fees as f64).unwrap() / grt_per_usd);
                     let _ = ctx.budgeter.feedback.send(total_indexer_fees);
 
                     tracing::debug!(?indexer_errors);
@@ -563,7 +561,7 @@ async fn handle_indexer_query(
         %deployment,
         url = %selection.url,
         blocks_behind = selection.blocks_behind,
-        fee_grt = f64::from(selection.fee.0) as f32,
+        fee_grt = (selection.fee as f64 * 1e-18) as f32,
         subgraph_chain = %ctx.deployment.manifest.network,
     );
 
@@ -715,16 +713,13 @@ async fn handle_indexer_query_inner(
 pub fn indexer_fee(
     cost_model: &Option<Ptr<CostModel>>,
     context: &mut AgoraContext<'_, String>,
-) -> Result<GRT, IndexerError> {
+) -> Result<u128, IndexerError> {
     match cost_model
         .as_ref()
         .map(|model| model.cost_with_context(context))
     {
-        None => Ok(GRT(UDecimal18::from(0))),
-        Some(Ok(fee)) => {
-            let fee = U256::try_from_be_slice(&fee.to_bytes_be()).unwrap_or(U256::MAX);
-            Ok(GRT(UDecimal18::from_raw_u256(fee)))
-        }
+        None => Ok(0),
+        Some(Ok(fee)) => fee.to_u128().ok_or(IndexerError::Unavailable(NoFee)),
         Some(Err(_)) => Err(IndexerError::Unavailable(NoFee)),
     }
 }

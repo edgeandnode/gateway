@@ -6,15 +6,16 @@ use std::{
     fmt::Display,
 };
 
-use alloy_primitives::{Address, BlockHash, BlockNumber};
+use alloy_primitives::{Address, BlockHash, BlockNumber, U256};
 use num_traits::Zero as _;
 pub use ordered_float::NotNan;
 use rand::{prelude::SmallRng, Rng as _};
 use score::{expected_individual_score, ExpectedValue};
-use thegraph::types::BlockPointer;
+use thegraph::types::{BlockPointer, UDecimal18};
+use tokens::GRT;
 use toolshed::url::Url;
 
-use gateway_common::types::{Indexing, UDecimal18, GRT};
+use gateway_common::types::Indexing;
 
 use crate::score::{select_indexers, SelectionFactors};
 pub use crate::{
@@ -34,6 +35,7 @@ mod score;
 pub mod simulation;
 #[cfg(test)]
 mod test;
+pub mod tokens;
 mod utility;
 
 /// If an indexer's score is penalized such that it falls below this proportion of the max indexer
@@ -43,7 +45,7 @@ const MIN_SCORE_CUTOFF: f64 = 0.25;
 #[derive(Clone, Debug)]
 pub struct Candidate {
     pub indexing: Indexing,
-    pub fee: GRT,
+    pub fee: u128,
     pub versions_behind: u8,
 }
 
@@ -51,7 +53,7 @@ pub struct Candidate {
 pub struct Selection {
     pub indexing: Indexing,
     pub url: Url,
-    pub fee: GRT,
+    pub fee: u128,
     pub blocks_behind: u64,
 }
 
@@ -267,7 +269,8 @@ impl State {
             .slashable_usd(state.status.stake)
             .ok_or(InputError::MissingNetworkParams)?;
 
-        if candidate.fee > params.budget {
+        let fee = GRT(UDecimal18::from_raw_u256(U256::from(candidate.fee)));
+        if fee > params.budget {
             return Err(IndexerError::FeeTooHigh.into());
         }
 
@@ -287,7 +290,7 @@ impl State {
             blocks_behind,
             slashable_usd,
             zero_allocation,
-            &candidate.fee,
+            &fee,
         ))
         .unwrap_or(NotNan::zero());
         debug_assert!(*expected_score > 0.0);
@@ -302,7 +305,7 @@ impl State {
             blocks_behind,
             slashable_usd,
             expected_score,
-            fee: candidate.fee,
+            fee,
             last_use: state.last_use,
             sybil: sybil(&state.status.allocation)?,
         })

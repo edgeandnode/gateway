@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use thegraph::types::UDecimal18;
 use tokio::{
     select,
     time::{sleep_until, Duration, Instant},
@@ -9,9 +10,7 @@ use toolshed::{
     double_buffer::DoubleBufferWriter,
 };
 
-use gateway_common::types::{UDecimal18, GRT};
-
-use crate::{IndexerErrorObservation, Indexing, IndexingStatus, State};
+use crate::{tokens::GRT, IndexerErrorObservation, Indexing, IndexingStatus, State};
 
 #[derive(Debug)]
 pub enum Update {

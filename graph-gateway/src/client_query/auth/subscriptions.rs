@@ -94,7 +94,7 @@ pub fn is_domain_authorized(auth_token: &AuthTokenClaims, domain: &str) -> bool 
 
 /// Get the user settings associated with the auth token.
 pub fn get_query_settings(_auth: &AuthTokenClaims) -> QuerySettings {
-    QuerySettings { budget: None }
+    QuerySettings { budget_usd: None }
 }
 
 pub async fn check_token(

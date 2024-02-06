@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
+use indexer_selection::NotNan;
 use thegraph::types::{DeploymentId, SubgraphId};
-
-use gateway_common::types::USD;
 
 use crate::topology::Deployment;
 
@@ -70,7 +69,7 @@ pub fn is_domain_authorized(authorized: &[&str], origin: &str) -> bool {
 /// User query settings associated with an auth token.
 #[derive(Debug)]
 pub struct QuerySettings {
-    pub budget: Option<USD>,
+    pub budget_usd: Option<NotNan<f64>>,
 }
 
 #[cfg(test)]
