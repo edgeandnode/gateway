@@ -764,8 +764,12 @@ async fn optimistic_query(
     if selection.blocks_behind >= blocks_per_minute {
         return None;
     }
-    let optimistic_block_number = latest.number.saturating_sub(blocks_per_minute / 30);
-    if optimistic_block_number == latest_query_block.number {
+    let min_block = requirements.range.map(|(min, _)| min).unwrap_or(0);
+    let optimistic_block_number = latest
+        .number
+        .saturating_sub(blocks_per_minute / 30)
+        .max(min_block);
+    if optimistic_block_number <= latest_query_block.number {
         return None;
     }
     let unresolved = UnresolvedBlock::WithNumber(optimistic_block_number);
