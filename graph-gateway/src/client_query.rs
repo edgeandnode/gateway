@@ -45,6 +45,7 @@ use indexer_selection::{
 
 use crate::block_constraints::{block_constraints, make_query_deterministic};
 use crate::client_query::query_selector::QuerySelector;
+use crate::client_query::query_settings::QuerySettings;
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
@@ -62,6 +63,7 @@ mod l2_forwarding;
 pub mod legacy_auth_adapter;
 pub mod query_id;
 mod query_selector;
+mod query_settings;
 pub mod query_tracing;
 pub mod require_auth;
 
@@ -71,9 +73,11 @@ pub struct QueryBody {
     pub variables: Option<Box<RawValue>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthToken>,
+    query_settings: Option<Extension<QuerySettings>>,
     OriginalUri(original_uri): OriginalUri,
     selector: QuerySelector,
     headers: HeaderMap,
@@ -116,9 +120,15 @@ pub async fn handle_query(
         }
     }
 
-    let result = handle_client_query_inner(&ctx, deployments, payload, auth)
-        .in_current_span()
-        .await;
+    let result = handle_client_query_inner(
+        &ctx,
+        auth,
+        query_settings.map(|Extension(settings)| settings),
+        deployments,
+        payload,
+    )
+    .in_current_span()
+    .await;
 
     // Metrics and tracing
     {
@@ -202,9 +212,10 @@ fn resolve_subgraph_deployments(
 
 async fn handle_client_query_inner(
     ctx: &Context,
+    auth: AuthToken,
+    query_settings: Option<QuerySettings>,
     deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
-    auth: AuthToken,
 ) -> Result<(Selection, ResponsePayload), Error> {
     let subgraph_chain = deployments
         .last()
@@ -273,7 +284,7 @@ async fn handle_client_query_inner(
         .ok_or_else(|| Error::Internal(anyhow!("missing exchange rate")))?;
     let one_grt = NotNan::new(1e18).unwrap();
     let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
-    let query_settings = auth.query_settings();
+    let query_settings = query_settings.unwrap_or_default();
     if let Some(user_budget_usd) = query_settings.budget_usd {
         // Security: Consumers can and will set their budget to unreasonably high values.
         // This `.min` prevents the budget from being set far beyond what it would be
