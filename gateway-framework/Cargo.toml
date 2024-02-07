@@ -9,12 +9,12 @@ alloy-sol-types = "0.6.2"
 anyhow.workspace = true
 axum.workspace = true
 ethers = "2.0.13"
+candidate-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection.git", rev = "c0b5efa" }
 eventuals = "0.6.7"
 gateway-common = { path = "../gateway-common" }
 graphql-http.workspace = true
 headers = "0.3.9"
 hex.workspace = true
-indexer-selection = { path = "../indexer-selection" }
 itertools = "0.12.1"
 lazy_static = "1.4.0"
 maxminddb = "0.24"
