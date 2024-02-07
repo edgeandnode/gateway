@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use alloy_primitives::BlockHash;
-use indexer_selection::UnresolvedBlock;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::{json, Value as JSON};
 use thegraph::types::BlockPointer;
@@ -10,7 +9,7 @@ use tokio::time::interval;
 use toolshed::url::Url;
 use tracing::Instrument;
 
-use super::{BlockHead, ClientMsg};
+use super::{BlockHead, ClientMsg, UnresolvedBlock};
 use crate::{config, metrics::METRICS};
 
 pub struct Client {

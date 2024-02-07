@@ -1,17 +1,13 @@
 use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-    fmt::Display,
-};
 
-use alloy_primitives::{Address, BlockHash, BlockNumber, U256};
+use alloy_primitives::{Address, U256};
 use num_traits::Zero as _;
 pub use ordered_float::NotNan;
 use rand::{prelude::SmallRng, Rng as _};
 use score::{expected_individual_score, ExpectedValue};
-use thegraph::types::{BlockPointer, UDecimal18};
+use thegraph::types::UDecimal18;
 use tokens::GRT;
 use toolshed::url::Url;
 
@@ -98,30 +94,6 @@ pub enum IndexerErrorObservation {
     },
     BadAttestation,
     Other,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub enum UnresolvedBlock {
-    WithHash(BlockHash),
-    WithNumber(BlockNumber),
-}
-
-impl UnresolvedBlock {
-    pub fn matches(&self, block: &BlockPointer) -> bool {
-        match self {
-            Self::WithHash(hash) => &block.hash == hash,
-            Self::WithNumber(number) => &block.number == number,
-        }
-    }
-}
-
-impl Display for UnresolvedBlock {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::WithHash(hash) => write!(f, "{hash}"),
-            Self::WithNumber(number) => write!(f, "{number}"),
-        }
-    }
 }
 
 #[derive(Default, Debug, Eq, PartialEq)]

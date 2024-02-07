@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use eventuals::{Eventual, EventualWriter};
 use indexer_selection::decay::DecayBuffer;
-use indexer_selection::NotNan;
+use ordered_float::NotNan;
 use tokio::time::interval;
 use tokio::{select, spawn, sync::mpsc};
 

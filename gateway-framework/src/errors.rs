@@ -3,9 +3,7 @@ use std::collections::BTreeMap;
 use axum::response::{IntoResponse, Response};
 use itertools::Itertools;
 
-use indexer_selection::UnresolvedBlock;
-
-use crate::graphql;
+use crate::{chains::UnresolvedBlock, graphql};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
