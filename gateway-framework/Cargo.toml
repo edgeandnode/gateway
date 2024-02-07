@@ -8,7 +8,7 @@ alloy-primitives.workspace = true
 alloy-sol-types = "0.6.2"
 anyhow.workspace = true
 axum.workspace = true
-ethers = "2.0.11"
+ethers = "2.0.13"
 eventuals = "0.6.7"
 gateway-common = { path = "../gateway-common" }
 graphql-http.workspace = true
