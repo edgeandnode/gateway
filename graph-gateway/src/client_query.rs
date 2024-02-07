@@ -15,10 +15,7 @@ use axum::{
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
 use futures::future::join_all;
-use gateway_framework::budgets::USD;
-use gateway_framework::chains::UnresolvedBlock;
 use headers::ContentType;
-use indexer_selection::NotNan;
 use num_traits::cast::ToPrimitive as _;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
@@ -31,6 +28,8 @@ use tracing::Instrument;
 
 use gateway_common::utils::http_ext::HttpBuilderExt;
 use gateway_common::{types::Indexing, utils::timestamp::unix_timestamp};
+use gateway_framework::budgets::USD;
+use gateway_framework::chains::UnresolvedBlock;
 use gateway_framework::{
     block_constraints::BlockConstraint,
     chains::BlockCache,
@@ -38,14 +37,13 @@ use gateway_framework::{
     metrics::{with_metric, METRICS},
     scalar::ScalarReceipt,
 };
+use indexer_selection::NotNan;
 use indexer_selection::{
     actor::Update, BlockRequirements, Candidate, IndexerError as SelectionError,
     IndexerErrorObservation, InputError, Selection, UtilityParameters, SELECTION_LIMIT,
 };
 
 use crate::block_constraints::{block_constraints, make_query_deterministic};
-use crate::client_query::query_selector::QuerySelector;
-use crate::client_query::query_settings::QuerySettings;
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
@@ -55,6 +53,9 @@ use self::attestation_header::GraphAttestation;
 use self::auth::AuthToken;
 use self::context::Context;
 use self::l2_forwarding::forward_request_to_l2;
+use self::query_selector::QuerySelector;
+use self::query_settings::QuerySettings;
+use self::rate_limit_settings::RateLimitSettings;
 
 mod attestation_header;
 pub mod auth;
@@ -65,6 +66,7 @@ pub mod query_id;
 mod query_selector;
 mod query_settings;
 pub mod query_tracing;
+mod rate_limit_settings;
 pub mod require_auth;
 
 #[derive(Debug, Deserialize)]
@@ -78,6 +80,7 @@ pub async fn handle_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthToken>,
     query_settings: Option<Extension<QuerySettings>>,
+    rate_limit_settings: Option<Extension<RateLimitSettings>>, // TODO(LNSD): Move to rate limiting middleware
     OriginalUri(original_uri): OriginalUri,
     selector: QuerySelector,
     headers: HeaderMap,
@@ -124,6 +127,7 @@ pub async fn handle_query(
         &ctx,
         auth,
         query_settings.map(|Extension(settings)| settings),
+        rate_limit_settings.map(|Extension(settings)| settings),
         deployments,
         payload,
     )
@@ -214,6 +218,7 @@ async fn handle_client_query_inner(
     ctx: &Context,
     auth: AuthToken,
     query_settings: Option<QuerySettings>,
+    rate_limit_settings: Option<RateLimitSettings>,
     deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
 ) -> Result<(Selection, ResponsePayload), Error> {
@@ -233,7 +238,7 @@ async fn handle_client_query_inner(
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
 
     ctx.auth_handler
-        .check_token(&auth, &deployments)
+        .check_token(&auth, rate_limit_settings, &deployments)
         .await
         .map_err(Error::Auth)?;
 

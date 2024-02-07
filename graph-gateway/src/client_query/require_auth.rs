@@ -129,15 +129,16 @@ where
         };
 
         // Parse the bearer token into an `AuthToken`
-        let (auth_token, query_settings) = match self.ctx.parse_auth_token(bearer.token()) {
-            Ok(token) => token,
-            Err(err) => {
-                // If the bearer token is invalid, return an error response
-                return ResponseFuture::error(graphql::error_response(Error::Auth(
-                    anyhow::anyhow!("Invalid bearer token: {err}"),
-                )));
-            }
-        };
+        let (auth_token, query_settings, rate_limit_settings) =
+            match self.ctx.parse_auth_token(bearer.token()) {
+                Ok(token) => token,
+                Err(err) => {
+                    // If the bearer token is invalid, return an error response
+                    return ResponseFuture::error(graphql::error_response(Error::Auth(
+                        anyhow::anyhow!("Invalid bearer token: {err}"),
+                    )));
+                }
+            };
 
         match &auth_token {
             AuthToken::StudioApiKey(api_key) => tracing::info!(
@@ -164,6 +165,11 @@ where
 
         // Insert the `AuthToken` extension into the request
         req.extensions_mut().insert(auth_token);
+
+        // Insert the `RateLimitSettings` extension into the request
+        if let Some(rate_limit_settings) = rate_limit_settings {
+            req.extensions_mut().insert(rate_limit_settings);
+        }
 
         // Insert the `QuerySettings` extension into the request
         if let Some(query_settings) = query_settings {
