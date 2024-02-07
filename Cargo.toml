@@ -1,10 +1,5 @@
 [workspace]
-members = [
-    "graph-gateway",
-    "indexer-selection",
-    "gateway-common",
-    "gateway-framework",
-]
+members = ["graph-gateway", "gateway-common", "gateway-framework"]
 resolver = "2"
 
 [profile.release]

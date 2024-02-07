@@ -668,6 +668,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "candidate-selection"
+version = "0.1.0"
+source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=0f711bc#0f711bc250bb484ae86c5673683520f6524fbd7f"
+dependencies = [
+ "arrayvec 0.7.4",
+ "ordered-float",
+ "permutation",
+ "proptest",
+ "rand",
+]
+
+[[package]]
+name = "candidate-selection"
+version = "0.1.0"
+source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=c0b5efa#c0b5efa6a6657c201cc71ee4108991e37bc1f581"
+dependencies = [
+ "arrayvec 0.7.4",
+ "ordered-float",
+ "permutation",
+ "proptest",
+ "rand",
+]
+
+[[package]]
 name = "cargo-platform"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1871,13 +1895,13 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "axum",
+ "candidate-selection 0.1.0 (git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=c0b5efa)",
  "ethers",
  "eventuals",
  "gateway-common",
  "graphql-http 0.2.1",
  "headers",
  "hex",
- "indexer-selection",
  "itertools 0.12.1",
  "lazy_static",
  "maxminddb",
@@ -2450,21 +2474,13 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 
 [[package]]
 name = "indexer-selection"
-version = "0.0.1"
+version = "0.1.0"
+source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=0f711bc#0f711bc250bb484ae86c5673683520f6524fbd7f"
 dependencies = [
- "alloy-primitives",
- "anyhow",
- "arrayvec 0.7.4",
- "gateway-common",
- "num-traits",
- "ordered-float",
- "permutation",
+ "candidate-selection 0.1.0 (git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=0f711bc)",
  "rand",
- "rand_distr",
  "thegraph",
- "tokio",
  "toolshed",
- "tracing",
 ]
 
 [[package]]
@@ -3669,16 +3685,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom",
-]
-
-[[package]]
-name = "rand_distr"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
-dependencies = [
- "num-traits",
- "rand",
 ]
 
 [[package]]

@@ -18,27 +18,23 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
+use gateway_framework::budgets::USD;
+use graph_gateway::indexing_performance::IndexingPerformance;
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
-use thegraph::types::UDecimal18;
 use thegraph::{
     client as subgraph_client,
     types::{attestation, DeploymentId},
 };
 use tokio::signal::unix::SignalKind;
 use tokio::spawn;
-use toolshed::{
-    buffer_queue::{self, QueueWriter},
-    double_buffer,
-};
 use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
 use gateway_common::types::Indexing;
-use gateway_framework::budgets::USD;
 use gateway_framework::geoip::GeoIP;
 use gateway_framework::scalar::ReceiptSigner;
 use gateway_framework::{
@@ -62,8 +58,6 @@ use graph_gateway::indexings_blocklist::indexings_blocklist;
 use graph_gateway::reports::{self, KafkaClient};
 use graph_gateway::topology::{Deployment, GraphNetwork};
 use graph_gateway::{client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph};
-use indexer_selection::tokens::GRT;
-use indexer_selection::{actor::Update, BlockStatus};
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
@@ -101,15 +95,6 @@ async fn main() {
     tracing::info!("Graph gateway starting... ID: {}", gateway_id);
     tracing::debug!(config = %config_repr);
 
-    let (isa_state, isa_writer) = double_buffer!(indexer_selection::State::default());
-
-    // Start the actor to manage updates
-    let (update_writer, update_reader) = buffer_queue::pair();
-    spawn(async move {
-        indexer_selection::actor::process_updates(isa_writer, update_reader).await;
-        tracing::error!("ISA actor stopped");
-    });
-
     let geoip = config
         .geoip_database
         .filter(|_| !config.geoip_blocked_countries.is_empty())
@@ -138,26 +123,12 @@ async fn main() {
         }
         ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await.unwrap(),
     };
-    update_from_eventual(
-        grt_per_usd
-            .clone()
-            .map(|grt_per_usd| async move { GRT(UDecimal18::try_from(*grt_per_usd).unwrap()) }),
-        update_writer.clone(),
-        Update::GRTPerUSD,
-    );
 
     let network_subgraph_client =
         subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
     let subgraphs =
         network_subgraph::Client::create(network_subgraph_client, config.l2_gateway.is_some())
             .await;
-
-    // TODO: delete when new ISA is used
-    update_writer
-        .write(Update::SlashingPercentage(
-            UDecimal18::try_from(0.025).unwrap(),
-        ))
-        .unwrap();
 
     let attestation_domain: &'static Eip712Domain =
         Box::leak(Box::new(attestation::eip712_domain(
@@ -230,24 +201,11 @@ async fn main() {
         .await,
     ));
 
-    {
-        let update_writer = update_writer.clone();
-        let indexing_statuses = indexing_statuses.clone();
-        eventuals::join((network.deployments.clone(), indexing_statuses))
-            .pipe_async(move |(deployments, indexing_statuses)| {
-                let update_writer = update_writer.clone();
-                async move {
-                    write_indexer_inputs(
-                        &update_writer,
-                        receipt_signer,
-                        &deployments,
-                        &indexing_statuses,
-                    )
-                    .await;
-                }
-            })
-            .forever();
-    }
+    eventuals::join((network.deployments.clone(), indexing_statuses.clone()))
+        .pipe_async(move |(deployments, indexing_statuses)| async move {
+            update_allocations(receipt_signer, &deployments, &indexing_statuses).await;
+        })
+        .forever();
 
     let api_keys = match config.studio_url {
         Some(url) => subgraph_studio::api_keys(http_client.clone(), url, config.studio_auth),
@@ -290,8 +248,6 @@ async fn main() {
 
     tracing::info!("Waiting for exchange rate...");
     grt_per_usd.value().await.unwrap();
-    tracing::info!("Waiting for ISA setup...");
-    update_writer.flush().await.unwrap();
 
     let client_query_ctx = Context {
         indexer_client: IndexerClient {
@@ -305,12 +261,11 @@ async fn main() {
         grt_per_usd,
         network,
         indexing_statuses,
+        indexing_perf: IndexingPerformance::new(),
         attestation_domain,
         bad_indexers,
         indexings_blocklist,
         block_caches,
-        observations: update_writer,
-        isa_state,
     };
 
     tracing::info!("Waiting for chain heads from block caches...");
@@ -450,18 +405,6 @@ async fn await_shutdown_signals() {
     }
 }
 
-fn update_from_eventual<V, F>(eventual: Eventual<V>, writer: QueueWriter<Update>, f: F)
-where
-    V: eventuals::Value,
-    F: 'static + Send + Fn(V) -> Update,
-{
-    eventual
-        .pipe(move |v| {
-            let _ = writer.write(f(v));
-        })
-        .forever();
-}
-
 async fn ip_rate_limit<B>(
     State(limiter): State<&'static RateLimiter<String>>,
     ConnectInfo(info): ConnectInfo<SocketAddr>,
@@ -474,8 +417,7 @@ async fn ip_rate_limit<B>(
     Ok(next.run(req).await)
 }
 
-async fn write_indexer_inputs(
-    update_writer: &QueueWriter<Update>,
+async fn update_allocations(
     receipt_signer: &ReceiptSigner,
     deployments: &HashMap<DeploymentId, Arc<Deployment>>,
     indexing_statuses: &HashMap<Indexing, indexing::Status>,
@@ -489,7 +431,6 @@ async fn write_indexer_inputs(
         indexing_statuses = indexing_statuses.len(),
     );
 
-    let mut indexings: HashMap<Indexing, indexer_selection::IndexingStatus> = HashMap::new();
     let mut allocations: HashMap<Indexing, Address> = HashMap::new();
     for (deployment, indexer) in deployments.values().flat_map(|deployment| {
         deployment
@@ -501,27 +442,9 @@ async fn write_indexer_inputs(
             indexer: indexer.id,
             deployment: deployment.id,
         };
-        let status = match indexing_statuses.get(&indexing) {
-            Some(status) => status,
-            None => continue,
-        };
-        let update = indexer_selection::IndexingStatus {
-            url: indexer.url.clone(),
-            stake: GRT(UDecimal18::from_raw_u256(U256::from(indexer.staked_tokens))),
-            allocation: GRT(UDecimal18::from_raw_u256(U256::from(
-                indexer.allocated_tokens,
-            ))),
-            block: Some(BlockStatus {
-                reported_number: status.block,
-                behind_reported_block: false,
-                min_block: status.min_block,
-            }),
-        };
         allocations.insert(indexing, indexer.largest_allocation);
-        indexings.insert(indexing, update);
     }
     receipt_signer.update_allocations(allocations).await;
-    let _ = update_writer.write(Update::Indexings(indexings));
 }
 
 async fn handle_metrics() -> impl axum::response::IntoResponse {

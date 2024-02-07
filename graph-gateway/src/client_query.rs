@@ -1,8 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use alloy_primitives::{Address, BlockNumber, U256};
+use alloy_primitives::{Address, BlockNumber};
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use axum::extract::OriginalUri;
@@ -15,22 +15,24 @@ use axum::{
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
 use futures::future::join_all;
+use gateway_framework::budgets::USD;
+use gateway_framework::chains::UnresolvedBlock;
+use gateway_framework::errors::UnavailableReason;
 use headers::ContentType;
+use indexer_selection::{ArrayVec, Candidate, ExpectedPerformance, Normalized, Performance};
 use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph::types::{attestation, BlockPointer, DeploymentId, UDecimal18};
+use thegraph::types::{attestation, BlockPointer, DeploymentId};
 use tokio::sync::mpsc;
-use toolshed::buffer_queue::QueueWriter;
+use toolshed::url::Url;
 use tracing::Instrument;
 
 use gateway_common::utils::http_ext::HttpBuilderExt;
 use gateway_common::{types::Indexing, utils::timestamp::unix_timestamp};
-use gateway_framework::budgets::USD;
-use gateway_framework::chains::UnresolvedBlock;
 use gateway_framework::{
     block_constraints::BlockConstraint,
     chains::BlockCache,
@@ -38,13 +40,11 @@ use gateway_framework::{
     metrics::{with_metric, METRICS},
     scalar::ScalarReceipt,
 };
-use indexer_selection::{
-    actor::Update, BlockRequirements, Candidate, IndexerError as SelectionError,
-    IndexerErrorObservation, InputError, Selection, UtilityParameters, SELECTION_LIMIT,
-};
 
 use crate::block_constraints::{block_constraints, make_query_deterministic};
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
+use crate::indexers::indexing;
+use crate::indexing_performance::IndexingPerformance;
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
@@ -68,10 +68,27 @@ pub mod query_tracing;
 pub mod rate_limiter;
 pub mod require_auth;
 
+const SELECTION_LIMIT: usize = 3;
+
 #[derive(Debug, Deserialize)]
 pub struct QueryBody {
     pub query: String,
     pub variables: Option<Box<RawValue>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Selection {
+    pub indexing: Indexing,
+    pub url: Url,
+    pub fee: u128,
+    pub blocks_behind: u64,
+}
+
+struct BlockRequirements {
+    /// required block range
+    range: Option<(BlockNumber, BlockNumber)>,
+    /// does the query benefit from using the latest block (contains NumberGTE or Unconstrained)
+    latest: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -246,7 +263,7 @@ async fn handle_client_query_inner(
 
     let mut indexer_errors: BTreeMap<Address, IndexerError> = Default::default();
 
-    let mut candidates: BTreeSet<Indexing> = deployments
+    let mut available_indexers: BTreeSet<Indexing> = deployments
         .iter()
         .flat_map(move |deployment| {
             let id = deployment.id;
@@ -256,21 +273,20 @@ async fn handle_client_query_inner(
             })
         })
         .collect();
-    if candidates.is_empty() {
-        return Err(Error::NoIndexers);
-    }
-
     let blocklist = ctx
         .indexings_blocklist
         .value_immediate()
         .unwrap_or_default();
-    candidates.retain(|candidate| {
+    available_indexers.retain(|candidate| {
         if blocklist.contains(candidate) || ctx.bad_indexers.contains(&candidate.indexer) {
             indexer_errors.insert(candidate.indexer, IndexerError::Unavailable(NoStatus));
             return false;
         }
         true
     });
+    if available_indexers.is_empty() {
+        return Err(Error::NoIndexers);
+    }
 
     let variables = payload
         .variables
@@ -313,78 +329,53 @@ async fn handle_client_query_inner(
         .map(|(index, deployment)| (deployment.id, index.try_into().unwrap_or(u8::MAX)))
         .collect();
 
-    let candidates: Vec<Candidate> = candidates
-        .into_iter()
-        .filter_map(|indexing| {
-            let cost_model = ctx
-                .indexing_statuses
-                .value_immediate()
-                .and_then(|m| m.get(&indexing).and_then(|s| s.cost_model.clone()));
-            let fee = match indexer_fee(&cost_model, &mut context) {
-                // Clamp indexer fee to the budget.
-                Ok(fee) => fee.min(budget),
-                Err(err) => {
-                    indexer_errors.insert(indexing.indexer, err);
-                    return None;
-                }
-            };
-            Some(Candidate {
-                indexing,
-                fee,
-                versions_behind: *versions_behind.get(&indexing.deployment).unwrap_or(&0),
-            })
-        })
-        .collect();
-
-    let block_constraints = block_constraints(&context).unwrap_or_default();
-    let mut resolved_blocks = join_all(
-        block_constraints
-            .iter()
-            .filter_map(|constraint| constraint.clone().into_unresolved())
-            .map(|unresolved| block_cache.fetch_block(unresolved)),
+    let mut resolved_blocks = Default::default();
+    let block_requirements = resolve_block_requirements(
+        block_cache,
+        &mut resolved_blocks,
+        &context,
+        manifest_min_block,
     )
-    .await
-    .into_iter()
-    .collect::<Result<BTreeSet<BlockPointer>, UnresolvedBlock>>()
-    .map_err(Error::BlockNotFound)?;
-    let min_block = resolved_blocks.iter().map(|b| b.number).min();
-    let max_block = resolved_blocks.iter().map(|b| b.number).max();
-    let block_requirements = BlockRequirements {
-        range: min_block.map(|min| (min, max_block.unwrap())),
-        has_latest: block_constraints.iter().any(|c| match c {
-            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
-            BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
-        }),
-    };
+    .await?;
 
-    // Reject queries for blocks before the minimum start block in the manifest, but only if the
-    // constraint is for an exact block. For example, we always want to allow `block_gte: 0`.
-    let request_contains_invalid_blocks = resolved_blocks
-        .iter()
-        .filter(|b| {
-            block_constraints.iter().any(|c| match c {
-                BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => false,
-                BlockConstraint::Hash(hash) => hash == &b.hash,
-                BlockConstraint::Number(number) => number == &b.number,
-            })
-        })
-        .any(|b| b.number < manifest_min_block);
-    if request_contains_invalid_blocks {
-        return Err(Error::BadQuery(anyhow!(
-            "requested block {}, before minimum `startBlock` of manifest {}",
-            min_block.unwrap_or_default(),
-            manifest_min_block,
-        )));
+    let chain_head = block_cache
+        .chain_head
+        .value_immediate()
+        .ok_or(Error::BlockNotFound(UnresolvedBlock::WithNumber(0)))?
+        .number;
+    let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
+    tracing::debug!(chain_head, blocks_per_minute);
+
+    let indexing_statuses = ctx.indexing_statuses.value_immediate().unwrap();
+    let mut candidates = Vec::new();
+    {
+        let perf = ctx.indexing_perf.latest();
+        for indexing in available_indexers {
+            match prepare_candidate(
+                &ctx.network,
+                &indexing_statuses,
+                &perf,
+                &versions_behind,
+                &mut context,
+                &block_requirements,
+                chain_head,
+                blocks_per_minute,
+                grt_per_usd,
+                budget,
+                indexing,
+            ) {
+                Ok(candidate) => candidates.push(candidate),
+                Err(indexer_error) => {
+                    indexer_errors.insert(indexing.indexer, indexer_error);
+                }
+            }
+        }
+    }
+    if candidates.is_empty() {
+        return Err(Error::NoIndexers);
     }
 
     let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
-    let mut utility_params = UtilityParameters {
-        budget: indexer_selection::tokens::GRT(UDecimal18::from_raw_u256(U256::from(budget))),
-        requirements: block_requirements,
-        // 170cbcf3-db7f-404a-be13-2022d9142677
-        latest_block: 0,
-        block_rate_hz: blocks_per_minute as f64 / 60.0,
-    };
 
     let mut rng = SmallRng::from_entropy();
     let mut total_indexer_fees: u128 = 0;
@@ -392,43 +383,31 @@ async fn handle_client_query_inner(
     for retry in 0..ctx.indexer_selection_retry_limit {
         // Make sure our observations are up-to-date if retrying.
         if retry > 0 {
-            let _ = ctx.observations.flush().await;
+            ctx.indexing_perf.flush().await;
+            todo!("update candidate performance");
         }
-
-        let latest_block = block_cache
-            .chain_head
-            .value_immediate()
-            .ok_or(Error::BlockNotFound(UnresolvedBlock::WithNumber(0)))?;
-        tracing::debug!(?latest_block);
-        // 170cbcf3-db7f-404a-be13-2022d9142677
-        utility_params.latest_block = latest_block.number;
 
         let selection_timer = METRICS.indexer_selection_duration.start_timer();
-        let (mut selections, selection_errors) = ctx
-            .isa_state
-            .latest()
-            .select_indexers(&mut rng, &utility_params, &candidates)
-            .map_err(|err| match err {
-                InputError::MissingNetworkParams => {
-                    Error::Internal(anyhow!("missing network params"))
-                }
-            })?;
+        let selections: ArrayVec<&Candidate, SELECTION_LIMIT> =
+            indexer_selection::select(&mut rng, &candidates);
         drop(selection_timer);
 
+        let mut selections: Vec<Selection> = selections
+            .iter()
+            .map(|c| Selection {
+                indexing: Indexing {
+                    indexer: c.indexer,
+                    deployment: c.deployment,
+                },
+                url: c.url.clone(),
+                fee: (c.fee.as_f64() * budget as f64) as u128,
+                blocks_behind: (c.seconds_behind as u64 / 60) * blocks_per_minute,
+            })
+            .collect();
         let selections_len = selections.len();
-        for (error, indexers) in selection_errors.0 {
-            for indexer in indexers {
-                let error = match error {
-                    SelectionError::NoStatus => IndexerError::Unavailable(NoStatus),
-                    SelectionError::NoStake => IndexerError::Unavailable(NoStake),
-                    SelectionError::MissingRequiredBlock => IndexerError::Unavailable(MissingBlock),
-                    SelectionError::FeeTooHigh => IndexerError::Internal("fee too high"),
-                    SelectionError::NaN => IndexerError::Internal("NaN"),
-                };
-                indexer_errors.insert(*indexer, error);
-            }
-        }
         if selections.is_empty() {
+            // Candidates that would never be selected should be filtered out for improved errors.
+            tracing::error!("no candidates selected");
             continue;
         }
 
@@ -453,14 +432,14 @@ async fn handle_client_query_inner(
                 indexer_client: ctx.indexer_client.clone(),
                 kafka_client: ctx.kafka_client,
                 attestation_domain: ctx.attestation_domain,
-                observations: ctx.observations.clone(),
+                indexing_perf: ctx.indexing_perf.clone(),
                 deployment,
                 response_time: Duration::default(),
             };
 
             let latest_query_block = pick_latest_query_block(
                 block_cache,
-                latest_block.number.saturating_sub(selection.blocks_behind),
+                chain_head.saturating_sub(selection.blocks_behind),
                 blocks_per_minute,
             )
             .await
@@ -483,9 +462,9 @@ async fn handle_client_query_inner(
             let optimistic_query = optimistic_query(
                 context.clone(),
                 &mut resolved_blocks,
-                &latest_block,
+                chain_head,
                 &latest_query_block,
-                &utility_params.requirements,
+                &block_requirements,
                 block_cache,
                 &selection,
             )
@@ -514,7 +493,6 @@ async fn handle_client_query_inner(
                         indexer_query_context,
                         selection.clone(),
                         deterministic_query,
-                        latest_query_block.number,
                         optimistic_query,
                     )
                     .await;
@@ -554,12 +532,133 @@ async fn handle_client_query_inner(
     )))
 }
 
+async fn resolve_block_requirements(
+    block_cache: &BlockCache,
+    resolved_blocks: &mut BTreeSet<BlockPointer>,
+    context: &AgoraContext<'_, String>,
+    manifest_min_block: BlockNumber,
+) -> Result<BlockRequirements, Error> {
+    let constraints = block_constraints(context).unwrap_or_default();
+    resolved_blocks.append(
+        &mut join_all(
+            constraints
+                .iter()
+                .filter_map(|constraint| constraint.clone().into_unresolved())
+                .map(|unresolved| block_cache.fetch_block(unresolved)),
+        )
+        .await
+        .into_iter()
+        .collect::<Result<BTreeSet<BlockPointer>, UnresolvedBlock>>()
+        .map_err(Error::BlockNotFound)?,
+    );
+    let min_block = resolved_blocks.iter().map(|b| b.number).min();
+    let max_block = resolved_blocks.iter().map(|b| b.number).max();
+
+    // Reject queries for blocks before the minimum start block in the manifest, but only if the
+    // constraint is for an exact block. For example, we always want to allow `block_gte: 0`.
+    let request_contains_invalid_blocks = resolved_blocks
+        .iter()
+        .filter(|b| {
+            constraints.iter().any(|c| match c {
+                BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => false,
+                BlockConstraint::Hash(hash) => hash == &b.hash,
+                BlockConstraint::Number(number) => number == &b.number,
+            })
+        })
+        .any(|b| b.number < manifest_min_block);
+    if request_contains_invalid_blocks {
+        return Err(Error::BadQuery(anyhow!(
+            "requested block {}, before minimum `startBlock` of manifest {}",
+            min_block.unwrap_or_default(),
+            manifest_min_block,
+        )));
+    }
+
+    Ok(BlockRequirements {
+        range: min_block.map(|min| (min, max_block.unwrap())),
+        latest: constraints.iter().any(|c| match c {
+            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
+            BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
+        }),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_candidate(
+    network: &GraphNetwork,
+    statuses: &HashMap<Indexing, indexing::Status>,
+    perf: &HashMap<Indexing, Performance>,
+    versions_behind: &BTreeMap<DeploymentId, u8>,
+    context: &mut AgoraContext<String>,
+    block_requirements: &BlockRequirements,
+    chain_head: BlockNumber,
+    blocks_per_minute: u64,
+    grt_per_usd: NotNan<f64>,
+    budget: u128,
+    indexing: Indexing,
+) -> Result<Candidate, IndexerError> {
+    let info = network
+        .indexing(&indexing)
+        .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
+    let status = statuses
+        .get(&indexing)
+        .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
+    let perf = perf
+        .get(&indexing)
+        .map(|p| p.expected_performance())
+        .unwrap_or(ExpectedPerformance {
+            success_rate: Normalized::ONE,
+            latency_success_ms: 0,
+            latency_failure_ms: 0,
+        });
+
+    let fee = Normalized::new(indexer_fee(&status.cost_model, context)? as f64 / budget as f64)
+        .unwrap_or(Normalized::ONE);
+
+    let reported_block_range = status.min_block.unwrap_or(0)..=status.block;
+    if block_requirements
+        .range
+        .map(|(start, end)| {
+            !(reported_block_range.contains(&start) && reported_block_range.contains(&end))
+        })
+        .unwrap_or(false)
+    {
+        return Err(IndexerError::Unavailable(UnavailableReason::MissingBlock));
+    }
+
+    let seconds_behind = if block_requirements.latest {
+        chain_head
+            .saturating_sub(status.block)
+            .checked_div(blocks_per_minute)
+            .unwrap_or(0) as u32
+    } else {
+        0
+    };
+
+    let slashable_usd = ((info.staked_tokens as f64 * 1e-18) / *grt_per_usd) as u64;
+    if slashable_usd == 0 {
+        return Err(IndexerError::Unavailable(NoStake));
+    }
+
+    Ok(Candidate {
+        indexer: indexing.indexer,
+        deployment: indexing.deployment,
+        url: info.url.clone(),
+        perf,
+        fee,
+        seconds_behind,
+        slashable_usd,
+        subgraph_versions_behind: *versions_behind.get(&indexing.deployment).unwrap_or(&0),
+        zero_allocation: info.allocated_tokens == 0,
+    })
+}
+
 #[derive(Clone)]
 struct IndexerQueryContext {
     pub indexer_client: IndexerClient,
     pub kafka_client: &'static KafkaClient,
     pub attestation_domain: &'static Eip712Domain,
-    pub observations: QueueWriter<Update>,
+    pub indexing_perf: IndexingPerformance,
     pub deployment: Arc<Deployment>,
     pub response_time: Duration,
 }
@@ -568,7 +667,6 @@ async fn handle_indexer_query(
     mut ctx: IndexerQueryContext,
     selection: Selection,
     deterministic_query: String,
-    latest_query_block: u64,
     optimistic_query: Option<String>,
 ) -> Result<ResponsePayload, IndexerError> {
     let indexing = selection.indexing;
@@ -595,9 +693,10 @@ async fn handle_indexer_query(
     };
     METRICS.indexer_query.check(&[&deployment], &result);
 
+    let latency_ms = ctx.response_time.as_millis() as u32;
     tracing::info!(
         target: reports::INDEXER_QUERY_TARGET,
-        response_time_ms = ctx.response_time.as_millis() as u32,
+        response_time_ms = latency_ms,
         status_message = match &result {
             Ok(_) => "200 OK".to_string(),
             Err(err) => format!("{err:?}"),
@@ -605,20 +704,8 @@ async fn handle_indexer_query(
         status_code = reports::indexer_attempt_status_code(&result),
     );
 
-    let observation = match &result {
-        Ok(_) => Ok(()),
-        Err(IndexerError::Timeout) => Err(IndexerErrorObservation::Timeout),
-        Err(IndexerError::Unavailable(MissingBlock)) => {
-            Err(IndexerErrorObservation::IndexingBehind { latest_query_block })
-        }
-        Err(_) => Err(IndexerErrorObservation::Other),
-    };
-
-    let _ = ctx.observations.write(Update::QueryObservation {
-        indexing,
-        duration: ctx.response_time,
-        result: observation,
-    });
+    ctx.indexing_perf
+        .feedback(indexing, result.is_ok(), latency_ms);
 
     result
 }
@@ -676,9 +763,6 @@ async fn handle_indexer_query_inner(
 
     for error in &indexer_errors {
         if miscategorized_unattestable(error) {
-            let _ = ctx.observations.write(Update::Penalty {
-                indexing: selection.indexing,
-            });
             let message = if !indexer_errors.is_empty() {
                 format!("unattestable response: {}", indexer_errors.join("; "))
             } else {
@@ -749,7 +833,11 @@ async fn pick_latest_query_block(
     max_block: BlockNumber,
     blocks_per_minute: u64,
 ) -> Result<BlockPointer, UnresolvedBlock> {
-    for n in [max_block, max_block - 1, max_block - blocks_per_minute] {
+    for n in [
+        max_block,
+        max_block.saturating_sub(1),
+        max_block.saturating_sub(blocks_per_minute),
+    ] {
         if let Ok(block) = cache.fetch_block(UnresolvedBlock::WithNumber(n)).await {
             return Ok(block);
         }
@@ -764,13 +852,13 @@ async fn pick_latest_query_block(
 async fn optimistic_query(
     ctx: AgoraContext<'_, String>,
     resolved: &mut BTreeSet<BlockPointer>,
-    latest: &BlockPointer,
+    chain_head: BlockNumber,
     latest_query_block: &BlockPointer,
     requirements: &BlockRequirements,
     block_cache: &BlockCache,
     selection: &Selection,
 ) -> Option<String> {
-    if !requirements.has_latest {
+    if !requirements.latest {
         return None;
     }
     let blocks_per_minute = block_cache.blocks_per_minute.value_immediate()?;
@@ -778,8 +866,7 @@ async fn optimistic_query(
         return None;
     }
     let min_block = requirements.range.map(|(min, _)| min).unwrap_or(0);
-    let optimistic_block_number = latest
-        .number
+    let optimistic_block_number = chain_head
         .saturating_sub(blocks_per_minute / 30)
         .max(min_block);
     if optimistic_block_number <= latest_query_block.number {
