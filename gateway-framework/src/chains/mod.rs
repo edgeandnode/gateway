@@ -1,9 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
+use std::fmt;
 use std::time::Duration;
 
 use alloy_primitives::{BlockHash, BlockNumber};
 use eventuals::{Eventual, EventualWriter};
-use indexer_selection::UnresolvedBlock;
 use thegraph::types::BlockPointer;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::interval;
@@ -20,6 +20,30 @@ pub mod test;
 pub struct BlockHead {
     pub block: BlockPointer,
     pub uncles: Vec<BlockHash>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub enum UnresolvedBlock {
+    WithHash(BlockHash),
+    WithNumber(BlockNumber),
+}
+
+impl UnresolvedBlock {
+    pub fn matches(&self, block: &BlockPointer) -> bool {
+        match self {
+            Self::WithHash(hash) => &block.hash == hash,
+            Self::WithNumber(number) => &block.number == number,
+        }
+    }
+}
+
+impl fmt::Display for UnresolvedBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WithHash(hash) => write!(f, "{hash}"),
+            Self::WithNumber(number) => write!(f, "{number}"),
+        }
+    }
 }
 
 pub trait Client {

@@ -16,6 +16,7 @@ use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
 use futures::future::join_all;
 use gateway_framework::budgets::USD;
+use gateway_framework::chains::UnresolvedBlock;
 use headers::ContentType;
 use indexer_selection::NotNan;
 use num_traits::cast::ToPrimitive as _;
@@ -39,8 +40,7 @@ use gateway_framework::{
 };
 use indexer_selection::{
     actor::Update, BlockRequirements, Candidate, IndexerError as SelectionError,
-    IndexerErrorObservation, InputError, Selection, UnresolvedBlock, UtilityParameters,
-    SELECTION_LIMIT,
+    IndexerErrorObservation, InputError, Selection, UtilityParameters, SELECTION_LIMIT,
 };
 
 use crate::block_constraints::{block_constraints, make_query_deterministic};

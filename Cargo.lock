@@ -1868,6 +1868,7 @@ dependencies = [
  "itertools 0.12.1",
  "lazy_static",
  "maxminddb",
+ "ordered-float",
  "primitive-types",
  "prometheus",
  "rand",

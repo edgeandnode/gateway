@@ -8,7 +8,7 @@ use ethers::{
     providers::Provider,
 };
 use eventuals::{Eventual, EventualExt, EventualWriter};
-use indexer_selection::NotNan;
+use ordered_float::NotNan;
 use tokio::sync::Mutex;
 use toolshed::url::Url;
 

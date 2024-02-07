@@ -1,5 +1,6 @@
 use alloy_primitives::{BlockHash, BlockNumber};
-use indexer_selection::UnresolvedBlock;
+
+use crate::chains::UnresolvedBlock;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BlockConstraint {
