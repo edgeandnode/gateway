@@ -5,11 +5,11 @@ use anyhow::bail;
 use eventuals::{Eventual, Ptr};
 use thegraph::types::{DeploymentId, SubgraphId};
 
+use crate::client_query::query_settings::QuerySettings;
 use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::topology::Deployment;
 
 use super::common;
-use super::common::QuerySettings;
 
 /// Errors that may occur when parsing a Studio API key.
 #[derive(Debug, thiserror::Error)]
@@ -78,15 +78,27 @@ impl AuthContext {
     }
 }
 
-pub fn parse_bearer_token(auth: &AuthContext, token: &str) -> anyhow::Result<Arc<APIKey>> {
+/// Parse the bearer token as a Studio API key and retrieve the associated API key.
+pub fn parse_auth_token(
+    ctx: &AuthContext,
+    token: &str,
+) -> anyhow::Result<(Arc<APIKey>, Option<QuerySettings>)> {
     // Check if the bearer token is a valid 32 hex digits key
     if parse_studio_api_key(token).is_err() {
-        return Err(anyhow::anyhow!("Invalid api key format"));
+        return Err(anyhow::anyhow!("invalid api key format"));
     }
 
     // Retrieve the API Key associated with the bearer token
-    auth.get_api_key(token)
-        .ok_or_else(|| anyhow::anyhow!("API key not found"))
+    let auth_token = &ctx
+        .get_api_key(token)
+        .ok_or_else(|| anyhow::anyhow!("api key not found"))?;
+
+    // Build the query settings struct
+    let query_settings = QuerySettings {
+        budget_usd: auth_token.max_budget_usd,
+    };
+
+    Ok((auth_token.clone(), Some(query_settings)))
 }
 
 /// Check if the given deployment is authorized by the given API key.
@@ -110,13 +122,6 @@ pub fn is_domain_authorized(api_key: &Arc<APIKey>, domain: &str) -> bool {
         .collect::<Vec<_>>();
 
     common::is_domain_authorized(allowed_domains, domain)
-}
-
-/// Get the user settings associated with the API key.
-pub fn get_query_settings(api_key: &Arc<APIKey>) -> QuerySettings {
-    QuerySettings {
-        budget_usd: api_key.max_budget_usd,
-    }
 }
 
 pub async fn check_token(

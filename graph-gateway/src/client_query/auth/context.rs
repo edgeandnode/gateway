@@ -8,6 +8,7 @@ use axum::extract::FromRef;
 use eventuals::{Eventual, EventualExt, Ptr};
 use tokio::sync::RwLock;
 
+use crate::client_query::query_settings::QuerySettings;
 use crate::subgraph_studio::APIKey;
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
@@ -89,22 +90,25 @@ impl AuthContext {
         handler
     }
 
-    pub fn parse_bearer_token(&self, input: &str) -> anyhow::Result<AuthToken> {
+    pub fn parse_auth_token(
+        &self,
+        input: &str,
+    ) -> anyhow::Result<(AuthToken, Option<QuerySettings>)> {
         // Ensure the bearer token is not empty
         if input.is_empty() {
             return Err(anyhow::anyhow!("Not found"));
         }
 
         // First, parse the bearer token as it was a Studio API key
-        let auth_handler = studio::AuthContext::from_ref(self);
-        if let Ok(api_key) = studio::parse_bearer_token(&auth_handler, input) {
-            return Ok(AuthToken::StudioApiKey(api_key));
+        let ctx = studio::AuthContext::from_ref(self);
+        if let Ok((auth, query_settings)) = studio::parse_auth_token(&ctx, input) {
+            return Ok((AuthToken::from(auth), query_settings));
         }
 
         // Otherwise, parse the bearer token as a Subscriptions auth token
-        let auth_handler = subscriptions::AuthContext::from_ref(self);
-        if let Ok(claims) = subscriptions::parse_bearer_token(&auth_handler, input) {
-            return Ok(AuthToken::SubscriptionsAuthToken(claims));
+        let ctx = subscriptions::AuthContext::from_ref(self);
+        if let Ok((auth, query_settings)) = subscriptions::parse_auth_token(&ctx, input) {
+            return Ok((AuthToken::from(auth), query_settings));
         }
 
         Err(anyhow::anyhow!("Invalid auth token"))

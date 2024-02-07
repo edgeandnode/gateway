@@ -4,15 +4,17 @@ use std::sync::{atomic, Arc};
 
 use alloy_primitives::Address;
 use eventuals::{Eventual, Ptr};
-use thegraph::subscriptions::auth::{parse_auth_token, verify_auth_token_claims, AuthTokenClaims};
+use thegraph::subscriptions::auth::{
+    parse_auth_token as parse_bearer_token, verify_auth_token_claims, AuthTokenClaims,
+};
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
 
+use crate::client_query::query_settings::QuerySettings;
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
 
 use super::common;
-use super::common::QuerySettings;
 
 /// App state (a.k.a [Context](crate::client_query::Context)) sub-state.
 pub struct AuthContext {
@@ -56,16 +58,27 @@ impl AuthContext {
     }
 }
 
-pub fn parse_bearer_token(_auth: &AuthContext, token: &str) -> anyhow::Result<AuthTokenClaims> {
+/// Parse the bearer token as a Subscriptions auth token, verify the signature and return the
+/// associated subscription and the expected queries per minute rate.
+pub fn parse_auth_token(
+    ctx: &AuthContext,
+    token: &str,
+) -> anyhow::Result<(AuthTokenClaims, Option<QuerySettings>)> {
     let (claims, signature) =
-        parse_auth_token(token).map_err(|_| anyhow::anyhow!("Invalid auth token"))?;
+        parse_bearer_token(token).map_err(|_| anyhow::anyhow!("invalid auth token"))?;
 
     // Verify the auth token signature
     if verify_auth_token_claims(&claims, &signature).is_err() {
-        return Err(anyhow::anyhow!("Invalid auth token signature"));
+        return Err(anyhow::anyhow!("invalid auth token signature"));
     }
 
-    Ok(claims)
+    // Retrieve the subscription associated with the auth token user
+    // TODO(LNSD): Pass the subscription around to support executing the requirements checks in the middleware
+    let _subscription = ctx
+        .get_subscription_for_user(&claims.user())
+        .ok_or_else(|| anyhow::anyhow!("subscription not found for user {}", claims.user()))?;
+
+    Ok((claims, None))
 }
 
 /// Check if the given deployment is authorized by the given API key.
@@ -90,11 +103,6 @@ pub fn is_domain_authorized(auth_token: &AuthTokenClaims, domain: &str) -> bool 
         .collect();
 
     common::is_domain_authorized(&allowed_domains, domain)
-}
-
-/// Get the user settings associated with the auth token.
-pub fn get_query_settings(_auth: &AuthTokenClaims) -> QuerySettings {
-    QuerySettings { budget_usd: None }
 }
 
 pub async fn check_token(

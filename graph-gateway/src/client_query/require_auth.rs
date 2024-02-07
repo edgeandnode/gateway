@@ -83,13 +83,13 @@ impl<F, R> ResponseFuture<F, R> {
 #[derive(Clone)]
 pub struct RequireAuthorization<S> {
     inner: S,
-    auth_ctx: AuthContext,
+    ctx: AuthContext,
 }
 
 impl<S> RequireAuthorization<S> {
     /// Create a new [`RequireAuthorization`] middleware.
-    pub fn new(inner: S, auth_ctx: AuthContext) -> Self {
-        Self { inner, auth_ctx }
+    pub fn new(inner: S, ctx: AuthContext) -> Self {
+        Self { inner, ctx }
     }
 }
 
@@ -129,7 +129,7 @@ where
         };
 
         // Parse the bearer token into an `AuthToken`
-        let auth_token = match self.auth_ctx.parse_bearer_token(bearer.token()) {
+        let (auth_token, query_settings) = match self.ctx.parse_auth_token(bearer.token()) {
             Ok(token) => token,
             Err(err) => {
                 // If the bearer token is invalid, return an error response
@@ -165,6 +165,11 @@ where
         // Insert the `AuthToken` extension into the request
         req.extensions_mut().insert(auth_token);
 
+        // Insert the `QuerySettings` extension into the request
+        if let Some(query_settings) = query_settings {
+            req.extensions_mut().insert(query_settings);
+        }
+
         ResponseFuture::from_service(self.inner.call(req))
     }
 }
@@ -174,13 +179,13 @@ where
 /// See [`RequireAuthorization`] for more details.
 #[derive(Clone)]
 pub struct RequireAuthorizationLayer {
-    auth_ctx: AuthContext,
+    ctx: AuthContext,
 }
 
 impl RequireAuthorizationLayer {
     /// Create a new [`RequireAuthorizationLayer`] middleware.
     pub fn new(ctx: AuthContext) -> Self {
-        Self { auth_ctx: ctx }
+        Self { ctx }
     }
 }
 
@@ -188,7 +193,7 @@ impl<S> tower::layer::Layer<S> for RequireAuthorizationLayer {
     type Service = RequireAuthorization<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        RequireAuthorization::new(inner, self.auth_ctx.clone())
+        RequireAuthorization::new(inner, self.ctx.clone())
     }
 }
 
@@ -204,6 +209,9 @@ mod tests {
     use hyper::http;
     use tokio_test::assert_ready_ok;
 
+    use indexer_selection::NotNan;
+
+    use crate::client_query::query_settings::QuerySettings;
     use crate::subgraph_studio::APIKey;
 
     use super::{AuthContext, AuthToken, RequireAuthorizationLayer};
@@ -224,6 +232,7 @@ mod tests {
                 key.into(),
                 Arc::new(APIKey {
                     key: key.into(),
+                    max_budget_usd: Some(NotNan::new(1e3).unwrap()),
                     ..Default::default()
                 }),
             )])));
@@ -470,5 +479,39 @@ mod tests {
         assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::StudioApiKey(api_key)) => {
             assert_eq!(api_key.key, "test-api-key");
         });
+    }
+
+    /// The query settings extension should be inserted into the request when using the Studio API keys auth
+    /// schema.
+    #[tokio::test]
+    async fn studio_api_key_query_settings_extension_is_inserted() {
+        //* Given
+        let api_key = "0123456789abcdef0123456789abcdef";
+
+        let auth_ctx = test_auth_ctx(Some(api_key));
+
+        let (mut svc, mut handle) =
+            tower_test::mock::spawn_layer(RequireAuthorizationLayer::new(auth_ctx));
+
+        let req = test_req_with_auth_header(api_key);
+
+        //* When
+        // The service must be ready before calling it
+        handle.allow(1);
+        assert_ready_ok!(svc.poll_ready());
+
+        // Call the wrapped service
+        svc.call(req);
+
+        let (r, _) = handle
+            .next_request()
+            .await
+            .expect("service received a request");
+
+        //* Then
+        assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::StudioApiKey(api_key)) => {
+            assert_eq!(api_key.key, "0123456789abcdef0123456789abcdef");
+        });
+        assert_matches!(r.extensions().get::<QuerySettings>(), Some(_));
     }
 }
