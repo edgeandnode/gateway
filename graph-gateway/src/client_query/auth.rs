@@ -1,67 +1,72 @@
 use std::sync::Arc;
 
-use thegraph::subscriptions::auth::AuthTokenClaims;
 use thegraph::types::{DeploymentId, SubgraphId};
 
-use crate::subgraph_studio::APIKey;
+use crate::topology::Deployment;
 
 pub use self::context::AuthContext;
 
 mod common;
 mod context;
-mod studio;
-mod subscriptions;
+pub mod studio;
+pub mod subscriptions;
 
 #[derive(Clone, Debug)]
 pub enum AuthToken {
     /// API key from the Subgraph Studio Database.
-    StudioApiKey(Arc<APIKey>),
+    StudioApiKey(Box<studio::AuthToken>),
     /// Auth token associated with a subscription.
-    SubscriptionsAuthToken(AuthTokenClaims),
-}
-
-impl From<Arc<APIKey>> for AuthToken {
-    fn from(value: Arc<APIKey>) -> Self {
-        AuthToken::StudioApiKey(value)
-    }
-}
-
-impl From<AuthTokenClaims> for AuthToken {
-    fn from(value: AuthTokenClaims) -> Self {
-        AuthToken::SubscriptionsAuthToken(value)
-    }
+    SubscriptionsAuthToken(Box<subscriptions::AuthToken>),
 }
 
 impl AuthToken {
     /// Check if the given subgraph is authorized for this auth token.
     pub fn is_subgraph_authorized(&self, subgraph: &SubgraphId) -> bool {
         match self {
-            AuthToken::StudioApiKey(api_key) => studio::is_subgraph_authorized(api_key, subgraph),
-            AuthToken::SubscriptionsAuthToken(claims) => {
-                subscriptions::is_subgraph_authorized(claims, subgraph)
-            }
+            AuthToken::StudioApiKey(auth) => auth.is_subgraph_authorized(subgraph),
+            AuthToken::SubscriptionsAuthToken(auth) => auth.is_subgraph_authorized(subgraph),
         }
     }
 
     /// Check if the given deployment is authorized for this auth token.
     pub fn is_deployment_authorized(&self, deployment: &DeploymentId) -> bool {
         match self {
-            AuthToken::StudioApiKey(api_key) => {
-                studio::is_deployment_authorized(api_key, deployment)
-            }
-            AuthToken::SubscriptionsAuthToken(claims) => {
-                subscriptions::is_deployment_authorized(claims, deployment)
-            }
+            AuthToken::StudioApiKey(auth) => auth.is_deployment_authorized(deployment),
+            AuthToken::SubscriptionsAuthToken(auth) => auth.is_deployment_authorized(deployment),
         }
     }
 
     /// Check if the given origin domain is authorized for this auth token.    
     pub fn is_domain_authorized(&self, domain: &str) -> bool {
         match self {
-            AuthToken::StudioApiKey(api_key) => studio::is_domain_authorized(api_key, domain),
-            AuthToken::SubscriptionsAuthToken(claims) => {
-                subscriptions::is_domain_authorized(claims, domain)
-            }
+            AuthToken::StudioApiKey(auth) => auth.is_domain_authorized(domain),
+            AuthToken::SubscriptionsAuthToken(auth) => auth.is_domain_authorized(domain),
         }
+    }
+
+    pub fn are_subgraphs_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+        match self {
+            AuthToken::StudioApiKey(auth) => auth.are_subgraphs_authorized(deployments),
+            AuthToken::SubscriptionsAuthToken(auth) => auth.are_subgraphs_authorized(deployments),
+        }
+    }
+
+    pub fn are_deployments_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+        match self {
+            AuthToken::StudioApiKey(auth) => auth.are_deployments_authorized(deployments),
+            AuthToken::SubscriptionsAuthToken(auth) => auth.are_deployments_authorized(deployments),
+        }
+    }
+}
+
+impl From<studio::AuthToken> for AuthToken {
+    fn from(auth: studio::AuthToken) -> Self {
+        AuthToken::StudioApiKey(Box::new(auth))
+    }
+}
+
+impl From<subscriptions::AuthToken> for AuthToken {
+    fn from(auth: subscriptions::AuthToken) -> Self {
+        AuthToken::SubscriptionsAuthToken(Box::new(auth))
     }
 }

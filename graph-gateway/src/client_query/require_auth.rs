@@ -141,14 +141,14 @@ where
             };
 
         match &auth_token {
-            AuthToken::StudioApiKey(api_key) => tracing::info!(
+            AuthToken::StudioApiKey(auth) => tracing::info!(
                 target: reports::CLIENT_QUERY_TARGET,
-                user_address = ?api_key.user_address,
-                api_key = %api_key.key,
+                user_address = ?auth.user(),
+                api_key = %auth.key(),
             ),
-            AuthToken::SubscriptionsAuthToken(claims) => tracing::info!(
+            AuthToken::SubscriptionsAuthToken(auth) => tracing::info!(
                 target: reports::CLIENT_QUERY_TARGET,
-                user_address = ?claims.user(),
+                user_address = ?auth.user(),
             ),
         };
 
@@ -161,6 +161,13 @@ where
             return ResponseFuture::error(graphql::error_response(Error::Auth(anyhow::anyhow!(
                 "Domain not authorized by user"
             ))));
+        }
+
+        // If payment is required, check the auth schema specific requirements
+        if self.ctx.payment_required {
+            if let Err(err) = self.ctx.check_auth_requirements(&auth_token) {
+                return ResponseFuture::error(graphql::error_response(Error::Auth(err)));
+            }
         }
 
         // Insert the `AuthToken` extension into the request
@@ -217,6 +224,7 @@ mod tests {
 
     use indexer_selection::NotNan;
 
+    use crate::client_query::auth::studio::AuthToken as StudioAuthToken;
     use crate::client_query::query_settings::QuerySettings;
     use crate::subgraph_studio::APIKey;
 
@@ -224,10 +232,10 @@ mod tests {
 
     fn test_auth_ctx(key: Option<&str>) -> AuthContext {
         let mut ctx = AuthContext {
+            payment_required: false,
             api_keys: Eventual::from_value(Ptr::new(Default::default())),
             special_api_keys: Default::default(),
             special_query_key_signers: Default::default(),
-            api_key_payment_required: false,
             subscriptions: Eventual::from_value(Ptr::new(Default::default())),
             subscription_rate_per_query: 0,
             subscription_domains: Default::default(),
@@ -279,10 +287,10 @@ mod tests {
     fn test_req_with_auth_token_extension(auth: &str) -> http::Request<()> {
         let mut req = http::Request::builder().body(()).unwrap();
 
-        let auth_token = AuthToken::StudioApiKey(Arc::new(APIKey {
+        let auth_token = AuthToken::from(StudioAuthToken::new(Arc::new(APIKey {
             key: auth.into(),
             ..Default::default()
-        }));
+        })));
         req.extensions_mut().insert(auth_token);
 
         req
@@ -452,7 +460,7 @@ mod tests {
 
         //* Then
         assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::StudioApiKey(api_key)) => {
-            assert_eq!(api_key.key, "0123456789abcdef0123456789abcdef");
+            assert_eq!(api_key.key(), "0123456789abcdef0123456789abcdef");
         });
     }
 
@@ -483,7 +491,7 @@ mod tests {
 
         //* Then
         assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::StudioApiKey(api_key)) => {
-            assert_eq!(api_key.key, "test-api-key");
+            assert_eq!(api_key.key(), "test-api-key");
         });
     }
 
@@ -516,7 +524,7 @@ mod tests {
 
         //* Then
         assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::StudioApiKey(api_key)) => {
-            assert_eq!(api_key.key, "0123456789abcdef0123456789abcdef");
+            assert_eq!(api_key.key(), "0123456789abcdef0123456789abcdef");
         });
         assert_matches!(r.extensions().get::<QuerySettings>(), Some(_));
     }
