@@ -1,25 +1,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy_primitives::{Address, U256};
-use anyhow::anyhow;
+use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use serde::Deserialize;
 use serde_with::serde_as;
 use thegraph::{
     client as subgraph_client,
-    types::{DeploymentId, SubgraphId, UDecimal18},
+    types::{DeploymentId, SubgraphId},
 };
-use tokio::{sync::Mutex, time::sleep};
-
-pub struct Data {
-    pub network_params: NetworkParams,
-    pub subgraphs: Eventual<Ptr<Vec<Subgraph>>>,
-}
-
-pub struct NetworkParams {
-    pub slashing_percentage: UDecimal18,
-}
+use tokio::sync::Mutex;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,23 +67,13 @@ impl Client {
     pub async fn create(
         subgraph_client: subgraph_client::Client,
         l2_transfer_support: bool,
-    ) -> Data {
+    ) -> Eventual<Ptr<Vec<Subgraph>>> {
         let (subgraphs_tx, subgraphs_rx) = Eventual::new();
         let client = Arc::new(Mutex::new(Client {
             subgraph_client,
             subgraphs: subgraphs_tx,
             l2_transfer_support,
         }));
-
-        let network_params = loop {
-            match client.lock().await.network_params().await {
-                Ok(network_params) => break network_params,
-                Err(network_params_err) => {
-                    tracing::error!(%network_params_err);
-                    sleep(Duration::from_secs(10)).await;
-                }
-            }
-        };
 
         // 4e072dfe-5cb3-4f86-80f6-b64afeb9dcb2
         eventuals::timer(Duration::from_secs(30))
@@ -108,36 +88,7 @@ impl Client {
             })
             .forever();
 
-        Data {
-            network_params,
-            subgraphs: subgraphs_rx,
-        }
-    }
-
-    async fn network_params(&mut self) -> anyhow::Result<NetworkParams> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct GraphNetworkResponse {
-            graph_network: Option<GraphNetwork>,
-        }
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct GraphNetwork {
-            slashing_percentage: u32,
-        }
-        let query = r#"{ graphNetwork(id: "1") { slashingPercentage } }"#;
-        let response = self
-            .subgraph_client
-            .query::<GraphNetworkResponse>(query)
-            .await
-            .map_err(|err| anyhow!(err))?
-            .graph_network
-            .ok_or_else(|| anyhow!("Discarding empty update (graphNetwork)"))?;
-        Ok(NetworkParams {
-            slashing_percentage: UDecimal18::from_raw_u256(
-                U256::from(response.slashing_percentage) * U256::from(1_000_000_000_000_u128),
-            ),
-        })
+        subgraphs_rx
     }
 
     #[allow(clippy::obfuscated_if_else)]

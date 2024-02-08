@@ -147,13 +147,14 @@ async fn main() {
 
     let network_subgraph_client =
         subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
-    let network_subgraph_data =
+    let subgraphs =
         network_subgraph::Client::create(network_subgraph_client, config.l2_gateway.is_some())
             .await;
 
+    // TODO: delete when new ISA is used
     update_writer
         .write(Update::SlashingPercentage(
-            network_subgraph_data.network_params.slashing_percentage,
+            UDecimal18::try_from(0.025).unwrap(),
         ))
         .unwrap();
 
@@ -165,7 +166,7 @@ async fn main() {
         )));
 
     let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
-    let network = GraphNetwork::new(network_subgraph_data.subgraphs, ipfs).await;
+    let network = GraphNetwork::new(subgraphs, ipfs).await;
 
     // Indexer blocklist
     // Periodically check the defective POIs list against the network indexers and update the
