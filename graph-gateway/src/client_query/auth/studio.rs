@@ -6,6 +6,7 @@ use eventuals::{Eventual, Ptr};
 use thegraph::types::{DeploymentId, SubgraphId};
 
 use crate::client_query::query_settings::QuerySettings;
+use crate::client_query::rate_limit_settings::RateLimitSettings;
 use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::topology::Deployment;
 
@@ -82,7 +83,11 @@ impl AuthContext {
 pub fn parse_auth_token(
     ctx: &AuthContext,
     token: &str,
-) -> anyhow::Result<(Arc<APIKey>, Option<QuerySettings>)> {
+) -> anyhow::Result<(
+    Arc<APIKey>,
+    Option<QuerySettings>,
+    Option<RateLimitSettings>,
+)> {
     // Check if the bearer token is a valid 32 hex digits key
     if parse_studio_api_key(token).is_err() {
         return Err(anyhow::anyhow!("invalid api key format"));
@@ -98,7 +103,7 @@ pub fn parse_auth_token(
         budget_usd: auth_token.max_budget_usd,
     };
 
-    Ok((auth_token.clone(), Some(query_settings)))
+    Ok((auth_token.clone(), Some(query_settings), None))
 }
 
 /// Check if the given deployment is authorized by the given API key.

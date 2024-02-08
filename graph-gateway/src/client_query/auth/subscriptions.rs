@@ -11,6 +11,7 @@ use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
 
 use crate::client_query::query_settings::QuerySettings;
+use crate::client_query::rate_limit_settings::RateLimitSettings;
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
 
@@ -63,7 +64,11 @@ impl AuthContext {
 pub fn parse_auth_token(
     ctx: &AuthContext,
     token: &str,
-) -> anyhow::Result<(AuthTokenClaims, Option<QuerySettings>)> {
+) -> anyhow::Result<(
+    AuthTokenClaims,
+    Option<QuerySettings>,
+    Option<RateLimitSettings>,
+)> {
     let (claims, signature) =
         parse_bearer_token(token).map_err(|_| anyhow::anyhow!("invalid auth token"))?;
 
@@ -72,13 +77,30 @@ pub fn parse_auth_token(
         return Err(anyhow::anyhow!("invalid auth token signature"));
     }
 
+    let user = claims.user();
+
     // Retrieve the subscription associated with the auth token user
     // TODO(LNSD): Pass the subscription around to support executing the requirements checks in the middleware
-    let _subscription = ctx
-        .get_subscription_for_user(&claims.user())
-        .ok_or_else(|| anyhow::anyhow!("subscription not found for user {}", claims.user()))?;
+    let subscription = ctx
+        .get_subscription_for_user(&user)
+        .ok_or_else(|| anyhow::anyhow!("subscription not found for user {}", user))?;
 
-    Ok((claims, None))
+    // Calculate the expected queries per minute rate
+    let queries_per_minute = subscription
+        .rate
+        .checked_div(ctx.rate_per_query)
+        .map(|rate| rate as usize)
+        .unwrap_or(0);
+    if queries_per_minute == 0 {
+        tracing::warn!("subscription rate is too low for user {}", user);
+        return Err(anyhow::anyhow!("subscription not found for user {}", user));
+    }
+    let rate_limit_settings = RateLimitSettings {
+        key: user,
+        queries_per_minute,
+    };
+
+    Ok((claims, None, Some(rate_limit_settings)))
 }
 
 /// Check if the given deployment is authorized by the given API key.
@@ -106,8 +128,9 @@ pub fn is_domain_authorized(auth_token: &AuthTokenClaims, domain: &str) -> bool 
 }
 
 pub async fn check_token(
-    auth: &AuthContext,
+    ctx: &AuthContext,
     auth_token: &AuthTokenClaims,
+    rate_limit_settings: Option<RateLimitSettings>,
     deployments: &[Arc<Deployment>],
 ) -> anyhow::Result<()> {
     // Check deployment allowlist
@@ -125,7 +148,7 @@ pub async fn check_token(
     // This is safe, since we have already verified the signature and the claimed signer match in
     // the `parse_bearer_token` function. This is placed before the subscriptions domain check to
     // allow the same special query keys to be used across testnet & mainnet.
-    if auth.is_special_signer(&auth_token.signer) {
+    if ctx.is_special_signer(&auth_token.signer) {
         return Ok(());
     }
 
@@ -136,7 +159,7 @@ pub async fn check_token(
 
     // If no active subscription is found, assume the user is not subscribed. And
     // provide a default subscription with 0 rate.
-    let subscription = auth
+    let subscription = ctx
         .get_subscription_for_user(&user)
         .unwrap_or_else(|| Subscription {
             signers: vec![user],
@@ -145,7 +168,7 @@ pub async fn check_token(
 
     let queries_per_minute = subscription
         .rate
-        .checked_div(auth.rate_per_query)
+        .checked_div(ctx.rate_per_query)
         .unwrap_or(0) as usize;
     tracing::debug!(
         subscription_payment_rate = subscription.rate,
@@ -162,39 +185,46 @@ pub async fn check_token(
     // check will always pass.
     if (signer != user) && !subscription.signers.contains(&signer) {
         return Err(anyhow::anyhow!(
-            "Signer {signer} not authorized for user {user}"
+            "signer {signer} not authorized for user {user}"
         ));
     }
 
     // Check if the auth token chain id and contract are among
     // the allowed subscriptions domains.
-    if !auth.is_domain_allowed(chain_id, &contract) {
+    if !ctx.is_domain_allowed(chain_id, &contract) {
         return Err(anyhow::anyhow!(
-            "Query key chain_id or contract not allowed"
+            "query key chain_id or contract not allowed"
         ));
     }
 
-    // Check rate limit for subscriptions
-    let counters = match auth.query_counters.try_read() {
-        Ok(counters) => counters,
-        // Just skip if we can't acquire the read lock. This is a relaxed operation anyway.
-        Err(_) => return Ok(()),
-    };
+    // TODO(LNSD): Move to rate limiter middleware
+    if let Some(RateLimitSettings {
+        key: user,
+        queries_per_minute,
+    }) = rate_limit_settings
+    {
+        // Check rate limit for subscriptions
+        let counters = match ctx.query_counters.try_read() {
+            Ok(counters) => counters,
+            // Just skip if we can't acquire the read lock. This is a relaxed operation anyway.
+            Err(_) => return Ok(()),
+        };
 
-    match counters.get(&user) {
-        Some(counter) => {
-            let count = counter.fetch_add(1, atomic::Ordering::Relaxed);
-            // Note that counters are for 1 minute intervals.
-            // 5720d5ea-cfc3-4862-865b-52b4508a4c14
-            if count >= queries_per_minute {
-                return Err(anyhow::anyhow!("Rate limit exceeded"));
+        match counters.get(&user) {
+            Some(counter) => {
+                let count = counter.fetch_add(1, atomic::Ordering::Relaxed);
+                // Note that counters are for 1 minute intervals.
+                // 5720d5ea-cfc3-4862-865b-52b4508a4c14
+                if count >= queries_per_minute {
+                    return Err(anyhow::anyhow!("Rate limit exceeded"));
+                }
             }
-        }
-        // No entry, acquire write lock and insert.
-        None => {
-            drop(counters);
-            let mut counters = auth.query_counters.write().await;
-            counters.insert(user, AtomicUsize::from(0));
+            // No entry, acquire write lock and insert.
+            None => {
+                drop(counters);
+                let mut counters = ctx.query_counters.write().await;
+                counters.insert(user, AtomicUsize::from(0));
+            }
         }
     }
 

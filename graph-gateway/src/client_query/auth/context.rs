@@ -9,6 +9,7 @@ use eventuals::{Eventual, EventualExt, Ptr};
 use tokio::sync::RwLock;
 
 use crate::client_query::query_settings::QuerySettings;
+use crate::client_query::rate_limit_settings::RateLimitSettings;
 use crate::subgraph_studio::APIKey;
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
@@ -93,7 +94,7 @@ impl AuthContext {
     pub fn parse_auth_token(
         &self,
         input: &str,
-    ) -> anyhow::Result<(AuthToken, Option<QuerySettings>)> {
+    ) -> anyhow::Result<(AuthToken, Option<QuerySettings>, Option<RateLimitSettings>)> {
         // Ensure the bearer token is not empty
         if input.is_empty() {
             return Err(anyhow::anyhow!("Not found"));
@@ -101,14 +102,18 @@ impl AuthContext {
 
         // First, parse the bearer token as it was a Studio API key
         let ctx = studio::AuthContext::from_ref(self);
-        if let Ok((auth, query_settings)) = studio::parse_auth_token(&ctx, input) {
-            return Ok((AuthToken::from(auth), query_settings));
+        if let Ok((auth, query_settings, rate_limit_settings)) =
+            studio::parse_auth_token(&ctx, input)
+        {
+            return Ok((AuthToken::from(auth), query_settings, rate_limit_settings));
         }
 
         // Otherwise, parse the bearer token as a Subscriptions auth token
         let ctx = subscriptions::AuthContext::from_ref(self);
-        if let Ok((auth, query_settings)) = subscriptions::parse_auth_token(&ctx, input) {
-            return Ok((AuthToken::from(auth), query_settings));
+        if let Ok((auth, query_settings, rate_limit_settings)) =
+            subscriptions::parse_auth_token(&ctx, input)
+        {
+            return Ok((AuthToken::from(auth), query_settings, rate_limit_settings));
         }
 
         Err(anyhow::anyhow!("Invalid auth token"))
@@ -117,6 +122,7 @@ impl AuthContext {
     pub async fn check_token(
         &self,
         token: &AuthToken,
+        rate_limit_settings: Option<RateLimitSettings>,
         deployments: &[Arc<Deployment>],
     ) -> anyhow::Result<()> {
         match token {
@@ -126,7 +132,13 @@ impl AuthContext {
             }
             AuthToken::SubscriptionsAuthToken(auth_token) => {
                 let auth_handler = subscriptions::AuthContext::from_ref(self);
-                subscriptions::check_token(&auth_handler, auth_token, deployments).await
+                subscriptions::check_token(
+                    &auth_handler,
+                    auth_token,
+                    rate_limit_settings,
+                    deployments,
+                )
+                .await
             }
         }
     }
