@@ -18,9 +18,7 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
-use gateway_framework::budgets::USD;
-use indexer_selection::tokens::GRT;
-use indexer_selection::NotNan;
+use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use serde_json::json;
@@ -40,6 +38,7 @@ use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
 use gateway_common::types::Indexing;
+use gateway_framework::budgets::USD;
 use gateway_framework::geoip::GeoIP;
 use gateway_framework::scalar::ReceiptSigner;
 use gateway_framework::{
@@ -54,6 +53,7 @@ use graph_gateway::client_query::context::Context;
 use graph_gateway::client_query::legacy_auth_adapter::legacy_auth_adapter;
 use graph_gateway::client_query::query_id::SetQueryIdLayer;
 use graph_gateway::client_query::query_tracing::QueryTracingLayer;
+use graph_gateway::client_query::rate_limiter::AddRateLimiterLayer;
 use graph_gateway::client_query::require_auth::RequireAuthorizationLayer;
 use graph_gateway::config::{Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
@@ -62,6 +62,7 @@ use graph_gateway::indexings_blocklist::indexings_blocklist;
 use graph_gateway::reports::{self, KafkaClient};
 use graph_gateway::topology::{Deployment, GraphNetwork};
 use graph_gateway::{client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph};
+use indexer_selection::tokens::GRT;
 use indexer_selection::{actor::Update, BlockStatus};
 
 #[global_allocator]
@@ -298,7 +299,6 @@ async fn main() {
             receipt_signer,
         },
         kafka_client,
-        auth_handler,
         budgeter,
         indexer_selection_retry_limit: config.indexer_selection_retry_limit,
         l2_gateway: config.l2_gateway,
@@ -380,7 +380,9 @@ async fn main() {
                 // Handle legacy in-path auth, and convert it into a header
                 .layer(middleware::from_fn(legacy_auth_adapter))
                 // Require the query to be authorized
-                .layer(RequireAuthorizationLayer::new(auth_handler.clone())),
+                .layer(RequireAuthorizationLayer::new(auth_handler))
+                // Check the query rate limit with a 60s reset interval
+                .layer(AddRateLimiterLayer::default()),
         );
 
     let router = Router::new()

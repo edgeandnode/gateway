@@ -5,13 +5,14 @@ use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt, Ptr};
 use futures::future::join_all;
-use gateway_common::types::Indexing;
-use gateway_framework::{ipfs, network::network_subgraph};
 use itertools::Itertools;
 use serde::Deserialize;
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
 use toolshed::url::Url;
+
+use gateway_common::types::Indexing;
+use gateway_framework::{ipfs, network::network_subgraph};
 
 /// Representation of the graph network being used to serve queries
 #[derive(Clone)]

@@ -82,9 +82,9 @@ mod tests {
     use super::*;
 
     mod response {
-        use super::*;
-
         use indoc::indoc;
+
+        use super::*;
 
         #[test]
         fn deserialize_indexing_statuses_response() {

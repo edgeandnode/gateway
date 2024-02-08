@@ -220,9 +220,8 @@ mod tests {
     use eventuals::{Eventual, Ptr};
     use headers::{Authorization, ContentType, HeaderMapExt};
     use hyper::http;
+    use ordered_float::NotNan;
     use tokio_test::assert_ready_ok;
-
-    use indexer_selection::NotNan;
 
     use crate::client_query::auth::studio::AuthToken as StudioAuthToken;
     use crate::client_query::query_settings::QuerySettings;
@@ -239,7 +238,6 @@ mod tests {
             subscriptions: Eventual::from_value(Ptr::new(Default::default())),
             subscription_rate_per_query: 0,
             subscription_domains: Default::default(),
-            subscription_query_counters: Default::default(),
         };
         if let Some(key) = key {
             ctx.api_keys = Eventual::from_value(Ptr::new(HashMap::from([(

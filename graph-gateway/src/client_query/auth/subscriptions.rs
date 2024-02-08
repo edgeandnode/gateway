@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicUsize;
-use std::sync::{atomic, Arc};
+use std::sync::Arc;
 
 use alloy_primitives::Address;
 use eventuals::{Eventual, Ptr};
@@ -8,7 +7,6 @@ use thegraph::subscriptions::auth::{
     parse_auth_token as parse_bearer_token, verify_auth_token_claims, AuthTokenClaims,
 };
 use thegraph::types::{DeploymentId, SubgraphId};
-use tokio::sync::RwLock;
 
 use crate::client_query::query_settings::QuerySettings;
 use crate::client_query::rate_limit_settings::RateLimitSettings;
@@ -108,9 +106,6 @@ pub struct AuthContext {
 
     /// A map between the chain id and the subscription contract address.
     pub(crate) subscription_domains: Arc<HashMap<u64, Address>>,
-
-    /// Subscription query counters.
-    pub(crate) query_counters: Arc<RwLock<HashMap<Address, AtomicUsize>>>,
 }
 
 impl AuthContext {
@@ -214,44 +209,6 @@ pub fn check_auth_requirements(ctx: &AuthContext, token: &AuthToken) -> anyhow::
         return Err(anyhow::anyhow!(
             "query key chain_id or contract not allowed"
         ));
-    }
-
-    Ok(())
-}
-
-pub async fn check_token(
-    ctx: &AuthContext,
-    rate_limit_settings: Option<RateLimitSettings>,
-) -> anyhow::Result<()> {
-    // TODO(LNSD): Move to rate limiter middleware
-    if let Some(RateLimitSettings {
-        key: user,
-        queries_per_minute,
-    }) = rate_limit_settings
-    {
-        // Check rate limit for subscriptions
-        let counters = match ctx.query_counters.try_read() {
-            Ok(counters) => counters,
-            // Just skip if we can't acquire the read lock. This is a relaxed operation anyway.
-            Err(_) => return Ok(()),
-        };
-
-        match counters.get(&user) {
-            Some(counter) => {
-                let count = counter.fetch_add(1, atomic::Ordering::Relaxed);
-                // Note that counters are for 1 minute intervals.
-                // 5720d5ea-cfc3-4862-865b-52b4508a4c14
-                if count >= queries_per_minute {
-                    return Err(anyhow::anyhow!("Rate limit exceeded"));
-                }
-            }
-            // No entry, acquire write lock and insert.
-            None => {
-                drop(counters);
-                let mut counters = ctx.query_counters.write().await;
-                counters.insert(user, AtomicUsize::from(0));
-            }
-        }
     }
 
     Ok(())

@@ -1,9 +1,9 @@
-use eventuals::{Eventual, EventualExt, Ptr};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use alloy_primitives::Address;
+use eventuals::{Eventual, EventualExt, Ptr};
 use itertools::Itertools as _;
 use thegraph::types::DeploymentId;
 use tokio::sync::Mutex;

@@ -3,9 +3,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
-use gateway_common::utils::timestamp::unix_timestamp;
 use thegraph::client as subgraph_client;
 use tokio::sync::Mutex;
+
+use gateway_common::utils::timestamp::unix_timestamp;
 
 use crate::subscriptions::{ActiveSubscription, Subscription};
 
@@ -81,14 +82,20 @@ impl Client {
 
         let subscriptions_map = active_subscriptions_response
             .into_iter()
-            .map(|ActiveSubscription { user, rate, .. }| {
+            .filter_map(|ActiveSubscription { user, rate, .. }| {
+                // Skip subscriptions with a rate of 0
+                // fa4a8007-1e92-46f5-a478-a1728b69deb5
+                if rate == 0 {
+                    return None;
+                }
+
                 let signers = user
                     .authorized_signers
                     .into_iter()
                     .map(|signer| signer.signer)
                     .chain([user.id])
                     .collect();
-                (user.id, Subscription { signers, rate })
+                Some((user.id, Subscription { signers, rate }))
             })
             .collect();
         self.subscriptions.write(Ptr::new(subscriptions_map));

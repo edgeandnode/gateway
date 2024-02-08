@@ -1,12 +1,9 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicUsize;
-use std::sync::{atomic, Arc};
-use std::time::Duration;
+use std::sync::Arc;
 
 use alloy_primitives::Address;
 use axum::extract::FromRef;
-use eventuals::{Eventual, EventualExt, Ptr};
-use tokio::sync::RwLock;
+use eventuals::{Eventual, Ptr};
 
 use crate::client_query::query_settings::QuerySettings;
 use crate::client_query::rate_limit_settings::RateLimitSettings;
@@ -34,7 +31,6 @@ pub struct AuthContext {
     pub special_query_key_signers: Arc<HashSet<Address>>,
     pub subscription_rate_per_query: u128,
     pub subscription_domains: Arc<HashMap<u64, Address>>,
-    pub subscription_query_counters: Arc<RwLock<HashMap<Address, AtomicUsize>>>,
 }
 
 impl FromRef<AuthContext> for studio::AuthContext {
@@ -53,7 +49,6 @@ impl FromRef<AuthContext> for subscriptions::AuthContext {
             special_signers: auth.special_query_key_signers.clone(),
             rate_per_query: auth.subscription_rate_per_query,
             subscription_domains: auth.subscription_domains.clone(),
-            query_counters: auth.subscription_query_counters.clone(),
         }
     }
 }
@@ -67,8 +62,8 @@ impl AuthContext {
         special_query_key_signers: HashSet<Address>,
         subscription_rate_per_query: u128,
         subscription_domains: HashMap<u64, Address>,
-    ) -> &'static Self {
-        let handler: &'static Self = Box::leak(Box::new(Self {
+    ) -> Self {
+        Self {
             payment_required,
             api_keys,
             special_api_keys: Arc::new(special_api_keys),
@@ -76,25 +71,7 @@ impl AuthContext {
             subscriptions,
             subscription_rate_per_query,
             subscription_domains: Arc::new(subscription_domains),
-            subscription_query_counters: Default::default(),
-        }));
-
-        // Reset counters every minute.
-        // 5720d5ea-cfc3-4862-865b-52b4508a4c14
-        eventuals::timer(Duration::from_secs(60))
-            .pipe_async(|_| async {
-                let mut counters = handler.subscription_query_counters.write().await;
-                counters.retain(|_, v| {
-                    if v.load(atomic::Ordering::Relaxed) == 0 {
-                        return false;
-                    }
-                    v.store(0, atomic::Ordering::Relaxed);
-                    true
-                });
-            })
-            .forever();
-
-        handler
+        }
     }
 
     pub fn parse_auth_token(
@@ -135,20 +112,6 @@ impl AuthContext {
                 let ctx = subscriptions::AuthContext::from_ref(self);
                 subscriptions::check_auth_requirements(&ctx, auth)
             }
-        }
-    }
-
-    pub async fn check_token(
-        &self,
-        token: AuthToken,
-        rate_limit_settings: Option<RateLimitSettings>,
-    ) -> anyhow::Result<()> {
-        match token {
-            AuthToken::SubscriptionsAuthToken(_) => {
-                let ctx = subscriptions::AuthContext::from_ref(self);
-                subscriptions::check_token(&ctx, rate_limit_settings).await
-            }
-            _ => Ok(()),
         }
     }
 }
