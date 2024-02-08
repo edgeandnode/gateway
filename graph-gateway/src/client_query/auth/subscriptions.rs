@@ -17,6 +17,80 @@ use crate::topology::Deployment;
 
 use super::common;
 
+/// Auth token wrapper around the Subscriptions auth token claims and the subscription.
+#[derive(Debug, Clone)]
+pub struct AuthToken {
+    /// The auth token claims.
+    claims: AuthTokenClaims,
+    /// The auth token subscription.
+    subscription: Subscription,
+}
+
+impl AuthToken {
+    /// Create a new auth token from the given auth token claims and subscription.
+    pub fn new(claims: AuthTokenClaims, subscription: Subscription) -> Self {
+        Self {
+            claims,
+            subscription,
+        }
+    }
+
+    /// Get the auth token user address.
+    pub fn user(&self) -> Address {
+        self.claims.user()
+    }
+
+    /// Get the auth token claims.
+    pub fn claims(&self) -> &AuthTokenClaims {
+        &self.claims
+    }
+
+    /// Get the auth token subscription.
+    pub fn subscription(&self) -> &Subscription {
+        &self.subscription
+    }
+
+    /// Check if the given domain is authorized by the auth token claims.
+    pub fn is_domain_authorized(&self, domain: &str) -> bool {
+        let allowed_domains: Vec<&str> = self
+            .claims
+            .allowed_domains
+            .iter()
+            .map(AsRef::as_ref)
+            .collect();
+
+        common::is_domain_authorized(&allowed_domains, domain)
+    }
+
+    /// Check if the given subgraph is authorized by the auth token claims.
+    pub fn is_subgraph_authorized(&self, subgraph: &SubgraphId) -> bool {
+        let allowed_subgraphs = &self.claims.allowed_subgraphs;
+        common::is_subgraph_authorized(allowed_subgraphs, subgraph)
+    }
+
+    /// Check if the given deployment is authorized by the auth token claims.
+    pub fn is_deployment_authorized(&self, deployment: &DeploymentId) -> bool {
+        let allowed_deployments = &self.claims.allowed_deployments;
+        common::is_deployment_authorized(allowed_deployments, deployment)
+    }
+
+    pub fn are_subgraphs_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+        let allowed_subgraphs = &self.claims.allowed_subgraphs;
+        common::are_subgraphs_authorized(allowed_subgraphs, deployments)
+    }
+
+    pub fn are_deployments_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+        let allowed_deployments = &self.claims.allowed_deployments;
+        common::are_deployments_authorized(allowed_deployments, deployments)
+    }
+}
+
+impl std::fmt::Display for AuthToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.claims.user())
+    }
+}
+
 /// App state (a.k.a [Context](crate::client_query::Context)) sub-state.
 pub struct AuthContext {
     /// A map between the Subscription's user address and the actual
@@ -51,7 +125,7 @@ impl AuthContext {
     }
 
     /// Whether the given chain id and contract address match the allowed subscription domains.
-    pub fn is_domain_allowed(&self, chain_id: u64, contract: &Address) -> bool {
+    pub fn is_subscription_domain_allowed(&self, chain_id: u64, contract: &Address) -> bool {
         self.subscription_domains
             .get(&chain_id)
             .map(|addr| addr == contract)
@@ -64,11 +138,7 @@ impl AuthContext {
 pub fn parse_auth_token(
     ctx: &AuthContext,
     token: &str,
-) -> anyhow::Result<(
-    AuthTokenClaims,
-    Option<QuerySettings>,
-    Option<RateLimitSettings>,
-)> {
+) -> anyhow::Result<(AuthToken, Option<QuerySettings>, Option<RateLimitSettings>)> {
     let (claims, signature) =
         parse_bearer_token(token).map_err(|_| anyhow::anyhow!("invalid auth token"))?;
 
@@ -80,7 +150,6 @@ pub fn parse_auth_token(
     let user = claims.user();
 
     // Retrieve the subscription associated with the auth token user
-    // TODO(LNSD): Pass the subscription around to support executing the requirements checks in the middleware
     let subscription = ctx
         .get_subscription_for_user(&user)
         .ok_or_else(|| anyhow::anyhow!("subscription not found for user {}", user))?;
@@ -100,89 +169,39 @@ pub fn parse_auth_token(
         queries_per_minute,
     };
 
-    Ok((claims, None, Some(rate_limit_settings)))
+    Ok((
+        AuthToken::new(claims, subscription),
+        None,
+        Some(rate_limit_settings),
+    ))
 }
 
-/// Check if the given deployment is authorized by the given API key.
-pub fn is_deployment_authorized(auth_token: &AuthTokenClaims, deployment: &DeploymentId) -> bool {
-    let allowed_deployments = &auth_token.allowed_deployments;
-    common::is_deployment_authorized(allowed_deployments, deployment)
-}
-
-/// Check if the given subgraph is authorized by the given API key.
-pub fn is_subgraph_authorized(auth_token: &AuthTokenClaims, subgraph: &SubgraphId) -> bool {
-    let allowed_subgraphs = &auth_token.allowed_subgraphs;
-    common::is_subgraph_authorized(allowed_subgraphs, subgraph)
-}
-
-/// Check if the given domain is authorized by the auth token claims.
-pub fn is_domain_authorized(auth_token: &AuthTokenClaims, domain: &str) -> bool {
-    // Get domain allowlist
-    let allowed_domains: Vec<&str> = auth_token
-        .allowed_domains
-        .iter()
-        .map(AsRef::as_ref)
-        .collect();
-
-    common::is_domain_authorized(&allowed_domains, domain)
-}
-
-pub async fn check_token(
-    ctx: &AuthContext,
-    auth_token: &AuthTokenClaims,
-    rate_limit_settings: Option<RateLimitSettings>,
-    deployments: &[Arc<Deployment>],
-) -> anyhow::Result<()> {
-    // Check deployment allowlist
-    let allowed_deployments = &auth_token.allowed_deployments;
-    if !common::are_deployments_authorized(allowed_deployments, deployments) {
-        return Err(anyhow::anyhow!("Deployment not authorized by user"));
-    }
-
-    // Check subgraph allowlist
-    let allowed_subgraphs = &auth_token.allowed_subgraphs;
-    if !common::are_subgraphs_authorized(allowed_subgraphs, deployments) {
-        return Err(anyhow::anyhow!("Subgraph not authorized by user"));
-    }
+/// Perform subscriptions auth token specific requirements checks.
+///
+/// Checks performed:
+///  1. Check if the auth token has been signed by a special signer.
+///  2. Check if the auth token signer is authorized for the user.
+///  3. Check if the auth token chain id and contract are among the allowed subscriptions domains.
+pub fn check_auth_requirements(ctx: &AuthContext, token: &AuthToken) -> anyhow::Result<()> {
+    let claims = token.claims();
 
     // This is safe, since we have already verified the signature and the claimed signer match in
     // the `parse_bearer_token` function. This is placed before the subscriptions domain check to
     // allow the same special query keys to be used across testnet & mainnet.
-    if ctx.is_special_signer(&auth_token.signer) {
+    if ctx.is_special_signer(&claims.signer()) {
         return Ok(());
     }
 
-    let chain_id = auth_token.chain_id();
-    let contract = auth_token.contract();
-    let signer = auth_token.signer();
-    let user = auth_token.user();
-
-    // If no active subscription is found, assume the user is not subscribed. And
-    // provide a default subscription with 0 rate.
-    let subscription = ctx
-        .get_subscription_for_user(&user)
-        .unwrap_or_else(|| Subscription {
-            signers: vec![user],
-            rate: 0,
-        });
-
-    let queries_per_minute = subscription
-        .rate
-        .checked_div(ctx.rate_per_query)
-        .unwrap_or(0) as usize;
-    tracing::debug!(
-        subscription_payment_rate = subscription.rate,
-        queries_per_minute,
-    );
-    if queries_per_minute == 0 {
-        return Err(anyhow::anyhow!("Subscription not found for user {}", user));
-    }
-
-    // Check if the signer is authorized for the user.
+    // Check if the signer is authorized for the user
     //
     // If no active subscription was found for the user, as we are returning
     // a default subscription that includes the user in the signers set, this
     // check will always pass.
+    let subscription = token.subscription();
+
+    let signer = claims.signer();
+    let user = claims.user();
+
     if (signer != user) && !subscription.signers.contains(&signer) {
         return Err(anyhow::anyhow!(
             "signer {signer} not authorized for user {user}"
@@ -190,13 +209,20 @@ pub async fn check_token(
     }
 
     // Check if the auth token chain id and contract are among
-    // the allowed subscriptions domains.
-    if !ctx.is_domain_allowed(chain_id, &contract) {
+    // the allowed subscriptions domains
+    if !ctx.is_subscription_domain_allowed(claims.chain_id(), &claims.contract()) {
         return Err(anyhow::anyhow!(
             "query key chain_id or contract not allowed"
         ));
     }
 
+    Ok(())
+}
+
+pub async fn check_token(
+    ctx: &AuthContext,
+    rate_limit_settings: Option<RateLimitSettings>,
+) -> anyhow::Result<()> {
     // TODO(LNSD): Move to rate limiter middleware
     if let Some(RateLimitSettings {
         key: user,

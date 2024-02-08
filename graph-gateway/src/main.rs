@@ -261,15 +261,15 @@ async fn main() {
         ),
     };
     let auth_handler = AuthContext::create(
+        config.api_key_payment_required,
         api_keys,
         HashSet::from_iter(config.special_api_keys),
+        subscriptions,
         config
             .subscriptions
             .iter()
             .flat_map(|s| s.special_signers.clone())
             .collect(),
-        config.api_key_payment_required,
-        subscriptions,
         config
             .subscriptions
             .as_ref()

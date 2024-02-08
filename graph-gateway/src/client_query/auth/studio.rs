@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use anyhow::bail;
 use eventuals::{Eventual, Ptr};
-use thegraph::types::{DeploymentId, SubgraphId};
+use thegraph::types::{Address, DeploymentId, SubgraphId};
 
 use crate::client_query::query_settings::QuerySettings;
 use crate::client_query::rate_limit_settings::RateLimitSettings;
@@ -35,6 +34,75 @@ pub fn parse_studio_api_key(value: &str) -> Result<[u8; 16], ParseError> {
     Ok(buf)
 }
 
+/// Auth token wrapper around the Studio API key.
+#[derive(Debug, Clone)]
+pub struct AuthToken {
+    /// The Studio API key.
+    api_key: Arc<APIKey>,
+}
+
+impl AuthToken {
+    /// Create a new auth token from the given API key.
+    pub fn new(api_key: Arc<APIKey>) -> Self {
+        Self { api_key }
+    }
+
+    /// Get the Studio API key user address.
+    pub fn user(&self) -> Address {
+        self.api_key.user_address
+    }
+
+    /// Get the Studio API key string.
+    pub fn key(&self) -> &str {
+        &self.api_key.key
+    }
+
+    /// Get the Studio API key.
+    pub fn api_key(&self) -> &APIKey {
+        &self.api_key
+    }
+
+    /// Check if the given domain is authorized by the API key.
+    pub fn is_domain_authorized(&self, domain: &str) -> bool {
+        let allowed_domains = &self
+            .api_key
+            .domains
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>();
+
+        common::is_domain_authorized(allowed_domains, domain)
+    }
+
+    /// Check if the given subgraph is authorized by the API key.
+    pub fn is_subgraph_authorized(&self, subgraph: &SubgraphId) -> bool {
+        let allowed_subgraphs = &self.api_key.subgraphs;
+        common::is_subgraph_authorized(allowed_subgraphs, subgraph)
+    }
+
+    /// Check if the given deployment is authorized by the API key.
+    pub fn is_deployment_authorized(&self, deployment: &DeploymentId) -> bool {
+        let allowed_deployments = &self.api_key.deployments;
+        common::is_deployment_authorized(allowed_deployments, deployment)
+    }
+
+    pub fn are_subgraphs_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+        let allowed_subgraphs = &self.api_key.subgraphs;
+        common::are_subgraphs_authorized(allowed_subgraphs, deployments)
+    }
+
+    pub fn are_deployments_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+        let allowed_deployments = &self.api_key.deployments;
+        common::are_deployments_authorized(allowed_deployments, deployments)
+    }
+}
+
+impl std::fmt::Display for AuthToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.api_key.key)
+    }
+}
+
 /// App state (a.k.a [Context](crate::client_query::Context)) sub-state.
 pub struct AuthContext {
     /// A map between Studio auth bearer token string and the Studio [ApiKey].
@@ -48,26 +116,12 @@ pub struct AuthContext {
     /// An API key is considered special when does not require payment and is not subsidized, i.e., these
     /// keys won't be rejected due to non-payment.
     pub(crate) special_api_keys: Arc<HashSet<String>>,
-
-    /// Whether all API keys require payment.
-    ///
-    /// This is used to disable the payment requirement on testnets. If this is `true`, then all API keys require
-    /// payment, unless they are subsidized or special.
-    pub(crate) api_key_payment_required: bool,
 }
 
 impl AuthContext {
     /// Get the Studio API key associated with the given bearer token string.
     pub fn get_api_key(&self, token: &str) -> Option<Arc<APIKey>> {
         self.studio_keys.value_immediate()?.get(token).cloned()
-    }
-
-    /// Whether all API keys require payment.
-    ///
-    /// This is used to disable the payment requirement on testnets. If this is `true`, then all API keys require
-    /// payment, unless they are subsidized or special.
-    pub fn is_payment_required(&self) -> bool {
-        self.api_key_payment_required
     }
 
     /// Check if the given API key is a special key.
@@ -83,79 +137,52 @@ impl AuthContext {
 pub fn parse_auth_token(
     ctx: &AuthContext,
     token: &str,
-) -> anyhow::Result<(
-    Arc<APIKey>,
-    Option<QuerySettings>,
-    Option<RateLimitSettings>,
-)> {
+) -> anyhow::Result<(AuthToken, Option<QuerySettings>, Option<RateLimitSettings>)> {
     // Check if the bearer token is a valid 32 hex digits key
     if parse_studio_api_key(token).is_err() {
         return Err(anyhow::anyhow!("invalid api key format"));
     }
 
     // Retrieve the API Key associated with the bearer token
-    let auth_token = &ctx
+    let api_key = &ctx
         .get_api_key(token)
         .ok_or_else(|| anyhow::anyhow!("api key not found"))?;
 
     // Build the query settings struct
     let query_settings = QuerySettings {
-        budget_usd: auth_token.max_budget_usd,
+        budget_usd: api_key.max_budget_usd,
     };
 
-    Ok((auth_token.clone(), Some(query_settings), None))
+    Ok((AuthToken::new(api_key.clone()), Some(query_settings), None))
 }
 
-/// Check if the given deployment is authorized by the given API key.
-pub fn is_deployment_authorized(api_key: &Arc<APIKey>, deployment: &DeploymentId) -> bool {
-    let allowed_deployments = &api_key.deployments;
-    common::is_deployment_authorized(allowed_deployments, deployment)
-}
-
-/// Check if the given subgraph is authorized by the given API key.
-pub fn is_subgraph_authorized(api_key: &Arc<APIKey>, subgraph: &SubgraphId) -> bool {
-    let allowed_subgraphs = &api_key.subgraphs;
-    common::is_subgraph_authorized(allowed_subgraphs, subgraph)
-}
-
-/// Check if the given domain is authorized by the given API key.
-pub fn is_domain_authorized(api_key: &Arc<APIKey>, domain: &str) -> bool {
-    let allowed_domains = &api_key
-        .domains
-        .iter()
-        .map(AsRef::as_ref)
-        .collect::<Vec<_>>();
-
-    common::is_domain_authorized(allowed_domains, domain)
-}
-
-pub async fn check_token(
-    auth: &AuthContext,
-    api_key: &Arc<APIKey>,
-    deployments: &[Arc<Deployment>],
-) -> anyhow::Result<()> {
-    // Enforce the API key payment status, unless it's being subsidized.
-    if auth.is_payment_required() && !api_key.is_subsidized && !auth.is_special_key(api_key) {
-        match api_key.query_status {
-            QueryStatus::Active => (),
-            QueryStatus::Inactive => bail!("Querying not activated yet; make sure to add some GRT to your balance in the studio"),
-            QueryStatus::ServiceShutoff => bail!("Payment required for subsequent requests for this API key"),
-        };
+/// Perform studio API keys auth token specific requirements checks.
+///
+/// Checks performed:
+///  1. Check if the API key is a special key.
+///  2. Check if the API key is subsidized.
+///  3. Check if the API key is active.
+pub fn check_auth_requirements(ctx: &AuthContext, token: &AuthToken) -> anyhow::Result<()> {
+    // Check if the API key is a special key
+    if ctx.is_special_key(token.api_key()) {
+        return Ok(());
     }
 
-    // Check deployment allowlist
-    let allowed_deployments = &api_key.deployments;
-    if !common::are_deployments_authorized(allowed_deployments, deployments) {
-        return Err(anyhow::anyhow!("Deployment not authorized by user"));
+    // Check if the API key is subsidized
+    if token.api_key.is_subsidized {
+        return Ok(());
     }
 
-    // Check subgraph allowlist
-    let allowed_subgraphs = &api_key.subgraphs;
-    if !common::are_subgraphs_authorized(allowed_subgraphs, deployments) {
-        return Err(anyhow::anyhow!("Subgraph not authorized by user"));
+    // Check if the API key is active
+    match token.api_key.query_status {
+        QueryStatus::Inactive => Err(anyhow::anyhow!(
+            "Querying not activated yet; make sure to add some GRT to your balance in the studio"
+        )),
+        QueryStatus::ServiceShutoff => Err(anyhow::anyhow!(
+            "Payment required for subsequent requests for this API key"
+        )),
+        QueryStatus::Active => Ok(()),
     }
-
-    Ok(())
 }
 
 #[cfg(test)]

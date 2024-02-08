@@ -106,6 +106,19 @@ pub async fn handle_query(
     let (deployments, subgraph) = resolve_subgraph_deployments(&ctx.network, &selector)?;
     tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
 
+    // Check authorization for the resolved deployments
+    if !auth.are_deployments_authorized(&deployments) {
+        return Err(Error::Auth(anyhow::anyhow!(
+            "Deployment not authorized by user"
+        )));
+    }
+
+    if auth.are_subgraphs_authorized(&deployments) {
+        return Err(Error::Auth(anyhow::anyhow!(
+            "Subgraph not authorized by user"
+        )));
+    }
+
     if let Some(l2_url) = ctx.l2_gateway.as_ref() {
         // Forward query to L2 gateway if it's marked as transferred & there are no allocations.
         // abf62a6d-c071-4507-b528-ddc8e250127a
@@ -238,7 +251,7 @@ async fn handle_client_query_inner(
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
 
     ctx.auth_handler
-        .check_token(&auth, rate_limit_settings, &deployments)
+        .check_token(auth, rate_limit_settings)
         .await
         .map_err(Error::Auth)?;
 
@@ -816,10 +829,10 @@ mod tests {
         /// Create a test authorization context.
         fn test_auth_ctx(key: Option<&str>) -> AuthContext {
             let mut ctx = AuthContext {
+                payment_required: false,
                 api_keys: Eventual::from_value(Ptr::new(Default::default())),
                 special_api_keys: Default::default(),
                 special_query_key_signers: Default::default(),
-                api_key_payment_required: false,
                 subscriptions: Eventual::from_value(Ptr::new(Default::default())),
                 subscription_rate_per_query: 0,
                 subscription_domains: Default::default(),
@@ -874,7 +887,7 @@ mod tests {
         fn test_router(auth_ctx: AuthContext) -> Router {
             async fn handler(Extension(auth): Extension<AuthToken>) -> String {
                 match auth {
-                    AuthToken::StudioApiKey(api_key) => api_key.key.clone(),
+                    AuthToken::StudioApiKey(auth_token) => auth_token.key().to_string(),
                     _ => unreachable!(),
                 }
             }
