@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use eventuals::{Eventual, Ptr};
-use indexer_selection::NotNan;
+use ordered_float::NotNan;
 use toolshed::buffer_queue::QueueWriter;
 use toolshed::double_buffer::DoubleBufferReader;
 use toolshed::url::Url;
@@ -18,13 +18,10 @@ use crate::indexers::indexing;
 use crate::reports::KafkaClient;
 use crate::topology::GraphNetwork;
 
-use super::auth::AuthContext;
-
 #[derive(Clone)]
 pub struct Context {
     pub indexer_client: IndexerClient,
     pub kafka_client: &'static KafkaClient,
-    pub auth_handler: &'static AuthContext,
     pub budgeter: &'static Budgeter,
     pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,

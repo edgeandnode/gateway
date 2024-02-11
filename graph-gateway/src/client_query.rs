@@ -17,6 +17,7 @@ use eventuals::Ptr;
 use futures::future::join_all;
 use headers::ContentType;
 use num_traits::cast::ToPrimitive as _;
+use ordered_float::NotNan;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
@@ -37,7 +38,6 @@ use gateway_framework::{
     metrics::{with_metric, METRICS},
     scalar::ScalarReceipt,
 };
-use indexer_selection::NotNan;
 use indexer_selection::{
     actor::Update, BlockRequirements, Candidate, IndexerError as SelectionError,
     IndexerErrorObservation, InputError, Selection, UtilityParameters, SELECTION_LIMIT,
@@ -55,7 +55,6 @@ use self::context::Context;
 use self::l2_forwarding::forward_request_to_l2;
 use self::query_selector::QuerySelector;
 use self::query_settings::QuerySettings;
-use self::rate_limit_settings::RateLimitSettings;
 
 mod attestation_header;
 pub mod auth;
@@ -66,7 +65,7 @@ pub mod query_id;
 mod query_selector;
 mod query_settings;
 pub mod query_tracing;
-mod rate_limit_settings;
+pub mod rate_limiter;
 pub mod require_auth;
 
 #[derive(Debug, Deserialize)]
@@ -80,7 +79,6 @@ pub async fn handle_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthToken>,
     query_settings: Option<Extension<QuerySettings>>,
-    rate_limit_settings: Option<Extension<RateLimitSettings>>, // TODO(LNSD): Move to rate limiting middleware
     OriginalUri(original_uri): OriginalUri,
     selector: QuerySelector,
     headers: HeaderMap,
@@ -109,13 +107,13 @@ pub async fn handle_query(
     // Check authorization for the resolved deployments
     if !auth.are_deployments_authorized(&deployments) {
         return Err(Error::Auth(anyhow::anyhow!(
-            "Deployment not authorized by user"
+            "deployment not authorized by user"
         )));
     }
 
-    if auth.are_subgraphs_authorized(&deployments) {
+    if !auth.are_subgraphs_authorized(&deployments) {
         return Err(Error::Auth(anyhow::anyhow!(
-            "Subgraph not authorized by user"
+            "subgraph not authorized by user"
         )));
     }
 
@@ -138,9 +136,7 @@ pub async fn handle_query(
 
     let result = handle_client_query_inner(
         &ctx,
-        auth,
         query_settings.map(|Extension(settings)| settings),
-        rate_limit_settings.map(|Extension(settings)| settings),
         deployments,
         payload,
     )
@@ -229,9 +225,7 @@ fn resolve_subgraph_deployments(
 
 async fn handle_client_query_inner(
     ctx: &Context,
-    auth: AuthToken,
     query_settings: Option<QuerySettings>,
-    rate_limit_settings: Option<RateLimitSettings>,
     deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
 ) -> Result<(Selection, ResponsePayload), Error> {
@@ -249,11 +243,6 @@ async fn handle_client_query_inner(
 
     let payload: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
-
-    ctx.auth_handler
-        .check_token(auth, rate_limit_settings)
-        .await
-        .map_err(Error::Auth)?;
 
     let mut indexer_errors: BTreeMap<Address, IndexerError> = Default::default();
 
@@ -836,7 +825,6 @@ mod tests {
                 subscriptions: Eventual::from_value(Ptr::new(Default::default())),
                 subscription_rate_per_query: 0,
                 subscription_domains: Default::default(),
-                subscription_query_counters: Default::default(),
             };
             if let Some(key) = key {
                 ctx.api_keys = Eventual::from_value(Ptr::new(HashMap::from([(

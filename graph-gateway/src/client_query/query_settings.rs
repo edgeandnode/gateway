@@ -1,4 +1,4 @@
-use indexer_selection::NotNan;
+use ordered_float::NotNan;
 
 /// User query settings typically associated with an auth token.
 #[derive(Clone, Debug, Default)]

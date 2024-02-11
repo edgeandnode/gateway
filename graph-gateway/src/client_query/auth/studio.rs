@@ -5,7 +5,7 @@ use eventuals::{Eventual, Ptr};
 use thegraph::types::{Address, DeploymentId, SubgraphId};
 
 use crate::client_query::query_settings::QuerySettings;
-use crate::client_query::rate_limit_settings::RateLimitSettings;
+use crate::client_query::rate_limiter::RateLimitSettings;
 use crate::subgraph_studio::{APIKey, QueryStatus};
 use crate::topology::Deployment;
 
