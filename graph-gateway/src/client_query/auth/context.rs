@@ -6,7 +6,7 @@ use axum::extract::FromRef;
 use eventuals::{Eventual, Ptr};
 
 use crate::client_query::query_settings::QuerySettings;
-use crate::client_query::rate_limit_settings::RateLimitSettings;
+use crate::client_query::rate_limiter::RateLimitSettings;
 use crate::subgraph_studio::APIKey;
 use crate::subscriptions::Subscription;
 

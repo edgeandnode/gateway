@@ -65,7 +65,6 @@ pub mod query_id;
 mod query_selector;
 mod query_settings;
 pub mod query_tracing;
-mod rate_limit_settings;
 pub mod rate_limiter;
 pub mod require_auth;
 
@@ -108,13 +107,13 @@ pub async fn handle_query(
     // Check authorization for the resolved deployments
     if !auth.are_deployments_authorized(&deployments) {
         return Err(Error::Auth(anyhow::anyhow!(
-            "Deployment not authorized by user"
+            "deployment not authorized by user"
         )));
     }
 
-    if auth.are_subgraphs_authorized(&deployments) {
+    if !auth.are_subgraphs_authorized(&deployments) {
         return Err(Error::Auth(anyhow::anyhow!(
-            "Subgraph not authorized by user"
+            "subgraph not authorized by user"
         )));
     }
 

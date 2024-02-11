@@ -12,8 +12,19 @@ use tower::Service;
 use gateway_framework::errors::Error;
 use gateway_framework::graphql;
 
-use crate::client_query::rate_limit_settings::RateLimitSettings;
-use crate::client_query::rate_limiter::future::ResponseFuture;
+use self::future::ResponseFuture;
+
+/// Rate limit settings.
+///
+/// The settings can be provided globally (e.g., via config) or via authorization
+/// (e.g., subscription specific rate).
+#[derive(Clone, Debug, Default)]
+pub struct RateLimitSettings {
+    /// The rate limit key.
+    pub key: Address,
+    /// The query rate in queries per minute.
+    pub queries_per_minute: usize,
+}
 
 pub mod future {
     //! A future response for the [`RateLimiter`](super::RateLimiter) service.
@@ -226,8 +237,8 @@ mod tests {
     use headers::{ContentType, HeaderMapExt};
     use tokio_test::assert_ready_ok;
 
-    use crate::client_query::rate_limit_settings::RateLimitSettings;
     use crate::client_query::rate_limiter::AddRateLimiterLayer;
+    use crate::client_query::rate_limiter::RateLimitSettings;
 
     /// Helper function to parse an address string into an `Address`.
     fn test_address(addr: &str) -> Address {

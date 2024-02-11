@@ -9,7 +9,7 @@ use thegraph::subscriptions::auth::{
 use thegraph::types::{DeploymentId, SubgraphId};
 
 use crate::client_query::query_settings::QuerySettings;
-use crate::client_query::rate_limit_settings::RateLimitSettings;
+use crate::client_query::rate_limiter::RateLimitSettings;
 use crate::subscriptions::Subscription;
 use crate::topology::Deployment;
 
