@@ -537,7 +537,7 @@ async fn handle_client_query_inner(
                 }
                 Some((selection, Ok(outcome))) => {
                     let total_indexer_fees =
-                        USD(NotNan::new(total_indexer_fees as f64).unwrap() / grt_per_usd);
+                        USD(NotNan::new(total_indexer_fees as f64 * 1e-18).unwrap() / grt_per_usd);
                     let _ = ctx.budgeter.feedback.send(total_indexer_fees);
 
                     tracing::debug!(?indexer_errors);
