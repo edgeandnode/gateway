@@ -20,7 +20,7 @@ graphql.workspace = true
 graphql-http.workspace = true
 headers = "0.3.9"
 hickory-resolver = "0.24.0"
-indexer-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection.git", rev = "0f711bc" }
+indexer-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection", rev = "0f711bc" }
 indoc = "2.0.4"
 itertools = "0.12.1"
 num-traits = "0.2.18"

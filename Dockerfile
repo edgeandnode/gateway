@@ -17,10 +17,9 @@ COPY ./ ./
 
 # Setup GitHub credentials for cargo fetch
 RUN git config --global credential.helper store \
-  && git config --global --replace-all url.https://github.com/.insteadOf ssh://git@github.com/ \
-  && git config --global --add url.https://github.com/.insteadOf git@github.com: \
-  && mkdir ~/.cargo && echo "[net]\ngit-fetch-with-cli = true" > ~/.cargo/config.toml \
-  && (echo url=https://github.com; echo "username=${GH_USER}"; echo "password=${GH_TOKEN}"; echo ) | git credential approve
+  && git config --global --replace-all url."https://github.com".insteadOf "ssh://git@github.com" \
+  && mkdir ~/.cargo && echo "net.git-fetch-with-cli = true" > ~/.cargo/config.toml \
+  && (echo "url=https://github.com"; echo "username=${GH_USER}"; echo "password=${GH_TOKEN}"; echo "") | git credential approve
 
 ENV CC=clang CXX=clang++
 RUN cargo build --release --bin graph-gateway --color=always

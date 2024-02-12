@@ -670,7 +670,7 @@ dependencies = [
 [[package]]
 name = "candidate-selection"
 version = "0.1.0"
-source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=0f711bc#0f711bc250bb484ae86c5673683520f6524fbd7f"
+source = "git+ssh://git@github.com/edgeandnode/candidate-selection?rev=0f711bc#0f711bc250bb484ae86c5673683520f6524fbd7f"
 dependencies = [
  "arrayvec 0.7.4",
  "ordered-float",
@@ -682,7 +682,7 @@ dependencies = [
 [[package]]
 name = "candidate-selection"
 version = "0.1.0"
-source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=c0b5efa#c0b5efa6a6657c201cc71ee4108991e37bc1f581"
+source = "git+ssh://git@github.com/edgeandnode/candidate-selection?rev=c0b5efa#c0b5efa6a6657c201cc71ee4108991e37bc1f581"
 dependencies = [
  "arrayvec 0.7.4",
  "ordered-float",
@@ -1895,7 +1895,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "axum",
- "candidate-selection 0.1.0 (git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=c0b5efa)",
+ "candidate-selection 0.1.0 (git+ssh://git@github.com/edgeandnode/candidate-selection?rev=c0b5efa)",
  "ethers",
  "eventuals",
  "gateway-common",
@@ -2475,9 +2475,9 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 [[package]]
 name = "indexer-selection"
 version = "0.1.0"
-source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=0f711bc#0f711bc250bb484ae86c5673683520f6524fbd7f"
+source = "git+ssh://git@github.com/edgeandnode/candidate-selection?rev=0f711bc#0f711bc250bb484ae86c5673683520f6524fbd7f"
 dependencies = [
- "candidate-selection 0.1.0 (git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=0f711bc)",
+ "candidate-selection 0.1.0 (git+ssh://git@github.com/edgeandnode/candidate-selection?rev=0f711bc)",
  "rand",
  "thegraph",
  "toolshed",

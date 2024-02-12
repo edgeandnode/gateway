@@ -9,7 +9,7 @@ alloy-sol-types = "0.6.2"
 anyhow.workspace = true
 axum.workspace = true
 ethers = "2.0.13"
-candidate-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection.git", rev = "c0b5efa" }
+candidate-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection", rev = "c0b5efa" }
 eventuals = "0.6.7"
 gateway-common = { path = "../gateway-common" }
 graphql-http.workspace = true
