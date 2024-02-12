@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /opt/gateway
 COPY ./ ./
 
+
 # Setup GitHub credentials for cargo fetch
 RUN git config --global credential.helper store \
   && git config --global --replace-all url.https://github.com/.insteadOf ssh://git@github.com/ \
