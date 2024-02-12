@@ -40,7 +40,7 @@ semver = { version = "1.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 siphasher = "1.0.0"
 thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
-thiserror = "1.0.56"
+thiserror = "1.0.57"
 tokio = { version = "1.36", features = [
     "macros",
     "parking_lot",
