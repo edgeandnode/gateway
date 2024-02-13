@@ -1,0 +1,46 @@
+syntax = "proto3";
+package sf.blockmeta.v2;
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/streamingfast/blockmeta-service;pbbmsrv";
+
+service Block {
+  rpc NumToID (NumToIDReq) returns (BlockResp);
+  rpc IDToNum(IDToNumReq) returns (BlockResp);
+  rpc Head(Empty) returns (BlockResp);
+}
+
+message Empty {}
+
+service BlockByTime {
+  rpc At (TimeReq) returns (BlockResp);
+  rpc After (RelativeTimeReq) returns (BlockResp);
+  rpc Before (RelativeTimeReq) returns (BlockResp);
+}
+
+// Block Requests
+message NumToIDReq {
+  uint64 blockNum = 1;
+}
+
+message IDToNumReq {
+  string blockID = 1;
+}
+
+// Block & BlockByTime Responses
+message BlockResp {
+  string id = 1;
+  uint64 num = 2;
+  google.protobuf.Timestamp time = 3;
+}
+
+// BlockByTime Requests
+message TimeReq {
+  google.protobuf.Timestamp time = 1;
+}
+
+message RelativeTimeReq {
+  google.protobuf.Timestamp time = 1;
+  bool inclusive = 2;
+}
+
