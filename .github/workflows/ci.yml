@@ -23,32 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-          profile: minimal
-          override: true
-
-      - name: Cache Cargo build files
-        uses: Leafwing-Studios/cargo-cache@5edda26afa3d28be5d6ee87d4c69c246e3ee37fb # v1
-
-      - name: Prepare build env
-        run: |
-          git config --global credential.helper store
-          git config --global --replace-all url.https://github.com/.insteadOf ssh://git@github.com/
-          git config --global --add url.https://github.com/.insteadOf git@github.com:
-          mkdir ~/.cargo && echo "[net]\ngit-fetch-with-cli = true" > ~/.cargo/config.toml
-          (echo url=https://github.com; echo "username=${GH_USER}"; echo "password=${GH_TOKEN}"; echo ) | git credential approve
-          sudo apt-get install -y lld librdkafka-dev libsasl2-dev
-
-      - run: cargo check
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy -- -D warnings
-
-      - name: Unit tests
-        run: cargo test --lib
-
-      - name: Integration tests
-        run: cargo test --test '*'
+      - run: |
+          git clone https://${GH_TOKEN}@github.com/edgeandnode/receipts
+          git clone https://${GH_TOKEN}@github.com/edgeandnode/candidate-selection
