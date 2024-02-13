@@ -79,7 +79,7 @@ impl Client {
                     None => ClientMsg::Head(head),
                 },
                 Err(fetch_block_err) => {
-                    tracing::error!(%fetch_block_err);
+                    tracing::warn!(chain, ?unresolved, %fetch_block_err);
                     match unresolved {
                         Some(unresolved) => ClientMsg::Err(unresolved),
                         None => return,
