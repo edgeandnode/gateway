@@ -384,7 +384,17 @@ async fn handle_client_query_inner(
         // Make sure our observations are up-to-date if retrying.
         if retry > 0 {
             ctx.indexing_perf.flush().await;
-            todo!("update candidate performance");
+
+            // Update candidate performance.
+            let perf = ctx.indexing_perf.latest();
+            for candidate in &mut candidates {
+                if let Some(updated) = perf.get(&Indexing {
+                    indexer: candidate.indexer,
+                    deployment: candidate.deployment,
+                }) {
+                    candidate.perf = updated.expected_performance();
+                }
+            }
         }
 
         let selection_timer = METRICS.indexer_selection_duration.start_timer();
