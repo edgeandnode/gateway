@@ -23,6 +23,7 @@ use indexer_selection::{ArrayVec, Candidate, ExpectedPerformance, Normalized, Pe
 use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
 use prost::bytes::Buf;
+use rand::Rng as _;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -371,15 +372,24 @@ async fn handle_client_query_inner(
             }
         }
     }
+
+    let mut rng = SmallRng::from_entropy();
+    if tracing::enabled!(tracing::Level::TRACE) {
+        tracing::trace!(?candidates);
+    } else if rng.gen_bool(0.001) {
+        tracing::debug!(?candidates);
+    }
+
     if candidates.is_empty() {
-        return Err(Error::NoIndexers);
+        tracing::debug!(?indexer_errors);
+        return Err(Error::BadIndexers(IndexerErrors::new(
+            indexer_errors.into_values(),
+        )));
     }
 
     let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
 
-    let mut rng = SmallRng::from_entropy();
     let mut total_indexer_fees: u128 = 0;
-
     for retry in 0..ctx.indexer_selection_retry_limit {
         // Make sure our observations are up-to-date if retrying.
         if retry > 0 {
@@ -529,7 +539,6 @@ async fn handle_client_query_inner(
                     let _ = ctx.budgeter.feedback.send(total_indexer_fees);
 
                     tracing::debug!(?indexer_errors);
-
                     return Ok((selection, outcome));
                 }
             };
