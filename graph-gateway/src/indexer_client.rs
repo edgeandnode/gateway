@@ -8,7 +8,8 @@ use gateway_framework::{
     errors::{IndexerError, UnavailableReason::*},
     scalar::{ReceiptSigner, ReceiptStatus, ScalarReceipt},
 };
-use indexer_selection::Selection;
+
+use crate::client_query::Selection;
 
 pub struct IndexerResponse {
     pub status: u16,

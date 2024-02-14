@@ -13,9 +13,7 @@ use thegraph::types::BlockPointer;
 
 use gateway_framework::{block_constraints::BlockConstraint, errors::Error};
 
-pub fn block_constraints<'c>(
-    context: &'c Context<'c, String>,
-) -> Result<BTreeSet<BlockConstraint>, Error> {
+pub fn block_constraints(context: &Context<String>) -> Result<BTreeSet<BlockConstraint>, Error> {
     let mut constraints = BTreeSet::new();
     let vars = &context.variables;
     // ba6c90f1-3baf-45be-ac1c-f60733404436
@@ -64,7 +62,7 @@ pub fn block_constraints<'c>(
 }
 
 pub fn make_query_deterministic(
-    mut ctx: Context<'_, String>,
+    mut ctx: Context<String>,
     resolved: &BTreeSet<BlockPointer>,
     latest: &BlockPointer,
 ) -> Result<String, Error> {
