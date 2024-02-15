@@ -142,6 +142,14 @@ pub fn parse_auth_token(
         return Err(anyhow::anyhow!("invalid auth token signature"));
     }
 
+    if ctx.is_special_signer(&claims.signer()) {
+        let subscription = Subscription {
+            signers: vec![claims.signer],
+            rate: 0,
+        };
+        return Ok((AuthToken::new(claims, subscription), None, None));
+    }
+
     let user = claims.user();
 
     // Retrieve the subscription associated with the auth token user
