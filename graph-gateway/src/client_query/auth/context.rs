@@ -80,7 +80,7 @@ impl AuthContext {
     ) -> anyhow::Result<(AuthToken, Option<QuerySettings>, Option<RateLimitSettings>)> {
         // Ensure the bearer token is not empty
         if input.is_empty() {
-            return Err(anyhow::anyhow!("Not found"));
+            return Err(anyhow::anyhow!("not found"));
         }
 
         // First, parse the bearer token as it was a Studio API key
@@ -93,13 +93,11 @@ impl AuthContext {
 
         // Otherwise, parse the bearer token as a Subscriptions auth token
         let ctx = subscriptions::AuthContext::from_ref(self);
-        if let Ok((auth, query_settings, rate_limit_settings)) =
-            subscriptions::parse_auth_token(&ctx, input)
-        {
-            return Ok((AuthToken::from(auth), query_settings, rate_limit_settings));
-        }
-
-        Err(anyhow::anyhow!("Invalid auth token"))
+        subscriptions::parse_auth_token(&ctx, input).map(
+            |(auth, query_settings, rate_limit_settings)| {
+                (AuthToken::from(auth), query_settings, rate_limit_settings)
+            },
+        )
     }
 
     pub fn check_auth_requirements(&self, token: &AuthToken) -> anyhow::Result<()> {

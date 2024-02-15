@@ -1032,7 +1032,7 @@ mod tests {
             );
             assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body.errors.len(), 1);
-                assert_eq!(res_body.errors[0].message, "auth error: Missing Authorization header");
+                assert_eq!(res_body.errors[0].message, "auth error: missing authorization header");
             });
         }
 
@@ -1057,7 +1057,7 @@ mod tests {
             );
             assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body.errors.len(), 1);
-                assert_eq!(res_body.errors[0].message, "auth error: Invalid bearer token: Invalid auth token");
+                assert_eq!(res_body.errors[0].message, "auth error: invalid bearer token: invalid auth token");
             });
         }
 

@@ -117,13 +117,13 @@ where
             Ok(None) => {
                 // If the `Authorization` header is not present, return an error response
                 return ResponseFuture::error(graphql::error_response(Error::Auth(
-                    anyhow::anyhow!("Missing Authorization header"),
+                    anyhow::anyhow!("missing authorization header"),
                 )));
             }
             Err(_) => {
                 // If the `Authorization` header is invalid, return an error response
                 return ResponseFuture::error(graphql::error_response(Error::Auth(
-                    anyhow::anyhow!("Invalid Authorization header"),
+                    anyhow::anyhow!("invalid authorization header"),
                 )));
             }
         };
@@ -135,7 +135,7 @@ where
                 Err(err) => {
                     // If the bearer token is invalid, return an error response
                     return ResponseFuture::error(graphql::error_response(Error::Auth(
-                        anyhow::anyhow!("Invalid bearer token: {err}"),
+                        anyhow::anyhow!("invalid bearer token: {err}"),
                     )));
                 }
             };
@@ -159,7 +159,7 @@ where
         if !auth_token.is_domain_authorized(origin.hostname()) {
             // If the request origin domain is not allowed, return an error response
             return ResponseFuture::error(graphql::error_response(Error::Auth(anyhow::anyhow!(
-                "Domain not authorized by user"
+                "domain not authorized by user"
             ))));
         }
 
@@ -333,7 +333,7 @@ mod tests {
             );
             assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body.errors.len(), 1);
-                assert_eq!(res_body.errors[0].message, "auth error: Missing Authorization header");
+                assert_eq!(res_body.errors[0].message, "auth error: missing authorization header");
             });
         });
     }
@@ -363,7 +363,7 @@ mod tests {
             assert_eq!(res.headers().typed_get::<ContentType>(), Some(ContentType::json()));
             assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body.errors.len(), 1);
-                assert_eq!(res_body.errors[0].message, "auth error: Invalid Authorization header");
+                assert_eq!(res_body.errors[0].message, "auth error: invalid authorization header");
             });
         });
     }
@@ -393,7 +393,7 @@ mod tests {
             assert_eq!(res.headers().typed_get(), Some(ContentType::json()));
             assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body.errors.len(), 1);
-                assert_eq!(res_body.errors[0].message, "auth error: Invalid bearer token: Not found");
+                assert_eq!(res_body.errors[0].message, "auth error: invalid bearer token: not found");
             });
         });
     }
@@ -425,7 +425,7 @@ mod tests {
             assert_eq!(res.headers().typed_get::<ContentType>(), Some(ContentType::json()));
             assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body.errors.len(), 1);
-                assert_eq!(res_body.errors[0].message, "auth error: Invalid bearer token: Invalid auth token");
+                assert_eq!(res_body.errors[0].message, "auth error: invalid bearer token: invalid auth token");
             });
         });
     }
