@@ -85,6 +85,7 @@ pub struct Selection {
     pub blocks_behind: u64,
 }
 
+#[derive(Debug)]
 struct BlockRequirements {
     /// required block range
     range: Option<(BlockNumber, BlockNumber)>,
@@ -421,7 +422,7 @@ async fn handle_client_query_inner(
                 },
                 url: c.url.clone(),
                 fee: (c.fee.as_f64() * budget as f64) as u128,
-                blocks_behind: (c.seconds_behind as u64 / 60) * blocks_per_minute,
+                blocks_behind: ((c.seconds_behind as f64 / 60.0) * blocks_per_minute as f64) as u64,
             })
             .collect();
         let selections_len = selections.len();
@@ -464,6 +465,10 @@ async fn handle_client_query_inner(
             )
             .await
             .map_err(Error::BlockNotFound)?;
+            tracing::debug!(
+                indexer = %selection.indexing.indexer,
+                latest_query_block = latest_query_block.number,
+            );
 
             // The Agora context must be cloned to preserve the state of the original client query.
             // This to avoid the following scenario:
@@ -645,13 +650,11 @@ fn prepare_candidate(
         return Err(IndexerError::Unavailable(UnavailableReason::MissingBlock));
     }
 
-    let seconds_behind = if block_requirements.latest {
-        chain_head
-            .saturating_sub(status.block)
-            .checked_div(blocks_per_minute)
-            .unwrap_or(0) as u32
-    } else {
+    let seconds_behind = if !block_requirements.latest || (blocks_per_minute == 0) {
         0
+    } else {
+        ((chain_head.saturating_sub(status.block) as f64 / blocks_per_minute as f64) * 60.0).ceil()
+            as u32
     };
 
     let slashable_usd = ((info.staked_tokens as f64 * 1e-18) / *grt_per_usd) as u64;
