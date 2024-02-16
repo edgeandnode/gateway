@@ -694,30 +694,33 @@ async fn handle_indexer_query(
     let indexing = selection.indexing;
     let deployment = indexing.deployment.to_string();
 
-    tracing::info!(
-        target: reports::INDEXER_QUERY_TARGET,
-        %deployment,
-        url = %selection.url,
-        blocks_behind = selection.blocks_behind,
-        fee_grt = (selection.fee as f64 * 1e-18) as f32,
-        subgraph_chain = %ctx.deployment.manifest.network,
-    );
-
+    let sent_optimistic_query = optimistic_query.is_some();
     let optimistic_response = match optimistic_query {
         Some(query) => handle_indexer_query_inner(&mut ctx, selection.clone(), query)
             .await
             .ok(),
         None => None,
     };
+    let failed_optimistic_response = optimistic_response.is_none();
     let result = match optimistic_response {
         Some(response) => Ok(response),
-        None => handle_indexer_query_inner(&mut ctx, selection, deterministic_query).await,
+        None => handle_indexer_query_inner(&mut ctx, selection.clone(), deterministic_query).await,
     };
     METRICS.indexer_query.check(&[&deployment], &result);
+
+    let mut fee_grt = selection.fee;
+    if sent_optimistic_query && failed_optimistic_response {
+        fee_grt *= 2;
+    }
 
     let latency_ms = ctx.response_time.as_millis() as u32;
     tracing::info!(
         target: reports::INDEXER_QUERY_TARGET,
+        %deployment,
+        url = %selection.url,
+        blocks_behind = selection.blocks_behind,
+        fee_grt = (fee_grt as f64 * 1e-18) as f32,
+        subgraph_chain = %ctx.deployment.manifest.network,
         response_time_ms = latency_ms,
         status_message = match &result {
             Ok(_) => "200 OK".to_string(),
