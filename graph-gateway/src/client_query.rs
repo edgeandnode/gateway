@@ -408,10 +408,8 @@ async fn handle_client_query_inner(
             }
         }
 
-        let selection_timer = METRICS.indexer_selection_duration.start_timer();
         let selections: ArrayVec<&Candidate, SELECTION_LIMIT> =
             indexer_selection::select(&mut rng, &candidates);
-        drop(selection_timer);
 
         let mut selections: Vec<Selection> = selections
             .iter()
