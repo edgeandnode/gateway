@@ -208,6 +208,7 @@ fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Valu
         query_count: Option<u32>,
         budget_grt: Option<f32>,
         indexer_fees_grt: Option<f32>,
+        indexer_fees_usd: Option<f32>,
     }
     let fields = match serde_json::from_value::<Fields>(fields.into()) {
         Ok(fields) => fields,
@@ -239,6 +240,7 @@ fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Valu
             "query_count": fields.query_count.unwrap_or(0),
             "budget": fields.budget_grt.unwrap_or(0.0).to_string(),
             "fee": fields.indexer_fees_grt.unwrap_or(0.0),
+            "fee_usd": fields.indexer_fees_usd.unwrap_or(0.0),
             "response_time_ms": response_time_ms,
             "status": &fields.legacy_status_message,
             "status_code": fields.legacy_status_code,
@@ -261,6 +263,7 @@ fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Valu
         "budget_float": fields.budget_grt,
         "query_count": fields.query_count.unwrap_or(0),
         "fee": fields.indexer_fees_grt.unwrap_or(0.0),
+        "fee_usd": fields.indexer_fees_usd.unwrap_or(0.0),
         "status": &fields.legacy_status_message,
         "status_code": fields.legacy_status_code,
     });
