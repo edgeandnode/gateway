@@ -390,7 +390,7 @@ async fn handle_client_query_inner(
 
     let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
 
-    let mut total_indexer_fees: u128 = 0;
+    let mut total_indexer_fees_grt: u128 = 0;
     for retry in 0..ctx.indexer_selection_retry_limit {
         // Make sure our observations are up-to-date if retrying.
         if retry > 0 {
@@ -493,11 +493,11 @@ async fn handle_client_query_inner(
             )
             .await;
 
-            total_indexer_fees += selection.fee;
+            total_indexer_fees_grt += selection.fee;
             // When we prepare an optimistic query, we are pessimistically doubling the fee in case
             // the optimistic query fails and we pay again for the fallback query.
             if optimistic_query.is_some() {
-                total_indexer_fees += selection.fee;
+                total_indexer_fees_grt += selection.fee;
             }
 
             let indexer_query_context = indexer_query_context.clone();
@@ -525,9 +525,12 @@ async fn handle_client_query_inner(
             );
         }
 
+        let total_indexer_fees_usd =
+            USD(NotNan::new(total_indexer_fees_grt as f64 * 1e-18).unwrap() / grt_per_usd);
         tracing::info!(
             target: reports::CLIENT_QUERY_TARGET,
-            indexer_fees_grt = (total_indexer_fees as f64 * 1e-18) as f32,
+            indexer_fees_grt = (total_indexer_fees_grt as f64 * 1e-18) as f32,
+            indexer_fees_usd = *total_indexer_fees_usd.0 as f32,
         );
 
         for _ in 0..selections_len {
@@ -537,9 +540,7 @@ async fn handle_client_query_inner(
                     indexer_errors.insert(selection.indexing.indexer, err);
                 }
                 Some((selection, Ok(outcome))) => {
-                    let total_indexer_fees =
-                        USD(NotNan::new(total_indexer_fees as f64 * 1e-18).unwrap() / grt_per_usd);
-                    let _ = ctx.budgeter.feedback.send(total_indexer_fees);
+                    let _ = ctx.budgeter.feedback.send(total_indexer_fees_usd);
 
                     tracing::debug!(?indexer_errors);
                     return Ok((selection, outcome));
