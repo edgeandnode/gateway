@@ -638,15 +638,15 @@ fn prepare_candidate(
     let fee = Normalized::new(indexer_fee(&status.cost_model, context)? as f64 / budget as f64)
         .unwrap_or(Normalized::ONE);
 
-    let reported_block_range = status.min_block.unwrap_or(0)..=status.block;
-    if block_requirements
-        .range
-        .map(|(start, end)| {
-            !(reported_block_range.contains(&start) && reported_block_range.contains(&end))
-        })
-        .unwrap_or(false)
-    {
-        return Err(IndexerError::Unavailable(UnavailableReason::MissingBlock));
+    if let Some((min, max)) = &block_requirements.range {
+        // Allow indexers if their last reported block is "close enough" to the required block
+        // range. This is to compensate for the gateway's lack of knowledge about which blocks
+        // indexers have responded with already. All else being equal, indexers closer to chain head
+        // and with higher success rate will be favored.
+        let range = status.min_block.unwrap_or(0)..=(status.block + blocks_per_minute);
+        if !range.contains(min) || !range.contains(max) {
+            return Err(IndexerError::Unavailable(UnavailableReason::MissingBlock));
+        }
     }
 
     let seconds_behind = if !block_requirements.latest || (blocks_per_minute == 0) {
