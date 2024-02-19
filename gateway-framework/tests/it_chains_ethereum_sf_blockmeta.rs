@@ -152,6 +152,6 @@ async fn fetch_inexistent_block_by_number() {
     let resp = client.get_block_by_number(block_number).await;
 
     //* Then
-    // Assert the block number and hash are present
+    // Assert the block number and hash are not present
     assert_matches!(resp, Ok(None));
 }
