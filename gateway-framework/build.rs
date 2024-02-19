@@ -4,7 +4,7 @@ use std::process::Command;
 
 /// Return the path to root of the crate being built.
 ///
-/// The `CARGO_MANIFEST_DIR` env variable contains the path to the  directory containing the
+/// The `CARGO_MANIFEST_DIR` env variable contains the path to the directory containing the
 /// manifest for the package being built (the package containing the build script). Also note that
 /// this is the value of the current working directory of the build script when it starts.
 ///
