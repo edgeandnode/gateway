@@ -13,6 +13,7 @@ use tracing::Instrument;
 use crate::{block_constraints::BlockConstraint, metrics::*};
 
 pub mod block_rate;
+pub mod blockmeta;
 pub mod ethereum;
 pub mod test;
 

@@ -9,8 +9,9 @@ use tokio::time::interval;
 use toolshed::url::Url;
 use tracing::Instrument;
 
-use super::{BlockHead, ClientMsg, UnresolvedBlock};
 use crate::{config, metrics::METRICS};
+
+use super::{BlockHead, ClientMsg, UnresolvedBlock};
 
 pub struct Client {
     chain: config::Chain,
