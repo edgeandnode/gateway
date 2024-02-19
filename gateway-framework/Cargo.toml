@@ -9,7 +9,7 @@ proto-gen = []
 
 [dependencies]
 alloy-primitives.workspace = true
-alloy-sol-types = "0.6.2"
+alloy-sol-types = "0.6.3"
 anyhow.workspace = true
 axum.workspace = true
 ethers = "2.0.13"
