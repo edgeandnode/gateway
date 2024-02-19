@@ -25,7 +25,6 @@ pub enum QueryStatus {
     #[default]
     Active,
     ServiceShutoff,
-    FreePlanExceeded,
 }
 
 pub fn api_keys(

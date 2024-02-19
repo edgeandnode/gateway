@@ -172,10 +172,7 @@ pub fn check_auth_requirements(ctx: &AuthContext, token: &AuthToken) -> anyhow::
     match token.api_key.query_status {
         QueryStatus::Active => Ok(()),
         QueryStatus::ServiceShutoff => Err(anyhow::anyhow!(
-            "Payment required for subsequent requests for this API key"
-        )),
-        QueryStatus::FreePlanExceeded => Err(anyhow::anyhow!(
-            "Free plan exceeded; make sure to add to your balance in the studio"
+            "payment required for subsequent requests for this API key"
         )),
     }
 }
