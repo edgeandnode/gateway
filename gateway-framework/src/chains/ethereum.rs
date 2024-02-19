@@ -13,8 +13,6 @@ use crate::{config, metrics::METRICS};
 
 use super::{BlockHead, ClientMsg, UnresolvedBlock};
 
-pub mod sf_blockmeta_client;
-
 pub struct Client {
     chain: config::Chain,
     http_client: reqwest::Client,

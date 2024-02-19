@@ -51,7 +51,7 @@ fn main() {
 
         // Streamingfast Blockmeta service gRPC proto files
         let sf_blockmeta_proto_dir = proto_dir.join("sf/blockmeta/v2");
-        let sf_blockmeta_src_dir = src_dir.join("chains/ethereum/sf_blockmeta_client");
+        let sf_blockmeta_src_dir = src_dir.join("chains/blockmeta");
 
         let status = tonic_build::configure()
             .build_client(true)

@@ -1,44 +1,44 @@
-//! Ethereum JSON-RPC API client integration tests
+//! Ethereum Streamingfast Blockmeta client integration tests
 
 use assert_matches::assert_matches;
 use thegraph::types::{BlockHash, BlockNumber};
 use tonic::transport::Uri;
 
-use gateway_framework::chains::ethereum::sf_blockmeta_client::SfBlockmetaClient;
+use gateway_framework::chains::blockmeta::BlockmetaClient;
 
 /// Test helper to get the test URI as a [`Uri`].
 ///
-/// The URI is expected to be set in the `IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_URI` environment
+/// The URI is expected to be set in the `IT_GATEWAY_FRAMEWORK_BLOCKMETA_URI` environment
 /// variable.
 fn test_rpc_uri() -> Uri {
-    std::env::var("IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_URI")
-        .expect("Missing IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_URI")
+    std::env::var("IT_GATEWAY_FRAMEWORK_BLOCKMETA_URI")
+        .expect("Missing IT_GATEWAY_FRAMEWORK_BLOCKMETA_URI")
         .parse()
         .expect("Invalid URI")
 }
 
 /// Test helper to get the test authorization token.
 ///
-/// The token is expected to be set in the `IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_AUTH_TOKEN`
+/// The token is expected to be set in the `IT_GATEWAY_FRAMEWORK_BLOCKMETA_AUTH_TOKEN`
 /// environment variable.
 fn test_auth_token() -> String {
-    let token = std::env::var("IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_AUTH_TOKEN")
-        .expect("Missing IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_AUTH_TOKEN");
+    let token = std::env::var("IT_GATEWAY_FRAMEWORK_BLOCKMETA_AUTH_TOKEN")
+        .expect("Missing IT_GATEWAY_FRAMEWORK_BLOCKMETA_AUTH_TOKEN");
     if token.is_empty() {
-        panic!("IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_AUTH_TOKEN is empty");
+        panic!("IT_GATEWAY_FRAMEWORK_BLOCKMETA_AUTH_TOKEN is empty");
     }
     token
 }
 
 /// It should be able to retrieve the latest block using the `Head` RPC method.
 #[test_with::env(
-    IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_URI,
-    IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_AUTH_TOKEN
+    IT_GATEWAY_FRAMEWORK_BLOCKMETA_URI,
+    IT_GATEWAY_FRAMEWORK_BLOCKMETA_AUTH_TOKEN
 )]
 #[tokio::test]
 async fn fetch_latest_block() {
     //* Given
-    let mut client = SfBlockmetaClient::new_with_auth(test_rpc_uri(), test_auth_token());
+    let mut client = BlockmetaClient::new_with_auth(test_rpc_uri(), test_auth_token());
 
     //* When
     let resp = client.get_latest_block().await;
@@ -54,13 +54,13 @@ async fn fetch_latest_block() {
 /// It should be able to retrieve a block associated with a certain hash using the
 /// `IDToNum` RPC method.
 #[test_with::env(
-    IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_URI,
-    IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_AUTH_TOKEN
+    IT_GATEWAY_FRAMEWORK_BLOCKMETA_URI,
+    IT_GATEWAY_FRAMEWORK_BLOCKMETA_AUTH_TOKEN
 )]
 #[tokio::test]
 async fn fetch_known_block_by_hash() {
     //* Given
-    let mut client = SfBlockmetaClient::new_with_auth(test_rpc_uri(), test_auth_token());
+    let mut client = BlockmetaClient::new_with_auth(test_rpc_uri(), test_auth_token());
 
     // The Merge: https://etherscan.io/block/15537394
     let block_hash: BlockHash =
@@ -83,13 +83,13 @@ async fn fetch_known_block_by_hash() {
 /// It should be able to retrieve a block associated with a certain hash using the
 /// `NumToID` RPC method.
 #[test_with::env(
-    IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_URI,
-    IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_AUTH_TOKEN
+    IT_GATEWAY_FRAMEWORK_BLOCKMETA_URI,
+    IT_GATEWAY_FRAMEWORK_BLOCKMETA_AUTH_TOKEN
 )]
 #[tokio::test]
 async fn fetch_known_block_by_number() {
     //* Given
-    let mut client = SfBlockmetaClient::new_with_auth(test_rpc_uri(), test_auth_token());
+    let mut client = BlockmetaClient::new_with_auth(test_rpc_uri(), test_auth_token());
 
     // The Merge: https://etherscan.io/block/15537394
     let block_number: BlockNumber = 15_537_394;
@@ -112,13 +112,13 @@ async fn fetch_known_block_by_number() {
 /// It should return `None` when trying to retrieve a block that does not exist using the
 /// `IDToNum` RPC method.
 #[test_with::env(
-    IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_URI,
-    IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_AUTH_TOKEN
+    IT_GATEWAY_FRAMEWORK_BLOCKMETA_URI,
+    IT_GATEWAY_FRAMEWORK_BLOCKMETA_AUTH_TOKEN
 )]
 #[tokio::test]
-async fn fetch_inexistent_block_by_hash() {
+async fn fetch_nonexistent_block_by_hash() {
     //* Given
-    let mut client = SfBlockmetaClient::new_with_auth(test_rpc_uri(), test_auth_token());
+    let mut client = BlockmetaClient::new_with_auth(test_rpc_uri(), test_auth_token());
 
     // Use a hash that does not exist
     let block_hash: BlockHash =
@@ -137,13 +137,13 @@ async fn fetch_inexistent_block_by_hash() {
 /// It should return `None` when trying to retrieve a block that does not exist using the
 /// `NumToID` RPC method.
 #[test_with::env(
-    IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_URI,
-    IT_GATEWAY_FRAMEWORK_SFBLOCKMETA_AUTH_TOKEN
+    IT_GATEWAY_FRAMEWORK_BLOCKMETA_URI,
+    IT_GATEWAY_FRAMEWORK_BLOCKMETA_AUTH_TOKEN
 )]
 #[tokio::test]
-async fn fetch_inexistent_block_by_number() {
+async fn fetch_nonexistent_block_by_number() {
     //* Given
-    let mut client = SfBlockmetaClient::new_with_auth(test_rpc_uri(), test_auth_token());
+    let mut client = BlockmetaClient::new_with_auth(test_rpc_uri(), test_auth_token());
 
     // Use a very large block number to ensure it does not exist
     let block_number = i64::MAX as BlockNumber;

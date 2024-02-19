@@ -43,10 +43,8 @@ pub struct RelativeTimeReq {
 /// Generated client implementations.
 pub mod block_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
-
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct BlockClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -90,8 +88,9 @@ pub mod block_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             BlockClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -130,14 +129,19 @@ pub mod block_client {
             &mut self,
             request: impl tonic::IntoRequest<super::NumToIdReq>,
         ) -> std::result::Result<tonic::Response<super::BlockResp>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sf.blockmeta.v2.Block/NumToID");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sf.blockmeta.v2.Block/NumToID",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("sf.blockmeta.v2.Block", "NumToID"));
@@ -147,14 +151,19 @@ pub mod block_client {
             &mut self,
             request: impl tonic::IntoRequest<super::IdToNumReq>,
         ) -> std::result::Result<tonic::Response<super::BlockResp>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sf.blockmeta.v2.Block/IDToNum");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sf.blockmeta.v2.Block/IDToNum",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("sf.blockmeta.v2.Block", "IDToNum"));
@@ -164,14 +173,19 @@ pub mod block_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::BlockResp>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sf.blockmeta.v2.Block/Head");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sf.blockmeta.v2.Block/Head",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("sf.blockmeta.v2.Block", "Head"));
@@ -182,10 +196,8 @@ pub mod block_client {
 /// Generated client implementations.
 pub mod block_by_time_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
-
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct BlockByTimeClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -229,8 +241,9 @@ pub mod block_by_time_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             BlockByTimeClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -269,14 +282,19 @@ pub mod block_by_time_client {
             &mut self,
             request: impl tonic::IntoRequest<super::TimeReq>,
         ) -> std::result::Result<tonic::Response<super::BlockResp>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sf.blockmeta.v2.BlockByTime/At");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sf.blockmeta.v2.BlockByTime/At",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("sf.blockmeta.v2.BlockByTime", "At"));
@@ -286,14 +304,19 @@ pub mod block_by_time_client {
             &mut self,
             request: impl tonic::IntoRequest<super::RelativeTimeReq>,
         ) -> std::result::Result<tonic::Response<super::BlockResp>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sf.blockmeta.v2.BlockByTime/After");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sf.blockmeta.v2.BlockByTime/After",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("sf.blockmeta.v2.BlockByTime", "After"));
@@ -303,14 +326,19 @@ pub mod block_by_time_client {
             &mut self,
             request: impl tonic::IntoRequest<super::RelativeTimeReq>,
         ) -> std::result::Result<tonic::Response<super::BlockResp>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sf.blockmeta.v2.BlockByTime/Before");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sf.blockmeta.v2.BlockByTime/Before",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("sf.blockmeta.v2.BlockByTime", "Before"));
@@ -321,9 +349,7 @@ pub mod block_by_time_client {
 /// Generated server implementations.
 pub mod block_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-
     use tonic::codegen::*;
-
     /// Generated trait containing gRPC methods that should be implemented for use with BlockServer.
     #[async_trait]
     pub trait Block: Send + Sync + 'static {
@@ -363,7 +389,10 @@ pub mod block_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -419,15 +448,21 @@ pub mod block_server {
                 "/sf.blockmeta.v2.Block/NumToID" => {
                     #[allow(non_camel_case_types)]
                     struct NumToIDSvc<T: Block>(pub Arc<T>);
-                    impl<T: Block> tonic::server::UnaryService<super::NumToIdReq> for NumToIDSvc<T> {
+                    impl<T: Block> tonic::server::UnaryService<super::NumToIdReq>
+                    for NumToIDSvc<T> {
                         type Response = super::BlockResp;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::NumToIdReq>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Block>::num_to_id(&inner, request).await };
+                            let fut = async move {
+                                <T as Block>::num_to_id(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -457,15 +492,21 @@ pub mod block_server {
                 "/sf.blockmeta.v2.Block/IDToNum" => {
                     #[allow(non_camel_case_types)]
                     struct IDToNumSvc<T: Block>(pub Arc<T>);
-                    impl<T: Block> tonic::server::UnaryService<super::IdToNumReq> for IDToNumSvc<T> {
+                    impl<T: Block> tonic::server::UnaryService<super::IdToNumReq>
+                    for IDToNumSvc<T> {
                         type Response = super::BlockResp;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::IdToNumReq>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Block>::id_to_num(&inner, request).await };
+                            let fut = async move {
+                                <T as Block>::id_to_num(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -495,12 +536,21 @@ pub mod block_server {
                 "/sf.blockmeta.v2.Block/Head" => {
                     #[allow(non_camel_case_types)]
                     struct HeadSvc<T: Block>(pub Arc<T>);
-                    impl<T: Block> tonic::server::UnaryService<super::Empty> for HeadSvc<T> {
+                    impl<T: Block> tonic::server::UnaryService<super::Empty>
+                    for HeadSvc<T> {
                         type Response = super::BlockResp;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-                        fn call(&mut self, request: tonic::Request<super::Empty>) -> Self::Future {
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Block>::head(&inner, request).await };
+                            let fut = async move {
+                                <T as Block>::head(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -527,14 +577,18 @@ pub mod block_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
             }
         }
     }
@@ -567,9 +621,7 @@ pub mod block_server {
 /// Generated server implementations.
 pub mod block_by_time_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-
     use tonic::codegen::*;
-
     /// Generated trait containing gRPC methods that should be implemented for use with BlockByTimeServer.
     #[async_trait]
     pub trait BlockByTime: Send + Sync + 'static {
@@ -609,7 +661,10 @@ pub mod block_by_time_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -665,15 +720,21 @@ pub mod block_by_time_server {
                 "/sf.blockmeta.v2.BlockByTime/At" => {
                     #[allow(non_camel_case_types)]
                     struct AtSvc<T: BlockByTime>(pub Arc<T>);
-                    impl<T: BlockByTime> tonic::server::UnaryService<super::TimeReq> for AtSvc<T> {
+                    impl<T: BlockByTime> tonic::server::UnaryService<super::TimeReq>
+                    for AtSvc<T> {
                         type Response = super::BlockResp;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::TimeReq>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as BlockByTime>::at(&inner, request).await };
+                            let fut = async move {
+                                <T as BlockByTime>::at(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -703,16 +764,23 @@ pub mod block_by_time_server {
                 "/sf.blockmeta.v2.BlockByTime/After" => {
                     #[allow(non_camel_case_types)]
                     struct AfterSvc<T: BlockByTime>(pub Arc<T>);
-                    impl<T: BlockByTime> tonic::server::UnaryService<super::RelativeTimeReq> for AfterSvc<T> {
+                    impl<
+                        T: BlockByTime,
+                    > tonic::server::UnaryService<super::RelativeTimeReq>
+                    for AfterSvc<T> {
                         type Response = super::BlockResp;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::RelativeTimeReq>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as BlockByTime>::after(&inner, request).await };
+                            let fut = async move {
+                                <T as BlockByTime>::after(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -742,16 +810,23 @@ pub mod block_by_time_server {
                 "/sf.blockmeta.v2.BlockByTime/Before" => {
                     #[allow(non_camel_case_types)]
                     struct BeforeSvc<T: BlockByTime>(pub Arc<T>);
-                    impl<T: BlockByTime> tonic::server::UnaryService<super::RelativeTimeReq> for BeforeSvc<T> {
+                    impl<
+                        T: BlockByTime,
+                    > tonic::server::UnaryService<super::RelativeTimeReq>
+                    for BeforeSvc<T> {
                         type Response = super::BlockResp;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::RelativeTimeReq>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as BlockByTime>::before(&inner, request).await };
+                            let fut = async move {
+                                <T as BlockByTime>::before(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -778,14 +853,18 @@ pub mod block_by_time_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
             }
         }
     }

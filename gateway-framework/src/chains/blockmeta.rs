@@ -14,14 +14,15 @@ use self::gen::Empty;
 use self::gen::IdToNumReq;
 use self::gen::NumToIdReq;
 
-/// These files are **generated** by the `build.rs` when compiling the crate with the `proto-gen`
-/// feature enabled. The `build.rs` script uses the `tonic-build` crate to generate the files.
+/// These files are **generated** by the `build.rs` script when compiling the crate with the
+/// `proto-gen` feature enabled. The `build.rs` script uses the `tonic-build` crate to generate
+/// the files.
 ///
 /// ```shell
 /// cargo build -p gateway-framework --features proto-gen
 /// ```
 mod gen {
-    include!("sf_blockmeta_client/sf.blockmeta.v2.rs");
+    include!("blockmeta/sf.blockmeta.v2.rs");
 }
 
 mod auth {
@@ -40,7 +41,7 @@ mod auth {
 
     impl AuthInterceptor {
         /// Create a new `AuthInterceptor` with the given authorization token.
-        pub(super) fn with_token(token: &str) -> Self {
+        pub(in crate::chains) fn with_token(token: &str) -> Self {
             Self {
                 header_value: format!("bearer {}", token),
             }
@@ -66,15 +67,15 @@ mod auth {
 
 /// StreamingFast Blockmeta gRPC client.
 ///
-/// The `SfBlockmetaClient` is a gRPC client for the StreamingFast Blockmeta service. It provides
+/// The [`BlockmetaClient`] is a gRPC client for the StreamingFast Blockmeta service. It provides
 /// methods to fetch blocks by hash, number, and the latest block.
 #[derive(Debug, Clone)]
-pub struct SfBlockmetaClient<T> {
+pub struct BlockmetaClient<T> {
     rpc_client: BlockClient<T>,
 }
 
-impl SfBlockmetaClient<Channel> {
-    /// Create a new `SfBlockmetaClient` with the given gRPC endpoint.
+impl BlockmetaClient<Channel> {
+    /// Create a new [`BlockmetaClient`] with the given gRPC endpoint.
     ///
     /// The service will connect once the first request is made. It will attempt to connect for
     /// 5 seconds before timing out.
@@ -90,8 +91,8 @@ impl SfBlockmetaClient<Channel> {
     }
 }
 
-impl SfBlockmetaClient<InterceptedService<Channel, AuthInterceptor>> {
-    /// Create a new `SfBlockmetaClient` with the given gRPC endpoint and authorization token.
+impl BlockmetaClient<InterceptedService<Channel, AuthInterceptor>> {
+    /// Create a new [`BlockmetaClient`] with the given gRPC endpoint and authorization token.
     ///
     /// The cliient will connect to the given endpoint and authenticate requests with the given
     /// authorization token inserted into the `authorization` header by the [`AuthInterceptor`].
@@ -112,7 +113,7 @@ impl SfBlockmetaClient<InterceptedService<Channel, AuthInterceptor>> {
     }
 }
 
-impl<T> SfBlockmetaClient<T>
+impl<T> BlockmetaClient<T>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
     T::Error: Into<StdError>,
@@ -144,14 +145,8 @@ where
 
         match self.rpc_client.id_to_num(request).await {
             Ok(res) => Ok(Some(res.into_inner())),
-            Err(err) if err.code() == tonic::Code::NotFound => {
-                println!("request failed: {:?}", err);
-                Ok(None)
-            }
-            Err(err) => {
-                println!("request failed: {:?}", err);
-                Err(anyhow::anyhow!("request failed: {}", err.message()))
-            }
+            Err(err) if err.code() == tonic::Code::NotFound => Ok(None),
+            Err(err) => Err(anyhow::anyhow!("request failed: {}", err.message())),
         }
     }
 
@@ -168,14 +163,8 @@ where
 
         match self.rpc_client.num_to_id(request).await {
             Ok(res) => Ok(Some(res.into_inner())),
-            Err(err) if err.code() == tonic::Code::NotFound => {
-                println!("request failed: {:?}", err);
-                Ok(None)
-            }
-            Err(err) => {
-                println!("request failed: {:?}", err);
-                Err(anyhow::anyhow!("request failed: {}", err.message()))
-            }
+            Err(err) if err.code() == tonic::Code::NotFound => Ok(None),
+            Err(err) => Err(anyhow::anyhow!("request failed: {}", err.message())),
         }
     }
 }
