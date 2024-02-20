@@ -176,3 +176,28 @@ impl ReceiptSigner {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::scalar::ScalarReceipt;
+    use gateway_common::utils::testing::TEST_KEY;
+    use rand::{thread_rng, RngCore};
+    use receipts::ReceiptPool;
+    use secp256k1::SecretKey;
+    use std::str::FromStr;
+
+    #[test]
+    fn legacy_receipt_value() {
+        let mut receipt_pool = ReceiptPool::new();
+        let signer = SecretKey::from_str(TEST_KEY).unwrap();
+        receipt_pool.add_allocation(signer, Default::default());
+
+        let mut value = [0_u8; 16];
+        value[..8].copy_from_slice(&thread_rng().next_u64().to_be_bytes());
+        value[8..].copy_from_slice(&thread_rng().next_u64().to_be_bytes());
+        let value = u128::from_be_bytes(value);
+
+        let receipt = receipt_pool.commit(value.into()).unwrap();
+        assert_eq!(ScalarReceipt::Legacy(receipt).grt_value(), value);
+    }
+}
