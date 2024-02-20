@@ -6,14 +6,14 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
 use ethers::signers::Wallet;
 use eventuals::{Eventual, Ptr};
+use gateway_common::types::Indexing;
 use rand::RngCore;
 pub use receipts::{QueryStatus as ReceiptStatus, ReceiptPool};
 use secp256k1::SecretKey;
 use tap_core::eip_712_signed_message::EIP712SignedMessage;
 use tap_core::tap_receipt::Receipt;
 use tokio::sync::{Mutex, RwLock};
-
-use gateway_common::types::Indexing;
+use toolshed::concat_bytes;
 
 pub struct ReceiptSigner {
     signer: SecretKey,
@@ -30,6 +30,15 @@ pub enum ScalarReceipt {
 }
 
 impl ScalarReceipt {
+    pub fn grt_value(&self) -> u128 {
+        match self {
+            ScalarReceipt::Legacy(receipt) => {
+                u128::from_be_bytes(concat_bytes!(16, [&receipt[36..52]]))
+            }
+            ScalarReceipt::TAP(receipt) => receipt.message.value,
+        }
+    }
+
     pub fn allocation(&self) -> Address {
         match self {
             ScalarReceipt::Legacy(receipt) => Address::from_slice(&receipt[0..20]),
@@ -165,5 +174,30 @@ impl ReceiptSigner {
                 pool
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::scalar::ScalarReceipt;
+    use gateway_common::utils::testing::TEST_KEY;
+    use rand::{thread_rng, RngCore};
+    use receipts::ReceiptPool;
+    use secp256k1::SecretKey;
+    use std::str::FromStr;
+
+    #[test]
+    fn legacy_receipt_value() {
+        let mut receipt_pool = ReceiptPool::new();
+        let signer = SecretKey::from_str(TEST_KEY).unwrap();
+        receipt_pool.add_allocation(signer, Default::default());
+
+        let mut value = [0_u8; 16];
+        value[..8].copy_from_slice(&thread_rng().next_u64().to_be_bytes());
+        value[8..].copy_from_slice(&thread_rng().next_u64().to_be_bytes());
+        let value = u128::from_be_bytes(value);
+
+        let receipt = receipt_pool.commit(value.into()).unwrap();
+        assert_eq!(ScalarReceipt::Legacy(receipt).grt_value(), value);
     }
 }

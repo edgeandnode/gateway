@@ -1,19 +1,12 @@
-use std::sync::Arc;
-
-use alloy_primitives::BlockNumber;
-use serde::Deserialize;
-use thegraph::types::attestation::Attestation;
-
-use gateway_framework::{
-    errors::{IndexerError, UnavailableReason::*},
-    scalar::{ReceiptSigner, ReceiptStatus, ScalarReceipt},
-};
-
 use crate::client_query::Selection;
+use alloy_primitives::BlockNumber;
+use gateway_framework::errors::{IndexerError, UnavailableReason::*};
+use serde::Deserialize;
+use std::sync::Arc;
+use thegraph::types::attestation::Attestation;
 
 pub struct IndexerResponse {
     pub status: u16,
-    pub receipt: ScalarReceipt,
     pub payload: ResponsePayload,
 }
 
@@ -40,7 +33,6 @@ pub struct IndexerResponsePayload {
 #[derive(Clone)]
 pub struct IndexerClient {
     pub client: reqwest::Client,
-    pub receipt_signer: &'static ReceiptSigner,
 }
 
 impl IndexerClient {
@@ -53,30 +45,16 @@ impl IndexerClient {
             .url
             .join(&format!("subgraphs/id/{:?}", selection.indexing.deployment))
             .map_err(|_| IndexerError::Unavailable(NoStatus))?;
-        let receipt = self
-            .receipt_signer
-            .create_receipt(&selection.indexing, selection.fee)
-            .await
-            .ok_or(IndexerError::Internal("failed to create receipt"))?;
 
         let result = self
             .client
             .post(url)
             .header("Content-Type", "application/json")
-            .header("Scalar-Receipt", &receipt.serialize())
+            .header("Scalar-Receipt", &selection.receipt.serialize())
             .body(query)
             .send()
             .await
             .and_then(|response| response.error_for_status());
-
-        let receipt_status = match &result {
-            Ok(_) => ReceiptStatus::Success,
-            Err(err) if err.is_timeout() => ReceiptStatus::Unknown,
-            Err(_) => ReceiptStatus::Failure,
-        };
-        self.receipt_signer
-            .record_receipt(&selection.indexing, &receipt, receipt_status)
-            .await;
 
         let response = match result {
             Ok(response) => response,
@@ -105,7 +83,6 @@ impl IndexerClient {
         };
         Ok(IndexerResponse {
             status: response_status.as_u16(),
-            receipt,
             payload: ResponsePayload {
                 body: Arc::new(graphql_response),
                 attestation: payload.attestation,
