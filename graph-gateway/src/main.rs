@@ -252,8 +252,8 @@ async fn main() {
     let client_query_ctx = Context {
         indexer_client: IndexerClient {
             client: http_client.clone(),
-            receipt_signer,
         },
+        receipt_signer,
         kafka_client,
         budgeter,
         indexer_selection_retry_limit: config.indexer_selection_retry_limit,

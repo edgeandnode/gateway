@@ -18,6 +18,7 @@ use futures::future::join_all;
 use gateway_framework::budgets::USD;
 use gateway_framework::chains::UnresolvedBlock;
 use gateway_framework::errors::UnavailableReason;
+use gateway_framework::scalar::ReceiptStatus;
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, ExpectedPerformance, Normalized, Performance};
 use num_traits::cast::ToPrimitive as _;
@@ -77,11 +78,10 @@ pub struct QueryBody {
     pub variables: Option<Box<RawValue>>,
 }
 
-#[derive(Clone, Debug)]
 pub struct Selection {
     pub indexing: Indexing,
     pub url: Url,
-    pub fee: u128,
+    pub receipt: ScalarReceipt,
     pub blocks_behind: u64,
 }
 
@@ -408,36 +408,47 @@ async fn handle_client_query_inner(
             }
         }
 
-        let selections: ArrayVec<&Candidate, SELECTION_LIMIT> =
+        let selected_candidates: ArrayVec<&Candidate, SELECTION_LIMIT> =
             indexer_selection::select(&mut rng, &candidates);
+        let selections_len = selected_candidates.len();
+        let mut selections: Vec<Selection> = Default::default();
+        for candidate in selected_candidates {
+            let indexing = Indexing {
+                indexer: candidate.indexer,
+                deployment: candidate.deployment,
+            };
 
-        let mut selections: Vec<Selection> = selections
-            .iter()
-            .map(|c| Selection {
-                indexing: Indexing {
-                    indexer: c.indexer,
-                    deployment: c.deployment,
-                },
-                url: c.url.clone(),
-                fee: (c.fee.as_f64() * budget as f64) as u128,
-                blocks_behind: ((c.seconds_behind as f64 / 60.0) * blocks_per_minute as f64) as u64,
-            })
-            .collect();
-        let selections_len = selections.len();
-        if selections.is_empty() {
-            // Candidates that would never be selected should be filtered out for improved errors.
-            tracing::error!("no candidates selected");
-            continue;
-        }
-
-        for selection in &mut selections {
+            // over-pay indexers to hit target
             let min_fee = ctx
                 .budgeter
                 .min_indexer_fees
                 .value_immediate()
                 .unwrap_or_default();
-            let min_fee = (*(min_fee.0 * grt_per_usd * one_grt) / selections_len as f64) as u128;
-            selection.fee = selection.fee.max(min_fee);
+            let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections_len as f64;
+            let indexer_fee = candidate.fee.as_f64() * budget as f64;
+            let fee = indexer_fee.max(min_fee) as u128;
+
+            let receipt = match ctx.receipt_signer.create_receipt(&indexing, fee).await {
+                Some(receipt) => receipt,
+                None => {
+                    tracing::error!(?indexing, "failed to create receipt");
+                    continue;
+                }
+            };
+
+            let blocks_behind = (candidate.seconds_behind as f64 / 60.0) * blocks_per_minute as f64;
+            selections.push(Selection {
+                indexing,
+                url: candidate.url.clone(),
+                receipt,
+                blocks_behind: blocks_behind as u64,
+            });
+        }
+        let selections_len = selections.len();
+        if selections.is_empty() {
+            // Candidates that would never be selected should be filtered out for improved errors.
+            tracing::error!("no candidates selected");
+            continue;
         }
 
         let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
@@ -493,12 +504,7 @@ async fn handle_client_query_inner(
             )
             .await;
 
-            total_indexer_fees_grt += selection.fee;
-            // When we prepare an optimistic query, we are pessimistically doubling the fee in case
-            // the optimistic query fails and we pay again for the fallback query.
-            if optimistic_query.is_some() {
-                total_indexer_fees_grt += selection.fee;
-            }
+            total_indexer_fees_grt += selection.receipt.grt_value();
 
             let indexer_query_context = indexer_query_context.clone();
             let outcome_tx = outcome_tx.clone();
@@ -510,15 +516,25 @@ async fn handle_client_query_inner(
                 "indexer_query",
                 indexer = ?selection.indexing.indexer,
             );
+            let receipt_signer = ctx.receipt_signer;
             tokio::spawn(
                 async move {
                     let response = handle_indexer_query(
                         indexer_query_context,
-                        selection.clone(),
+                        &selection,
                         deterministic_query,
                         optimistic_query,
                     )
                     .await;
+                    let receipt_status = match &response {
+                        Ok(_) => ReceiptStatus::Success,
+                        Err(IndexerError::Timeout) => ReceiptStatus::Unknown,
+                        Err(_) => ReceiptStatus::Failure,
+                    };
+                    receipt_signer
+                        .record_receipt(&selection.indexing, &selection.receipt, receipt_status)
+                        .await;
+
                     let _ = outcome_tx.try_send((selection, response));
                 }
                 .instrument(span),
@@ -686,31 +702,24 @@ struct IndexerQueryContext {
 
 async fn handle_indexer_query(
     mut ctx: IndexerQueryContext,
-    selection: Selection,
+    selection: &Selection,
     deterministic_query: String,
     optimistic_query: Option<String>,
 ) -> Result<ResponsePayload, IndexerError> {
     let indexing = selection.indexing;
     let deployment = indexing.deployment.to_string();
 
-    let sent_optimistic_query = optimistic_query.is_some();
     let optimistic_response = match optimistic_query {
-        Some(query) => handle_indexer_query_inner(&mut ctx, selection.clone(), query)
+        Some(query) => handle_indexer_query_inner(&mut ctx, selection, query)
             .await
             .ok(),
         None => None,
     };
-    let failed_optimistic_response = optimistic_response.is_none();
     let result = match optimistic_response {
         Some(response) => Ok(response),
-        None => handle_indexer_query_inner(&mut ctx, selection.clone(), deterministic_query).await,
+        None => handle_indexer_query_inner(&mut ctx, selection, deterministic_query).await,
     };
     METRICS.indexer_query.check(&[&deployment], &result);
-
-    let mut fee_grt = selection.fee;
-    if sent_optimistic_query && failed_optimistic_response {
-        fee_grt *= 2;
-    }
 
     let latency_ms = ctx.response_time.as_millis() as u32;
     tracing::info!(
@@ -718,7 +727,9 @@ async fn handle_indexer_query(
         %deployment,
         url = %selection.url,
         blocks_behind = selection.blocks_behind,
-        fee_grt = (fee_grt as f64 * 1e-18) as f32,
+        fee_grt = (selection.receipt.grt_value() as f64 * 1e-18) as f32,
+        allocation = ?selection.receipt.allocation(),
+        legacy_scalar = matches!(&selection.receipt, ScalarReceipt::Legacy(_)),
         subgraph_chain = %ctx.deployment.manifest.network,
         response_time_ms = latency_ms,
         status_message = match &result {
@@ -736,15 +747,16 @@ async fn handle_indexer_query(
 
 async fn handle_indexer_query_inner(
     ctx: &mut IndexerQueryContext,
-    selection: Selection,
+    selection: &Selection,
     deterministic_query: String,
 ) -> Result<ResponsePayload, IndexerError> {
     let start_time = Instant::now();
     let result = ctx
         .indexer_client
-        .query_indexer(&selection, deterministic_query.clone())
+        .query_indexer(selection, deterministic_query.clone())
         .await;
     ctx.response_time = Instant::now() - start_time;
+
     let deployment = selection.indexing.deployment.to_string();
     with_metric(&METRICS.indexer_query.duration, &[&deployment], |hist| {
         hist.observe(ctx.response_time.as_millis() as f64)
@@ -754,13 +766,6 @@ async fn handle_indexer_query_inner(
     if response.status != StatusCode::OK.as_u16() {
         tracing::warn!(indexer_response_status = %response.status);
     }
-
-    let allocation = response.receipt.allocation();
-    tracing::info!(
-        target: reports::INDEXER_QUERY_TARGET,
-        ?allocation,
-        legacy_scalar = matches!(&response.receipt, ScalarReceipt::Legacy(_)),
-    );
 
     let indexer_errors = serde_json::from_str::<
         graphql_http::http::response::ResponseBody<Box<RawValue>>,
@@ -814,6 +819,7 @@ async fn handle_indexer_query_inner(
     }
 
     if let Some(attestation) = &response.payload.attestation {
+        let allocation = selection.receipt.allocation();
         let verified = attestation::verify(
             ctx.attestation_domain,
             attestation,

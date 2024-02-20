@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use eventuals::{Eventual, Ptr};
+use gateway_framework::scalar::ReceiptSigner;
 use ordered_float::NotNan;
 use toolshed::url::Url;
 
@@ -19,6 +20,7 @@ use crate::topology::GraphNetwork;
 #[derive(Clone)]
 pub struct Context {
     pub indexer_client: IndexerClient,
+    pub receipt_signer: &'static ReceiptSigner,
     pub kafka_client: &'static KafkaClient,
     pub budgeter: &'static Budgeter,
     pub indexer_selection_retry_limit: usize,
