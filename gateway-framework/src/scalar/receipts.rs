@@ -13,7 +13,6 @@ use secp256k1::SecretKey;
 use tap_core::eip_712_signed_message::EIP712SignedMessage;
 use tap_core::tap_receipt::Receipt;
 use tokio::sync::{Mutex, RwLock};
-use toolshed::concat_bytes;
 
 pub struct ReceiptSigner {
     signer: SecretKey,
@@ -25,30 +24,28 @@ pub struct ReceiptSigner {
 }
 
 pub enum ScalarReceipt {
-    Legacy(Vec<u8>),
+    Legacy(u128, Vec<u8>),
     TAP(EIP712SignedMessage<Receipt>),
 }
 
 impl ScalarReceipt {
     pub fn grt_value(&self) -> u128 {
         match self {
-            ScalarReceipt::Legacy(receipt) => {
-                u128::from_be_bytes(concat_bytes!(16, [&receipt[36..52]]))
-            }
+            ScalarReceipt::Legacy(value, _) => *value,
             ScalarReceipt::TAP(receipt) => receipt.message.value,
         }
     }
 
     pub fn allocation(&self) -> Address {
         match self {
-            ScalarReceipt::Legacy(receipt) => Address::from_slice(&receipt[0..20]),
+            ScalarReceipt::Legacy(_, receipt) => Address::from_slice(&receipt[0..20]),
             ScalarReceipt::TAP(receipt) => receipt.message.allocation_id,
         }
     }
 
     pub fn serialize(&self) -> String {
         match self {
-            ScalarReceipt::Legacy(receipt) => hex::encode(&receipt[..(receipt.len() - 32)]),
+            ScalarReceipt::Legacy(_, receipt) => hex::encode(&receipt[..(receipt.len() - 32)]),
             ScalarReceipt::TAP(receipt) => serde_json::to_string(&receipt).unwrap(),
         }
     }
@@ -90,7 +87,7 @@ impl ReceiptSigner {
             let legacy_pool = legacy_pools.get(indexing)?;
             let mut legacy_pool = legacy_pool.lock().await;
             let receipt = legacy_pool.commit(fee.into()).ok()?;
-            return Some(ScalarReceipt::Legacy(receipt));
+            return Some(ScalarReceipt::Legacy(fee, receipt));
         }
 
         let allocation = *self.allocations.read().await.get(indexing)?;
@@ -124,7 +121,7 @@ impl ReceiptSigner {
         receipt: &ScalarReceipt,
         status: ReceiptStatus,
     ) {
-        if let ScalarReceipt::Legacy(receipt) = receipt {
+        if let ScalarReceipt::Legacy(_, receipt) = receipt {
             let legacy_pool = self.legacy_pools.read().await;
             let mut legacy_pool = match legacy_pool.get(indexing) {
                 Some(legacy_pool) => legacy_pool.lock().await,
@@ -174,30 +171,5 @@ impl ReceiptSigner {
                 pool
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::scalar::ScalarReceipt;
-    use gateway_common::utils::testing::TEST_KEY;
-    use rand::{thread_rng, RngCore};
-    use receipts::ReceiptPool;
-    use secp256k1::SecretKey;
-    use std::str::FromStr;
-
-    #[test]
-    fn legacy_receipt_value() {
-        let mut receipt_pool = ReceiptPool::new();
-        let signer = SecretKey::from_str(TEST_KEY).unwrap();
-        receipt_pool.add_allocation(signer, Default::default());
-
-        let mut value = [0_u8; 16];
-        value[..8].copy_from_slice(&thread_rng().next_u64().to_be_bytes());
-        value[8..].copy_from_slice(&thread_rng().next_u64().to_be_bytes());
-        let value = u128::from_be_bytes(value);
-
-        let receipt = receipt_pool.commit(value.into()).unwrap();
-        assert_eq!(ScalarReceipt::Legacy(receipt).grt_value(), value);
     }
 }

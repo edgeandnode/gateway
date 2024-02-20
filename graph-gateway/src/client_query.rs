@@ -435,6 +435,7 @@ async fn handle_client_query_inner(
                     continue;
                 }
             };
+            debug_assert!(fee == receipt.grt_value());
 
             let blocks_behind = (candidate.seconds_behind as f64 / 60.0) * blocks_per_minute as f64;
             selections.push(Selection {
@@ -729,7 +730,7 @@ async fn handle_indexer_query(
         blocks_behind = selection.blocks_behind,
         fee_grt = (selection.receipt.grt_value() as f64 * 1e-18) as f32,
         allocation = ?selection.receipt.allocation(),
-        legacy_scalar = matches!(&selection.receipt, ScalarReceipt::Legacy(_)),
+        legacy_scalar = matches!(&selection.receipt, ScalarReceipt::Legacy(_, _)),
         subgraph_chain = %ctx.deployment.manifest.network,
         response_time_ms = latency_ms,
         status_message = match &result {
