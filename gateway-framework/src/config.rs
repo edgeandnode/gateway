@@ -1,18 +1,32 @@
+use std::fmt::Display;
 use std::{fmt, ops::Deref, str::FromStr};
 
 use alloy_primitives::B256;
+use custom_debug::CustomDebug;
 use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_with::{serde_as, DeserializeAs, DisplayFromStr};
-use toolshed::url::Url;
+use url::Url;
 
+// TODO: Move this to the graph-gateway::config module
 #[serde_as]
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, CustomDebug, Deserialize)]
 pub struct Chain {
     /// The first name is used in logs, the others are aliases also supported in subgraph manifests.
     pub names: Vec<String>,
     #[serde_as(as = "DisplayFromStr")]
+    #[debug(with = "Display::fmt")]
     pub rpc: Url,
+}
+
+// TODO: Move this to the graph-gateway::config module
+impl From<Chain> for crate::chains::ethereum::Config {
+    fn from(value: Chain) -> Self {
+        Self {
+            names: value.names,
+            url: value.rpc,
+        }
+    }
 }
 
 #[derive(Deserialize)]

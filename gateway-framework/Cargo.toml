@@ -12,8 +12,9 @@ alloy-primitives.workspace = true
 alloy-sol-types = "0.6.3"
 anyhow.workspace = true
 axum.workspace = true
-ethers = "2.0.13"
 candidate-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection.git", rev = "c0b5efa" }
+custom_debug = "0.6.1"
+ethers = "2.0.13"
 eventuals = "0.6.7"
 gateway-common = { path = "../gateway-common" }
 graphql-http.workspace = true
@@ -32,7 +33,7 @@ receipts.workspace = true
 reqwest.workspace = true
 secp256k1.workspace = true
 serde.workspace = true
-serde_json = "1.0.113"
+serde_json = { version = "1.0.113", features = ["raw_value"] }
 serde_with = "3.6.1"
 siphasher.workspace = true
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol.git", rev = "aa973d1" }
@@ -43,6 +44,8 @@ tonic = { version = "0.11.0", features = ["tls", "tls-roots"] }
 toolshed.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+url = "2.5.0"
+uuid = { version = "1.7.0", features = ["v7"] }
 
 [dev-dependencies]
 assert_matches = "1.5.0"

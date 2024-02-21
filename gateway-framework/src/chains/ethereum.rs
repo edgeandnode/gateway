@@ -1,26 +1,49 @@
+//! Ethereum RPC block resolution client.
+
+use std::fmt::Display;
 use std::time::Duration;
 
-use alloy_primitives::BlockHash;
-use serde::{de::Error, Deserialize, Deserializer};
-use serde_json::{json, Value as JSON};
+use custom_debug::CustomDebug;
 use thegraph::types::BlockPointer;
 use tokio::sync::mpsc;
 use tokio::time::interval;
-use toolshed::url::Url;
 use tracing::Instrument;
+use url::Url;
 
-use crate::{config, metrics::METRICS};
+use crate::metrics::METRICS;
 
 use super::{BlockHead, ClientMsg, UnresolvedBlock};
 
+use self::rpc_client::{Block, BlockByNumberParam, EthRpcClient};
+
+mod json_rpc;
+pub mod rpc_client;
+
+/// The Ethereum block resolution client configuration.
+#[derive(Clone, CustomDebug)]
+pub struct Config {
+    /// Chain names.
+    ///
+    /// The first name is used in logs, the others are aliases also supported in subgraph manifests.
+    pub names: Vec<String>,
+
+    /// The RPC URL for the chain.
+    #[debug(with = "Display::fmt")]
+    pub url: Url,
+}
+
+/// Ethereum block resolution client
 pub struct Client {
-    chain: config::Chain,
-    http_client: reqwest::Client,
+    /// Chain configuration
+    chain: Config,
+    /// Ethereum RPC client
+    rpc_client: EthRpcClient,
+    /// Channel to send resolved blocks to upstream
     notify: mpsc::UnboundedSender<ClientMsg>,
 }
 
 impl super::Client for Client {
-    type Config = config::Chain;
+    type Config = Config;
 
     fn chain_name(config: &Self::Config) -> &str {
         &config.names[0]
@@ -30,27 +53,33 @@ impl super::Client for Client {
         Duration::from_secs(2)
     }
 
+    /// Create a new Ethereum block resolution client and
     fn create(
-        chain: config::Chain,
+        conf: Self::Config,
         notify: mpsc::UnboundedSender<ClientMsg>,
     ) -> mpsc::UnboundedSender<UnresolvedBlock> {
-        let _trace = tracing::info_span!("ethereum_client", chain = %chain.names[0]).entered();
+        let _span = tracing::info_span!("ethereum_client", chain = %conf.names[0]).entered();
+
         let (unresolved_tx, mut unresolved_rx) = mpsc::unbounded_channel();
-        let mut client = Self {
-            chain,
-            http_client: reqwest::Client::new(),
-            notify,
-        };
+
+        let rpc_client = EthRpcClient::new(reqwest::Client::new(), conf.url.clone());
         tokio::spawn(
             async move {
+                let mut client = Self {
+                    chain: conf,
+                    rpc_client,
+                    notify,
+                };
+
                 let mut poll_timer = interval(Self::poll_interval());
                 loop {
+                    // Periodically fetch the latest block, and also fetch any unresolved blocks
                     tokio::select! {
                         _ = poll_timer.tick() => {
-                            client.spawn_block_fetch(None).await;
+                            client.spawn_fetch_block(None);
                         },
                         Some(unresolved) = unresolved_rx.recv() => {
-                            client.spawn_block_fetch(Some(unresolved)).await;
+                            client.spawn_fetch_block(Some(unresolved));
                         },
                         else => break,
                     }
@@ -59,96 +88,84 @@ impl super::Client for Client {
             }
             .in_current_span(),
         );
+
         unresolved_tx
     }
 }
 
 impl Client {
-    async fn spawn_block_fetch(&mut self, unresolved: Option<UnresolvedBlock>) {
-        let client = self.http_client.clone();
+    /// Spawn a task to fetch a block (or the current head) and send the result
+    /// to the notify channel
+    fn spawn_fetch_block(&mut self, unresolved: Option<UnresolvedBlock>) {
+        let client = self.rpc_client.clone();
         let chain = self.chain.names[0].clone();
-        let rpc = self.chain.rpc.clone();
         let notify = self.notify.clone();
+
         tokio::spawn(async move {
             let timer = METRICS.block_resolution.start_timer(&[&chain]);
-            let result = Self::fetch_block(client, rpc, unresolved.clone()).await;
+            let result = Self::fetch_block(client, &unresolved).await;
             drop(timer);
+
             METRICS.block_resolution.check(&[&chain], &result);
+
             let response = match result {
                 Ok(head) => match &unresolved {
                     Some(_) => ClientMsg::Block(head.block),
                     None => ClientMsg::Head(head),
                 },
                 Err(fetch_block_err) => {
-                    tracing::warn!(chain, ?unresolved, %fetch_block_err);
+                    tracing::error!(%fetch_block_err);
                     match unresolved {
                         Some(unresolved) => ClientMsg::Err(unresolved),
                         None => return,
                     }
                 }
             };
+
             let _ = notify.send(response);
         });
     }
 
+    /// Fetch a block (or the current head) using the Ethereum RPC client
     async fn fetch_block(
-        client: reqwest::Client,
-        rpc: Url,
-        unresolved: Option<UnresolvedBlock>,
+        client: EthRpcClient,
+        unresolved: &Option<UnresolvedBlock>,
     ) -> anyhow::Result<BlockHead> {
-        let (method, param): (&str, JSON) = match &unresolved {
+        let res: Option<Block> = match &unresolved {
             Some(UnresolvedBlock::WithHash(hash)) => {
-                ("eth_getBlockByHash", hash.to_string().into())
+                // Resolve the block by hash
+                client.get_block_by_hash(*hash).await?
             }
             Some(UnresolvedBlock::WithNumber(number)) => {
-                ("eth_getBlockByNumber", format!("0x{number:x}").into())
+                // Resolve the block by number
+                client
+                    .get_block_by_number(BlockByNumberParam::Number(*number))
+                    .await?
             }
-            None => ("eth_getBlockByNumber", "latest".into()),
+            None => {
+                // Resolve the latest block
+                client
+                    .get_block_by_number(BlockByNumberParam::Latest)
+                    .await?
+            }
         };
-        tracing::trace!(%method, %param);
-        let body = json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": method,
-            "params": &[param, false.into()],
-        });
-        client
-            .post(rpc.0)
-            .json(&body)
-            .send()
-            .await
-            .and_then(|response| response.error_for_status())?
-            .json::<APIResult<APIBlockHead>>()
-            .await
-            .map(|APIResult { result }| BlockHead {
-                block: BlockPointer {
-                    hash: result.hash,
-                    number: result.number,
-                },
-                uncles: result.uncles,
-            })
-            .map_err(Into::into)
+
+        // Check if the block was found and if it was not a pending block
+        match res {
+            None => Err(anyhow::anyhow!("block not found")),
+            Some(bl) => {
+                // If the block hash or the block number is missing, then it is a pending block
+                let block_hash = bl.hash.ok_or_else(|| anyhow::anyhow!("pending block"))?;
+                let block_number = bl.number.ok_or_else(|| anyhow::anyhow!("pending block"))?;
+
+                Ok(BlockHead {
+                    block: BlockPointer {
+                        hash: block_hash,
+                        number: block_number,
+                    },
+                    uncles: bl.uncles,
+                })
+            }
+        }
     }
-}
-
-#[derive(Debug, Deserialize)]
-struct APIResult<T> {
-    result: T,
-}
-
-#[derive(Debug, Deserialize)]
-struct APIBlockHead {
-    hash: BlockHash,
-    #[serde(deserialize_with = "deserialize_u64")]
-    number: u64,
-    #[serde(default)]
-    uncles: Vec<BlockHash>,
-}
-
-fn deserialize_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let input = String::deserialize(deserializer)?;
-    u64::from_str_radix(input.split_at(2).1, 16).map_err(D::Error::custom)
 }
