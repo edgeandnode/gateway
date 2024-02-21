@@ -86,9 +86,7 @@ struct Request {
 }
 
 impl BlockCache {
-    pub fn new<C: Client>(config: impl Into<C::Config>) -> Self {
-        let config = config.into();
-
+    pub fn new<C: Client>(config: C::Config) -> Self {
         let (chain_head_tx, chain_head_rx) = Eventual::new();
         let (notify_tx, notify_rx) = mpsc::unbounded_channel();
         let (request_tx, request_rx) = mpsc::unbounded_channel();

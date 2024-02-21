@@ -18,8 +18,6 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
-use gateway_framework::budgets::USD;
-use graph_gateway::indexing_performance::IndexingPerformance;
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
@@ -35,6 +33,8 @@ use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
 use gateway_common::types::Indexing;
+use gateway_framework::budgets::USD;
+use gateway_framework::chains::blockmeta;
 use gateway_framework::geoip::GeoIP;
 use gateway_framework::scalar::ReceiptSigner;
 use gateway_framework::{
@@ -51,9 +51,11 @@ use graph_gateway::client_query::query_id::SetQueryIdLayer;
 use graph_gateway::client_query::query_tracing::QueryTracingLayer;
 use graph_gateway::client_query::rate_limiter::AddRateLimiterLayer;
 use graph_gateway::client_query::require_auth::RequireAuthorizationLayer;
+use graph_gateway::config::chains::RpcConfig;
 use graph_gateway::config::{Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
+use graph_gateway::indexing_performance::IndexingPerformance;
 use graph_gateway::indexings_blocklist::indexings_blocklist;
 use graph_gateway::reports::{self, KafkaClient};
 use graph_gateway::topology::{Deployment, GraphNetwork};
@@ -109,8 +111,10 @@ async fn main() {
         .chains
         .into_iter()
         .flat_map(|chain| {
-            let cache: &'static BlockCache =
-                Box::leak(Box::new(BlockCache::new::<ethereum::Client>(chain.clone())));
+            // Build a block cache for each chain
+            let cache = new_block_cache(chain.names.clone(), chain.rpc.clone());
+            let cache: &'static BlockCache = Box::leak(Box::new(cache));
+
             chain.names.into_iter().map(move |alias| (alias, cache))
         })
         .collect();
@@ -445,6 +449,23 @@ async fn update_allocations(
         allocations.insert(indexing, indexer.largest_allocation);
     }
     receipt_signer.update_allocations(allocations).await;
+}
+
+/// Returns a new block cache client based on the given configuration.
+fn new_block_cache(names: Vec<String>, config: RpcConfig) -> BlockCache {
+    match config {
+        RpcConfig::Ethereum { rpc_url } => BlockCache::new::<ethereum::Client>(ethereum::Config {
+            names,
+            url: rpc_url,
+        }),
+        RpcConfig::Blockmeta { rpc_url, rpc_auth } => {
+            BlockCache::new::<blockmeta::Client>(blockmeta::Config {
+                names,
+                uri: rpc_url.as_str().parse().expect("invalid URI"),
+                auth: rpc_auth,
+            })
+        }
+    }
 }
 
 async fn handle_metrics() -> impl axum::response::IntoResponse {
