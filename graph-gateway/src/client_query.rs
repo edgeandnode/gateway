@@ -87,8 +87,10 @@ pub struct Selection {
 
 #[derive(Debug)]
 struct BlockRequirements {
-    /// required block range
+    /// required block range, for exact block constraints (`number` & `hash`)
     range: Option<(BlockNumber, BlockNumber)>,
+    /// maximum `number_gte` constraint
+    number_gte: Option<BlockNumber>,
     /// does the query benefit from using the latest block (contains NumberGTE or Unconstrained)
     latest: bool,
 }
@@ -591,21 +593,32 @@ async fn resolve_block_requirements(
         .collect::<Result<BTreeSet<BlockPointer>, UnresolvedBlock>>()
         .map_err(Error::BlockNotFound)?,
     );
-    let min_block = resolved_blocks.iter().map(|b| b.number).min();
-    let max_block = resolved_blocks.iter().map(|b| b.number).max();
+    let number_gte = constraints
+        .iter()
+        .filter_map(|c| match c {
+            BlockConstraint::NumberGTE(n) => Some(*n),
+            _ => None,
+        })
+        .max();
+    let exact_constraints: Vec<u64> = constraints
+        .iter()
+        .filter_map(|c| match c {
+            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => None,
+            BlockConstraint::Number(number) => Some(*number),
+            BlockConstraint::Hash(hash) => resolved_blocks
+                .iter()
+                .find(|b| hash == &b.hash)
+                .map(|b| b.number),
+        })
+        .collect();
+    let min_block = exact_constraints.iter().min().cloned();
+    let max_block = exact_constraints.iter().max().cloned();
 
     // Reject queries for blocks before the minimum start block in the manifest, but only if the
     // constraint is for an exact block. For example, we always want to allow `block_gte: 0`.
-    let request_contains_invalid_blocks = resolved_blocks
+    let request_contains_invalid_blocks = exact_constraints
         .iter()
-        .filter(|b| {
-            constraints.iter().any(|c| match c {
-                BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => false,
-                BlockConstraint::Hash(hash) => hash == &b.hash,
-                BlockConstraint::Number(number) => number == &b.number,
-            })
-        })
-        .any(|b| b.number < manifest_min_block);
+        .any(|number| *number < manifest_min_block);
     if request_contains_invalid_blocks {
         return Err(Error::BadQuery(anyhow!(
             "requested block {}, before minimum `startBlock` of manifest {}",
@@ -616,6 +629,7 @@ async fn resolve_block_requirements(
 
     Ok(BlockRequirements {
         range: min_block.map(|min| (min, max_block.unwrap())),
+        number_gte,
         latest: constraints.iter().any(|c| match c {
             BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
             BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
@@ -661,7 +675,8 @@ fn prepare_candidate(
         // indexers have responded with already. All else being equal, indexers closer to chain head
         // and with higher success rate will be favored.
         let range = status.min_block.unwrap_or(0)..=(status.block + blocks_per_minute);
-        if !range.contains(min) || !range.contains(max) {
+        let number_gte = block_requirements.number_gte.unwrap_or(0);
+        if !range.contains(min) || !range.contains(max) || (*range.end() < number_gte) {
             return Err(IndexerError::Unavailable(UnavailableReason::MissingBlock));
         }
     }
