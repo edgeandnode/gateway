@@ -1,170 +1,166 @@
-//! StreamingFast Blockmeta gRPC client.
+//! StreamingFast Blockmeta client.
 
 use std::time::Duration;
 
-use alloy_primitives::bytes::Bytes;
-use thegraph::types::{BlockHash, BlockNumber};
-use tonic::codegen::{Body, InterceptedService, StdError};
-use tonic::transport::{Channel, Uri};
+use custom_debug::CustomDebug;
+use thegraph::types::{BlockHash, BlockNumber, BlockPointer};
+use tokio::sync::mpsc;
+use tokio::time::interval;
+use tonic::transport::Uri;
+use tracing::Instrument;
 
-pub use self::auth::AuthInterceptor;
-use self::gen::block_client::BlockClient;
-pub use self::gen::BlockResp as Block;
-use self::gen::Empty;
-use self::gen::IdToNumReq;
-use self::gen::NumToIdReq;
+use crate::chains::{BlockHead, ClientMsg, UnresolvedBlock};
+use crate::metrics::METRICS;
 
-/// These files are **generated** by the `build.rs` script when compiling the crate with the
-/// `proto-gen` feature enabled. The `build.rs` script uses the `tonic-build` crate to generate
-/// the files.
-///
-/// ```shell
-/// cargo build -p gateway-framework --features proto-gen
-/// ```
-mod gen {
-    include!("blockmeta/sf.blockmeta.v2.rs");
+use self::rpc_client::{AuthChannel, Block, BlockmetaClient};
+
+pub mod rpc_client;
+
+/// Streamingfast Blockmeta block resolution client configuration.
+#[derive(Clone, CustomDebug)]
+pub struct Config {
+    /// The first name is used in logs, the others are aliases also supported in subgraph manifests.
+    pub names: Vec<String>,
+    /// The URI of the blockmeta service.
+    pub uri: Uri,
+    /// The authentication token for the blockmeta service.
+    #[debug(skip)]
+    pub auth: String,
 }
 
-mod auth {
-    use tonic::{Request, Status};
+/// Streamingfast Blockmeta block resolution client
+pub struct Client {
+    /// Chain configuration
+    conf: Config,
+    /// RPC client
+    rpc_client: BlockmetaClient<AuthChannel>,
+    /// Channel to send resolved blocks to upstream
+    notify: mpsc::UnboundedSender<ClientMsg>,
+}
 
-    /// The `AuthInterceptor` is a gRPC interceptor that adds an `authorization` header to the request
-    /// metadata.
-    ///
-    /// This middleware inserts the `authorization` header into the request metadata. The header is
-    /// expected to be in the format `Bearer <token>`.
-    ///
-    /// It is used to authenticate requests to the StreamingFast Blockmeta service.
-    pub struct AuthInterceptor {
-        header_value: String,
+impl super::Client for Client {
+    type Config = Config;
+
+    fn chain_name(config: &Self::Config) -> &str {
+        &config.names[0]
     }
 
-    impl AuthInterceptor {
-        /// Create a new `AuthInterceptor` with the given authorization token.
-        pub(in crate::chains) fn with_token(token: &str) -> Self {
-            Self {
-                header_value: format!("bearer {}", token),
+    fn poll_interval() -> Duration {
+        Duration::from_secs(2)
+    }
+
+    /// Create a new Ethereum block resolution client and
+    fn create(
+        conf: Config,
+        notify: mpsc::UnboundedSender<ClientMsg>,
+    ) -> mpsc::UnboundedSender<UnresolvedBlock> {
+        let _ = tracing::info_span!("blockmeta_client", chain = %conf.names[0]).entered();
+
+        let (unresolved_tx, mut unresolved_rx) = mpsc::unbounded_channel();
+
+        let chain_uri = conf.uri.clone();
+        let rpc_client = BlockmetaClient::new_with_auth(chain_uri, &conf.auth);
+        tokio::spawn(
+            async move {
+                let mut client = Self {
+                    conf,
+                    rpc_client,
+                    notify,
+                };
+
+                let mut poll_timer = interval(Self::poll_interval());
+                loop {
+                    // Periodically fetch the latest block, and also fetch any unresolved blocks
+                    tokio::select! {
+                        _ = poll_timer.tick() => {
+                            client.spawn_fetch_block(None);
+                        },
+                        Some(unresolved) = unresolved_rx.recv() => {
+                            client.spawn_fetch_block(Some(unresolved));
+                        },
+                        else => break,
+                    }
+                }
+                tracing::error!("Blockmeta client exit");
             }
-        }
-    }
+            .in_current_span(),
+        );
 
-    impl tonic::service::Interceptor for AuthInterceptor {
-        fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
-            // The `authorization` header is expected to be in the format `Bearer <token>`
-            let auth = self.header_value.parse().map_err(|err| {
-                Status::new(
-                    tonic::Code::Unauthenticated,
-                    format!("invalid authorization token: {}", err),
-                )
-            })?;
-
-            // Insert the `authorization` header into the request metadata
-            request.metadata_mut().insert("authorization", auth);
-            Ok(request)
-        }
+        unresolved_tx
     }
 }
 
-/// StreamingFast Blockmeta gRPC client.
-///
-/// The [`BlockmetaClient`] is a gRPC client for the StreamingFast Blockmeta service. It provides
-/// methods to fetch blocks by hash, number, and the latest block.
-#[derive(Debug, Clone)]
-pub struct BlockmetaClient<T> {
-    rpc_client: BlockClient<T>,
-}
+impl Client {
+    /// Spawn a task to fetch a block (or the current head) and send the result
+    /// to the notify channel
+    fn spawn_fetch_block(&mut self, unresolved: Option<UnresolvedBlock>) {
+        let client = self.rpc_client.clone();
+        let chain = self.conf.names[0].clone();
+        let notify = self.notify.clone();
 
-impl BlockmetaClient<Channel> {
-    /// Create a new [`BlockmetaClient`] with the given gRPC endpoint.
-    ///
-    /// The service will connect once the first request is made. It will attempt to connect for
-    /// 5 seconds before timing out.
-    pub fn new(endpoint: Uri) -> Self {
-        let channel = Channel::builder(endpoint)
-            .tls_config(Default::default())
-            .expect("failed to configure TLS")
-            .connect_timeout(Duration::from_secs(5))
-            .connect_lazy();
-        Self {
-            rpc_client: BlockClient::new(channel),
-        }
-    }
-}
+        tokio::spawn(async move {
+            let timer = METRICS.block_resolution.start_timer(&[&chain]);
+            let result = Self::fetch_block(client, &unresolved).await;
+            drop(timer);
 
-impl BlockmetaClient<InterceptedService<Channel, AuthInterceptor>> {
-    /// Create a new [`BlockmetaClient`] with the given gRPC endpoint and authorization token.
-    ///
-    /// The cliient will connect to the given endpoint and authenticate requests with the given
-    /// authorization token inserted into the `authorization` header by the [`AuthInterceptor`].
-    ///
-    /// The service will connect once the first request is made. It will attempt to connect for
-    /// 5 seconds before timing out.
-    pub fn new_with_auth(endpoint: Uri, auth: impl AsRef<str>) -> Self {
-        let interceptor = AuthInterceptor::with_token(auth.as_ref());
-        let channel = Channel::builder(endpoint)
-            .tls_config(Default::default())
-            .expect("failed to configure TLS")
-            .connect_timeout(Duration::from_secs(5))
-            .connect_lazy();
+            METRICS.block_resolution.check(&[&chain], &result);
 
-        Self {
-            rpc_client: BlockClient::with_interceptor(channel, interceptor),
-        }
-    }
-}
+            let response = match result {
+                Ok(head) => match &unresolved {
+                    Some(_) => ClientMsg::Block(head.block),
+                    None => ClientMsg::Head(head),
+                },
+                Err(fetch_block_err) => {
+                    tracing::error!(%fetch_block_err);
+                    match unresolved {
+                        Some(unresolved) => ClientMsg::Err(unresolved),
+                        None => return,
+                    }
+                }
+            };
 
-impl<T> BlockmetaClient<T>
-where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<StdError>,
-    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-{
-    /// Fetch the latest block from the StreamingFast Blockmeta service.
-    ///
-    /// Returns `None` if the block does not exist.
-    pub async fn get_latest_block(&mut self) -> anyhow::Result<Option<Block>> {
-        let request = Empty {};
-
-        match self.rpc_client.head(request).await {
-            Ok(res) => Ok(Some(res.into_inner())),
-            Err(err) if err.code() == tonic::Code::NotFound => Ok(None),
-            Err(err) => Err(anyhow::anyhow!("request failed: {}", err.message())),
-        }
+            let _ = notify.send(response);
+        });
     }
 
-    /// Fetch the block with the given hash from the StreamingFast Blockmeta service.
-    ///
-    /// - `hash`: The block hash to fetch.
-    ///
-    /// Returns `None` if the block does not exist.
-    pub async fn get_block_by_hash(&mut self, hash: BlockHash) -> anyhow::Result<Option<Block>> {
-        let request = IdToNumReq {
-            block_id: format!("{:x}", hash), // Convert the block hash to the non-0x hex string
+    /// Fetch a block (or the current head) using the StreamingFast Blockmeta service.
+    async fn fetch_block(
+        mut client: BlockmetaClient<AuthChannel>,
+        unresolved: &Option<UnresolvedBlock>,
+    ) -> anyhow::Result<BlockHead> {
+        let res: Option<Block> = match &unresolved {
+            Some(UnresolvedBlock::WithHash(hash)) => {
+                // Resolve the block by hash
+                client.get_block_by_hash(*hash).await?
+            }
+            Some(UnresolvedBlock::WithNumber(number)) => {
+                // Resolve the block by number
+                client.get_block_by_number(*number).await?
+            }
+            None => {
+                // Resolve the latest block
+                client.get_latest_block().await?
+            }
         };
 
-        match self.rpc_client.id_to_num(request).await {
-            Ok(res) => Ok(Some(res.into_inner())),
-            Err(err) if err.code() == tonic::Code::NotFound => Ok(None),
-            Err(err) => Err(anyhow::anyhow!("request failed: {}", err.message())),
-        }
-    }
+        // Check if the block was found
+        match res {
+            None => Err(anyhow::anyhow!("block not found")),
+            Some(bl) => {
+                let block_hash = bl
+                    .id
+                    .parse::<BlockHash>()
+                    .map_err(|err| anyhow::anyhow!("invalid block hash format: {}", err))?;
+                let block_number = bl.num as BlockNumber;
 
-    /// Fetch the block with the given number from the StreamingFast Blockmeta service.
-    ///
-    /// - `number`: The block number to fetch.
-    ///
-    /// Returns `None` if the block does not exist.
-    pub async fn get_block_by_number(
-        &mut self,
-        number: BlockNumber,
-    ) -> anyhow::Result<Option<Block>> {
-        let request = NumToIdReq { block_num: number };
-
-        match self.rpc_client.num_to_id(request).await {
-            Ok(res) => Ok(Some(res.into_inner())),
-            Err(err) if err.code() == tonic::Code::NotFound => Ok(None),
-            Err(err) => Err(anyhow::anyhow!("request failed: {}", err.message())),
+                Ok(BlockHead {
+                    block: BlockPointer {
+                        hash: block_hash,
+                        number: block_number,
+                    },
+                    uncles: vec![],
+                })
+            }
         }
     }
 }

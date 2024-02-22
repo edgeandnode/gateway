@@ -17,6 +17,8 @@ pub struct Chain {
     #[serde_as(as = "DisplayFromStr")]
     #[debug(with = "Display::fmt")]
     pub rpc: Url,
+    #[debug(skip)]
+    pub rpc_auth: Option<String>,
 }
 
 // TODO: Move this to the graph-gateway::config module
@@ -25,6 +27,17 @@ impl From<Chain> for crate::chains::ethereum::Config {
         Self {
             names: value.names,
             url: value.rpc,
+        }
+    }
+}
+
+// TODO: Move this to the graph-gateway::config module
+impl From<Chain> for crate::chains::blockmeta::Config {
+    fn from(value: Chain) -> Self {
+        Self {
+            names: value.names,
+            uri: value.rpc.as_str().parse().expect("invalid uri"),
+            auth: value.rpc_auth.expect("missing rpc auth"),
         }
     }
 }
