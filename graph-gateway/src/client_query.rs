@@ -333,15 +333,6 @@ async fn handle_client_query_inner(
         .map(|(index, deployment)| (deployment.id, index.try_into().unwrap_or(u8::MAX)))
         .collect();
 
-    let mut resolved_blocks = Default::default();
-    let block_requirements = resolve_block_requirements(
-        block_cache,
-        &mut resolved_blocks,
-        &context,
-        manifest_min_block,
-    )
-    .await?;
-
     let chain_head = block_cache
         .chain_head
         .value_immediate()
@@ -349,6 +340,16 @@ async fn handle_client_query_inner(
         .number;
     let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
     tracing::debug!(chain_head, blocks_per_minute);
+
+    let mut resolved_blocks = Default::default();
+    let block_requirements = resolve_block_requirements(
+        block_cache,
+        &mut resolved_blocks,
+        &context,
+        manifest_min_block,
+        chain_head,
+    )
+    .await?;
 
     let indexing_statuses = ctx.indexing_statuses.value_immediate().unwrap();
     let mut candidates = Vec::new();
@@ -580,12 +581,31 @@ async fn resolve_block_requirements(
     resolved_blocks: &mut BTreeSet<BlockPointer>,
     context: &AgoraContext<'_, String>,
     manifest_min_block: BlockNumber,
+    chain_head: BlockNumber,
 ) -> Result<BlockRequirements, Error> {
     let constraints = block_constraints(context).unwrap_or_default();
+
+    let latest = constraints.iter().any(|c| match c {
+        BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
+        BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
+    });
+    let number_gte = constraints
+        .iter()
+        .filter_map(|c| match c {
+            BlockConstraint::NumberGTE(n) => Some(*n),
+            _ => None,
+        })
+        .max();
+
     resolved_blocks.append(
         &mut join_all(
             constraints
                 .iter()
+                .filter(|c| match c {
+                    BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => false,
+                    BlockConstraint::Number(number) => *number >= (chain_head.saturating_sub(500)),
+                    BlockConstraint::Hash(_) => true,
+                })
                 .filter_map(|constraint| constraint.clone().into_unresolved())
                 .map(|unresolved| block_cache.fetch_block(unresolved)),
         )
@@ -594,13 +614,6 @@ async fn resolve_block_requirements(
         .collect::<Result<BTreeSet<BlockPointer>, UnresolvedBlock>>()
         .map_err(Error::BlockNotFound)?,
     );
-    let number_gte = constraints
-        .iter()
-        .filter_map(|c| match c {
-            BlockConstraint::NumberGTE(n) => Some(*n),
-            _ => None,
-        })
-        .max();
     let exact_constraints: Vec<u64> = constraints
         .iter()
         .filter_map(|c| match c {
@@ -631,10 +644,7 @@ async fn resolve_block_requirements(
     Ok(BlockRequirements {
         range: min_block.map(|min| (min, max_block.unwrap())),
         number_gte,
-        latest: constraints.iter().any(|c| match c {
-            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
-            BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
-        }),
+        latest,
     })
 }
 

@@ -109,16 +109,9 @@ pub fn make_query_deterministic(
                             *arg = deterministic_block(&latest.hash);
                         }
                         BlockConstraint::Number(number) => {
-                            let block =
-                                resolved
-                                    .iter()
-                                    .find(|b| b.number == number)
-                                    .ok_or_else(|| {
-                                        Error::Internal(anyhow!(
-                                            "failed to resolve block: {number}"
-                                        ))
-                                    })?;
-                            *arg = deterministic_block(&block.hash);
+                            if let Some(block) = resolved.iter().find(|b| b.number == number) {
+                                *arg = deterministic_block(&block.hash);
+                            }
                         }
                     };
                 }
