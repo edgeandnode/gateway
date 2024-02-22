@@ -472,6 +472,7 @@ async fn handle_client_query_inner(
 
             let latest_query_block = pick_latest_query_block(
                 block_cache,
+                block_requirements.number_gte,
                 chain_head.saturating_sub(selection.blocks_behind),
                 blocks_per_minute,
             )
@@ -876,14 +877,16 @@ pub fn indexer_fee(
 /// resilient to RPC failures here by backing off on failed block resolution.
 async fn pick_latest_query_block(
     cache: &BlockCache,
+    min_block: Option<BlockNumber>,
     max_block: BlockNumber,
     blocks_per_minute: u64,
 ) -> Result<BlockPointer, UnresolvedBlock> {
-    for n in [
+    for mut n in [
         max_block,
         max_block.saturating_sub(1),
         max_block.saturating_sub(blocks_per_minute),
     ] {
+        n = n.max(min_block.unwrap_or(0));
         if let Ok(block) = cache.fetch_block(UnresolvedBlock::WithNumber(n)).await {
             return Ok(block);
         }
