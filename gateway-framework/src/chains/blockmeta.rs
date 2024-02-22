@@ -123,7 +123,7 @@ impl Client {
         });
     }
 
-    /// Fetch a block (or the current head) using the Ethereum RPC client
+    /// Fetch a block (or the current head) using the StreamingFast Blockmeta service.
     async fn fetch_block(
         mut client: BlockmetaClient<AuthChannel>,
         unresolved: &Option<UnresolvedBlock>,
