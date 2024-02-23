@@ -19,6 +19,95 @@ use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 use self::chains::Config as ChainConfig;
 
+#[serde_as]
+#[derive(CustomDebug, Deserialize)]
+pub struct Config {
+    /// The Gateway unique identifier. This ID is used to identify the Gateway in the network
+    /// and traceability purposes.
+    ///
+    /// If not provided a UUID is generated.
+    #[serde(default)]
+    pub gateway_id: Option<String>,
+    /// Respect the payment state of API keys (disable for testnets)
+    pub api_key_payment_required: bool,
+    pub attestations: AttestationConfig,
+    /// List of indexer addresses to block. This should only be used temprorarily, to compensate for
+    /// indexer-selection imperfections.
+    #[serde(default)]
+    pub bad_indexers: Vec<Address>,
+    /// Block cache chain configurations
+    pub chains: Vec<ChainConfig>,
+    /// Ethereum RPC provider, or fixed exchange rate for testing
+    pub exchange_rate_provider: ExchangeRateProvider,
+    /// GeoIP database path
+    pub geoip_database: Option<PathBuf>,
+    /// GeoIP blocked countries (ISO 3166-1 alpha-2 codes)
+    #[serde(default)]
+    pub geoip_blocked_countries: Vec<String>,
+    /// Graph network environment identifier, inserted into Kafka messages
+    pub graph_env_id: String,
+    /// Rounds of indexer selection and queries to attempt. Note that indexer queries have a 20s
+    /// timeout, so setting this to 5 for example would result in a 100s worst case response time
+    /// for a client query.
+    pub indexer_selection_retry_limit: usize,
+    /// IPFS endpoint with access to the subgraph files
+    #[debug(with = Display::fmt)]
+    #[serde_as(as = "DisplayFromStr")]
+    pub ipfs: Url,
+    /// IP rate limit in requests per second
+    pub ip_rate_limit: u16,
+    /// See https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
+    #[serde(default)]
+    pub kafka: KafkaConfig,
+    /// Format log output as JSON
+    pub log_json: bool,
+    /// L2 gateway to forward client queries to
+    #[debug(with = fmt_optional_url)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub l2_gateway: Option<Url>,
+    /// Minimum graph-node version that will receive queries
+    #[serde_as(as = "DisplayFromStr")]
+    pub min_graph_node_version: Version,
+    /// Minimum indexer-service version that will receive queries
+    #[serde_as(as = "DisplayFromStr")]
+    pub min_indexer_version: Version,
+    /// Network subgraph query path
+    #[debug(with = Display::fmt)]
+    #[serde_as(as = "DisplayFromStr")]
+    pub network_subgraph: Url,
+    /// POI blocklist
+    #[serde(default)]
+    pub poi_blocklist: Vec<ProofOfIndexingInfo>,
+    /// POI blocklist update interval in minutes (default: 20 minutes)
+    pub poi_blocklist_update_interval: Option<u64>,
+    /// public API port
+    pub port_api: u16,
+    /// private metrics port
+    pub port_metrics: u16,
+    /// Target for indexer fees paid per request
+    pub query_fees_target: f64,
+    /// Scalar TAP config (receipt signing)
+    pub scalar: Scalar,
+    /// API keys that won't be blocked for non-payment
+    #[serde(default)]
+    pub special_api_keys: Vec<String>,
+    /// Subgraph studio admin auth token
+    pub studio_auth: String,
+    /// Subgraph studio admin url
+    #[debug(with = fmt_optional_url)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub studio_url: Option<Url>,
+    /// Subscriptions configuration
+    pub subscriptions: Option<Subscriptions>,
+}
+
+fn fmt_optional_url(url: &Option<Url>, f: &mut fmt::Formatter) -> fmt::Result {
+    match url {
+        Some(url) => write!(f, "Some({})", url),
+        None => write!(f, "None"),
+    }
+}
+
 /// The block cache chain configuration.
 pub mod chains {
     use std::fmt::Display;
@@ -209,95 +298,6 @@ pub mod chains {
             assert!(debug_str.contains(expected_rpc_url));
             assert!(!debug_str.contains("auth_token"));
         }
-    }
-}
-
-#[serde_as]
-#[derive(CustomDebug, Deserialize)]
-pub struct Config {
-    /// The Gateway unique identifier. This ID is used to identify the Gateway in the network
-    /// and traceability purposes.
-    ///
-    /// If not provided a UUID is generated.
-    #[serde(default)]
-    pub gateway_id: Option<String>,
-    /// Respect the payment state of API keys (disable for testnets)
-    pub api_key_payment_required: bool,
-    pub attestations: AttestationConfig,
-    /// List of indexer addresses to block. This should only be used temprorarily, to compensate for
-    /// indexer-selection imperfections.
-    #[serde(default)]
-    pub bad_indexers: Vec<Address>,
-    /// Block cache chain configurations
-    pub chains: Vec<ChainConfig>,
-    /// Ethereum RPC provider, or fixed exchange rate for testing
-    pub exchange_rate_provider: ExchangeRateProvider,
-    /// GeoIP database path
-    pub geoip_database: Option<PathBuf>,
-    /// GeoIP blocked countries (ISO 3166-1 alpha-2 codes)
-    #[serde(default)]
-    pub geoip_blocked_countries: Vec<String>,
-    /// Graph network environment identifier, inserted into Kafka messages
-    pub graph_env_id: String,
-    /// Rounds of indexer selection and queries to attempt. Note that indexer queries have a 20s
-    /// timeout, so setting this to 5 for example would result in a 100s worst case response time
-    /// for a client query.
-    pub indexer_selection_retry_limit: usize,
-    /// IPFS endpoint with access to the subgraph files
-    #[debug(with = Display::fmt)]
-    #[serde_as(as = "DisplayFromStr")]
-    pub ipfs: Url,
-    /// IP rate limit in requests per second
-    pub ip_rate_limit: u16,
-    /// See https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
-    #[serde(default)]
-    pub kafka: KafkaConfig,
-    /// Format log output as JSON
-    pub log_json: bool,
-    /// L2 gateway to forward client queries to
-    #[debug(with = fmt_optional_url)]
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    pub l2_gateway: Option<Url>,
-    /// Minimum graph-node version that will receive queries
-    #[serde_as(as = "DisplayFromStr")]
-    pub min_graph_node_version: Version,
-    /// Minimum indexer-service version that will receive queries
-    #[serde_as(as = "DisplayFromStr")]
-    pub min_indexer_version: Version,
-    /// Network subgraph query path
-    #[debug(with = Display::fmt)]
-    #[serde_as(as = "DisplayFromStr")]
-    pub network_subgraph: Url,
-    /// POI blocklist
-    #[serde(default)]
-    pub poi_blocklist: Vec<ProofOfIndexingInfo>,
-    /// POI blocklist update interval in minutes (default: 20 minutes)
-    pub poi_blocklist_update_interval: Option<u64>,
-    /// public API port
-    pub port_api: u16,
-    /// private metrics port
-    pub port_metrics: u16,
-    /// Target for indexer fees paid per request
-    pub query_fees_target: f64,
-    /// Scalar TAP config (receipt signing)
-    pub scalar: Scalar,
-    /// API keys that won't be blocked for non-payment
-    #[serde(default)]
-    pub special_api_keys: Vec<String>,
-    /// Subgraph studio admin auth token
-    pub studio_auth: String,
-    /// Subgraph studio admin url
-    #[debug(with = fmt_optional_url)]
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    pub studio_url: Option<Url>,
-    /// Subscriptions configuration
-    pub subscriptions: Option<Subscriptions>,
-}
-
-fn fmt_optional_url(url: &Option<Url>, f: &mut fmt::Formatter) -> fmt::Result {
-    match url {
-        Some(url) => write!(f, "Some({})", url),
-        None => write!(f, "None"),
     }
 }
 
