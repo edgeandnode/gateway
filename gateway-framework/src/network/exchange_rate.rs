@@ -10,7 +10,7 @@ use ethers::{
 use eventuals::{Eventual, EventualExt, EventualWriter};
 use ordered_float::NotNan;
 use tokio::sync::Mutex;
-use toolshed::url::Url;
+use url::Url;
 
 abigen!(
     ChainlinkPriceFeed,

@@ -5,7 +5,7 @@ use alloy_sol_types::Eip712Domain;
 use eventuals::{Eventual, Ptr};
 use gateway_framework::scalar::ReceiptSigner;
 use ordered_float::NotNan;
-use toolshed::url::Url;
+use url::Url;
 
 use gateway_common::types::Indexing;
 use gateway_framework::budgets::Budgeter;

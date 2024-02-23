@@ -6,7 +6,7 @@ use ordered_float::NotNan;
 use serde::Deserialize;
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::{sync::Mutex, time::Duration};
-use toolshed::url::Url;
+use url::Url;
 
 #[derive(Clone, Debug, Default)]
 pub struct APIKey {
@@ -36,7 +36,7 @@ pub fn api_keys(
 ) -> Eventual<Ptr<HashMap<String, Arc<APIKey>>>> {
     let (writer, reader) = Eventual::new();
     if !url.path().ends_with('/') {
-        url.0.set_path(&format!("{}/", url.path()));
+        url.set_path(&format!("{}/", url.path()));
     }
     let client: &'static Mutex<Client> = Box::leak(Box::new(Mutex::new(Client {
         client,

@@ -9,7 +9,7 @@ use itertools::Itertools;
 use serde::Deserialize;
 use thegraph::types::{DeploymentId, SubgraphId};
 use tokio::sync::RwLock;
-use toolshed::url::Url;
+use url::Url;
 
 use gateway_common::types::Indexing;
 use gateway_framework::{ipfs, network::network_subgraph};
@@ -66,13 +66,13 @@ impl Indexer {
     pub fn cost_url(&self) -> Url {
         // Indexer URLs are validated when they are added to the network, so this should never fail.
         // 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
-        self.url.join("cost").unwrap().into()
+        self.url.join("cost").unwrap()
     }
 
     pub fn status_url(&self) -> Url {
         // Indexer URLs are validated when they are added to the network, so this should never fail.
         // 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
-        self.url.join("status").unwrap().into()
+        self.url.join("status").unwrap()
     }
 }
 

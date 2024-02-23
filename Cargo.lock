@@ -676,7 +676,7 @@ dependencies = [
 [[package]]
 name = "candidate-selection"
 version = "0.1.0"
-source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=0f711bc#0f711bc250bb484ae86c5673683520f6524fbd7f"
+source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=be28b44#be28b44d78381450307f650bd961de1c7111576e"
 dependencies = [
  "arrayvec 0.7.4",
  "ordered-float",
@@ -1928,7 +1928,7 @@ dependencies = [
  "ethers",
  "eventuals",
  "gateway-common",
- "graphql-http 0.2.1",
+ "graphql-http",
  "headers",
  "hex",
  "itertools 0.12.1",
@@ -2018,6 +2018,7 @@ dependencies = [
  "axum",
  "chrono",
  "cost-model",
+ "custom_debug",
  "dashmap",
  "eventuals",
  "faster-hex",
@@ -2025,7 +2026,7 @@ dependencies = [
  "gateway-common",
  "gateway-framework",
  "graphql 0.3.0",
- "graphql-http 0.2.1",
+ "graphql-http",
  "headers",
  "hickory-resolver",
  "hyper",
@@ -2058,6 +2059,7 @@ dependencies = [
  "tower-test",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid 1.7.0",
 ]
 
@@ -2079,19 +2081,6 @@ dependencies = [
  "firestorm",
  "graphql-parser",
  "serde",
-]
-
-[[package]]
-name = "graphql-http"
-version = "0.2.0"
-source = "git+https://github.com/edgeandnode/toolshed.git?tag=graphql-http-v0.2.0#94b7b1982bb1d95300975e40c25d3c7f78107ce2"
-dependencies = [
- "anyhow",
- "async-trait",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
 ]
 
 [[package]]
@@ -2523,12 +2512,13 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 [[package]]
 name = "indexer-selection"
 version = "0.1.0"
-source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=0f711bc#0f711bc250bb484ae86c5673683520f6524fbd7f"
+source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=be28b44#be28b44d78381450307f650bd961de1c7111576e"
 dependencies = [
- "candidate-selection 0.1.0 (git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=0f711bc)",
+ "candidate-selection 0.1.0 (git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=be28b44)",
+ "custom_debug",
  "rand",
  "thegraph",
- "toolshed",
+ "url",
 ]
 
 [[package]]
@@ -5015,8 +5005,8 @@ dependencies = [
 
 [[package]]
 name = "thegraph"
-version = "0.5.0"
-source = "git+https://github.com/edgeandnode/toolshed?tag=thegraph-v0.5.0#7ab59b4fe0b19cd520edf025b72ad323be8e0506"
+version = "0.6.0"
+source = "git+https://github.com/edgeandnode/toolshed?tag=thegraph-v0.6.0#095bdc3b73dcbc1555285a605638a0c3bbd40d5b"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
@@ -5026,7 +5016,7 @@ dependencies = [
  "bs58",
  "ethers",
  "ethers-core",
- "graphql-http 0.2.0",
+ "graphql-http",
  "indoc",
  "lazy_static",
  "reqwest",
@@ -5034,10 +5024,9 @@ dependencies = [
  "serde_cbor_2",
  "serde_json",
  "serde_with",
- "sha3",
  "thiserror",
- "toolshed",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -5362,11 +5351,10 @@ dependencies = [
 
 [[package]]
 name = "toolshed"
-version = "0.5.0"
-source = "git+https://github.com/edgeandnode/toolshed?tag=toolshed-v0.5.0#211f7d7c4ede10f35b6ebd123a4d3ec8342c9f5e"
+version = "0.6.0"
+source = "git+https://github.com/edgeandnode/toolshed?tag=toolshed-v0.6.0#c44cb91e8349c59bb7ff8d4eb086badc8c99491a"
 dependencies = [
  "tokio",
- "url",
 ]
 
 [[package]]

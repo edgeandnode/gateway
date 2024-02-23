@@ -1,18 +1,23 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    fmt::{self, Display},
+    path::PathBuf,
+};
 
 use alloy_primitives::{Address, U256};
+use custom_debug::CustomDebug;
 use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-use toolshed::url::Url;
+use url::Url;
 
 use gateway_framework::config::{Chain, Hidden, HiddenSecretKey};
 
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 #[serde_as]
-#[derive(Debug, Deserialize)]
+#[derive(CustomDebug, Deserialize)]
 pub struct Config {
     /// The Gateway unique identifier. This ID is used to identify the Gateway in the network
     /// and traceability purposes.
@@ -42,6 +47,7 @@ pub struct Config {
     /// for a client query.
     pub indexer_selection_retry_limit: usize,
     /// IPFS endpoint with access to the subgraph files
+    #[debug(with = Display::fmt)]
     #[serde_as(as = "DisplayFromStr")]
     pub ipfs: Url,
     /// IP rate limit in requests per second
@@ -52,6 +58,7 @@ pub struct Config {
     /// Format log output as JSON
     pub log_json: bool,
     /// L2 gateway to forward client queries to
+    #[debug(with = fmt_optional_url)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub l2_gateway: Option<Url>,
     /// Minimum graph-node version that will receive queries
@@ -61,6 +68,7 @@ pub struct Config {
     #[serde_as(as = "DisplayFromStr")]
     pub min_indexer_version: Version,
     /// Network subgraph query path
+    #[debug(with = Display::fmt)]
     #[serde_as(as = "DisplayFromStr")]
     pub network_subgraph: Url,
     /// POI blocklist
@@ -82,10 +90,18 @@ pub struct Config {
     /// Subgraph studio admin auth token
     pub studio_auth: String,
     /// Subgraph studio admin url
+    #[debug(with = fmt_optional_url)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub studio_url: Option<Url>,
     /// Subscriptions configuration
     pub subscriptions: Option<Subscriptions>,
+}
+
+fn fmt_optional_url(url: &Option<Url>, f: &mut fmt::Formatter) -> fmt::Result {
+    match url {
+        Some(url) => write!(f, "Some({})", url),
+        None => write!(f, "None"),
+    }
 }
 
 #[derive(Debug, Deserialize)]

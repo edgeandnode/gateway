@@ -7,7 +7,7 @@ use eventuals::{Eventual, EventualExt, Ptr};
 use itertools::Itertools as _;
 use thegraph::types::DeploymentId;
 use tokio::sync::Mutex;
-use toolshed::url::Url;
+use url::Url;
 
 use gateway_common::types::Indexing;
 

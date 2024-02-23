@@ -2,7 +2,7 @@ use alloy_primitives::bytes::Bytes;
 use anyhow::anyhow;
 use axum::http::{header, HeaderMap, Response, Uri};
 use thegraph::types::SubgraphId;
-use toolshed::url::Url;
+use url::Url;
 
 use gateway_framework::errors::Error;
 use gateway_framework::graphql;

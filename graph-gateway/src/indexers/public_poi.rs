@@ -8,7 +8,7 @@ use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use thegraph::types::DeploymentId;
-use toolshed::url::Url;
+use url::Url;
 
 pub type ProofOfIndexing = B256;
 
@@ -39,7 +39,7 @@ pub async fn query(
     status_url: Url,
     query: PublicProofOfIndexingQuery,
 ) -> anyhow::Result<PublicProofOfIndexingResponse> {
-    let res = client.post(status_url.0).send_graphql(query).await;
+    let res = client.post(status_url).send_graphql(query).await;
     match res {
         Ok(res) => Ok(res?),
         Err(e) => Err(anyhow::anyhow!(

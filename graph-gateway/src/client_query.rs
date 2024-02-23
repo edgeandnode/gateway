@@ -30,8 +30,8 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use thegraph::types::{attestation, BlockPointer, DeploymentId};
 use tokio::sync::mpsc;
-use toolshed::url::Url;
 use tracing::Instrument;
+use url::Url;
 
 use gateway_common::utils::http_ext::HttpBuilderExt;
 use gateway_common::{types::Indexing, utils::timestamp::unix_timestamp};

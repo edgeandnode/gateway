@@ -9,10 +9,8 @@ use hickory_resolver::TokioAsyncResolver as DNSResolver;
 use semver::Version;
 use thegraph::types::DeploymentId;
 use tokio::sync::Mutex;
-use toolshed::{
-    epoch_cache::EpochCache,
-    url::{url::Host, Url},
-};
+use toolshed::epoch_cache::EpochCache;
+use url::{Host, Url};
 
 use gateway_common::types::Indexing;
 use gateway_framework::geoip::GeoIP;

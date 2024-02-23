@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use tokio::sync::Semaphore;
-use toolshed::url::Url;
+use url::Url;
 
 pub struct Client {
     client: reqwest::Client,
