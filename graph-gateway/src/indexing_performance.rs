@@ -1,10 +1,9 @@
-use futures::channel::oneshot;
 use gateway_common::types::Indexing;
 use indexer_selection::Performance;
 use std::{collections::HashMap, ops::Deref, time::Duration};
 use tokio::{
     select,
-    sync::{mpsc, RwLock},
+    sync::{mpsc, oneshot, RwLock},
     time,
 };
 
