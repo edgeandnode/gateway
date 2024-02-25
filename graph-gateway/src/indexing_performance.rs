@@ -36,8 +36,8 @@ impl IndexingPerformance {
             // This is guaranteed to only move forward in time, and is almost guaranteed to acquire
             // the lock "immediately". These guarantees come from the invariant that there is a
             // single writer and it can only be in a few possible states.
-            for locked in &self.data.0 {
-                if let Ok(data) = locked.try_read() {
+            for unlocked in &self.data.0 {
+                if let Ok(data) = unlocked.try_read() {
                     return data;
                 }
             }
@@ -85,16 +85,16 @@ impl Actor {
     }
 
     async fn decay(&mut self) {
-        for locked in &self.data.0 {
-            for perf in locked.write().await.values_mut() {
+        for unlocked in &self.data.0 {
+            for perf in unlocked.write().await.values_mut() {
                 perf.decay();
             }
         }
     }
 
     async fn handle_msgs(&mut self, msgs: &mut Vec<Msg>) {
-        for locked in &self.data.0 {
-            let mut unlocked = locked.write().await;
+        for unlocked in &self.data.0 {
+            let mut locked = unlocked.write().await;
             for msg in msgs.iter() {
                 match msg {
                     Msg::Flush(_) => (),
@@ -103,7 +103,7 @@ impl Actor {
                         success,
                         latency_ms,
                     } => {
-                        unlocked
+                        locked
                             .entry(indexing)
                             .or_default()
                             .feedback(success, latency_ms);
@@ -113,7 +113,9 @@ impl Actor {
         }
         for msg in msgs.drain(..) {
             if let Msg::Flush(notify) = msg {
-                notify.send(()).unwrap();
+                if notify.send(()).is_err() {
+                    tracing::error!("flush notify failed");
+                };
             }
         }
         debug_assert!(msgs.is_empty());
