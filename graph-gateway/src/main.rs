@@ -272,10 +272,10 @@ async fn main() {
         block_caches,
     };
 
-    tracing::info!("Waiting for chain heads from block caches...");
     for (chain, block_cache) in block_caches {
-        let head = block_cache.chain_head.value().await.unwrap();
-        tracing::debug!(%chain, ?head);
+        if block_cache.chain_head.value_immediate().is_none() {
+            tracing::error!(%chain, "missing chain head");
+        }
     }
 
     // Host metrics on a separate server with a port that isn't open to public requests.
