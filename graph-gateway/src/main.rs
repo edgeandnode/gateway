@@ -18,6 +18,7 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
+use gateway_framework::geoip::GeoIp;
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
@@ -35,7 +36,6 @@ use uuid::Uuid;
 use gateway_common::types::Indexing;
 use gateway_framework::budgets::USD;
 use gateway_framework::chains::blockmeta;
-use gateway_framework::geoip::GeoIP;
 use gateway_framework::scalar::ReceiptSigner;
 use gateway_framework::{
     budgets::Budgeter,
@@ -100,7 +100,11 @@ async fn main() {
     let geoip = config
         .geoip_database
         .filter(|_| !config.geoip_blocked_countries.is_empty())
-        .map(|db| GeoIP::new(db, config.geoip_blocked_countries).unwrap());
+        .map(|db| {
+            GeoIp::new(db, config.geoip_blocked_countries)
+                .context("GeoIp")
+                .unwrap()
+        });
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -142,7 +146,7 @@ async fn main() {
         )));
 
     let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
-    let network = GraphNetwork::new(subgraphs, ipfs).await;
+    let network = GraphNetwork::new(subgraphs, ipfs, geoip).await;
 
     // Indexer blocklist
     // Periodically check the defective POIs list against the network indexers and update the
@@ -175,7 +179,6 @@ async fn main() {
         http_client.clone(),
         config.min_graph_node_version,
         config.min_indexer_version,
-        geoip,
     )
     .await;
 

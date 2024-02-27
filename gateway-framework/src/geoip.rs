@@ -1,4 +1,4 @@
-use maxminddb::{geoip2, MaxMindDBError, Reader};
+use maxminddb::{geoip2, Reader};
 use std::{
     collections::{BTreeSet, HashMap},
     net::IpAddr,
@@ -14,15 +14,11 @@ pub struct GeoIp {
 }
 
 impl GeoIp {
-    pub fn new(
-        db_file: impl AsRef<Path>,
-        blocked_countries: Vec<String>,
-    ) -> Result<Self, MaxMindDBError> {
+    pub fn new(db_file: impl AsRef<Path>, blocked_countries: Vec<String>) -> anyhow::Result<Self> {
         Ok(Self {
             reader: Reader::open_readfile(db_file)?,
             blocked_countries: blocked_countries.into_iter().collect(),
-            dns_resolver: hickory_resolver::TokioAsyncResolver::tokio_from_system_conf()
-                .expect("failed to init DNS resolver"),
+            dns_resolver: hickory_resolver::TokioAsyncResolver::tokio_from_system_conf()?,
             cache: Default::default(),
         })
     }
