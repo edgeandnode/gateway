@@ -20,7 +20,7 @@ use gateway_framework::chains::UnresolvedBlock;
 use gateway_framework::errors::UnavailableReason;
 use gateway_framework::scalar::ReceiptStatus;
 use headers::ContentType;
-use indexer_selection::{ArrayVec, Candidate, ExpectedPerformance, Normalized, Performance};
+use indexer_selection::{ArrayVec, Candidate, Normalized};
 use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
 use prost::bytes::Buf;
@@ -46,7 +46,7 @@ use gateway_framework::{
 use crate::block_constraints::{block_constraints, make_query_deterministic};
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::indexers::indexing;
-use crate::indexing_performance::IndexingPerformance;
+use crate::indexing_performance::{self, IndexingPerformance};
 use crate::reports::{self, serialize_attestation, KafkaClient};
 use crate::topology::{Deployment, GraphNetwork, Subgraph};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
@@ -400,13 +400,17 @@ async fn handle_client_query_inner(
             ctx.indexing_perf.flush().await;
 
             // Update candidate performance.
-            let perf = ctx.indexing_perf.latest();
+            let perf_snapshots = ctx.indexing_perf.latest();
             for candidate in &mut candidates {
-                if let Some(updated) = perf.get(&Indexing {
+                let indexing = Indexing {
                     indexer: candidate.indexer,
                     deployment: candidate.deployment,
+                };
+                if let Some(updated) = perf_snapshots.get(&indexing).and_then(|snapshot| {
+                    perf(snapshot, &block_requirements, chain_head, blocks_per_minute)
                 }) {
-                    candidate.perf = updated.expected_performance();
+                    candidate.perf = updated.response;
+                    candidate.seconds_behind = updated.seconds_behind;
                 }
             }
         }
@@ -652,7 +656,7 @@ async fn resolve_block_requirements(
 fn prepare_candidate(
     network: &GraphNetwork,
     statuses: &HashMap<Indexing, indexing::Status>,
-    perf: &HashMap<Indexing, Performance>,
+    perf_snapshots: &HashMap<Indexing, indexing_performance::Snapshot>,
     versions_behind: &BTreeMap<DeploymentId, u8>,
     context: &mut AgoraContext<String>,
     block_requirements: &BlockRequirements,
@@ -668,14 +672,10 @@ fn prepare_candidate(
     let status = statuses
         .get(&indexing)
         .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
-    let perf = perf
+    let perf = perf_snapshots
         .get(&indexing)
-        .map(|p| p.expected_performance())
-        .unwrap_or(ExpectedPerformance {
-            success_rate: Normalized::ONE,
-            latency_success_ms: 0,
-            latency_failure_ms: 0,
-        });
+        .and_then(|snapshot| perf(snapshot, block_requirements, chain_head, blocks_per_minute))
+        .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
 
     let fee = Normalized::new(indexer_fee(&status.cost_model, context)? as f64 / budget as f64)
         .unwrap_or(Normalized::ONE);
@@ -685,19 +685,12 @@ fn prepare_candidate(
         // range. This is to compensate for the gateway's lack of knowledge about which blocks
         // indexers have responded with already. All else being equal, indexers closer to chain head
         // and with higher success rate will be favored.
-        let range = status.min_block.unwrap_or(0)..=(status.block + blocks_per_minute);
+        let range = status.min_block.unwrap_or(0)..=(perf.latest_block + blocks_per_minute);
         let number_gte = block_requirements.number_gte.unwrap_or(0);
         if !range.contains(min) || !range.contains(max) || (*range.end() < number_gte) {
             return Err(IndexerError::Unavailable(UnavailableReason::MissingBlock));
         }
     }
-
-    let seconds_behind = if !block_requirements.latest || (blocks_per_minute == 0) {
-        0
-    } else {
-        ((chain_head.saturating_sub(status.block) as f64 / blocks_per_minute as f64) * 60.0).ceil()
-            as u32
-    };
 
     let slashable_usd = ((info.staked_tokens as f64 * 1e-18) / *grt_per_usd) as u64;
     if slashable_usd == 0 {
@@ -708,12 +701,38 @@ fn prepare_candidate(
         indexer: indexing.indexer,
         deployment: indexing.deployment,
         url: info.url.clone(),
-        perf,
+        perf: perf.response,
         fee,
-        seconds_behind,
+        seconds_behind: perf.seconds_behind,
         slashable_usd,
         subgraph_versions_behind: *versions_behind.get(&indexing.deployment).unwrap_or(&0),
         zero_allocation: info.allocated_tokens == 0,
+    })
+}
+
+struct Perf {
+    response: indexer_selection::ExpectedPerformance,
+    latest_block: BlockNumber,
+    seconds_behind: u32,
+}
+
+fn perf(
+    snapshot: &indexing_performance::Snapshot,
+    block_requirements: &BlockRequirements,
+    chain_head: BlockNumber,
+    blocks_per_minute: u64,
+) -> Option<Perf> {
+    let latest_block = snapshot.latest_block?;
+    let seconds_behind = if !block_requirements.latest || (blocks_per_minute == 0) {
+        0
+    } else {
+        ((chain_head.saturating_sub(latest_block) as f64 / blocks_per_minute as f64) * 60.0).ceil()
+            as u32
+    };
+    Some(Perf {
+        response: snapshot.response.expected_performance(),
+        latest_block,
+        seconds_behind,
     })
 }
 
@@ -767,7 +786,7 @@ async fn handle_indexer_query(
     );
 
     ctx.indexing_perf
-        .feedback(indexing, result.is_ok(), latency_ms);
+        .feedback(indexing, result.is_ok(), latency_ms, None /* TODO */);
 
     result
 }
