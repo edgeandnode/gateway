@@ -41,9 +41,14 @@ pub const MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS: [&str; 4] = [
 ];
 
 pub fn miscategorized_unattestable(error: &str) -> bool {
-    let unattestable = UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS
+    let mut unattestable = UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS
         .iter()
         .any(|err| error.contains(err));
+
+    let and_or_filter_err = error.contains("Invalid value provided for argument `where`:")
+        && (error.contains("{\"or\":") || error.contains("{\"and\":"));
+    unattestable |= and_or_filter_err;
+
     unattestable && !miscategorized_attestable(error)
 }
 
@@ -51,4 +56,15 @@ pub fn miscategorized_attestable(error: &str) -> bool {
     MISCATEGORIZED_ATTESTABLE_ERROR_MESSAGE_FRAGMENTS
         .iter()
         .any(|err| error.contains(err))
+}
+
+#[cfg(test)]
+mod test {
+    use super::miscategorized_unattestable;
+
+    #[test]
+    fn unsupported_or_filter() {
+        let error = "Invalid value provided for argument `where`: Object({\"or\": List([Object({\"state\": Enum(\"Active\"), \"utilization_gte\": String(\"10000000000\")}), Object({\"state\": Enum(\"Created\")}), Object({\"createdAt_gt\": Int(Number(1708867002))})])})";
+        assert!(miscategorized_unattestable(error));
+    }
 }
