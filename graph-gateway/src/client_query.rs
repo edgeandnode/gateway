@@ -43,7 +43,7 @@ use gateway_framework::{
     scalar::ScalarReceipt,
 };
 
-use crate::block_constraints::{block_constraints, make_query_deterministic};
+use crate::block_constraints::{block_constraints, rewrite_query};
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::indexers::indexing;
 use crate::indexing_performance::{self, IndexingPerformance};
@@ -499,8 +499,8 @@ async fn handle_client_query_inner(
             // 5. The same context is re-used, including the block requirement set to the hash of
             //    block `n`
             // 6. The indexer is seen as being behind and is unnecessarily penalized
-            let deterministic_query =
-                make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)?;
+            let indexer_request =
+                rewrite_query(context.clone(), &resolved_blocks, &latest_query_block)?;
 
             total_indexer_fees_grt += selection.receipt.grt_value();
 
@@ -517,12 +517,9 @@ async fn handle_client_query_inner(
             let receipt_signer = ctx.receipt_signer;
             tokio::spawn(
                 async move {
-                    let response = handle_indexer_query(
-                        indexer_query_context,
-                        &selection,
-                        deterministic_query,
-                    )
-                    .await;
+                    let response =
+                        handle_indexer_query(indexer_query_context, &selection, indexer_request)
+                            .await;
                     let receipt_status = match &response {
                         Ok(_) => ReceiptStatus::Success,
                         Err(IndexerError::Timeout) => ReceiptStatus::Unknown,
@@ -737,12 +734,12 @@ struct IndexerQueryContext {
 async fn handle_indexer_query(
     mut ctx: IndexerQueryContext,
     selection: &Selection,
-    deterministic_query: String,
+    indexer_request: String,
 ) -> Result<ResponsePayload, IndexerError> {
     let indexing = selection.indexing;
     let deployment = indexing.deployment.to_string();
 
-    let result = handle_indexer_query_inner(&mut ctx, selection, deterministic_query).await;
+    let result = handle_indexer_query_inner(&mut ctx, selection, indexer_request).await;
     METRICS.indexer_query.check(&[&deployment], &result);
 
     let latest_block = result.as_ref().err().and_then(|err| err.latest_block);
@@ -789,12 +786,12 @@ impl From<IndexerError> for ExtendedIndexerError {
 async fn handle_indexer_query_inner(
     ctx: &mut IndexerQueryContext,
     selection: &Selection,
-    deterministic_query: String,
+    indexer_request: String,
 ) -> Result<ResponsePayload, ExtendedIndexerError> {
     let start_time = Instant::now();
     let result = ctx
         .indexer_client
-        .query_indexer(selection, deterministic_query.clone())
+        .query_indexer(selection, indexer_request.clone())
         .await;
     ctx.response_time = Instant::now() - start_time;
 
@@ -868,13 +865,13 @@ async fn handle_indexer_query_inner(
             ctx.attestation_domain,
             attestation,
             &allocation,
-            &deterministic_query,
+            &indexer_request,
             &response.payload.body,
         );
         // We send the Kafka message directly to avoid passing the request & response payloads
         // through the normal reporting path. This is to reduce log bloat.
         let response = response.payload.body.to_string();
-        let payload = serialize_attestation(attestation, allocation, deterministic_query, response);
+        let payload = serialize_attestation(attestation, allocation, indexer_request, response);
         ctx.kafka_client.send("gateway_attestations", &payload);
         if let Err(err) = verified {
             return Err(

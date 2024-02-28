@@ -61,7 +61,7 @@ pub fn block_constraints(context: &Context<String>) -> Result<BTreeSet<BlockCons
     Ok(constraints)
 }
 
-pub fn make_query_deterministic(
+pub fn rewrite_query(
     mut ctx: Context<String>,
     resolved: &BTreeSet<BlockPointer>,
     latest: &BlockPointer,
