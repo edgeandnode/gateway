@@ -41,21 +41,16 @@ impl GeoIp {
                 .into_iter()
                 .collect(),
         };
-        let mut blocked = false;
-        for addr in addrs {
-            let country = match self.reader.lookup::<geoip2::Country>(addr) {
-                Ok(country) => country,
-                Err(geoip_lookup_err) => return Err(geoip_lookup_err.to_string()),
-            };
-            blocked = country
-                .country
-                .and_then(|c| c.iso_code)
-                .map(|c| self.blocked_countries.contains(c))
-                .unwrap_or(false);
-            if blocked {
-                break;
-            }
-        }
+        let blocked = addrs
+            .into_iter()
+            .filter_map(|addr| {
+                self.reader
+                    .lookup::<geoip2::Country>(addr)
+                    .ok()?
+                    .country?
+                    .iso_code
+            })
+            .any(|country| self.blocked_countries.contains(country));
         let result = blocked.then_some(()).ok_or_else(|| "blocked".to_string());
         self.cache.insert(host_str.to_string(), result.clone());
         result
