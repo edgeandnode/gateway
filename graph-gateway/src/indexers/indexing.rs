@@ -1,24 +1,20 @@
-use std::{collections::HashMap, net::IpAddr, sync::Arc};
-
+use crate::indexers::{
+    cost_models::{self, CostModelQuery},
+    indexing_statuses, version,
+};
+use crate::topology::Deployment;
 use alloy_primitives::{Address, BlockNumber};
 use anyhow::{anyhow, ensure};
 use cost_model::CostModel;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
-use hickory_resolver::TokioAsyncResolver as DNSResolver;
+use gateway_common::types::Indexing;
 use semver::Version;
+use std::{collections::HashMap, sync::Arc};
 use thegraph::types::DeploymentId;
 use tokio::sync::Mutex;
 use toolshed::epoch_cache::EpochCache;
-use url::{Host, Url};
-
-use gateway_common::types::Indexing;
-use gateway_framework::geoip::GeoIP;
-
-use crate::indexers::cost_models::{self, CostModelQuery};
-use crate::indexers::indexing_statuses;
-use crate::indexers::version;
-use crate::topology::Deployment;
+use url::Url;
 
 #[derive(Clone)]
 pub struct Status {
@@ -33,15 +29,11 @@ pub async fn statuses(
     client: reqwest::Client,
     min_graph_node_version: Version,
     min_indexer_service_version: Version,
-    geoip: Option<GeoIP>,
 ) -> Eventual<Ptr<HashMap<Indexing, Status>>> {
     let (indexing_statuses_tx, indexing_statuses_rx) = Eventual::new();
     let actor: &'static Mutex<Actor> = Box::leak(Box::new(Mutex::new(Actor {
         min_graph_node_version,
         min_indexer_service_version,
-        geoip,
-        dns_resolver: DNSResolver::tokio_from_system_conf().unwrap(),
-        geoblocking_cache: Default::default(),
         cost_model_cache: EpochCache::new(),
         indexing_statuses: Default::default(),
         indexing_statuses_tx,
@@ -67,9 +59,6 @@ pub async fn statuses(
 struct Actor {
     min_graph_node_version: Version,
     min_indexer_service_version: Version,
-    geoip: Option<GeoIP>,
-    dns_resolver: DNSResolver,
-    geoblocking_cache: HashMap<String, Result<(), String>>,
     cost_model_cache: EpochCache<CostModelSource, Result<Ptr<CostModel>, String>, 2>,
     indexing_statuses: HashMap<Indexing, Status>,
     indexing_statuses_tx: EventualWriter<Ptr<HashMap<Indexing, Status>>>,
@@ -137,7 +126,7 @@ async fn update_indexer(
     let status_url = url.join("status")?;
     let graph_node_version = version::query_graph_node_version(client, status_url).await;
 
-    let mut locked_actor = actor.lock().await;
+    let locked_actor = actor.lock().await;
     ensure!(
         service_version >= locked_actor.min_indexer_service_version,
         "IndexerServiceVersionBelowMinimum({service_version})",
@@ -150,51 +139,11 @@ async fn update_indexer(
         graph_node_version >= locked_actor.min_graph_node_version,
         "GraphNodeVersionBelowMinimum({graph_node_version})",
     );
-    apply_geoblocking(&mut locked_actor, &url).await?;
     drop(locked_actor);
 
     query_status(actor, client, indexer, url, deployments, service_version)
         .await
         .map_err(|err| anyhow!("IndexerStatusError({err})"))
-}
-
-async fn apply_geoblocking(actor: &mut Actor, url: &Url) -> anyhow::Result<()> {
-    let geoip = match &actor.geoip {
-        Some(geoip) => geoip,
-        None => return Ok(()),
-    };
-    let key = url.to_string();
-    if let Some(result) = actor.geoblocking_cache.get(&key) {
-        return result.clone().map_err(|err| anyhow!(err));
-    }
-    async fn apply_geoblocking_inner(
-        dns_resolver: &DNSResolver,
-        geoip: &GeoIP,
-        url: &Url,
-    ) -> Result<(), String> {
-        let host = url
-            .host()
-            .ok_or_else(|| "host missing in URL".to_string())?;
-        let ips = match host {
-            Host::Ipv4(ip) => vec![IpAddr::V4(ip)],
-            Host::Ipv6(ip) => vec![IpAddr::V6(ip)],
-            Host::Domain(domain) => dns_resolver
-                .lookup_ip(domain)
-                .await
-                .map_err(|err| err.to_string())?
-                .into_iter()
-                .collect(),
-        };
-        for ip in ips {
-            if geoip.is_ip_blocked(ip) {
-                return Err(format!("Geoblocked({ip})"));
-            }
-        }
-        Ok(())
-    }
-    let result = apply_geoblocking_inner(&actor.dns_resolver, geoip, url).await;
-    actor.geoblocking_cache.insert(key, result.clone());
-    result.map_err(|err| anyhow!(err))
 }
 
 async fn query_status(

@@ -20,6 +20,7 @@ gateway-common = { path = "../gateway-common" }
 graphql-http.workspace = true
 headers = "0.3.9"
 hex.workspace = true
+hickory-resolver = "0.24.0"
 itertools = "0.12.1"
 lazy_static = "1.4.0"
 maxminddb = "0.24"
