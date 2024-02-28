@@ -12,7 +12,11 @@ use tokio::sync::RwLock;
 use toolshed::url::Url;
 
 use gateway_common::types::GRT;
-use gateway_framework::{ipfs, network::network_subgraph};
+use gateway_framework::{
+    datasets::{Dataset, Deployment, Manifest},
+    ipfs,
+    network::network_subgraph,
+};
 
 /// Representation of the graph network being used to serve queries
 #[derive(Clone)]
@@ -20,33 +24,6 @@ pub struct GraphNetwork {
     pub subgraphs: Eventual<Ptr<HashMap<SubgraphId, Subgraph>>>,
     pub deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
     pub indexers: Eventual<Ptr<HashMap<Address, Arc<Indexer>>>>,
-}
-
-/// In an effort to keep the ownership structure a simple tree, this only contains the info required
-/// to resolve queries by `SubgraphId` into the relevant deployments. Therefore, there is no need
-/// for a query by `DeploymentId` to interact with this.
-#[derive(Clone)]
-pub struct Subgraph {
-    /// Subgraph versions, in ascending order
-    pub deployments: Vec<Arc<Deployment>>,
-    pub id: SubgraphId,
-    /// Indicates that the subgraph has been transferred to L2, and should not be served directly by
-    /// this gateway.
-    pub l2_id: Option<SubgraphId>,
-}
-
-pub struct Deployment {
-    pub id: DeploymentId,
-    pub manifest: Arc<Manifest>,
-    pub expect_attestation: bool,
-    /// An indexer may have multiple active allocations on a deployment. We collapse them into a single logical
-    /// allocation using the largest allocation ID and sum of the allocated tokens.
-    pub indexers: Vec<Arc<Indexer>>,
-    /// A deployment may be associated with multiple subgraphs.
-    pub subgraphs: BTreeSet<SubgraphId>,
-    /// Indicates that the deployment should not be served directly by this gateway. This will
-    /// always be false when `allocations > 0`.
-    pub transferred_to_l2: bool,
 }
 
 pub struct Allocation {
