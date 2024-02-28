@@ -44,7 +44,7 @@ use gateway_framework::{
 };
 
 use crate::block_constraints::{block_constraints, make_query_deterministic};
-use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
+use crate::indexer_client::{check_block_error, BlockError, IndexerClient, ResponsePayload};
 use crate::indexers::indexing;
 use crate::indexing_performance::{self, IndexingPerformance};
 use crate::reports::{self, serialize_attestation, KafkaClient};
@@ -767,6 +767,11 @@ async fn handle_indexer_query(
     };
     METRICS.indexer_query.check(&[&deployment], &result);
 
+    let (result, block_error) = match result {
+        Ok(response) => (Ok(response), None),
+        Err((err, block_error)) => (Err(err), block_error),
+    };
+
     let latency_ms = ctx.response_time.as_millis() as u32;
     tracing::info!(
         target: reports::INDEXER_QUERY_TARGET,
@@ -785,8 +790,9 @@ async fn handle_indexer_query(
         status_code = reports::indexer_attempt_status_code(&result),
     );
 
+    let latest_block = block_error.and_then(|err| err.latest_block);
     ctx.indexing_perf
-        .feedback(indexing, result.is_ok(), latency_ms, None /* TODO */);
+        .feedback(indexing, result.is_ok(), latency_ms, latest_block);
 
     result
 }
@@ -795,7 +801,7 @@ async fn handle_indexer_query_inner(
     ctx: &mut IndexerQueryContext,
     selection: &Selection,
     deterministic_query: String,
-) -> Result<ResponsePayload, IndexerError> {
+) -> Result<ResponsePayload, (IndexerError, Option<BlockError>)> {
     let start_time = Instant::now();
     let result = ctx
         .indexer_client
@@ -808,7 +814,7 @@ async fn handle_indexer_query_inner(
         hist.observe(ctx.response_time.as_millis() as f64)
     });
 
-    let response = result?;
+    let response = result.map_err(|err| (err, None))?;
     if response.status != StatusCode::OK.as_u16() {
         tracing::warn!(indexer_response_status = %response.status);
     }
@@ -816,7 +822,7 @@ async fn handle_indexer_query_inner(
     let indexer_errors = serde_json::from_str::<
         graphql_http::http::response::ResponseBody<Box<RawValue>>,
     >(&response.payload.body)
-    .map_err(|err| IndexerError::BadResponse(err.to_string()))?
+    .map_err(|err| (IndexerError::BadResponse(err.to_string()), None))?
     .errors
     .into_iter()
     .map(|mut err| {
@@ -834,7 +840,7 @@ async fn handle_indexer_query_inner(
     indexer_errors
         .iter()
         .try_for_each(|err| check_block_error(err))
-        .map_err(|_| IndexerError::Unavailable(MissingBlock))?;
+        .map_err(|err| (IndexerError::Unavailable(MissingBlock), Some(err)))?;
 
     for error in &indexer_errors {
         if miscategorized_unattestable(error) {
@@ -843,7 +849,7 @@ async fn handle_indexer_query_inner(
             } else {
                 "unattestable response".to_string()
             };
-            return Err(IndexerError::BadResponse(message));
+            return Err((IndexerError::BadResponse(message), None));
         }
     }
 
@@ -861,7 +867,7 @@ async fn handle_indexer_query_inner(
         } else {
             "no attestation".to_string()
         };
-        return Err(IndexerError::BadResponse(message));
+        return Err((IndexerError::BadResponse(message), None));
     }
 
     if let Some(attestation) = &response.payload.attestation {
@@ -879,8 +885,9 @@ async fn handle_indexer_query_inner(
         let payload = serialize_attestation(attestation, allocation, deterministic_query, response);
         ctx.kafka_client.send("gateway_attestations", &payload);
         if let Err(err) = verified {
-            return Err(IndexerError::BadResponse(
-                anyhow!("bad attestation: {err}").to_string(),
+            return Err((
+                IndexerError::BadResponse(anyhow!("bad attestation: {err}").to_string()),
+                None,
             ));
         }
     }

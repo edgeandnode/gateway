@@ -1,9 +1,7 @@
-use std::collections::BTreeMap;
-
+use crate::{chains::UnresolvedBlock, graphql};
 use axum::response::{IntoResponse, Response};
 use itertools::Itertools;
-
-use crate::{chains::UnresolvedBlock, graphql};
+use std::collections::BTreeMap;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
