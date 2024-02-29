@@ -129,12 +129,13 @@ pub fn rewrite_query(
         mut operations,
         ..
     } = ctx;
-
-    match operations.first_mut() {
-        Some(OperationDefinition::Query(q)) => q.selection_set.items.push(probe()),
-        Some(OperationDefinition::SelectionSet(s)) => s.items.push(probe()),
-        _ => (),
-    };
+    for operation in &mut operations {
+        match operation {
+            OperationDefinition::Query(q) => q.selection_set.items.push(probe()),
+            OperationDefinition::SelectionSet(s) => s.items.push(probe()),
+            _ => (),
+        };
+    }
 
     let definitions = fragments
         .into_iter()
