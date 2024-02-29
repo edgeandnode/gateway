@@ -502,17 +502,6 @@ async fn handle_client_query_inner(
             let deterministic_query =
                 make_query_deterministic(context.clone(), &resolved_blocks, &latest_query_block)?;
 
-            let optimistic_query = optimistic_query(
-                context.clone(),
-                &mut resolved_blocks,
-                chain_head,
-                &latest_query_block,
-                &block_requirements,
-                block_cache,
-                &selection,
-            )
-            .await;
-
             total_indexer_fees_grt += selection.receipt.grt_value();
 
             let indexer_query_context = indexer_query_context.clone();
@@ -532,7 +521,6 @@ async fn handle_client_query_inner(
                         indexer_query_context,
                         &selection,
                         deterministic_query,
-                        optimistic_query,
                     )
                     .await;
                     let receipt_status = match &response {
@@ -750,22 +738,15 @@ async fn handle_indexer_query(
     mut ctx: IndexerQueryContext,
     selection: &Selection,
     deterministic_query: String,
-    optimistic_query: Option<String>,
 ) -> Result<ResponsePayload, IndexerError> {
     let indexing = selection.indexing;
     let deployment = indexing.deployment.to_string();
 
-    let optimistic_response = match optimistic_query {
-        Some(query) => handle_indexer_query_inner(&mut ctx, selection, query)
-            .await
-            .ok(),
-        None => None,
-    };
-    let result = match optimistic_response {
-        Some(response) => Ok(response),
-        None => handle_indexer_query_inner(&mut ctx, selection, deterministic_query).await,
-    };
+    let result = handle_indexer_query_inner(&mut ctx, selection, deterministic_query).await;
     METRICS.indexer_query.check(&[&deployment], &result);
+
+    let latest_block = result.as_ref().err().and_then(|err| err.latest_block);
+    let result = result.map_err(|ExtendedIndexerError { error, .. }| error);
 
     let latency_ms = ctx.response_time.as_millis() as u32;
     tracing::info!(
@@ -786,16 +767,30 @@ async fn handle_indexer_query(
     );
 
     ctx.indexing_perf
-        .feedback(indexing, result.is_ok(), latency_ms, None /* TODO */);
+        .feedback(indexing, result.is_ok(), latency_ms, latest_block);
 
     result
+}
+
+struct ExtendedIndexerError {
+    error: IndexerError,
+    latest_block: Option<BlockNumber>,
+}
+
+impl From<IndexerError> for ExtendedIndexerError {
+    fn from(value: IndexerError) -> Self {
+        Self {
+            error: value,
+            latest_block: None,
+        }
+    }
 }
 
 async fn handle_indexer_query_inner(
     ctx: &mut IndexerQueryContext,
     selection: &Selection,
     deterministic_query: String,
-) -> Result<ResponsePayload, IndexerError> {
+) -> Result<ResponsePayload, ExtendedIndexerError> {
     let start_time = Instant::now();
     let result = ctx
         .indexer_client
@@ -834,7 +829,10 @@ async fn handle_indexer_query_inner(
     indexer_errors
         .iter()
         .try_for_each(|err| check_block_error(err))
-        .map_err(|_| IndexerError::Unavailable(MissingBlock))?;
+        .map_err(|block_error| ExtendedIndexerError {
+            error: IndexerError::Unavailable(MissingBlock),
+            latest_block: block_error.latest_block,
+        })?;
 
     for error in &indexer_errors {
         if miscategorized_unattestable(error) {
@@ -843,7 +841,7 @@ async fn handle_indexer_query_inner(
             } else {
                 "unattestable response".to_string()
             };
-            return Err(IndexerError::BadResponse(message));
+            return Err(IndexerError::BadResponse(message).into());
         }
     }
 
@@ -861,7 +859,7 @@ async fn handle_indexer_query_inner(
         } else {
             "no attestation".to_string()
         };
-        return Err(IndexerError::BadResponse(message));
+        return Err(IndexerError::BadResponse(message).into());
     }
 
     if let Some(attestation) = &response.payload.attestation {
@@ -879,9 +877,9 @@ async fn handle_indexer_query_inner(
         let payload = serialize_attestation(attestation, allocation, deterministic_query, response);
         ctx.kafka_client.send("gateway_attestations", &payload);
         if let Err(err) = verified {
-            return Err(IndexerError::BadResponse(
-                anyhow!("bad attestation: {err}").to_string(),
-            ));
+            return Err(
+                IndexerError::BadResponse(anyhow!("bad attestation: {err}").to_string()).into(),
+            );
         }
     }
 
@@ -921,39 +919,6 @@ async fn pick_latest_query_block(
         }
     }
     Err(UnresolvedBlock::WithNumber(max_block))
-}
-
-/// Create an optimistic query for the indexer at a block closer to chain head than their last
-/// reported block. A failed response will not penalize the indexer, and might result in a more
-/// recent result for the client. Return `None` if we do not expect the optimistic query to be
-/// worth the extra attempt.
-async fn optimistic_query(
-    ctx: AgoraContext<'_, String>,
-    resolved: &mut BTreeSet<BlockPointer>,
-    chain_head: BlockNumber,
-    latest_query_block: &BlockPointer,
-    requirements: &BlockRequirements,
-    block_cache: &BlockCache,
-    selection: &Selection,
-) -> Option<String> {
-    if !requirements.latest {
-        return None;
-    }
-    let blocks_per_minute = block_cache.blocks_per_minute.value_immediate()?;
-    if selection.blocks_behind >= blocks_per_minute {
-        return None;
-    }
-    let min_block = requirements.range.map(|(min, _)| min).unwrap_or(0);
-    let optimistic_block_number = chain_head
-        .saturating_sub(blocks_per_minute / 30)
-        .max(min_block);
-    if optimistic_block_number <= latest_query_block.number {
-        return None;
-    }
-    let unresolved = UnresolvedBlock::WithNumber(optimistic_block_number);
-    let optimistic_block = block_cache.fetch_block(unresolved).await.ok()?;
-    resolved.insert(optimistic_block.clone());
-    make_query_deterministic(ctx, resolved, &optimistic_block).ok()
 }
 
 #[cfg(test)]

@@ -19,7 +19,7 @@ pub struct ResponsePayload {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockError {
     pub unresolved: Option<BlockNumber>,
-    pub reported_status: Option<BlockNumber>,
+    pub latest_block: Option<BlockNumber>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,7 +105,7 @@ pub fn check_block_error(err: &str) -> Result<(), BlockError> {
     };
     Err(BlockError {
         unresolved: extract_block_number("and data for block number "),
-        reported_status: extract_block_number("has only indexed up to block number "),
+        latest_block: extract_block_number("has only indexed up to block number "),
     })
 }
 
@@ -119,11 +119,11 @@ mod test {
             ("", Ok(())),
             ("Failed to decode `block.number` value: `subgraph QmQqLJVgZLcRduoszARzRi12qGheUTWAHFf3ixMeGm2xML has only indexed up to block number 133239690 and data for block number 133239697 is therefore not yet available", Err(BlockError {
                 unresolved: Some(133239697),
-                reported_status: Some(133239690),
+                latest_block: Some(133239690),
             })),
             ("Failed to decode `block.hash` value", Err(BlockError {
                 unresolved: None,
-                reported_status: None,
+                latest_block: None,
             })),
         ];
         for (input, expected) in tests {
