@@ -743,8 +743,13 @@ async fn handle_indexer_query(
     let result = handle_indexer_query_inner(&mut ctx, selection, indexer_request).await;
     METRICS.indexer_query.check(&[&deployment], &result);
 
-    let latest_block = result.as_ref().err().and_then(|err| err.latest_block);
-    let result = result.map_err(|ExtendedIndexerError { error, .. }| error);
+    let (result, latest_block) = match result {
+        Ok((result, block)) => (Ok(result), block.map(|b| b.number)),
+        Err(ExtendedIndexerError {
+            error,
+            latest_block,
+        }) => (Err(error), latest_block),
+    };
 
     let latency_ms = ctx.response_time.as_millis() as u32;
     tracing::info!(
@@ -788,7 +793,7 @@ async fn handle_indexer_query_inner(
     ctx: &mut IndexerQueryContext,
     selection: &Selection,
     indexer_request: String,
-) -> Result<ResponsePayload, ExtendedIndexerError> {
+) -> Result<(ResponsePayload, Option<Block>), ExtendedIndexerError> {
     let start_time = Instant::now();
     let result = ctx
         .indexer_client
@@ -842,7 +847,7 @@ async fn handle_indexer_query_inner(
         //  unattestable in graph-node.
         for error in &errors {
             if miscategorized_attestable(&error.message) {
-                return Ok(response.payload);
+                return Ok((response.payload, block));
             }
         }
 
@@ -879,10 +884,11 @@ async fn handle_indexer_query_inner(
         }
     }
 
-    Ok(ResponsePayload {
+    let client_response = ResponsePayload {
         body: client_response,
         attestation: response.payload.attestation,
-    })
+    };
+    Ok((client_response, block))
 }
 
 pub fn indexer_fee(
