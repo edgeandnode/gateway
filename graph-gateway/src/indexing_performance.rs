@@ -1,11 +1,19 @@
+use crate::indexers::indexing;
+use alloy_primitives::BlockNumber;
+use eventuals::{Closed, Eventual, Ptr};
 use gateway_common::types::Indexing;
-use indexer_selection::Performance;
 use std::{collections::HashMap, ops::Deref, time::Duration};
 use tokio::{
     select,
     sync::{mpsc, oneshot, RwLock},
     time,
 };
+
+#[derive(Default)]
+pub struct Snapshot {
+    pub response: indexer_selection::Performance,
+    pub latest_block: Option<BlockNumber>,
+}
 
 #[derive(Clone)]
 pub struct IndexingPerformance {
@@ -18,20 +26,21 @@ pub enum Msg {
         indexing: Indexing,
         success: bool,
         latency_ms: u32,
+        latest_block: Option<BlockNumber>,
     },
     Flush(oneshot::Sender<()>),
 }
 
 impl IndexingPerformance {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new(indexing_statuses: Eventual<Ptr<HashMap<Indexing, indexing::Status>>>) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let data: &'static DoubleBuffer = Box::leak(Box::default());
-        Actor::spawn(data, rx);
+        Actor::spawn(data, rx, indexing_statuses);
         Self { data, msgs: tx }
     }
 
-    pub fn latest(&'_ self) -> impl '_ + Deref<Target = HashMap<Indexing, Performance>> {
+    pub fn latest(&'_ self) -> impl '_ + Deref<Target = HashMap<Indexing, Snapshot>> {
         loop {
             // This is guaranteed to only move forward in time, and is almost guaranteed to acquire
             // the lock "immediately". These guarantees come from the invariant that there is a
@@ -44,12 +53,19 @@ impl IndexingPerformance {
         }
     }
 
-    pub fn feedback(&self, indexing: Indexing, success: bool, latency_ms: u32) {
+    pub fn feedback(
+        &self,
+        indexing: Indexing,
+        success: bool,
+        latency_ms: u32,
+        latest_block: Option<BlockNumber>,
+    ) {
         self.msgs
             .send(Msg::Feedback {
                 indexing,
                 success,
                 latency_ms,
+                latest_block,
             })
             .unwrap();
     }
@@ -62,16 +78,21 @@ impl IndexingPerformance {
 }
 
 #[derive(Default)]
-struct DoubleBuffer([RwLock<HashMap<Indexing, Performance>>; 2]);
+struct DoubleBuffer([RwLock<HashMap<Indexing, Snapshot>>; 2]);
 
 struct Actor {
     data: &'static DoubleBuffer,
 }
 
 impl Actor {
-    fn spawn(data: &'static DoubleBuffer, mut msgs: mpsc::UnboundedReceiver<Msg>) {
+    fn spawn(
+        data: &'static DoubleBuffer,
+        mut msgs: mpsc::UnboundedReceiver<Msg>,
+        indexing_statuses: Eventual<Ptr<HashMap<Indexing, indexing::Status>>>,
+    ) {
         let mut actor = Self { data };
         let mut timer = time::interval(Duration::from_secs(1));
+        let mut statuses = indexing_statuses.subscribe();
         tokio::spawn(async move {
             let batch_limit = 32;
             let mut msg_buf = Vec::with_capacity(batch_limit);
@@ -79,6 +100,7 @@ impl Actor {
                 select! {
                     _ = timer.tick() => actor.decay().await,
                     _ = msgs.recv_many(&mut msg_buf, batch_limit) => actor.handle_msgs(&mut msg_buf).await,
+                    statuses = statuses.next() => actor.handle_statuses(statuses).await,
                 }
             }
         });
@@ -86,8 +108,8 @@ impl Actor {
 
     async fn decay(&mut self) {
         for unlocked in &self.data.0 {
-            for perf in unlocked.write().await.values_mut() {
-                perf.decay();
+            for snapshot in unlocked.write().await.values_mut() {
+                snapshot.response.decay();
             }
         }
     }
@@ -102,11 +124,15 @@ impl Actor {
                         indexing,
                         success,
                         latency_ms,
+                        latest_block,
                     } => {
-                        locked
-                            .entry(indexing)
-                            .or_default()
-                            .feedback(success, latency_ms);
+                        let snapshot = locked.entry(indexing).or_default();
+                        snapshot.response.feedback(success, latency_ms);
+                        snapshot.latest_block = match (snapshot.latest_block, latest_block) {
+                            (None, block) => block,
+                            (Some(a), Some(b)) if b > a => Some(b),
+                            (Some(a), _) => Some(a),
+                        };
                     }
                 }
             }
@@ -119,5 +145,27 @@ impl Actor {
             }
         }
         debug_assert!(msgs.is_empty());
+    }
+
+    async fn handle_statuses(
+        &mut self,
+        statuses: Result<Ptr<HashMap<Indexing, indexing::Status>>, Closed>,
+    ) {
+        let statuses = match statuses {
+            Ok(statuses) => statuses,
+            Err(_) => {
+                tracing::error!("indexing statuses closed");
+                return;
+            }
+        };
+        for unlocked in &self.data.0 {
+            let mut locked = unlocked.write().await;
+            for (indexing, status) in statuses.iter() {
+                let snapshot = locked.entry(*indexing).or_default();
+                if status.block >= snapshot.latest_block.unwrap_or(0) {
+                    snapshot.latest_block = Some(status.block);
+                };
+            }
+        }
     }
 }
