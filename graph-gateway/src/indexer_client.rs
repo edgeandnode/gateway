@@ -2,7 +2,6 @@ use crate::client_query::Selection;
 use alloy_primitives::BlockNumber;
 use gateway_framework::errors::{IndexerError, UnavailableReason::*};
 use serde::Deserialize;
-use std::sync::Arc;
 use thegraph::types::attestation::Attestation;
 
 pub struct IndexerResponse {
@@ -12,7 +11,7 @@ pub struct IndexerResponse {
 
 #[derive(Clone, Debug)]
 pub struct ResponsePayload {
-    pub body: Arc<String>,
+    pub body: String,
     pub attestation: Option<Attestation>,
 }
 
@@ -84,7 +83,7 @@ impl IndexerClient {
         Ok(IndexerResponse {
             status: response_status.as_u16(),
             payload: ResponsePayload {
-                body: Arc::new(graphql_response),
+                body: graphql_response,
                 attestation: payload.attestation,
             },
         })
