@@ -4,7 +4,7 @@ use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail};
 use cost_model::Context;
 use graphql::graphql_parser::query::{
-    Definition, Document, OperationDefinition, Selection, Text, Value,
+    Definition, Document, Field, OperationDefinition, Selection, SelectionSet, Text, Value,
 };
 use graphql::{IntoStaticValue as _, StaticValue};
 use itertools::Itertools as _;
@@ -126,9 +126,16 @@ pub fn rewrite_query(
 
     let Context {
         fragments,
-        operations,
+        mut operations,
         ..
     } = ctx;
+
+    match operations.first_mut() {
+        Some(OperationDefinition::Query(q)) => q.selection_set.items.push(probe()),
+        Some(OperationDefinition::SelectionSet(s)) => s.items.push(probe()),
+        _ => (),
+    };
+
     let definitions = fragments
         .into_iter()
         .map(Definition::Fragment)
@@ -229,6 +236,36 @@ fn parse_number<'c, T: Text<'c>>(
     n.as_i64()
         .and_then(|n| n.try_into().ok())
         .ok_or_else(|| anyhow!("block number out of range"))
+}
+
+fn probe<'c>() -> Selection<'c, String> {
+    let selection_set = |items| SelectionSet {
+        span: Default::default(),
+        items,
+    };
+    let field = |name: &str, alias, selection_set| {
+        Selection::Field(Field {
+            position: Default::default(),
+            alias,
+            name: name.to_string(),
+            arguments: vec![],
+            directives: vec![],
+            selection_set,
+        })
+    };
+    field(
+        "_meta",
+        Some("_gateway_probe_".into()),
+        selection_set(vec![field(
+            "block",
+            None,
+            selection_set(vec![
+                field("number", None, selection_set(vec![])),
+                field("hash", None, selection_set(vec![])),
+                field("timestamp", None, selection_set(vec![])),
+            ]),
+        )]),
+    )
 }
 
 #[cfg(test)]
