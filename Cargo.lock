@@ -882,18 +882,17 @@ checksum = "06ea2b9bc92be3c2baa9334a323ebca2d6f074ff852cd1d7b11064035cd3868f"
 [[package]]
 name = "cost-model"
 version = "0.1.0"
-source = "git+https://github.com/graphprotocol/agora?rev=3367d76#3367d7650f06dae10f02bdb7663b07a66adc6978"
+source = "git+https://github.com/graphprotocol/agora?rev=3ed34ca#3ed34cae6dadded9c8c6ca34356309c98f0f0578"
 dependencies = [
  "firestorm",
  "fraction",
  "graphql 0.2.0",
+ "itertools 0.12.1",
  "lazy_static",
  "nom",
  "num-bigint 0.2.6",
  "num-traits",
- "serde",
  "serde_json",
- "single",
 ]
 
 [[package]]
@@ -996,7 +995,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.51",
- "synstructure 0.13.1",
+ "synstructure",
 ]
 
 [[package]]
@@ -1625,28 +1624,6 @@ checksum = "7cd915d99f24784cdc19fd37ef22b97e3ff0ae756c7e492e9fbfe897d61e2aec"
 dependencies = [
  "indenter",
  "once_cell",
-]
-
-[[package]]
-name = "failure"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d32e9bd16cc02eae7db7ef620b392808b89f6a5e16bb3497d159c6b92a0f4f86"
-dependencies = [
- "backtrace",
- "failure_derive",
-]
-
-[[package]]
-name = "failure_derive"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa4da3c766cd7a0db8242e326e9e4e081edd567072893ed320008189715366a4"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
- "synstructure 0.12.6",
 ]
 
 [[package]]
@@ -4634,15 +4611,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "single"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9db45bb685b486eec37e0271dcc0dac76eae5e893125f8a4f0511d0a1d29543b"
-dependencies = [
- "failure",
-]
-
-[[package]]
 name = "siphasher"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4892,18 +4860,6 @@ name = "sync_wrapper"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2047c6ded9c721764247e62cd3b03c09ffc529b2ba5b10ec482ae507a4a70160"
-
-[[package]]
-name = "synstructure"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f36bdaa60a83aca3921b5259d5400cbf5e90fc51931376a9bd4a0eb79aa7210f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
- "unicode-xid",
-]
 
 [[package]]
 name = "synstructure"
