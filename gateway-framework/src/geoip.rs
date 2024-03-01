@@ -37,8 +37,8 @@ impl GeoIp {
                 .dns_resolver
                 .lookup_ip(host)
                 .await
-                .map_err(|err| err.to_string())?
                 .into_iter()
+                .flat_map(|lookup| lookup.into_iter())
                 .collect(),
         };
         let blocked = addrs
@@ -51,7 +51,7 @@ impl GeoIp {
                     .iso_code
             })
             .any(|country| self.blocked_countries.contains(country));
-        let result = blocked.then_some(()).ok_or_else(|| "blocked".to_string());
+        let result = blocked.then(|| Err("blocked".into())).unwrap_or(Ok(()));
         self.cache.insert(host_str.to_string(), result.clone());
         result
     }

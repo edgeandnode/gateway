@@ -220,7 +220,7 @@ impl GraphNetwork {
             let mut geoip = geoip.lock().await;
             for indexer in indexers.values() {
                 if let Err(ip_block) = geoip.is_ip_blocked(&indexer.url).await {
-                    tracing::info!(ip_block, indexer = %indexer.id, url = %indexer.url);
+                    tracing::info!(ip_block, indexer = ?indexer.id, url = %indexer.url);
                     blocked.insert(indexer.id);
                 }
             }

@@ -89,7 +89,7 @@ async fn update_statuses(
                     match update_indexer(actor, &client, indexer, url, deployments).await {
                         Ok(indexings) => indexings,
                         Err(indexer_status_err) => {
-                            tracing::warn!(%indexer, %indexer_status_err);
+                            tracing::warn!(?indexer, %indexer_status_err);
                             vec![]
                         }
                     }
@@ -173,7 +173,7 @@ async fn query_status(
                     Err(cost_model_compile_err) => {
                         tracing::debug!(
                             %cost_model_compile_err,
-                            %indexer,
+                            ?indexer,
                             deployment = %src.deployment,
                         );
                         return None;
