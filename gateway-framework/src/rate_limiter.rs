@@ -9,8 +9,7 @@ use dashmap::DashMap;
 use eventuals::EventualExt;
 use tower::Service;
 
-use gateway_framework::errors::Error;
-use gateway_framework::graphql;
+use crate::{errors::Error, graphql};
 
 use self::future::ResponseFuture;
 
@@ -237,8 +236,7 @@ mod tests {
     use headers::{ContentType, HeaderMapExt};
     use tokio_test::assert_ready_ok;
 
-    use crate::client_query::rate_limiter::AddRateLimiterLayer;
-    use crate::client_query::rate_limiter::RateLimitSettings;
+    use super::{AddRateLimiterLayer, RateLimitSettings};
 
     /// Helper function to parse an address string into an `Address`.
     fn test_address(addr: &str) -> Address {

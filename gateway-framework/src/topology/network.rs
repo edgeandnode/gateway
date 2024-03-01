@@ -5,22 +5,41 @@ use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt, Ptr};
 use futures::future::join_all;
-use gateway_framework::geoip::GeoIp;
+use gateway_common::types::Indexing;
 use itertools::Itertools;
 use serde::Deserialize;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::sync::{Mutex, RwLock};
 use url::Url;
 
-use gateway_common::types::Indexing;
-use gateway_framework::{ipfs, network::network_subgraph};
+use crate::{geoip::GeoIp, ipfs, network::network_subgraph};
 
-/// Representation of the graph network being used to serve queries
-#[derive(Clone)]
-pub struct GraphNetwork {
-    pub subgraphs: Eventual<Ptr<HashMap<SubgraphId, Subgraph>>>,
-    pub deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
-    pub indexers: Eventual<Ptr<HashMap<Address, Arc<Indexer>>>>,
+/// Deployment manifest information needed for the gateway to work.
+pub struct Manifest {
+    pub network: String,
+    pub min_block: u64,
+}
+
+pub struct Indexer {
+    pub id: Address,
+    pub url: Url,
+    pub staked_tokens: u128,
+    pub largest_allocation: Address,
+    pub allocated_tokens: u128,
+}
+
+impl Indexer {
+    pub fn cost_url(&self) -> Url {
+        // Indexer URLs are validated when they are added to the network, so this should never fail.
+        // 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
+        self.url.join("cost").unwrap()
+    }
+
+    pub fn status_url(&self) -> Url {
+        // Indexer URLs are validated when they are added to the network, so this should never fail.
+        // 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
+        self.url.join("status").unwrap()
+    }
 }
 
 /// In an effort to keep the ownership structure a simple tree, this only contains the info required
@@ -55,31 +74,12 @@ pub struct Allocation {
     pub indexer: Arc<Indexer>,
 }
 
-pub struct Indexer {
-    pub id: Address,
-    pub url: Url,
-    pub staked_tokens: u128,
-    pub largest_allocation: Address,
-    pub allocated_tokens: u128,
-}
-
-impl Indexer {
-    pub fn cost_url(&self) -> Url {
-        // Indexer URLs are validated when they are added to the network, so this should never fail.
-        // 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
-        self.url.join("cost").unwrap()
-    }
-
-    pub fn status_url(&self) -> Url {
-        // Indexer URLs are validated when they are added to the network, so this should never fail.
-        // 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
-        self.url.join("status").unwrap()
-    }
-}
-
-pub struct Manifest {
-    pub network: String,
-    pub min_block: u64,
+/// Representation of the graph network being used to serve queries
+#[derive(Clone)]
+pub struct GraphNetwork {
+    pub subgraphs: Eventual<Ptr<HashMap<SubgraphId, Subgraph>>>,
+    pub deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
+    pub indexers: Eventual<Ptr<HashMap<Address, Arc<Indexer>>>>,
 }
 
 impl GraphNetwork {

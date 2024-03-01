@@ -7,7 +7,7 @@ use secp256k1::{PublicKey, Secp256k1};
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::metrics::METRICS;
+use crate::reporting::METRICS;
 
 use crate::json::{json_response, JsonResponse};
 

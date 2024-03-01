@@ -17,10 +17,14 @@ axum = { version = "0.6.20", default-features = false, features = [
     "tokio",
     "original-uri",
 ] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
+futures = "0.3"
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
 hex = "0.4"
 primitive-types = "0.12.2"
 rand = { version = "0.8", features = ["small_rng"] }
+rdkafka = { version = "0.36.2", features = ["gssapi", "tracing"] }
 receipts = { git = "ssh://git@github.com/edgeandnode/receipts.git", rev = "8bc8f13" }
 reqwest = { version = "0.11", default-features = false, features = [
     "json",
@@ -30,6 +34,10 @@ reqwest = { version = "0.11", default-features = false, features = [
 secp256k1 = { version = "0.28", default-features = false }
 semver = { version = "1.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0.114", features = ["raw_value"] }
+serde_with = "3.6.1"
+serde_yaml = "0.9"
+simple-rate-limiter = "1.0"
 siphasher = "1.0.0"
 thegraph-core = "0.2.2"
 thegraph-graphql-http = "0.1.0"
@@ -48,4 +56,9 @@ tracing-subscriber = { version = "0.3", features = [
     "env-filter",
     "parking_lot",
     "json",
+] }
+uuid = { version = "1.7", default-features = false, features = [
+    "v4",
+    "v7",
+    "std",
 ] }

@@ -1,66 +1,161 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::read_to_string;
-use std::io::Write as _;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy_primitives::{Address, U256};
-use alloy_sol_types::Eip712Domain;
+use alloy_primitives::Address;
 use anyhow::{self, Context as _};
+use axum::async_trait;
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, State},
-    http::{self, status::StatusCode, Request},
+    http::{self, Request},
     middleware,
     response::Response,
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
-use gateway_framework::geoip::GeoIp;
-use graph_gateway::chains::Chains;
-use ordered_float::NotNan;
-use prometheus::{self, Encoder as _};
-use secp256k1::SecretKey;
+use gateway_framework::auth::methods::api_keys::APIKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
-use thegraph_core::{
-    client as subgraph_client,
-    types::{attestation, DeploymentId},
-};
+use thegraph_core::{client as subgraph_client, types::DeploymentId};
 use tokio::signal::unix::SignalKind;
-use tokio::spawn;
 use tower_http::cors::{self, CorsLayer};
-use uuid::Uuid;
 
 use gateway_common::types::Indexing;
 use gateway_framework::{
-    budgets::Budgeter,
-    budgets::USD,
-    ipfs, json,
-    network::{exchange_rate, network_subgraph},
+    gateway::http::{ApiKeys, Gateway, GatewayImpl, GatewayLoggingOptions, GatewayOptions},
+    json,
+    network::{discovery::Status, network_subgraph},
+    rate_limiter::AddRateLimiterLayer,
+    reporting::{EventFilterFn, EventHandlerFn},
     scalar,
-    scalar::ReceiptSigner,
+    topology::network::{Deployment, Indexer},
 };
-use graph_gateway::client_query::auth::AuthContext;
 use graph_gateway::client_query::context::Context;
 use graph_gateway::client_query::legacy_auth_adapter::legacy_auth_adapter;
 use graph_gateway::client_query::query_id::SetQueryIdLayer;
 use graph_gateway::client_query::query_tracing::QueryTracingLayer;
-use graph_gateway::client_query::rate_limiter::AddRateLimiterLayer;
 use graph_gateway::client_query::require_auth::RequireAuthorizationLayer;
-use graph_gateway::config::{ApiKeys, Config, ExchangeRateProvider};
+use graph_gateway::config::Config;
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
 use graph_gateway::indexing_performance::IndexingPerformance;
 use graph_gateway::indexings_blocklist::indexings_blocklist;
-use graph_gateway::reports::{self, KafkaClient};
-use graph_gateway::topology::{Deployment, GraphNetwork};
-use graph_gateway::{client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph};
+use graph_gateway::reports::{
+    report_client_query, report_indexer_query, CLIENT_QUERY_TARGET, INDEXER_QUERY_TARGET,
+};
+use graph_gateway::{client_query, indexings_blocklist, subgraph_studio};
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
+
+struct SubgraphGatewayOptions {
+    config: Config,
+}
+
+struct SubgraphGateway {
+    config: Config,
+    http_client: reqwest::Client,
+}
+
+impl SubgraphGateway {
+    fn new(options: SubgraphGatewayOptions) -> Self {
+        SubgraphGateway {
+            config: options.config,
+            http_client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(20))
+                .build()
+                .unwrap(),
+        }
+    }
+}
+
+#[async_trait]
+impl GatewayImpl for SubgraphGateway {
+    async fn publications(
+        &self,
+        network_subgraph: subgraph_client::Client,
+        l2_transfer_support: bool,
+    ) -> Eventual<Ptr<Vec<network_subgraph::Subgraph>>> {
+        network_subgraph::Client::create(network_subgraph, l2_transfer_support).await
+    }
+
+    async fn indexing_statuses(
+        &self,
+        deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
+    ) -> Eventual<Ptr<HashMap<Indexing, Status>>> {
+        indexing::statuses(
+            deployments.clone(),
+            self.http_client.clone(),
+            self.config.min_graph_node_version.clone(),
+            self.config.min_indexer_version.clone(),
+        )
+        .await
+    }
+
+    async fn legacy_indexers(
+        &self,
+        indexing_statuses: Eventual<Ptr<HashMap<Indexing, Status>>>,
+    ) -> Eventual<Ptr<HashSet<Address>>> {
+        indexing_statuses.clone().map(|statuses| async move {
+            let legacy_indexers: HashSet<Address> = statuses
+                .iter()
+                .filter(|(_, status)| status.legacy_scalar)
+                .map(|(indexing, _)| indexing.indexer)
+                .collect();
+            Ptr::new(legacy_indexers)
+        })
+    }
+
+    async fn indexings_blocklist(
+        &self,
+        deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
+        indexers: Eventual<Ptr<HashMap<Address, Arc<Indexer>>>>,
+    ) -> Eventual<Ptr<HashSet<Indexing>>> {
+        // Indexer blocklist
+        //
+        // Periodically check the defective POIs list against the network indexers
+        // and update the indexers blocklist accordingly.
+        match &self.config.poi_blocklist {
+            Some(blocklist) if !blocklist.pois.is_empty() => {
+                let pois = blocklist.pois.clone();
+                let update_interval = blocklist
+                    .update_interval
+                    .map_or(indexings_blocklist::DEFAULT_UPDATE_INTERVAL, |min| {
+                        Duration::from_secs(min * 60)
+                    });
+
+                indexings_blocklist(
+                    self.http_client.clone(),
+                    deployments.clone(),
+                    indexers.clone(),
+                    pois,
+                    update_interval,
+                )
+                .await
+            }
+            _ => Eventual::from_value(Ptr::default()),
+        }
+    }
+
+    async fn api_keys(&self) -> Eventual<Ptr<HashMap<String, Arc<APIKey>>>> {
+        match self.config.common.api_keys.clone() {
+            Some(ApiKeys::Endpoint { url, auth, .. }) => {
+                subgraph_studio::api_keys(self.http_client.clone(), url, auth.0)
+            }
+            Some(ApiKeys::Fixed(api_keys)) => Eventual::from_value(Ptr::new(
+                api_keys
+                    .into_iter()
+                    .map(|k| (k.key.clone(), k.into()))
+                    .collect(),
+            )),
+            None => Eventual::from_value(Ptr::default()),
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -74,183 +169,52 @@ async fn main() {
         .context("Failed to parse JSON config")
         .unwrap();
 
-    // Get the gateway ID from the config or generate a new one.
-    let gateway_id = config
-        .gateway_id
-        .clone()
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
-
     let config_repr = format!("{config:#?}");
 
-    // Instantiate the Kafka client
-    let kafka_client: &'static KafkaClient = match KafkaClient::new(&config.kafka.into()) {
-        Ok(kafka_client) => Box::leak(Box::new(kafka_client)),
-        Err(kafka_client_err) => {
-            tracing::error!(%kafka_client_err);
-            return;
-        }
-    };
+    let gateway = Gateway::new(GatewayOptions {
+        gateway_impl: SubgraphGateway::new(SubgraphGatewayOptions {
+            config: config.clone(),
+        }),
+        config: config.common,
+        logging: GatewayLoggingOptions {
+            event_filter: EventFilterFn::new(|metadata| {
+                (metadata.target() == CLIENT_QUERY_TARGET)
+                    || (metadata.target() == INDEXER_QUERY_TARGET)
+            }),
+            event_handler: EventHandlerFn::new(|client, metadata, fields| {
+                match metadata.target() {
+                    CLIENT_QUERY_TARGET => report_client_query(client, fields),
+                    INDEXER_QUERY_TARGET => report_indexer_query(client, fields),
+                    _ => unreachable!("invalid event target for KafkaLayer"),
+                }
+            }),
+        },
+    })
+    .await
+    .expect("should initialize gateway");
 
-    reports::init(kafka_client, config.log_json);
-    tracing::info!("Graph gateway starting... ID: {}", gateway_id);
+    let Gateway {
+        gateway_id,
+        l2_gateway,
+
+        chains,
+        grt_per_usd,
+        http_client,
+        attestation_domain,
+        bad_indexers,
+        legacy_signer,
+        receipt_signer,
+        network,
+        indexing_statuses,
+        indexings_blocklist,
+        budgeter,
+        router,
+        kafka_client,
+        rate_limiter,
+        auth_handler,
+    } = gateway;
+
     tracing::debug!(config = %config_repr);
-
-    let geoip = config
-        .geoip_database
-        .filter(|_| !config.geoip_blocked_countries.is_empty())
-        .map(|db| {
-            GeoIp::new(db, config.geoip_blocked_countries)
-                .context("GeoIp")
-                .unwrap()
-        });
-
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .unwrap();
-
-    let grt_per_usd: Eventual<NotNan<f64>> = match config.exchange_rate_provider {
-        ExchangeRateProvider::Fixed(grt_per_usd) => {
-            Eventual::from_value(NotNan::new(grt_per_usd).expect("NAN exchange rate"))
-        }
-        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await.unwrap(),
-    };
-
-    let network_subgraph_client =
-        subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
-    let subgraphs =
-        network_subgraph::Client::create(network_subgraph_client, config.l2_gateway.is_some())
-            .await;
-
-    let attestation_domain: &'static Eip712Domain =
-        Box::leak(Box::new(attestation::eip712_domain(
-            U256::from_str_radix(&config.attestations.chain_id, 10)
-                .expect("failed to parse attestation domain chain_id"),
-            config.attestations.dispute_manager,
-        )));
-
-    let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
-    let network = GraphNetwork::new(subgraphs, ipfs, geoip).await;
-
-    // Indexer blocklist
-    // Periodically check the defective POIs list against the network indexers and update the
-    // indexers blocklist accordingly.
-    let indexings_blocklist = if !config.poi_blocklist.is_empty() {
-        let pois = config.poi_blocklist.clone();
-        let update_interval = config
-            .poi_blocklist_update_interval
-            .map_or(indexings_blocklist::DEFAULT_UPDATE_INTERVAL, |min| {
-                Duration::from_secs(min * 60)
-            });
-
-        indexings_blocklist(
-            http_client.clone(),
-            network.deployments.clone(),
-            network.indexers.clone(),
-            pois,
-            update_interval,
-        )
-        .await
-    } else {
-        Eventual::from_value(Ptr::default())
-    };
-
-    let bad_indexers: &'static HashSet<Address> =
-        Box::leak(Box::new(config.bad_indexers.into_iter().collect()));
-
-    let indexing_statuses = indexing::statuses(
-        network.deployments.clone(),
-        http_client.clone(),
-        config.min_graph_node_version,
-        config.min_indexer_version,
-    )
-    .await;
-
-    let legacy_indexers = indexing_statuses.clone().map(|statuses| async move {
-        let legacy_indexers: HashSet<Address> = statuses
-            .iter()
-            .filter(|(_, status)| status.legacy_scalar)
-            .map(|(indexing, _)| indexing.indexer)
-            .collect();
-        Ptr::new(legacy_indexers)
-    });
-    let legacy_signer: &'static SecretKey = Box::leak(Box::new(
-        config
-            .scalar
-            .legacy_signer
-            .map(|s| s.0)
-            .unwrap_or(config.scalar.signer.0),
-    ));
-    let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(
-        ReceiptSigner::new(
-            config.scalar.signer.0,
-            config.scalar.chain_id,
-            config.scalar.verifier,
-            legacy_signer,
-            legacy_indexers,
-        )
-        .await,
-    ));
-
-    eventuals::join((network.deployments.clone(), indexing_statuses.clone()))
-        .pipe_async(move |(deployments, indexing_statuses)| async move {
-            update_allocations(receipt_signer, &deployments, &indexing_statuses).await;
-        })
-        .forever();
-
-    let special_api_keys = match &config.api_keys {
-        Some(ApiKeys::Endpoint { special, .. }) => HashSet::from_iter(special.clone()),
-        _ => Default::default(),
-    };
-    let api_keys = match config.api_keys {
-        Some(ApiKeys::Endpoint { url, auth, .. }) => {
-            subgraph_studio::api_keys(http_client.clone(), url, auth.0)
-        }
-        Some(ApiKeys::Fixed(api_keys)) => Eventual::from_value(Ptr::new(
-            api_keys
-                .into_iter()
-                .map(|k| (k.key.clone(), k.into()))
-                .collect(),
-        )),
-        None => Eventual::from_value(Ptr::default()),
-    };
-
-    let subscriptions = match &config.subscriptions {
-        None => Eventual::from_value(Ptr::default()),
-        Some(subscriptions) => subscriptions_subgraph::Client::create(
-            subgraph_client::Client::builder(http_client.clone(), subscriptions.subgraph.clone())
-                .with_auth_token(subscriptions.ticket.clone())
-                .build(),
-        ),
-    };
-    let auth_handler = AuthContext::create(
-        config.payment_required,
-        api_keys,
-        special_api_keys,
-        subscriptions,
-        config
-            .subscriptions
-            .iter()
-            .flat_map(|s| s.special_signers.clone())
-            .collect(),
-        config
-            .subscriptions
-            .as_ref()
-            .map(|s| s.rate_per_query)
-            .unwrap_or(0),
-        config
-            .subscriptions
-            .iter()
-            .flat_map(|s| &s.domains)
-            .map(|d| (d.chain_id, d.contract))
-            .collect(),
-    );
-    let query_fees_target =
-        USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
-    let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
-
-    tracing::info!("Waiting for exchange rate...");
-    grt_per_usd.value().await.unwrap();
 
     let client_query_ctx = Context {
         indexer_client: IndexerClient {
@@ -260,8 +224,8 @@ async fn main() {
         kafka_client,
         budgeter,
         indexer_selection_retry_limit: config.indexer_selection_retry_limit,
-        l2_gateway: config.l2_gateway,
-        chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
+        l2_gateway,
+        chains,
         grt_per_usd,
         network,
         indexing_perf: IndexingPerformance::new(indexing_statuses.clone()),
@@ -270,32 +234,6 @@ async fn main() {
         bad_indexers,
         indexings_blocklist,
     };
-
-    // Host metrics on a separate server with a port that isn't open to public requests.
-    let metrics_port = config.port_metrics;
-    spawn(async move {
-        let router = Router::new().route("/metrics", routing::get(handle_metrics));
-
-        Server::bind(&SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            metrics_port,
-        ))
-        // disable Nagel's algorithm
-        .tcp_nodelay(true)
-        .serve(router.into_make_service())
-        .await
-        .expect("Failed to start metrics server");
-    });
-
-    let rate_limiter_slots = 10;
-    let rate_limiter: &'static RateLimiter<String> =
-        Box::leak(Box::new(RateLimiter::<String>::new(
-            rate_limiter_slots * config.ip_rate_limit as usize,
-            rate_limiter_slots,
-        )));
-    eventuals::timer(Duration::from_secs(1))
-        .pipe(|_| rate_limiter.rotate_slots())
-        .forever();
 
     let api = Router::new()
         .route(
@@ -337,8 +275,7 @@ async fn main() {
                 .layer(AddRateLimiterLayer::default()),
         );
 
-    let router = Router::new()
-        .route("/", routing::get(|| async { "Ready to roll!" }))
+    let router = router
         // This path is required by NGINX ingress controller
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
@@ -412,49 +349,6 @@ async fn ip_rate_limit<B>(
         return Err(graphql_error_response("Too many requests, try again later"));
     }
     Ok(next.run(req).await)
-}
-
-async fn update_allocations(
-    receipt_signer: &ReceiptSigner,
-    deployments: &HashMap<DeploymentId, Arc<Deployment>>,
-    indexing_statuses: &HashMap<Indexing, indexing::Status>,
-) {
-    tracing::info!(
-        deployments = deployments.len(),
-        indexings = deployments
-            .values()
-            .map(|d| d.indexers.len())
-            .sum::<usize>(),
-        indexing_statuses = indexing_statuses.len(),
-    );
-
-    let mut allocations: HashMap<Indexing, Address> = HashMap::new();
-    for (deployment, indexer) in deployments.values().flat_map(|deployment| {
-        deployment
-            .indexers
-            .values()
-            .map(|indexer| (deployment.as_ref(), indexer.as_ref()))
-    }) {
-        let indexing = Indexing {
-            indexer: indexer.id,
-            deployment: deployment.id,
-        };
-        allocations.insert(indexing, indexer.largest_allocation);
-    }
-    receipt_signer.update_allocations(allocations).await;
-}
-
-async fn handle_metrics() -> impl axum::response::IntoResponse {
-    let encoder = prometheus::TextEncoder::new();
-    let metric_families = prometheus::gather();
-    let mut buffer = Vec::new();
-    if let Err(metrics_encode_err) = encoder.encode(&metric_families, &mut buffer) {
-        tracing::error!(%metrics_encode_err);
-        buffer.clear();
-        write!(&mut buffer, "Failed to encode metrics").unwrap();
-        return (StatusCode::INTERNAL_SERVER_ERROR, buffer);
-    }
-    (StatusCode::OK, buffer)
 }
 
 fn graphql_error_response<S: ToString>(message: S) -> json::JsonResponse {

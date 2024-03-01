@@ -16,9 +16,8 @@ use axum::{
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
-use gateway_framework::{
-    blocks::Block, budgets::USD, errors::UnavailableReason, scalar::ReceiptStatus,
-};
+
+use gateway_framework::{auth::AuthToken, reporting::KafkaClient};
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use num_traits::cast::ToPrimitive as _;
@@ -38,29 +37,32 @@ use gateway_common::{
     types::Indexing, utils::http_ext::HttpBuilderExt, utils::timestamp::unix_timestamp,
 };
 use gateway_framework::{
-    errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*},
-    metrics::{with_metric, METRICS},
-    scalar::ScalarReceipt,
+    blocks::Block,
+    budgets::USD,
+    chains::ChainReader,
+    errors::{
+        Error, IndexerError, IndexerErrors,
+        UnavailableReason::{self, *},
+    },
+    network::discovery::Status,
+    reporting::{with_metric, METRICS},
+    scalar::{ReceiptStatus, ScalarReceipt},
+    topology::network::{Deployment, GraphNetwork, Subgraph},
 };
 
 use crate::block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements};
-use crate::chains::ChainReader;
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
-use crate::indexers::indexing;
 use crate::indexing_performance::{self, IndexingPerformance};
-use crate::reports::{self, serialize_attestation, KafkaClient};
-use crate::topology::{Deployment, GraphNetwork, Subgraph};
+use crate::reports::{self, serialize_attestation};
 use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
 
 use self::attestation_header::GraphAttestation;
-use self::auth::AuthToken;
 use self::context::Context;
 use self::l2_forwarding::forward_request_to_l2;
 use self::query_selector::QuerySelector;
 use self::query_settings::QuerySettings;
 
 mod attestation_header;
-pub mod auth;
 pub mod context;
 mod l2_forwarding;
 pub mod legacy_auth_adapter;
@@ -68,7 +70,6 @@ pub mod query_id;
 mod query_selector;
 mod query_settings;
 pub mod query_tracing;
-pub mod rate_limiter;
 pub mod require_auth;
 
 const SELECTION_LIMIT: usize = 3;
@@ -547,7 +548,7 @@ async fn handle_client_query_inner(
 #[allow(clippy::too_many_arguments)]
 fn prepare_candidate(
     network: &GraphNetwork,
-    statuses: &HashMap<Indexing, indexing::Status>,
+    statuses: &HashMap<Indexing, Status>,
     perf_snapshots: &HashMap<Indexing, indexing_performance::Snapshot>,
     versions_behind: &BTreeMap<DeploymentId, u8>,
     context: &mut AgoraContext<String>,
@@ -673,7 +674,7 @@ async fn handle_indexer_query(
             Ok(_) => "200 OK".to_string(),
             Err(err) => format!("{err:?}"),
         },
-        status_code = reports::indexer_attempt_status_code(&result),
+        status_code = reports::indexer_error_status_code(result.as_ref().err()),
     );
 
     ctx.indexing_perf
@@ -878,9 +879,8 @@ mod tests {
         use hyper::Body;
         use tower::ServiceExt;
 
-        use crate::subgraph_studio::APIKey;
+        use gateway_framework::auth::{context::AuthContext, methods::api_keys::APIKey, AuthToken};
 
-        use super::auth::{AuthContext, AuthToken};
         use super::legacy_auth_adapter::legacy_auth_adapter;
         use super::require_auth::RequireAuthorizationLayer;
 
@@ -944,7 +944,7 @@ mod tests {
         fn test_router(auth_ctx: AuthContext) -> Router {
             async fn handler(Extension(auth): Extension<AuthToken>) -> String {
                 match auth {
-                    AuthToken::StudioApiKey(auth_token) => auth_token.key().to_string(),
+                    AuthToken::ApiKey(auth_token) => auth_token.key().to_string(),
                     _ => unreachable!(),
                 }
             }

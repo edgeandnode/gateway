@@ -6,7 +6,7 @@ use ordered_float::NotNan;
 use tokio::time::interval;
 use tokio::{select, spawn, sync::mpsc};
 
-use crate::metrics::METRICS;
+use crate::reporting::METRICS;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct USD(pub NotNan<f64>);

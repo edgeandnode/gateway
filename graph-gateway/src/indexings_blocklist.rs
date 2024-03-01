@@ -10,10 +10,10 @@ use tokio::sync::Mutex;
 use url::Url;
 
 use gateway_common::types::Indexing;
+use gateway_framework::topology::network::{Deployment, Indexer};
 
 use crate::indexers::public_poi;
 use crate::indexers::public_poi::ProofOfIndexingInfo;
-use crate::topology::{Deployment, Indexer};
 
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(20 * 60); // 20 minutes
 
