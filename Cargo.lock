@@ -371,6 +371,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c59bdb34bc650a32731b31bd8f0829cc15d24a708ee31559e0bb34f2bc320cba"
+
+[[package]]
 name = "auto_impl"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -612,18 +618,6 @@ dependencies = [
 name = "candidate-selection"
 version = "0.1.0"
 source = "git+https://github.com/edgeandnode/candidate-selection?rev=2c48a9b#2c48a9bdac34d9ab9ac4285fa34e255be024942e"
-dependencies = [
- "arrayvec 0.7.4",
- "ordered-float",
- "permutation",
- "proptest",
- "rand",
-]
-
-[[package]]
-name = "candidate-selection"
-version = "0.1.0"
-source = "git+https://github.com/edgeandnode/candidate-selection?rev=bcd7909#bcd7909f6bc0344278d9e09e368580201b6fae22"
 dependencies = [
  "arrayvec 0.7.4",
  "ordered-float",
@@ -1821,26 +1815,38 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "axum",
- "candidate-selection 0.1.0 (git+https://github.com/edgeandnode/candidate-selection?rev=bcd7909)",
+ "candidate-selection",
+ "chrono",
+ "cost-model",
+ "custom_debug",
+ "dashmap",
  "ethers",
  "eventuals",
+ "faster-hex",
+ "futures",
  "gateway-common",
  "headers",
  "hex",
  "hickory-resolver",
+ "hyper",
+ "indexer-selection",
  "ipnetwork",
  "itertools 0.12.1",
  "lazy_static",
  "ordered-float",
+ "pin-project",
  "primitive-types",
  "prometheus",
  "rand",
+ "rdkafka",
  "receipts",
  "reqwest",
  "secp256k1",
  "serde",
  "serde_json",
  "serde_with",
+ "serde_yaml",
+ "simple-rate-limiter",
  "siphasher 1.0.1",
  "tap_core",
  "test-with",
@@ -1848,10 +1854,15 @@ dependencies = [
  "thegraph-graphql-http",
  "thiserror",
  "tokio",
+ "tokio-test",
  "toolshed",
+ "tower",
+ "tower-http",
+ "tower-test",
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid 1.8.0",
 ]
 
 [[package]]
@@ -1914,7 +1925,6 @@ dependencies = [
  "custom_debug",
  "dashmap",
  "eventuals",
- "faster-hex",
  "futures",
  "gateway-common",
  "gateway-framework",
@@ -2362,7 +2372,7 @@ name = "indexer-selection"
 version = "0.1.0"
 source = "git+https://github.com/edgeandnode/candidate-selection?rev=2c48a9b#2c48a9bdac34d9ab9ac4285fa34e255be024942e"
 dependencies = [
- "candidate-selection 0.1.0 (git+https://github.com/edgeandnode/candidate-selection?rev=2c48a9b)",
+ "candidate-selection",
  "custom_debug",
  "rand",
  "thegraph-core",
@@ -3563,7 +3573,7 @@ dependencies = [
 [[package]]
 name = "receipts"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/receipts?rev=8bc8f13#8bc8f13acb644c91a1582260dc4e846ec16f5116"
+source = "git+ssh://git@github.com/edgeandnode/receipts.git?rev=8bc8f13#8bc8f13acb644c91a1582260dc4e846ec16f5116"
 dependencies = [
  "itertools 0.12.1",
  "lazy_static",
@@ -5231,6 +5241,7 @@ version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a183cf7feeba97b4dd1c0d46788634f6221d87fa961b305bed08c851829efcc0"
 dependencies = [
+ "atomic",
  "getrandom",
 ]
 

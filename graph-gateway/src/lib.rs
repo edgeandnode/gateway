@@ -1,14 +1,10 @@
 pub mod block_constraints;
-pub mod chains;
 pub mod client_query;
 pub mod config;
+pub mod gateway;
 pub mod indexer_client;
 pub mod indexers;
-pub mod indexing_performance;
 pub mod indexings_blocklist;
 pub mod reports;
 pub mod subgraph_studio;
-pub mod subscriptions;
-pub mod subscriptions_subgraph;
-pub mod topology;
 pub mod unattestable_errors;

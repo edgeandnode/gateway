@@ -14,9 +14,8 @@ use thegraph_core::{
 
 use super::common;
 use crate::{
-    client_query::{query_settings::QuerySettings, rate_limiter::RateLimitSettings},
-    subscriptions::Subscription,
-    topology::Deployment,
+    auth::QuerySettings, gateway::http::middleware::RateLimitSettings, subscriptions::Subscription,
+    topology::network::Deployment,
 };
 
 /// Auth token wrapper around the Subscriptions auth token claims and the subscription.

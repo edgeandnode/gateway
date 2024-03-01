@@ -9,62 +9,63 @@ use tower::Service;
 /// Cloudflare Ray ID header name.
 static CLOUDFLARE_RAY_ID: HeaderName = HeaderName::from_static("cf-ray");
 
-/// An identifier for a query.
+/// An identifier for a request.
 #[derive(Clone)]
-pub struct QueryId(pub String);
+pub struct RequestId(pub String);
 
-impl QueryId {
-    /// Create a new [`QueryId`] from a string.
+impl RequestId {
+    #[cfg(test)]
+    /// Create a new [`RequestId`] from a string.
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
 
-    /// Create a new [`QueryId`] from a HeaderValue.
+    /// Create a new [`RequestId`] from a HeaderValue.
     ///
     /// If the header value is invalid, an empty string will be used.
     pub fn from_header_value(value: &HeaderValue) -> Self {
         Self(value.to_str().unwrap_or_default().to_string())
     }
 
-    /// Create a new [`QueryId`] from the Gateway ID and a counter.
+    /// Create a new [`RequestId`] from the Gateway ID and a counter.
     pub fn new_from_gateway_id_and_count(gateway_id: &str, counter: u64) -> Self {
         Self(format!("{}-{:x}", gateway_id, counter))
     }
 }
 
-impl AsRef<str> for QueryId {
+impl AsRef<str> for RequestId {
     fn as_ref(&self) -> &str {
         &self.0
     }
 }
 
-impl std::fmt::Display for QueryId {
+impl std::fmt::Display for RequestId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl std::fmt::Debug for QueryId {
+impl std::fmt::Debug for RequestId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-/// Set query IDs on ingoing requests.
+/// Set request IDs on ingoing requests.
 ///
-/// If the request has a `cf-ray` header, it will be used as the query ID. Otherwise, a new query ID
+/// If the request has a `cf-ray` header, it will be used as the request ID. Otherwise, a new request ID
 /// derived from the gateway ID and a counter will be used.
 ///
-/// The middleware inserts the query ID into the request extensions.
+/// The middleware inserts the request ID into the request extensions.
 #[derive(Clone, Debug)]
-pub struct SetQueryId<S> {
+pub struct SetRequestId<S> {
     inner: S,
     gateway_id: String,
     counter: Arc<AtomicU64>,
 }
 
-impl<S> SetQueryId<S> {
-    /// Create a new [`SetQueryId] middleware.
+impl<S> SetRequestId<S> {
+    /// Create a new [`SetRequestId] middleware.
     pub fn new(inner: S, gateway_id: String, counter: Arc<AtomicU64>) -> Self {
         Self {
             inner,
@@ -74,7 +75,7 @@ impl<S> SetQueryId<S> {
     }
 }
 
-impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for SetQueryId<S>
+impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for SetRequestId<S>
 where
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
 {
@@ -88,37 +89,38 @@ where
     }
 
     fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
-        if req.extensions().get::<QueryId>().is_none() {
-            let query_id = if let Some(ray_id) = req.headers().get(&CLOUDFLARE_RAY_ID) {
-                QueryId::from_header_value(ray_id)
+        if req.extensions().get::<RequestId>().is_none() {
+            let request_id = if let Some(ray_id) = req.headers().get(&CLOUDFLARE_RAY_ID) {
+                RequestId::from_header_value(ray_id)
             } else {
-                let query_count = self.counter.fetch_add(1, atomic::Ordering::Relaxed);
-                QueryId::new_from_gateway_id_and_count(&self.gateway_id, query_count)
+                let request_count = self.counter.fetch_add(1, atomic::Ordering::Relaxed);
+                RequestId::new_from_gateway_id_and_count(&self.gateway_id, request_count)
             };
 
-            // Set the query ID on the current span. The query tracing middleware sets the span's query_id
-            // field to field::Empty.  We set it here to the actual query ID.
-            tracing::span::Span::current().record("query_id", tracing::field::display(&query_id));
+            // Set the request ID on the current span. The request tracing middleware sets the span's request_id
+            // field to field::Empty.  We set it here to the actual request ID.
+            tracing::span::Span::current()
+                .record("request_id", tracing::field::display(&request_id));
 
-            // Set the query ID on the request extensions
-            req.extensions_mut().insert(query_id);
+            // Set the request ID on the request extensions
+            req.extensions_mut().insert(request_id);
         }
 
         self.inner.call(req)
     }
 }
 
-/// Set query id extensions.
+/// Set request id extensions.
 ///
-/// This layer applies the [`SetQueryId`] middleware.
+/// This layer applies the [`SetRequestId`] middleware.
 #[derive(Clone, Debug)]
-pub struct SetQueryIdLayer {
+pub struct SetRequestIdLayer {
     gateway_id: String,
     counter: Arc<AtomicU64>,
 }
 
-impl SetQueryIdLayer {
-    /// Create a new [`SetQueryIdLayer`].
+impl SetRequestIdLayer {
+    /// Create a new [`SetRequestIdLayer`].
     pub fn new(gateway_id: impl Into<String>) -> Self {
         Self {
             gateway_id: gateway_id.into(),
@@ -127,11 +129,11 @@ impl SetQueryIdLayer {
     }
 }
 
-impl<S> tower::layer::Layer<S> for SetQueryIdLayer {
-    type Service = SetQueryId<S>;
+impl<S> tower::layer::Layer<S> for SetRequestIdLayer {
+    type Service = SetRequestId<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        SetQueryId::new(inner, self.gateway_id.clone(), self.counter.clone())
+        SetRequestId::new(inner, self.gateway_id.clone(), self.counter.clone())
     }
 }
 
@@ -140,7 +142,7 @@ mod tests {
     use hyper::http;
     use tower::{Service, ServiceBuilder, ServiceExt};
 
-    use super::{QueryId, SetQueryIdLayer};
+    use super::{RequestId, SetRequestIdLayer};
 
     #[tokio::test]
     async fn cf_ray_header_is_present() {
@@ -150,7 +152,7 @@ mod tests {
         let (mock_svc, mut handle) =
             tower_test::mock::pair::<http::Request<&str>, http::Response<&str>>();
         let mut svc = ServiceBuilder::new()
-            .layer(SetQueryIdLayer::new(gateway_id))
+            .layer(SetRequestIdLayer::new(gateway_id))
             .service(mock_svc);
 
         let req = http::Request::builder()
@@ -171,7 +173,7 @@ mod tests {
         //* Then
         assert_eq!(r.headers().get("cf-ray").unwrap(), "test-cf-ray");
         assert_eq!(
-            r.extensions().get::<QueryId>().unwrap().as_ref(),
+            r.extensions().get::<RequestId>().unwrap().as_ref(),
             "test-cf-ray"
         );
     }
@@ -184,7 +186,7 @@ mod tests {
         let (mock_svc, mut handle) =
             tower_test::mock::pair::<http::Request<&str>, http::Response<&str>>();
         let mut svc = ServiceBuilder::new()
-            .layer(SetQueryIdLayer::new(gateway_id))
+            .layer(SetRequestIdLayer::new(gateway_id))
             .service(mock_svc);
 
         let req1 = http::Request::builder().body("test").unwrap();
@@ -210,30 +212,31 @@ mod tests {
 
         //* Then
         assert_eq!(
-            r1.extensions().get::<QueryId>().unwrap().as_ref(),
+            r1.extensions().get::<RequestId>().unwrap().as_ref(),
             "fe3c0304-7383-48f4-9f3a-fc0cb37f55ba-0"
         );
         assert_eq!(
-            r2.extensions().get::<QueryId>().unwrap().as_ref(),
+            r2.extensions().get::<RequestId>().unwrap().as_ref(),
             "fe3c0304-7383-48f4-9f3a-fc0cb37f55ba-1"
         );
     }
 
     #[tokio::test]
-    async fn query_id_extension_is_already_present() {
+    async fn request_id_extension_is_already_present() {
         //* Given
         let gateway_id = "unique-gateway-id";
 
         let (mock_svc, mut handle) =
             tower_test::mock::pair::<http::Request<&str>, http::Response<&str>>();
         let mut svc = ServiceBuilder::new()
-            .layer(SetQueryIdLayer::new(gateway_id))
+            .layer(SetRequestIdLayer::new(gateway_id))
             .service(mock_svc);
 
-        let expected_query_id = "fe3c0304-7383-48f4-9f3a-fc0cb37f55ba-0";
+        let expected_request_id = "fe3c0304-7383-48f4-9f3a-fc0cb37f55ba-0";
         let req = {
             let mut req = http::Request::builder().body("test").unwrap();
-            req.extensions_mut().insert(QueryId::new(expected_query_id));
+            req.extensions_mut()
+                .insert(RequestId::new(expected_request_id));
             req
         };
 
@@ -249,8 +252,8 @@ mod tests {
 
         //* Then
         assert_eq!(
-            r.extensions().get::<QueryId>().unwrap().as_ref(),
-            expected_query_id
+            r.extensions().get::<RequestId>().unwrap().as_ref(),
+            expected_request_id
         );
     }
 }

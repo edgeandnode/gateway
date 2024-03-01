@@ -1,11 +1,12 @@
-use std::{ops::Deref, str::FromStr};
+use std::{fmt, ops::Deref, str::FromStr};
 
 use alloy_primitives::B256;
 use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_with::DeserializeAs;
+use url::Url;
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(transparent)]
 pub struct Hidden<T>(pub T);
 
@@ -40,5 +41,12 @@ impl<'de> DeserializeAs<'de, Hidden<SecretKey>> for HiddenSecretKey {
         SecretKey::from_slice(bytes.as_slice())
             .map(Hidden)
             .map_err(serde::de::Error::custom)
+    }
+}
+
+pub fn fmt_optional_url(url: &Option<Url>, f: &mut fmt::Formatter) -> fmt::Result {
+    match url {
+        Some(url) => write!(f, "Some({})", url),
+        None => write!(f, "None"),
     }
 }

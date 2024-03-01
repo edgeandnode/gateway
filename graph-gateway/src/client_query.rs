@@ -20,11 +20,19 @@ use gateway_common::{
     utils::{http_ext::HttpBuilderExt, timestamp::unix_timestamp},
 };
 use gateway_framework::{
+    auth::AuthToken,
     blocks::Block,
     budgets::USD,
-    errors::{Error, IndexerError, UnavailableReason, UnavailableReason::*},
-    metrics::{with_metric, METRICS},
+    chains::ChainReader,
+    errors::{Error, IndexerError, UnavailableReason},
+    gateway::http::GatewayState,
+    network::{
+        discovery::Status,
+        indexing_performance::{self, IndexingPerformance},
+    },
+    reporting::{with_metric, KafkaClient, METRICS},
     scalar::{ReceiptStatus, ScalarReceipt},
+    topology::network::{Deployment, GraphNetwork, Subgraph},
 };
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
@@ -41,32 +49,22 @@ use tracing::Instrument;
 use url::Url;
 
 use self::{
-    attestation_header::GraphAttestation, auth::AuthToken, context::Context,
-    l2_forwarding::forward_request_to_l2, query_selector::QuerySelector,
-    query_settings::QuerySettings,
+    attestation_header::GraphAttestation, l2_forwarding::forward_request_to_l2,
+    query_selector::QuerySelector, query_settings::QuerySettings,
 };
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
-    chains::ChainReader,
+    gateway::SubgraphGateway,
     indexer_client::{check_block_error, IndexerClient, ResponsePayload},
-    indexers::indexing,
-    indexing_performance::{self, IndexingPerformance},
-    reports::{self, serialize_attestation, KafkaClient},
-    topology::{Deployment, GraphNetwork, Subgraph},
+    reports::{self, serialize_attestation},
     unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
 };
 
 mod attestation_header;
-pub mod auth;
 pub mod context;
 mod l2_forwarding;
-pub mod legacy_auth_adapter;
-pub mod query_id;
 mod query_selector;
 mod query_settings;
-pub mod query_tracing;
-pub mod rate_limiter;
-pub mod require_auth;
 
 const SELECTION_LIMIT: usize = 3;
 
@@ -85,7 +83,7 @@ pub struct Selection {
 
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_query(
-    State(ctx): State<Context>,
+    State(state): State<Arc<GatewayState<SubgraphGateway>>>,
     Extension(auth): Extension<AuthToken>,
     query_settings: Option<Extension<QuerySettings>>,
     OriginalUri(original_uri): OriginalUri,
@@ -110,7 +108,7 @@ pub async fn handle_query(
         }
     }
 
-    let (deployments, subgraph) = resolve_subgraph_deployments(&ctx.network, &selector)?;
+    let (deployments, subgraph) = resolve_subgraph_deployments(&state.network, &selector)?;
     tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
 
     // Check authorization for the resolved deployments
@@ -126,13 +124,13 @@ pub async fn handle_query(
         )));
     }
 
-    if let Some(l2_url) = ctx.l2_gateway.as_ref() {
+    if let Some(l2_url) = state.l2_gateway.as_ref() {
         // Forward query to L2 gateway if it's marked as transferred & there are no allocations.
         // abf62a6d-c071-4507-b528-ddc8e250127a
         let transferred_to_l2 = deployments.iter().all(|d| d.transferred_to_l2);
         if transferred_to_l2 {
             return Ok(forward_request_to_l2(
-                &ctx.indexer_client.client,
+                &state.gateway_impl.indexer_client.client,
                 l2_url,
                 &original_uri,
                 headers,
@@ -144,7 +142,7 @@ pub async fn handle_query(
     }
 
     let result = handle_client_query_inner(
-        &ctx,
+        &state,
         query_settings.map(|Extension(settings)| settings),
         deployments,
         payload,
@@ -233,11 +231,13 @@ fn resolve_subgraph_deployments(
 }
 
 async fn handle_client_query_inner(
-    ctx: &Context,
+    state: &GatewayState<SubgraphGateway>,
     query_settings: Option<QuerySettings>,
     deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
 ) -> Result<(Selection, ResponsePayload), Error> {
+    let GatewayState { gateway_impl, .. } = state;
+
     let subgraph_chain = deployments
         .last()
         .map(|deployment| deployment.manifest.network.clone())
@@ -245,7 +245,7 @@ async fn handle_client_query_inner(
     tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain);
 
     let manifest_min_block = deployments.last().unwrap().manifest.min_block;
-    let chain = ctx.chains.chain(&subgraph_chain).await;
+    let chain = state.chains.chain(&subgraph_chain).await;
 
     let payload: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
@@ -262,13 +262,16 @@ async fn handle_client_query_inner(
             })
         })
         .collect();
-    let blocklist = ctx
+    let blocklist = state
         .indexings_blocklist
         .value_immediate()
         .unwrap_or_default();
     available_indexers.retain(|candidate| {
-        if blocklist.contains(candidate) || ctx.bad_indexers.contains(&candidate.indexer) {
-            indexer_errors.insert(candidate.indexer, IndexerError::Unavailable(NoStatus));
+        if blocklist.contains(candidate) || state.bad_indexers.contains(&candidate.indexer) {
+            indexer_errors.insert(
+                candidate.indexer,
+                IndexerError::Unavailable(UnavailableReason::NoStatus),
+            );
             return false;
         }
         true
@@ -290,12 +293,12 @@ async fn handle_client_query_inner(
         %variables,
     );
 
-    let grt_per_usd = ctx
+    let grt_per_usd = state
         .grt_per_usd
         .value_immediate()
         .ok_or_else(|| Error::Internal(anyhow!("missing exchange rate")))?;
     let one_grt = NotNan::new(1e18).unwrap();
-    let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
+    let mut budget = *(state.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
     let query_settings = query_settings.unwrap_or_default();
     if let Some(user_budget_usd) = query_settings.budget_usd {
         // Security: Consumers can and will set their budget to unreasonably high values.
@@ -325,7 +328,7 @@ async fn handle_client_query_inner(
         let chain_head = chain.latest().map(|b| b.number);
         (chain_head, blocks_per_minute, block_requirements)
     };
-    let indexing_statuses = ctx.indexing_statuses.value_immediate().unwrap();
+    let indexing_statuses = state.indexing_statuses.value_immediate().unwrap();
     let chain_head = chain_head.unwrap_or_else(|| {
         available_indexers
             .iter()
@@ -337,10 +340,10 @@ async fn handle_client_query_inner(
 
     let mut candidates = Vec::new();
     {
-        let perf = ctx.indexing_perf.latest();
+        let perf = state.indexing_performance.latest();
         for indexing in available_indexers {
             match prepare_candidate(
-                &ctx.network,
+                &state.network,
                 &indexing_statuses,
                 &perf,
                 &versions_behind,
@@ -372,13 +375,13 @@ async fn handle_client_query_inner(
     }
 
     let mut total_indexer_fees_grt: u128 = 0;
-    for retry in 0..ctx.indexer_selection_retry_limit {
+    for retry in 0..state.config.indexer_selection_retry_limit {
         // Make sure our observations are up-to-date if retrying.
         if retry > 0 {
-            ctx.indexing_perf.flush().await;
+            state.indexing_performance.flush().await;
 
             // Update candidate performance.
-            let perf_snapshots = ctx.indexing_perf.latest();
+            let perf_snapshots = state.indexing_performance.latest();
             for candidate in &mut candidates {
                 let indexing = Indexing {
                     indexer: candidate.indexer,
@@ -404,7 +407,7 @@ async fn handle_client_query_inner(
             };
 
             // over-pay indexers to hit target
-            let min_fee = ctx
+            let min_fee = state
                 .budgeter
                 .min_indexer_fees
                 .value_immediate()
@@ -413,7 +416,7 @@ async fn handle_client_query_inner(
             let indexer_fee = candidate.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
 
-            let receipt = match ctx.receipt_signer.create_receipt(&indexing, fee).await {
+            let receipt = match state.receipt_signer.create_receipt(&indexing, fee).await {
                 Some(receipt) => receipt,
                 None => {
                     tracing::error!(?indexing, "failed to create receipt");
@@ -444,11 +447,11 @@ async fn handle_client_query_inner(
                 .unwrap()
                 .clone();
             let indexer_query_context = IndexerQueryContext {
-                indexer_client: ctx.indexer_client.clone(),
-                kafka_client: ctx.kafka_client,
+                indexer_client: gateway_impl.indexer_client.clone(),
+                kafka_client: state.kafka_client,
                 chain: chain.clone(),
-                attestation_domain: ctx.attestation_domain,
-                indexing_perf: ctx.indexing_perf.clone(),
+                attestation_domain: state.attestation_domain,
+                indexing_perf: state.indexing_performance.clone(),
                 deployment,
                 response_time: Duration::default(),
             };
@@ -486,7 +489,7 @@ async fn handle_client_query_inner(
                 "indexer_query",
                 indexer = ?selection.indexing.indexer,
             );
-            let receipt_signer = ctx.receipt_signer;
+            let receipt_signer = state.receipt_signer;
             tokio::spawn(
                 async move {
                     let response =
@@ -523,7 +526,7 @@ async fn handle_client_query_inner(
                     indexer_errors.insert(selection.indexing.indexer, err);
                 }
                 Ok(outcome) => {
-                    let _ = ctx.budgeter.feedback.send(total_indexer_fees_usd);
+                    let _ = state.budgeter.feedback.send(total_indexer_fees_usd);
 
                     tracing::debug!(?indexer_errors);
                     return Ok((selection, outcome));
@@ -538,7 +541,7 @@ async fn handle_client_query_inner(
 #[allow(clippy::too_many_arguments)]
 fn prepare_candidate(
     network: &GraphNetwork,
-    statuses: &HashMap<Indexing, indexing::Status>,
+    statuses: &HashMap<Indexing, Status>,
     perf_snapshots: &HashMap<Indexing, indexing_performance::Snapshot>,
     versions_behind: &BTreeMap<DeploymentId, u8>,
     context: &mut AgoraContext<String>,
@@ -658,7 +661,7 @@ async fn handle_indexer_query(
             Ok(_) => "200 OK".to_string(),
             Err(err) => format!("{err:?}"),
         },
-        status_code = reports::indexer_attempt_status_code(&result),
+        status_code = reports::indexer_error_status_code(result.as_ref().err()),
     );
 
     ctx.indexing_perf
@@ -723,7 +726,7 @@ async fn handle_indexer_query_inner(
         .iter()
         .try_for_each(|err| check_block_error(&err.message))
         .map_err(|block_error| ExtendedIndexerError {
-            error: IndexerError::Unavailable(MissingBlock),
+            error: IndexerError::Unavailable(UnavailableReason::MissingBlock),
             latest_block: block_error.latest_block,
         })?;
 
@@ -796,8 +799,10 @@ pub fn indexer_fee(
         .map(|model| model.cost_with_context(context))
     {
         None => Ok(0),
-        Some(Ok(fee)) => fee.to_u128().ok_or(IndexerError::Unavailable(NoFee)),
-        Some(Err(_)) => Err(IndexerError::Unavailable(NoFee)),
+        Some(Ok(fee)) => fee
+            .to_u128()
+            .ok_or(IndexerError::Unavailable(UnavailableReason::NoFee)),
+        Some(Err(_)) => Err(IndexerError::Unavailable(UnavailableReason::NoFee)),
     }
 }
 
@@ -847,8 +852,6 @@ fn rewrite_response(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     mod require_req_auth {
         use std::{collections::HashMap, sync::Arc};
 
@@ -861,16 +864,13 @@ mod tests {
             Extension, Router,
         };
         use eventuals::{Eventual, Ptr};
+        use gateway_framework::{
+            auth::{context::AuthContext, methods::api_keys::APIKey, AuthToken},
+            gateway::http::middleware::{legacy_auth_adapter, RequireAuthorizationLayer},
+        };
         use headers::{Authorization, ContentType, HeaderMapExt};
         use hyper::Body;
         use tower::ServiceExt;
-
-        use super::{
-            auth::{AuthContext, AuthToken},
-            legacy_auth_adapter::legacy_auth_adapter,
-            require_auth::RequireAuthorizationLayer,
-        };
-        use crate::subgraph_studio::APIKey;
 
         /// Create a test authorization context.
         fn test_auth_ctx(key: Option<&str>) -> AuthContext {
@@ -932,7 +932,7 @@ mod tests {
         fn test_router(auth_ctx: AuthContext) -> Router {
             async fn handler(Extension(auth): Extension<AuthToken>) -> String {
                 match auth {
-                    AuthToken::StudioApiKey(auth_token) => auth_token.key().to_string(),
+                    AuthToken::ApiKey(auth_token) => auth_token.key().to_string(),
                     _ => unreachable!(),
                 }
             }

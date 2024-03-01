@@ -7,15 +7,13 @@ use std::{
 use alloy_primitives::Address;
 use eventuals::{Eventual, EventualExt, Ptr};
 use gateway_common::types::Indexing;
+use gateway_framework::topology::network::{Deployment, Indexer};
 use itertools::Itertools as _;
 use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;
 use url::Url;
 
-use crate::{
-    indexers::{public_poi, public_poi::ProofOfIndexingInfo},
-    topology::{Deployment, Indexer},
-};
+use crate::indexers::{public_poi, public_poi::ProofOfIndexingInfo};
 
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(20 * 60); // 20 minutes
 

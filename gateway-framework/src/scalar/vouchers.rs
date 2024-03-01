@@ -8,7 +8,7 @@ use serde_json::json;
 
 use crate::{
     json::{json_response, JsonResponse},
-    metrics::METRICS,
+    reporting::METRICS,
 };
 
 lazy_static! {

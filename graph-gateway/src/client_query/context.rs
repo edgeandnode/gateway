@@ -4,17 +4,21 @@ use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use eventuals::{Eventual, Ptr};
 use gateway_common::types::Indexing;
-use gateway_framework::{budgets::Budgeter, scalar::ReceiptSigner};
+use gateway_framework::{
+    budgets::Budgeter,
+    chains::Chains,
+    network::{discovery::Status, indexing_performance::IndexingPerformance},
+    reporting::KafkaClient,
+    scalar::ReceiptSigner,
+    topology::network::GraphNetwork,
+};
 use ordered_float::NotNan;
 use url::Url;
 
-use crate::{
-    chains::Chains, indexer_client::IndexerClient, indexers::indexing,
-    indexing_performance::IndexingPerformance, reports::KafkaClient, topology::GraphNetwork,
-};
+use crate::indexer_client::IndexerClient;
 
 #[derive(Clone)]
-pub struct Context {
+pub struct GatewayState {
     pub indexer_client: IndexerClient,
     pub receipt_signer: &'static ReceiptSigner,
     pub kafka_client: &'static KafkaClient,
@@ -24,7 +28,7 @@ pub struct Context {
     pub grt_per_usd: Eventual<NotNan<f64>>,
     pub chains: &'static Chains,
     pub network: GraphNetwork,
-    pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, indexing::Status>>>,
+    pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, Status>>>,
     pub indexing_perf: IndexingPerformance,
     pub attestation_domain: &'static Eip712Domain,
     pub bad_indexers: &'static HashSet<Address>,

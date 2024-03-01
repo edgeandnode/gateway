@@ -1,3 +1,5 @@
+pub mod subgraph;
+
 use std::str::FromStr;
 
 use alloy_primitives::Address;
