@@ -66,76 +66,81 @@ pub fn rewrite_query(
     resolved: &BTreeSet<BlockPointer>,
     latest: &BlockPointer,
 ) -> Result<String, Error> {
-    let vars = &ctx.variables;
-    // Similar walk as ba6c90f1-3baf-45be-ac1c-f60733404436. But now including variables, and
-    // mutating as we go.
-    for operation in &mut ctx.operations {
-        let (selection_set, defaults) = match operation {
-            OperationDefinition::SelectionSet(selection_set) => {
-                (selection_set, BTreeMap::default())
-            }
-            OperationDefinition::Query(query) if query.directives.is_empty() => {
-                // Add default definitions for variables not set at top level.
-                let defaults = query
-                    .variable_definitions
-                    .iter()
-                    .filter(|d| !vars.0.contains_key(&d.name))
-                    .filter_map(|d| Some((d.name.clone(), d.default_value.as_ref()?.to_graphql())))
-                    .collect::<BTreeMap<String, StaticValue>>();
-                (&mut query.selection_set, defaults)
-            }
-            OperationDefinition::Query(_)
-            | OperationDefinition::Mutation(_)
-            | OperationDefinition::Subscription(_) => {
-                return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
-            }
-        };
-        for selection in &mut selection_set.items {
-            let selection_field = match selection {
-                Selection::Field(field) => field,
-                Selection::FragmentSpread(_) | Selection::InlineFragment(_) => {
+    if !contains_introspection(&ctx) {
+        let vars = &ctx.variables;
+        // Similar walk as ba6c90f1-3baf-45be-ac1c-f60733404436. But now including variables, and
+        // mutating as we go.
+        for operation in &mut ctx.operations {
+            let (selection_set, defaults) = match operation {
+                OperationDefinition::SelectionSet(selection_set) => {
+                    (selection_set, BTreeMap::default())
+                }
+                OperationDefinition::Query(query) if query.directives.is_empty() => {
+                    // Add default definitions for variables not set at top level.
+                    let defaults = query
+                        .variable_definitions
+                        .iter()
+                        .filter(|d| !vars.0.contains_key(&d.name))
+                        .filter_map(|d| {
+                            Some((d.name.clone(), d.default_value.as_ref()?.to_graphql()))
+                        })
+                        .collect::<BTreeMap<String, StaticValue>>();
+                    (&mut query.selection_set, defaults)
+                }
+                OperationDefinition::Query(_)
+                | OperationDefinition::Mutation(_)
+                | OperationDefinition::Subscription(_) => {
                     return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
                 }
             };
-            match selection_field
-                .arguments
-                .iter_mut()
-                .find(|(k, _)| *k == "block")
-            {
-                Some((_, arg)) => {
-                    match field_constraint(vars, &defaults, arg).map_err(Error::BadQuery)? {
-                        BlockConstraint::Hash(_) => (),
-                        BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
-                            *arg = deterministic_block(&latest.hash);
-                        }
-                        BlockConstraint::Number(number) => {
-                            if let Some(block) = resolved.iter().find(|b| b.number == number) {
-                                *arg = deterministic_block(&block.hash);
+            for selection in &mut selection_set.items {
+                let selection_field = match selection {
+                    Selection::Field(field) => field,
+                    Selection::FragmentSpread(_) | Selection::InlineFragment(_) => {
+                        return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
+                    }
+                };
+                match selection_field
+                    .arguments
+                    .iter_mut()
+                    .find(|(k, _)| *k == "block")
+                {
+                    Some((_, arg)) => {
+                        match field_constraint(vars, &defaults, arg).map_err(Error::BadQuery)? {
+                            BlockConstraint::Hash(_) => (),
+                            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
+                                *arg = deterministic_block(&latest.hash);
                             }
-                        }
-                    };
-                }
-                None => {
-                    selection_field
-                        .arguments
-                        .push(("block".to_string(), deterministic_block(&latest.hash)));
-                }
+                            BlockConstraint::Number(number) => {
+                                if let Some(block) = resolved.iter().find(|b| b.number == number) {
+                                    *arg = deterministic_block(&block.hash);
+                                }
+                            }
+                        };
+                    }
+                    None => {
+                        selection_field
+                            .arguments
+                            .push(("block".to_string(), deterministic_block(&latest.hash)));
+                    }
+                };
+            }
+        }
+
+        for operation in &mut ctx.operations {
+            match operation {
+                OperationDefinition::Query(q) => q.selection_set.items.push(probe()),
+                OperationDefinition::SelectionSet(s) => s.items.push(probe()),
+                _ => (),
             };
         }
     }
 
     let Context {
         fragments,
-        mut operations,
+        operations,
         ..
     } = ctx;
-    for operation in &mut operations {
-        match operation {
-            OperationDefinition::Query(q) => q.selection_set.items.push(probe()),
-            OperationDefinition::SelectionSet(s) => s.items.push(probe()),
-            _ => (),
-        };
-    }
 
     let definitions = fragments
         .into_iter()
@@ -147,6 +152,18 @@ pub fn rewrite_query(
         &json!({ "query": Document { definitions }.to_string(), "variables": ctx.variables }),
     )
     .map_err(|err| Error::Internal(anyhow!("failed to serialize query: {err}")))
+}
+
+fn contains_introspection(ctx: &Context<String>) -> bool {
+    let is_introspection_field = |s: &Selection<'_, String>| match s {
+        Selection::Field(f) => f.name.starts_with("__"),
+        Selection::FragmentSpread(_) | Selection::InlineFragment(_) => false,
+    };
+    ctx.operations.iter().any(|op| match op {
+        OperationDefinition::Query(q) => q.selection_set.items.iter().any(is_introspection_field),
+        OperationDefinition::SelectionSet(s) => s.items.iter().any(is_introspection_field),
+        OperationDefinition::Mutation(_) | OperationDefinition::Subscription(_) => false,
+    })
 }
 
 fn deterministic_block<'c>(hash: &BlockHash) -> Value<'c, String> {
@@ -314,5 +331,12 @@ mod tests {
                 .map_err(ToString::to_string);
             assert_eq!(constraints, expected);
         }
+    }
+
+    #[test]
+    fn query_contains_introspection() {
+        let query = "{ __schema { queryType { name } } }";
+        let context = Context::new(query, "").unwrap();
+        assert!(super::contains_introspection(&context));
     }
 }
