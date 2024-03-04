@@ -9,7 +9,7 @@ proto-gen = []
 
 [dependencies]
 alloy-primitives.workspace = true
-alloy-sol-types = "0.6.3"
+alloy-sol-types = "0.6.4"
 anyhow.workspace = true
 axum.workspace = true
 candidate-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection.git", rev = "c0b5efa" }
