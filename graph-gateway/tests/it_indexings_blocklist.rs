@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use alloy_primitives::Address;
-use thegraph::types::DeploymentId;
+use thegraph_core::types::DeploymentId;
 use tokio::time::timeout;
 
 use graph_gateway::indexers::public_poi::{ProofOfIndexing, ProofOfIndexingInfo};

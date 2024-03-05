@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use alloy_primitives::{BlockNumber, B256};
-use graphql_http::graphql::{Document, IntoDocument, IntoDocumentWithVariables};
-use graphql_http::http_client::ReqwestExt;
 use indoc::indoc;
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use thegraph::types::DeploymentId;
+use thegraph_core::types::DeploymentId;
+use thegraph_graphql_http::graphql::{Document, IntoDocument, IntoDocumentWithVariables};
+use thegraph_graphql_http::http_client::ReqwestExt;
 use url::Url;
 
 pub type ProofOfIndexing = B256;
@@ -154,8 +154,8 @@ mod tests {
     use super::*;
 
     mod query {
-        use graphql_http::http::request::IntoRequestParameters;
         use serde_json::json;
+        use thegraph_graphql_http::http::request::IntoRequestParameters;
 
         use super::*;
 

@@ -24,7 +24,7 @@ use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
-use thegraph::{
+use thegraph_core::{
     client as subgraph_client,
     types::{attestation, DeploymentId},
 };

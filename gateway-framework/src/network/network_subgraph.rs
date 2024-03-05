@@ -5,7 +5,7 @@ use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use serde::Deserialize;
 use serde_with::serde_as;
-use thegraph::{
+use thegraph_core::{
     client as subgraph_client,
     types::{DeploymentId, SubgraphId},
 };

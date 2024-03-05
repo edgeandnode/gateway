@@ -1,6 +1,6 @@
 use axum::http::{Response, StatusCode};
-use graphql_http::http::response::{IntoError as IntoGraphqlResponseError, ResponseBody};
 use headers::ContentType;
+use thegraph_graphql_http::http::response::{IntoError as IntoGraphqlResponseError, ResponseBody};
 
 use gateway_common::utils::http_ext::HttpBuilderExt;
 
@@ -25,8 +25,8 @@ pub fn error_response(err: impl IntoGraphqlResponseError) -> Response<String> {
 mod tests {
     use assert_matches::assert_matches;
     use axum::http::StatusCode;
-    use graphql_http::http::response::ResponseBody;
     use headers::{ContentType, HeaderMapExt};
+    use thegraph_graphql_http::http::response::ResponseBody;
 
     use super::error_response;
 

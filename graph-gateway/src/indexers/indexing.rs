@@ -11,7 +11,7 @@ use futures::future::join_all;
 use gateway_common::types::Indexing;
 use semver::Version;
 use std::{collections::HashMap, sync::Arc};
-use thegraph::types::DeploymentId;
+use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;
 use toolshed::epoch_cache::EpochCache;
 use url::Url;

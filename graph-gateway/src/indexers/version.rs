@@ -1,6 +1,6 @@
-use graphql_http::http_client::ReqwestExt as _;
 use semver::Version;
 use serde::Deserialize;
+use thegraph_graphql_http::http_client::ReqwestExt as _;
 
 pub async fn query_indexer_service_version(
     client: &reqwest::Client,

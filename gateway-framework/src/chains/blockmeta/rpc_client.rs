@@ -1,9 +1,9 @@
 //! StreamingFast Blockmeta gRPC client.
 
+use alloy_primitives::{BlockHash, BlockNumber};
 use std::time::Duration;
 
 use alloy_primitives::bytes::Bytes;
-use thegraph::types::{BlockHash, BlockNumber};
 use tonic::codegen::{Body, StdError};
 use tonic::transport::{Channel, Uri};
 

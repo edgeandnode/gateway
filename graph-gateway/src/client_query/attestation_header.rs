@@ -2,7 +2,7 @@
 
 use axum::http::{HeaderName, HeaderValue};
 use headers::Error;
-use thegraph::types::Attestation;
+use thegraph_core::types::Attestation;
 
 static GRAPH_ATTESTATION_HEADER_NAME: HeaderName = HeaderName::from_static("graph-attestation");
 
@@ -77,7 +77,7 @@ impl headers::Header for GraphAttestation {
 mod tests {
     use assert_matches::assert_matches;
     use headers::{Header, HeaderValue};
-    use thegraph::types::Attestation;
+    use thegraph_core::types::Attestation;
 
     use super::GraphAttestation;
 

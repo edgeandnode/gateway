@@ -297,7 +297,7 @@ mod tests {
     /// Deserialize a GraphQL response body.
     async fn deserialize_graphql_response_body<T>(
         body: &mut BoxBody,
-    ) -> serde_json::Result<graphql_http::http::response::ResponseBody<T>>
+    ) -> serde_json::Result<thegraph_graphql_http::http::response::ResponseBody<T>>
     where
         for<'de> T: serde::Deserialize<'de>,
     {

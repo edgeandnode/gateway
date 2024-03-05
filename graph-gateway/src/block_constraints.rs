@@ -9,7 +9,7 @@ use graphql::graphql_parser::query::{
 use graphql::{IntoStaticValue as _, StaticValue};
 use itertools::Itertools as _;
 use serde_json::{self, json};
-use thegraph::types::BlockPointer;
+use thegraph_core::types::BlockPointer;
 
 use gateway_framework::{block_constraints::BlockConstraint, errors::Error};
 

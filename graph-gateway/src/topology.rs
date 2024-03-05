@@ -8,7 +8,7 @@ use futures::future::join_all;
 use gateway_framework::geoip::GeoIp;
 use itertools::Itertools;
 use serde::Deserialize;
-use thegraph::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::sync::{Mutex, RwLock};
 use url::Url;
 

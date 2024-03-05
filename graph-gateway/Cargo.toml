@@ -18,9 +18,8 @@ futures = "0.3"
 gateway-common = { path = "../gateway-common" }
 gateway-framework = { path = "../gateway-framework" }
 graphql.workspace = true
-graphql-http.workspace = true
 headers = "0.3.9"
-indexer-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection.git", rev = "be28b44" }
+indexer-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection.git", rev = "bcd7909" }
 indoc = "2.0.4"
 itertools = "0.12.1"
 num-traits = "0.2.18"
@@ -39,7 +38,8 @@ serde_with = "3.6"
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
-thegraph = { workspace = true, features = ["subgraph-client", "subscriptions"] }
+thegraph-core = { workspace = true, features = ["subgraph-client", "subscriptions"] }
+thegraph-graphql-http.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toolshed.workspace = true

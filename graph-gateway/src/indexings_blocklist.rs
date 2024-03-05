@@ -5,7 +5,7 @@ use std::time::Duration;
 use alloy_primitives::Address;
 use eventuals::{Eventual, EventualExt, Ptr};
 use itertools::Itertools as _;
-use thegraph::types::DeploymentId;
+use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;
 use url::Url;
 

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use alloy_primitives::BlockNumber;
 use assert_matches::assert_matches;
-use thegraph::types::DeploymentId;
+use thegraph_core::types::DeploymentId;
 use tokio::time::timeout;
 
 use graph_gateway::indexers::public_poi::{

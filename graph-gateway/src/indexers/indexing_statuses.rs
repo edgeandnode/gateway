@@ -1,10 +1,10 @@
 use anyhow::{bail, ensure};
 use futures::future::join_all;
-use graphql_http::http_client::ReqwestExt as _;
 use indoc::formatdoc;
 use itertools::Itertools;
 use serde::Deserialize;
-use thegraph::types::DeploymentId;
+use thegraph_core::types::DeploymentId;
+use thegraph_graphql_http::http_client::ReqwestExt as _;
 
 pub async fn query(
     client: &reqwest::Client,

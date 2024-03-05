@@ -1,7 +1,7 @@
 use alloy_primitives::bytes::Bytes;
 use anyhow::anyhow;
 use axum::http::{header, HeaderMap, Response, Uri};
-use thegraph::types::SubgraphId;
+use thegraph_core::types::SubgraphId;
 use url::Url;
 
 use gateway_framework::errors::Error;
@@ -70,7 +70,7 @@ fn l2_request_path(original_path: &Uri, l2_subgraph_id: Option<SubgraphId>) -> S
 
 #[cfg(test)]
 mod tests {
-    use thegraph::types::{DeploymentId, SubgraphId};
+    use thegraph_core::types::{DeploymentId, SubgraphId};
 
     use super::l2_request_path;
 

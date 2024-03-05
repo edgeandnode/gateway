@@ -5,7 +5,7 @@ use axum::async_trait;
 use axum::extract::{FromRequestParts, Path};
 use axum::http::request::Parts;
 use axum::response::IntoResponse;
-use thegraph::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{DeploymentId, SubgraphId};
 
 use gateway_framework::errors::Error;
 use gateway_framework::graphql;
@@ -93,7 +93,7 @@ mod tests {
     use axum::body::{Body, BoxBody};
     use axum::http::{Method, Request};
     use axum::Router;
-    use thegraph::types::{DeploymentId, SubgraphId};
+    use thegraph_core::types::{DeploymentId, SubgraphId};
     use tower::ServiceExt;
 
     use super::QuerySelector;
@@ -128,7 +128,7 @@ mod tests {
     /// Deserialize a GraphQL response body.
     async fn deserialize_graphql_response_body<T>(
         body: &mut BoxBody,
-    ) -> serde_json::Result<graphql_http::http::response::ResponseBody<T>>
+    ) -> serde_json::Result<thegraph_graphql_http::http::response::ResponseBody<T>>
     where
         for<'de> T: serde::Deserialize<'de>,
     {

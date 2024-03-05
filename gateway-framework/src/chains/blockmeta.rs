@@ -1,9 +1,10 @@
 //! StreamingFast Blockmeta client.
 
+use alloy_primitives::{BlockHash, BlockNumber};
 use std::time::Duration;
 
 use custom_debug::CustomDebug;
-use thegraph::types::{BlockHash, BlockNumber, BlockPointer};
+use thegraph_core::types::BlockPointer;
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tonic::transport::Uri;

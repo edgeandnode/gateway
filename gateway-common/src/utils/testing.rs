@@ -4,7 +4,7 @@ use std::sync::Once;
 
 use alloy_primitives::Address;
 use siphasher::sip::SipHasher24;
-use thegraph::types::{BlockPointer, DeploymentId};
+use thegraph_core::types::{BlockPointer, DeploymentId};
 
 use crate::utils::tracing::init_tracing;
 
