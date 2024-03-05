@@ -293,12 +293,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ascii_utils"
-version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71938f30533e4d95a6d17aa530939da3842c2ab6f4f84b9dae68447e4129f74a"
-
-[[package]]
 name = "assert_matches"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -315,80 +309,6 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "async-graphql"
-version = "7.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ba89a35adbed833e0d21db467093a087c3a07b497626009eae02cb36f060567"
-dependencies = [
- "async-graphql-derive",
- "async-graphql-parser",
- "async-graphql-value",
- "async-stream",
- "async-trait",
- "base64 0.21.7",
- "bytes",
- "fast_chemail",
- "fnv",
- "futures-util",
- "handlebars",
- "http 1.0.0",
- "indexmap 2.2.5",
- "mime",
- "multer",
- "num-traits",
- "once_cell",
- "pin-project-lite",
- "regex",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "static_assertions_next",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
-name = "async-graphql-derive"
-version = "7.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9547f7f22688f022ea8001bdd57a1fce8996045dcb959b1730a79bafd366a9d9"
-dependencies = [
- "Inflector",
- "async-graphql-parser",
- "darling",
- "proc-macro-crate 1.3.1",
- "proc-macro2",
- "quote",
- "strum 0.25.0",
- "syn 2.0.52",
- "thiserror",
-]
-
-[[package]]
-name = "async-graphql-parser"
-version = "7.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8e3d4cc5074c46adfee619b5b6cf817943332f772ed5930ed78871f7dbbac6"
-dependencies = [
- "async-graphql-value",
- "pest",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "async-graphql-value"
-version = "7.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53ff1287a1283ea772b4099dd556ba4577d35f069ea4a93f337a525beefcfacf"
-dependencies = [
- "bytes",
- "indexmap 2.2.5",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -470,7 +390,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "headers",
- "http 0.2.11",
+ "http",
  "http-body",
  "hyper",
  "itoa",
@@ -499,7 +419,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures-util",
- "http 0.2.11",
+ "http",
  "http-body",
  "mime",
  "rustversion",
@@ -539,6 +459,12 @@ name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
+
+[[package]]
+name = "base64"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9475866fec1451be56a3c2400fd081ff546538961565ccb5b7142cbd22bc7a51"
 
 [[package]]
 name = "base64ct"
@@ -676,19 +602,7 @@ dependencies = [
 [[package]]
 name = "candidate-selection"
 version = "0.1.0"
-source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=be28b44#be28b44d78381450307f650bd961de1c7111576e"
-dependencies = [
- "arrayvec 0.7.4",
- "ordered-float",
- "permutation",
- "proptest",
- "rand",
-]
-
-[[package]]
-name = "candidate-selection"
-version = "0.1.0"
-source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=c0b5efa#c0b5efa6a6657c201cc71ee4108991e37bc1f581"
+source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=bcd7909#bcd7909f6bc0344278d9e09e368580201b6fae22"
 dependencies = [
  "arrayvec 0.7.4",
  "ordered-float",
@@ -1528,7 +1442,7 @@ dependencies = [
  "futures-timer",
  "futures-util",
  "hashers",
- "http 0.2.11",
+ "http",
  "instant",
  "jsonwebtoken",
  "once_cell",
@@ -1619,15 +1533,6 @@ checksum = "7cd915d99f24784cdc19fd37ef22b97e3ff0ae756c7e492e9fbfe897d61e2aec"
 dependencies = [
  "indenter",
  "once_cell",
-]
-
-[[package]]
-name = "fast_chemail"
-version = "0.9.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "495a39d30d624c2caabe6312bfead73e7717692b44e0b32df168c275a2e8e9e4"
-dependencies = [
- "ascii_utils",
 ]
 
 [[package]]
@@ -1880,9 +1785,9 @@ version = "0.0.1"
 dependencies = [
  "alloy-primitives",
  "headers",
- "http 0.2.11",
+ "http",
  "siphasher 1.0.0",
- "thegraph",
+ "thegraph-core",
  "tracing-subscriber",
 ]
 
@@ -1895,12 +1800,11 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "axum",
- "candidate-selection 0.1.0 (git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=c0b5efa)",
+ "candidate-selection",
  "custom_debug",
  "ethers",
  "eventuals",
  "gateway-common",
- "graphql-http",
  "headers",
  "hex",
  "hickory-resolver",
@@ -1922,7 +1826,8 @@ dependencies = [
  "siphasher 1.0.0",
  "tap_core",
  "test-with",
- "thegraph",
+ "thegraph-core",
+ "thegraph-graphql-http",
  "thiserror",
  "tokio",
  "tonic",
@@ -1999,7 +1904,6 @@ dependencies = [
  "gateway-common",
  "gateway-framework",
  "graphql 0.3.0",
- "graphql-http",
  "headers",
  "hyper",
  "indexer-selection",
@@ -2021,7 +1925,8 @@ dependencies = [
  "serde_yaml",
  "simple-rate-limiter",
  "snmalloc-rs",
- "thegraph",
+ "thegraph-core",
+ "thegraph-graphql-http",
  "thiserror",
  "tokio",
  "tokio-test",
@@ -2056,19 +1961,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "graphql-http"
-version = "0.2.1"
-source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-http-v0.2.1#b2ba62e7eedf24b98f999797c4955527de6c3e64"
-dependencies = [
- "anyhow",
- "async-trait",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
 name = "graphql-parser"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2100,7 +1992,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "http 0.2.11",
+ "http",
  "indexmap 2.2.5",
  "slab",
  "tokio",
@@ -2113,20 +2005,6 @@ name = "half"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b43ede17f21864e81be2fa654110bf1e793774238d86ef8555c37e6519c0403"
-
-[[package]]
-name = "handlebars"
-version = "4.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faa67bab9ff362228eb3d00bd024a4965d8231bbb7921167f0cfa66c6626b225"
-dependencies = [
- "log",
- "pest",
- "pest_derive",
- "serde",
- "serde_json",
- "thiserror",
-]
 
 [[package]]
 name = "hashbrown"
@@ -2158,7 +2036,7 @@ dependencies = [
  "base64 0.21.7",
  "bytes",
  "headers-core",
- "http 0.2.11",
+ "http",
  "httpdate",
  "mime",
  "sha1",
@@ -2170,7 +2048,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7f66481bfee273957b1f20485a4ff3362987f85b2c236580d81b4eb7a326429"
 dependencies = [
- "http 0.2.11",
+ "http",
 ]
 
 [[package]]
@@ -2286,24 +2164,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "http"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b32afd38673a8016f7c9ae69e5af41a58f81b1d31689040f2f1959594ce194ea"
-dependencies = [
- "bytes",
- "fnv",
- "itoa",
-]
-
-[[package]]
 name = "http-body"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ceab25649e9960c0311ea418d17bee82c0dcec1bd053b5f9a66e265a693bed2"
 dependencies = [
  "bytes",
- "http 0.2.11",
+ "http",
  "pin-project-lite",
 ]
 
@@ -2336,7 +2203,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http 0.2.11",
+ "http",
  "http-body",
  "httparse",
  "httpdate",
@@ -2356,7 +2223,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec3efd23720e2049821a693cbc7e65ea87c72f1c58ff2f9522ff332b1491e590"
 dependencies = [
  "futures-util",
- "http 0.2.11",
+ "http",
  "hyper",
  "rustls 0.21.10",
  "tokio",
@@ -2484,12 +2351,12 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 [[package]]
 name = "indexer-selection"
 version = "0.1.0"
-source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=be28b44#be28b44d78381450307f650bd961de1c7111576e"
+source = "git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=bcd7909#bcd7909f6bc0344278d9e09e368580201b6fae22"
 dependencies = [
- "candidate-selection 0.1.0 (git+ssh://git@github.com/edgeandnode/candidate-selection.git?rev=be28b44)",
+ "candidate-selection",
  "custom_debug",
  "rand",
- "thegraph",
+ "thegraph-core",
  "url",
 ]
 
@@ -2858,24 +2725,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "multer"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a15d522be0a9c3e46fd2632e272d178f56387bdb5c9fbb3a36c649062e9b5219"
-dependencies = [
- "bytes",
- "encoding_rs",
- "futures-util",
- "http 1.0.0",
- "httparse",
- "log",
- "memchr",
- "mime",
- "spin 0.9.8",
- "version_check",
 ]
 
 [[package]]
@@ -3320,40 +3169,6 @@ dependencies = [
  "memchr",
  "thiserror",
  "ucd-trie",
-]
-
-[[package]]
-name = "pest_derive"
-version = "2.7.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0d24f72393fd16ab6ac5738bc33cdb6a9aa73f8b902e8fe29cf4e67d7dd1026"
-dependencies = [
- "pest",
- "pest_generator",
-]
-
-[[package]]
-name = "pest_generator"
-version = "2.7.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdc17e2a6c7d0a492f0158d7a4bd66cc17280308bbaff78d5bef566dca35ab80"
-dependencies = [
- "pest",
- "pest_meta",
- "proc-macro2",
- "quote",
- "syn 2.0.52",
-]
-
-[[package]]
-name = "pest_meta"
-version = "2.7.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "934cd7631c050f4674352a6e835d5f6711ffbfb9345c2fc0107155ac495ae293"
-dependencies = [
- "once_cell",
- "pest",
- "sha2",
 ]
 
 [[package]]
@@ -3876,7 +3691,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http 0.2.11",
+ "http",
  "http-body",
  "hyper",
  "hyper-rustls",
@@ -4697,12 +4512,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
-name = "static_assertions_next"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7beae5182595e9a8b683fa98c4317f956c9a2dec3b9716990d20023cc60c766"
-
-[[package]]
 name = "string_cache"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4949,19 +4758,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "thegraph"
-version = "0.6.0"
-source = "git+https://github.com/edgeandnode/toolshed?tag=thegraph-v0.6.0#095bdc3b73dcbc1555285a605638a0c3bbd40d5b"
+name = "thegraph-core"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "101425eeaee6ab9086b2285572d63f16ce6d932b99ce8d2abf55f0d2a2f82cb0"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
  "alloy-sol-types",
- "async-graphql",
- "base64 0.21.7",
+ "base64 0.22.0",
  "bs58",
  "ethers",
  "ethers-core",
- "graphql-http",
  "indoc",
  "lazy_static",
  "reqwest",
@@ -4969,9 +4777,23 @@ dependencies = [
  "serde_cbor_2",
  "serde_json",
  "serde_with",
+ "thegraph-graphql-http",
  "thiserror",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "thegraph-graphql-http"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47367b145d00fb408dab3f14621fd48377cb0cb1cced5a8ae520d6d39cca0ab9"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -5262,7 +5084,7 @@ dependencies = [
  "base64 0.21.7",
  "bytes",
  "h2",
- "http 0.2.11",
+ "http",
  "http-body",
  "hyper",
  "hyper-timeout",
@@ -5332,7 +5154,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
- "http 0.2.11",
+ "http",
  "http-body",
  "http-range-header",
  "pin-project-lite",
@@ -5467,7 +5289,7 @@ dependencies = [
  "byteorder",
  "bytes",
  "data-encoding",
- "http 0.2.11",
+ "http",
  "httparse",
  "log",
  "rand",

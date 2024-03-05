@@ -1,7 +1,7 @@
 //! Ethereum Streamingfast Blockmeta client integration tests
 
+use alloy_primitives::{BlockHash, BlockNumber};
 use assert_matches::assert_matches;
-use thegraph::types::{BlockHash, BlockNumber};
 use tonic::transport::Uri;
 
 use gateway_framework::chains::blockmeta::rpc_client::BlockmetaClient;

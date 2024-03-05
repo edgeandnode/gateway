@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use thegraph::types::DeploymentId;
+use thegraph_core::types::DeploymentId;
 use tokio::time::timeout;
 
 use graph_gateway::indexers::indexing_statuses;

@@ -5,7 +5,7 @@ use prost::Message as _;
 use rdkafka::error::KafkaResult;
 use serde::Deserialize;
 use serde_json::{json, Map};
-use thegraph::types::attestation::Attestation;
+use thegraph_core::types::attestation::Attestation;
 use toolshed::concat_bytes;
 use tracing::span;
 use tracing_subscriber::{filter::FilterFn, layer, prelude::*, registry, EnvFilter, Layer};

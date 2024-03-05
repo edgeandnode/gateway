@@ -4,7 +4,7 @@ use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use ordered_float::NotNan;
 use serde::Deserialize;
-use thegraph::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::{sync::Mutex, time::Duration};
 use url::Url;
 

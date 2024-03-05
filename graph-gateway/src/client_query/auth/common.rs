@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use thegraph::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{DeploymentId, SubgraphId};
 
 use crate::topology::Deployment;
 

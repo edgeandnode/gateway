@@ -1,9 +1,9 @@
 //! Ethereum JSON-RPC API client.
 
+use alloy_primitives::BlockHash;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use serde_json::Value as Json;
-use thegraph::types::BlockHash;
 use url::Url;
 
 use super::json_rpc;
@@ -13,10 +13,9 @@ pub use self::rpc_api_types::BlockByNumberParam;
 
 /// Ethereum JSON-RPC API types.
 mod rpc_api_types {
-    use alloy_primitives::BlockNumber;
+    use alloy_primitives::{BlockHash, BlockNumber};
     use serde::de::Error;
     use serde::{Deserialize, Deserializer, Serialize};
-    use thegraph::types::BlockHash;
 
     /// A block object.
     ///

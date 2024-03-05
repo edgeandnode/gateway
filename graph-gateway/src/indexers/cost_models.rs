@@ -1,9 +1,9 @@
-use graphql_http::graphql::{Document, IntoDocument, IntoDocumentWithVariables};
-use graphql_http::http_client::ReqwestExt;
 use indoc::indoc;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use thegraph::types::DeploymentId;
+use thegraph_core::types::DeploymentId;
+use thegraph_graphql_http::graphql::{Document, IntoDocument, IntoDocumentWithVariables};
+use thegraph_graphql_http::http_client::ReqwestExt;
 
 #[derive(Deserialize)]
 pub struct CostModelSource {

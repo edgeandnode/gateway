@@ -19,7 +19,6 @@ use gateway_framework::budgets::USD;
 use gateway_framework::chains::UnresolvedBlock;
 use gateway_framework::errors::UnavailableReason;
 use gateway_framework::scalar::ReceiptStatus;
-use graphql_http::http::response::{Error as GQLError, ResponseBody as GQLResponseBody};
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use num_traits::cast::ToPrimitive as _;
@@ -29,7 +28,8 @@ use rand::Rng as _;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use thegraph::types::{attestation, BlockPointer, DeploymentId};
+use thegraph_core::types::{attestation, BlockPointer, DeploymentId};
+use thegraph_graphql_http::http::response::{Error as GQLError, ResponseBody as GQLResponseBody};
 use tokio::sync::mpsc;
 use tracing::Instrument;
 use url::Url;
@@ -1065,7 +1065,7 @@ mod tests {
         /// Deserialize a GraphQL response body.
         async fn deserialize_graphql_response_body<T>(
             body: &mut BoxBody,
-        ) -> serde_json::Result<graphql_http::http::response::ResponseBody<T>>
+        ) -> serde_json::Result<thegraph_graphql_http::http::response::ResponseBody<T>>
         where
             for<'de> T: serde::Deserialize<'de>,
         {

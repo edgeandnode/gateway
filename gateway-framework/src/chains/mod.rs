@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use alloy_primitives::{BlockHash, BlockNumber};
 use eventuals::{Eventual, EventualWriter};
-use thegraph::types::BlockPointer;
+use thegraph_core::types::BlockPointer;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::interval;
 use toolshed::epoch_cache::EpochCache;

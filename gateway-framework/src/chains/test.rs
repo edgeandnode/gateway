@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use thegraph::types::BlockPointer;
+use thegraph_core::types::BlockPointer;
 use tokio::sync::mpsc;
 
 use crate::chains::BlockHead;

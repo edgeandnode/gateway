@@ -2,8 +2,8 @@
 
 use std::str::FromStr;
 
+use alloy_primitives::{BlockHash, BlockNumber};
 use assert_matches::assert_matches;
-use thegraph::types::{BlockHash, BlockNumber};
 use url::Url;
 
 use gateway_framework::chains::ethereum::rpc_client::{BlockByNumberParam, EthRpcClient};

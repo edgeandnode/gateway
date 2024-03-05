@@ -1,5 +1,5 @@
 use alloy_primitives::Address;
-use thegraph::types::DeploymentId;
+use thegraph_core::types::DeploymentId;
 
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Indexing {

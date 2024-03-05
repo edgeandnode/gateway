@@ -1,8 +1,9 @@
+use alloy_primitives::Address;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use eventuals::{Eventual, Ptr};
-use thegraph::types::{Address, DeploymentId, SubgraphId};
+use thegraph_core::types::{DeploymentId, SubgraphId};
 
 use crate::client_query::query_settings::QuerySettings;
 use crate::client_query::rate_limiter::RateLimitSettings;
