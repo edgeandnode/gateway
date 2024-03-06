@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use alloy_primitives::Address;
-use chrono::{DateTime, NaiveDateTime, TimeZone as _, Utc};
+use chrono::{DateTime, Utc};
 use serde::{de::Error, Deserialize, Deserializer};
 
 #[derive(Clone, Debug)]
@@ -39,10 +39,9 @@ where
     D: Deserializer<'de>,
 {
     let input = String::deserialize(deserializer)?;
-    let timestamp = input.parse::<u64>().map_err(D::Error::custom)?;
-    NaiveDateTime::from_timestamp_opt(timestamp.try_into().map_err(D::Error::custom)?, 0)
+    let timestamp = input.parse::<i64>().map_err(D::Error::custom)?;
+    DateTime::<Utc>::from_timestamp(timestamp, 0)
         .ok_or_else(|| D::Error::custom("invalid timestamp"))
-        .map(|t| Utc.from_utc_datetime(&t))
 }
 
 fn deserialize_u128<'de, D>(deserializer: D) -> Result<u128, D::Error>
