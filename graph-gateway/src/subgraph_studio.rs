@@ -11,7 +11,6 @@ use url::Url;
 #[derive(Clone, Debug, Default)]
 pub struct APIKey {
     pub key: String,
-    pub is_subsidized: bool,
     pub user_address: Address,
     pub query_status: QueryStatus,
     pub max_budget_usd: Option<NotNan<f64>>,
@@ -24,7 +23,6 @@ pub struct APIKey {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum QueryStatus {
     #[default]
-    Inactive,
     Active,
     ServiceShutoff,
 }
@@ -65,6 +63,24 @@ struct Client {
 
 impl Client {
     async fn fetch_api_keys(&mut self) -> Result<HashMap<String, Arc<APIKey>>, Box<dyn Error>> {
+        #[derive(Deserialize)]
+        struct GetGatewayApiKeysResponsePayload {
+            api_keys: Vec<GatewayApiKey>,
+        }
+        #[derive(Deserialize)]
+        struct GatewayApiKey {
+            key: String,
+            user_address: Address,
+            query_status: QueryStatus,
+            max_budget: Option<f64>,
+            #[serde(default)]
+            subgraphs: Vec<String>,
+            #[serde(default)]
+            deployments: Vec<String>,
+            #[serde(default)]
+            domains: Vec<String>,
+        }
+
         let response = self
             .client
             .get(self.url.join("gateway-api-keys")?)
@@ -76,64 +92,29 @@ impl Client {
         let api_keys = response
             .api_keys
             .into_iter()
-            .filter_map(|api_key| {
+            .map(|api_key| {
                 let api_key = APIKey {
                     key: api_key.key,
-                    is_subsidized: api_key.is_subsidized,
-                    user_address: api_key.user_address.parse().ok()?,
+                    user_address: api_key.user_address,
                     query_status: api_key.query_status,
                     max_budget_usd: api_key.max_budget.and_then(|b| NotNan::new(b).ok()),
                     subgraphs: api_key
                         .subgraphs
                         .into_iter()
-                        .filter_map(|s| s.network_subgraph_id.parse::<SubgraphId>().ok())
+                        .filter_map(|s| s.parse().ok())
                         .collect(),
                     deployments: api_key
                         .deployments
                         .into_iter()
-                        .filter_map(|id| id.parse::<DeploymentId>().ok())
+                        .filter_map(|s| s.parse().ok())
                         .collect(),
-                    domains: api_key
-                        .domains
-                        .into_iter()
-                        .map(|domain| domain.domain)
-                        .collect(),
+                    domains: api_key.domains,
                 };
-                Some((api_key.key.clone(), Arc::new(api_key)))
+                (api_key.key.clone(), Arc::new(api_key))
             })
             .collect::<HashMap<String, Arc<APIKey>>>();
 
         tracing::info!(api_keys = api_keys.len());
         Ok(api_keys)
     }
-}
-
-#[derive(Deserialize)]
-struct GetGatewayApiKeysResponsePayload {
-    api_keys: Vec<GatewayApiKey>,
-}
-
-#[derive(Deserialize)]
-struct GatewayApiKey {
-    key: String,
-    is_subsidized: bool,
-    user_address: String,
-    query_status: QueryStatus,
-    max_budget: Option<f64>,
-    #[serde(default)]
-    subgraphs: Vec<GatewaySubgraph>,
-    #[serde(default)]
-    deployments: Vec<String>,
-    #[serde(default)]
-    domains: Vec<GatewayDomain>,
-}
-
-#[derive(Deserialize)]
-struct GatewaySubgraph {
-    network_subgraph_id: String,
-}
-
-#[derive(Deserialize)]
-struct GatewayDomain {
-    domain: String,
 }

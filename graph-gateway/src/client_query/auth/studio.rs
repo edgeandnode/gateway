@@ -169,20 +169,12 @@ pub fn check_auth_requirements(ctx: &AuthContext, token: &AuthToken) -> anyhow::
         return Ok(());
     }
 
-    // Check if the API key is subsidized
-    if token.api_key.is_subsidized {
-        return Ok(());
-    }
-
     // Check if the API key is active
     match token.api_key.query_status {
-        QueryStatus::Inactive => Err(anyhow::anyhow!(
-            "Querying not activated yet; make sure to add some GRT to your balance in the studio"
-        )),
-        QueryStatus::ServiceShutoff => Err(anyhow::anyhow!(
-            "Payment required for subsequent requests for this API key"
-        )),
         QueryStatus::Active => Ok(()),
+        QueryStatus::ServiceShutoff => Err(anyhow::anyhow!(
+            "payment required for subsequent requests for this API key"
+        )),
     }
 }
 
