@@ -52,7 +52,7 @@ use graph_gateway::client_query::query_tracing::QueryTracingLayer;
 use graph_gateway::client_query::rate_limiter::AddRateLimiterLayer;
 use graph_gateway::client_query::require_auth::RequireAuthorizationLayer;
 use graph_gateway::config::chains::RpcConfig;
-use graph_gateway::config::{Config, ExchangeRateProvider};
+use graph_gateway::config::{ApiKeys, Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
 use graph_gateway::indexing_performance::IndexingPerformance;
@@ -214,8 +214,20 @@ async fn main() {
         })
         .forever();
 
-    let api_keys = match config.studio_url {
-        Some(url) => subgraph_studio::api_keys(http_client.clone(), url, config.studio_auth),
+    let special_api_keys = match &config.api_keys {
+        Some(ApiKeys::Endpoint { special, .. }) => HashSet::from_iter(special.clone()),
+        _ => Default::default(),
+    };
+    let api_keys = match config.api_keys {
+        Some(ApiKeys::Endpoint { url, auth, .. }) => {
+            subgraph_studio::api_keys(http_client.clone(), url, auth)
+        }
+        Some(ApiKeys::Fixed(api_keys)) => Eventual::from_value(Ptr::new(
+            api_keys
+                .into_iter()
+                .map(|k| (k.key.clone(), k.into()))
+                .collect(),
+        )),
         None => Eventual::from_value(Ptr::default()),
     };
 
@@ -228,9 +240,9 @@ async fn main() {
         ),
     };
     let auth_handler = AuthContext::create(
-        config.api_key_payment_required,
+        config.payment_required,
         api_keys,
-        HashSet::from_iter(config.special_api_keys),
+        special_api_keys,
         subscriptions,
         config
             .subscriptions

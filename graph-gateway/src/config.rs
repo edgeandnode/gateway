@@ -1,35 +1,27 @@
 //! The Graph Gateway configuration.
 
-use std::collections::BTreeMap;
-use std::fmt;
-use std::fmt::Display;
-use std::path::PathBuf;
-
+use self::chains::Config as ChainConfig;
+use crate::indexers::public_poi::ProofOfIndexingInfo;
+use crate::subgraph_studio::APIKey;
 use alloy_primitives::{Address, U256};
 use custom_debug::CustomDebug;
+use gateway_framework::config::{Hidden, HiddenSecretKey};
 use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
+use std::{
+    collections::BTreeMap,
+    fmt::{self, Display},
+    path::PathBuf,
+};
 use url::Url;
-
-use gateway_framework::config::{Hidden, HiddenSecretKey};
-
-use crate::indexers::public_poi::ProofOfIndexingInfo;
-
-use self::chains::Config as ChainConfig;
 
 #[serde_as]
 #[derive(CustomDebug, Deserialize)]
 pub struct Config {
-    /// The Gateway unique identifier. This ID is used to identify the Gateway in the network
-    /// and traceability purposes.
-    ///
-    /// If not provided a UUID is generated.
     #[serde(default)]
-    pub gateway_id: Option<String>,
-    /// Respect the payment state of API keys (disable for testnets)
-    pub api_key_payment_required: bool,
+    pub api_keys: Option<ApiKeys>,
     pub attestations: AttestationConfig,
     /// List of indexer addresses to block. This should only be used temprorarily, to compensate for
     /// indexer-selection imperfections.
@@ -39,6 +31,12 @@ pub struct Config {
     pub chains: Vec<ChainConfig>,
     /// Ethereum RPC provider, or fixed exchange rate for testing
     pub exchange_rate_provider: ExchangeRateProvider,
+    /// The Gateway unique identifier. This ID is used to identify the Gateway in the network
+    /// and traceability purposes.
+    ///
+    /// If not provided a UUID is generated.
+    #[serde(default)]
+    pub gateway_id: Option<String>,
     /// GeoIP database path
     pub geoip_database: Option<PathBuf>,
     /// GeoIP blocked countries (ISO 3166-1 alpha-2 codes)
@@ -75,6 +73,8 @@ pub struct Config {
     #[debug(with = Display::fmt)]
     #[serde_as(as = "DisplayFromStr")]
     pub network_subgraph: Url,
+    /// Check payment state of client (disable for testnets)
+    pub payment_required: bool,
     /// POI blocklist
     #[serde(default)]
     pub poi_blocklist: Vec<ProofOfIndexingInfo>,
@@ -88,15 +88,6 @@ pub struct Config {
     pub query_fees_target: f64,
     /// Scalar TAP config (receipt signing)
     pub scalar: Scalar,
-    /// API keys that won't be blocked for non-payment
-    #[serde(default)]
-    pub special_api_keys: Vec<String>,
-    /// Subgraph studio admin auth token
-    pub studio_auth: String,
-    /// Subgraph studio admin url
-    #[debug(with = fmt_optional_url)]
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    pub studio_url: Option<Url>,
     /// Subscriptions configuration
     pub subscriptions: Option<Subscriptions>,
 }
@@ -106,6 +97,24 @@ fn fmt_optional_url(url: &Option<Url>, f: &mut fmt::Formatter) -> fmt::Result {
         Some(url) => write!(f, "Some({})", url),
         None => write!(f, "None"),
     }
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum ApiKeys {
+    Endpoint {
+        /// URL where the API key info is served
+        #[serde_as(as = "DisplayFromStr")]
+        url: Url,
+        /// Bearer auth token
+        auth: String,
+        /// API keys that won't be blocked for non-payment
+        #[serde(default)]
+        special: Vec<String>,
+    },
+    /// Fixed conversion rate of GRT/USD
+    Fixed(Vec<APIKey>),
 }
 
 /// The block cache chain configuration.

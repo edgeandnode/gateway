@@ -4,18 +4,24 @@ use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use ordered_float::NotNan;
 use serde::Deserialize;
+use serde_with::serde_as;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::{sync::Mutex, time::Duration};
 use url::Url;
 
-#[derive(Clone, Debug, Default)]
+#[serde_as]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct APIKey {
     pub key: String,
     pub user_address: Address,
     pub query_status: QueryStatus,
+    #[serde_as(as = "Option<serde_with::DisplayFromStr>")]
     pub max_budget_usd: Option<NotNan<f64>>,
+    #[serde(default)]
     pub deployments: Vec<DeploymentId>,
+    #[serde(default)]
     pub subgraphs: Vec<SubgraphId>,
+    #[serde(default)]
     pub domains: Vec<String>,
 }
 
