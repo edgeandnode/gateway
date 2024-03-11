@@ -1,6 +1,6 @@
 use crate::{
-    indexer_client::IndexerClient, indexers::indexing, indexing_performance::IndexingPerformance,
-    reports::KafkaClient, topology::GraphNetwork,
+    chains::Chains, indexer_client::IndexerClient, indexers::indexing,
+    indexing_performance::IndexingPerformance, reports::KafkaClient, topology::GraphNetwork,
 };
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
@@ -20,6 +20,7 @@ pub struct Context {
     pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,
     pub grt_per_usd: Eventual<NotNan<f64>>,
+    pub chains: &'static Chains,
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, indexing::Status>>>,
     pub indexing_perf: IndexingPerformance,

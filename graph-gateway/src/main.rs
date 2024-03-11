@@ -19,6 +19,7 @@ use axum::{
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_framework::geoip::GeoIp;
+use graph_gateway::chains::Chains;
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
@@ -34,15 +35,13 @@ use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
 use gateway_common::types::Indexing;
-use gateway_framework::budgets::USD;
-use gateway_framework::chains::blockmeta;
-use gateway_framework::scalar::ReceiptSigner;
 use gateway_framework::{
     budgets::Budgeter,
-    chains::{ethereum, BlockCache},
+    budgets::USD,
     ipfs, json,
     network::{exchange_rate, network_subgraph},
     scalar,
+    scalar::ReceiptSigner,
 };
 use graph_gateway::client_query::auth::AuthContext;
 use graph_gateway::client_query::context::Context;
@@ -51,7 +50,6 @@ use graph_gateway::client_query::query_id::SetQueryIdLayer;
 use graph_gateway::client_query::query_tracing::QueryTracingLayer;
 use graph_gateway::client_query::rate_limiter::AddRateLimiterLayer;
 use graph_gateway::client_query::require_auth::RequireAuthorizationLayer;
-use graph_gateway::config::chains::RpcConfig;
 use graph_gateway::config::{ApiKeys, Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
@@ -263,6 +261,7 @@ async fn main() {
         budgeter,
         indexer_selection_retry_limit: config.indexer_selection_retry_limit,
         l2_gateway: config.l2_gateway,
+        chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
         grt_per_usd,
         network,
         indexing_perf: IndexingPerformance::new(indexing_statuses.clone()),
@@ -271,12 +270,6 @@ async fn main() {
         bad_indexers,
         indexings_blocklist,
     };
-
-    for (chain, block_cache) in block_caches {
-        if block_cache.chain_head.value_immediate().is_none() {
-            tracing::error!(%chain, "missing chain head");
-        }
-    }
 
     // Host metrics on a separate server with a port that isn't open to public requests.
     let metrics_port = config.port_metrics;

@@ -1,23 +1,24 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use alloy_primitives::{Address, BlockNumber};
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
-use axum::extract::OriginalUri;
 use axum::{
     body::Bytes,
+    extract::OriginalUri,
     extract::State,
     http::{HeaderMap, Response, StatusCode},
     Extension,
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
-use futures::future::join_all;
-use gateway_framework::budgets::USD;
-use gateway_framework::errors::UnavailableReason;
-use gateway_framework::scalar::ReceiptStatus;
+use gateway_framework::{
+    blocks::Block, budgets::USD, errors::UnavailableReason, scalar::ReceiptStatus,
+};
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use num_traits::cast::ToPrimitive as _;
@@ -27,23 +28,23 @@ use rand::Rng as _;
 use rand::{rngs::SmallRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use thegraph_core::types::{attestation, BlockPointer, DeploymentId};
+use thegraph_core::types::{attestation, DeploymentId};
 use thegraph_graphql_http::http::response::{Error as GQLError, ResponseBody as GQLResponseBody};
 use tokio::sync::mpsc;
 use tracing::Instrument;
 use url::Url;
 
-use gateway_common::utils::http_ext::HttpBuilderExt;
-use gateway_common::{types::Indexing, utils::timestamp::unix_timestamp};
+use gateway_common::{
+    types::Indexing, utils::http_ext::HttpBuilderExt, utils::timestamp::unix_timestamp,
+};
 use gateway_framework::{
-    blocks::BlockConstraint,
-    chains::BlockCache,
     errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*},
     metrics::{with_metric, METRICS},
     scalar::ScalarReceipt,
 };
 
-use crate::block_constraints::{block_constraints, rewrite_query};
+use crate::block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements};
+use crate::chains::ChainReader;
 use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
 use crate::indexers::indexing;
 use crate::indexing_performance::{self, IndexingPerformance};
@@ -83,16 +84,6 @@ pub struct Selection {
     pub url: Url,
     pub receipt: ScalarReceipt,
     pub blocks_behind: u64,
-}
-
-#[derive(Debug)]
-struct BlockRequirements {
-    /// required block range, for exact block constraints (`number` & `hash`)
-    range: Option<(BlockNumber, BlockNumber)>,
-    /// maximum `number_gte` constraint
-    number_gte: Option<BlockNumber>,
-    /// does the query benefit from using the latest block (contains NumberGTE or Unconstrained)
-    latest: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -257,10 +248,7 @@ async fn handle_client_query_inner(
     tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain);
 
     let manifest_min_block = deployments.last().unwrap().manifest.min_block;
-    let block_cache = *ctx
-        .block_caches
-        .get(&subgraph_chain)
-        .ok_or_else(|| Error::ChainNotFound(subgraph_chain))?;
+    let chain = ctx.chains.chain(&subgraph_chain).await;
 
     let payload: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
@@ -333,25 +321,23 @@ async fn handle_client_query_inner(
         .map(|(index, deployment)| (deployment.id, index.try_into().unwrap_or(u8::MAX)))
         .collect();
 
-    let chain_head = block_cache
-        .chain_head
-        .value_immediate()
-        .ok_or(Error::BlockNotFound(UnresolvedBlock::WithNumber(0)))?
-        .number;
-    let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
-    tracing::debug!(chain_head, blocks_per_minute);
-
-    let mut resolved_blocks = Default::default();
-    let block_requirements = resolve_block_requirements(
-        block_cache,
-        &mut resolved_blocks,
-        &context,
-        manifest_min_block,
-        chain_head,
-    )
-    .await?;
-
+    let (chain_head, blocks_per_minute, block_requirements) = {
+        let chain = chain.read().await;
+        let block_requirements = resolve_block_requirements(&chain, &context, manifest_min_block)?;
+        let blocks_per_minute = chain.blocks_per_minute();
+        let chain_head = chain.latest().map(|b| b.number);
+        (chain_head, blocks_per_minute, block_requirements)
+    };
     let indexing_statuses = ctx.indexing_statuses.value_immediate().unwrap();
+    let chain_head = chain_head.unwrap_or_else(|| {
+        available_indexers
+            .iter()
+            .flat_map(|indexing| indexing_statuses.get(indexing).map(|status| status.block))
+            .max()
+            .unwrap_or(0) // doesn't matter if no indexers have status
+    });
+    tracing::debug!(chain_head, blocks_per_minute, ?block_requirements);
+
     let mut candidates = Vec::new();
     {
         let perf = ctx.indexing_perf.latest();
@@ -390,8 +376,6 @@ async fn handle_client_query_inner(
             indexer_errors.into_values(),
         )));
     }
-
-    let blocks_per_minute = block_cache.blocks_per_minute.value_immediate().unwrap_or(0);
 
     let mut total_indexer_fees_grt: u128 = 0;
     for retry in 0..ctx.indexer_selection_retry_limit {
@@ -469,24 +453,12 @@ async fn handle_client_query_inner(
             let indexer_query_context = IndexerQueryContext {
                 indexer_client: ctx.indexer_client.clone(),
                 kafka_client: ctx.kafka_client,
+                chain: chain.clone(),
                 attestation_domain: ctx.attestation_domain,
                 indexing_perf: ctx.indexing_perf.clone(),
                 deployment,
                 response_time: Duration::default(),
             };
-
-            let latest_query_block = pick_latest_query_block(
-                block_cache,
-                block_requirements.number_gte,
-                chain_head.saturating_sub(selection.blocks_behind),
-                blocks_per_minute,
-            )
-            .await
-            .map_err(Error::BlockNotFound)?;
-            tracing::debug!(
-                indexer = %selection.indexing.indexer,
-                latest_query_block = latest_query_block.number,
-            );
 
             // The Agora context must be cloned to preserve the state of the original client query.
             // This to avoid the following scenario:
@@ -499,8 +471,16 @@ async fn handle_client_query_inner(
             // 5. The same context is re-used, including the block requirement set to the hash of
             //    block `n`
             // 6. The indexer is seen as being behind and is unnecessarily penalized
-            let indexer_request =
-                rewrite_query(context.clone(), &resolved_blocks, &latest_query_block)?;
+            // let block_requirements =
+            let indexer_request = {
+                let chain = chain.read().await;
+                rewrite_query(
+                    &chain,
+                    context.clone(),
+                    &block_requirements,
+                    selection.blocks_behind,
+                )?
+            };
 
             total_indexer_fees_grt += selection.receipt.grt_value();
 
@@ -563,78 +543,6 @@ async fn handle_client_query_inner(
     Err(Error::BadIndexers(IndexerErrors::new(
         indexer_errors.into_values(),
     )))
-}
-
-async fn resolve_block_requirements(
-    block_cache: &BlockCache,
-    resolved_blocks: &mut BTreeSet<BlockPointer>,
-    context: &AgoraContext<'_, String>,
-    manifest_min_block: BlockNumber,
-    chain_head: BlockNumber,
-) -> Result<BlockRequirements, Error> {
-    let constraints = block_constraints(context).unwrap_or_default();
-
-    let latest = constraints.iter().any(|c| match c {
-        BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
-        BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
-    });
-    let number_gte = constraints
-        .iter()
-        .filter_map(|c| match c {
-            BlockConstraint::NumberGTE(n) => Some(*n),
-            _ => None,
-        })
-        .max();
-
-    resolved_blocks.append(
-        &mut join_all(
-            constraints
-                .iter()
-                .filter(|c| match c {
-                    BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => false,
-                    BlockConstraint::Number(number) => *number >= (chain_head.saturating_sub(500)),
-                    BlockConstraint::Hash(_) => true,
-                })
-                .filter_map(|constraint| constraint.clone().into_unresolved())
-                .map(|unresolved| block_cache.fetch_block(unresolved)),
-        )
-        .await
-        .into_iter()
-        .collect::<Result<BTreeSet<BlockPointer>, UnresolvedBlock>>()
-        .map_err(Error::BlockNotFound)?,
-    );
-    let exact_constraints: Vec<u64> = constraints
-        .iter()
-        .filter_map(|c| match c {
-            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => None,
-            BlockConstraint::Number(number) => Some(*number),
-            BlockConstraint::Hash(hash) => resolved_blocks
-                .iter()
-                .find(|b| hash == &b.hash)
-                .map(|b| b.number),
-        })
-        .collect();
-    let min_block = exact_constraints.iter().min().cloned();
-    let max_block = exact_constraints.iter().max().cloned();
-
-    // Reject queries for blocks before the minimum start block in the manifest, but only if the
-    // constraint is for an exact block. For example, we always want to allow `block_gte: 0`.
-    let request_contains_invalid_blocks = exact_constraints
-        .iter()
-        .any(|number| *number < manifest_min_block);
-    if request_contains_invalid_blocks {
-        return Err(Error::BadQuery(anyhow!(
-            "requested block {}, before minimum `startBlock` of manifest {}",
-            min_block.unwrap_or_default(),
-            manifest_min_block,
-        )));
-    }
-
-    Ok(BlockRequirements {
-        range: min_block.map(|min| (min, max_block.unwrap())),
-        number_gte,
-        latest,
-    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -725,6 +633,7 @@ fn perf(
 struct IndexerQueryContext {
     pub indexer_client: IndexerClient,
     pub kafka_client: &'static KafkaClient,
+    pub chain: ChainReader,
     pub attestation_domain: &'static Eip712Domain,
     pub indexing_perf: IndexingPerformance,
     pub deployment: Arc<Deployment>,
@@ -811,6 +720,10 @@ async fn handle_indexer_query_inner(
     }
 
     let (client_response, errors, block) = rewrite_response(&response.payload.body)?;
+
+    if let Some(block) = &block {
+        ctx.chain.notify(block.clone(), selection.indexing.indexer);
+    }
 
     let errors_repr = errors
         .iter()
@@ -902,32 +815,6 @@ pub fn indexer_fee(
         Some(Ok(fee)) => fee.to_u128().ok_or(IndexerError::Unavailable(NoFee)),
         Some(Err(_)) => Err(IndexerError::Unavailable(NoFee)),
     }
-}
-
-/// Select an available block up to `max_block`. Because the exact block number is not required, we can be a bit more
-/// resilient to RPC failures here by backing off on failed block resolution.
-async fn pick_latest_query_block(
-    cache: &BlockCache,
-    min_block: Option<BlockNumber>,
-    max_block: BlockNumber,
-    blocks_per_minute: u64,
-) -> Result<BlockPointer, UnresolvedBlock> {
-    for mut n in [
-        max_block,
-        max_block.saturating_sub(1),
-        max_block.saturating_sub(blocks_per_minute),
-    ] {
-        n = n.max(min_block.unwrap_or(0));
-        if let Ok(block) = cache.fetch_block(UnresolvedBlock::WithNumber(n)).await {
-            return Ok(block);
-        }
-    }
-    Err(UnresolvedBlock::WithNumber(max_block))
-}
-
-#[derive(Deserialize)]
-struct Block {
-    number: BlockNumber,
 }
 
 fn rewrite_response(

@@ -1,6 +1,5 @@
 //! The Graph Gateway configuration.
 
-use self::chains::Config as ChainConfig;
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 use crate::subgraph_studio::APIKey;
 use alloy_primitives::{Address, U256};
@@ -27,6 +26,9 @@ pub struct Config {
     /// indexer-selection imperfections.
     #[serde(default)]
     pub bad_indexers: Vec<Address>,
+    /// Chain aliases
+    #[serde(default)]
+    pub chain_aliases: BTreeMap<String, String>,
     /// Ethereum RPC provider, or fixed exchange rate for testing
     pub exchange_rate_provider: ExchangeRateProvider,
     /// The Gateway unique identifier. This ID is used to identify the Gateway in the network
