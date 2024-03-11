@@ -55,7 +55,7 @@ checksum = "e96c81b05c893348760f232c4cc6a6a77fd91cfb09885d4eaad25cd03bd7732e"
 dependencies = [
  "num_enum 0.7.2",
  "serde",
- "strum 0.26.1",
+ "strum 0.26.2",
 ]
 
 [[package]]
@@ -538,9 +538,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.15.3"
+version = "3.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ea184aa71bb362a1157c896979544cc23974e08fd265f29ea96b59f0b4a555b"
+checksum = "7ff69b9dd49fd426c69a0db9fc04dd934cdb6645ff000864d98f7e2af8830eaa"
 
 [[package]]
 name = "by_address"
@@ -636,9 +636,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.89"
+version = "1.0.90"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0ba8f7aaa012f30d5b2861462f6708eccd49c3c39863fe083a308035f63d723"
+checksum = "8cd6604a82acf3039f1144f54b8eb34e91ffba622051189e71b781822d5ee1f5"
 dependencies = [
  "jobserver",
  "libc",
@@ -749,9 +749,9 @@ dependencies = [
 
 [[package]]
 name = "const-hex"
-version = "1.11.1"
+version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efbd12d49ab0eaf8193ba9175e45f56bbc2e4b27d57b8cfe62aa47942a46b9a9"
+checksum = "b37dae8c8ded08d5ec72caa1b4204a5344047cd4a2c7387e3d150020abfbc1c9"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -1151,17 +1151,17 @@ dependencies = [
 
 [[package]]
 name = "enr"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a3d8dc56e02f954cac8eb489772c552c473346fc34f67412bb6244fd647f7e4"
+checksum = "2dc3eabaca59dc39ea5ed15062e4abc5bba9723b1cff7a4fea3faae0647f04c0"
 dependencies = [
+ "alloy-rlp",
  "base64 0.21.7",
  "bytes",
  "hex",
  "k256",
  "log",
  "rand",
- "rlp",
  "serde",
  "sha3",
  "zeroize",
@@ -1374,7 +1374,7 @@ dependencies = [
  "rlp",
  "serde",
  "serde_json",
- "strum 0.26.1",
+ "strum 0.26.2",
  "syn 2.0.52",
  "tempfile",
  "thiserror",
@@ -4241,9 +4241,9 @@ dependencies = [
 
 [[package]]
 name = "serde_path_to_error"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebd154a240de39fdebcf5775d2675c204d7c13cf39a4c697be6493c8e734337c"
+checksum = "af99884400da37c88f5e9146b7f1fd0fbcae8f6eec4e9da38b67d05486f814a6"
 dependencies = [
  "itoa",
  "serde",
@@ -4538,11 +4538,11 @@ checksum = "063e6045c0e62079840579a7e47a355ae92f60eb74daaf156fb1e84ba164e63f"
 
 [[package]]
 name = "strum"
-version = "0.26.1"
+version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "723b93e8addf9aa965ebe2d11da6d7540fa2283fcea14b3371ff055f7ba13f5f"
+checksum = "5d8cec3501a5194c432b2b7976db6b7d10ec95c253208b45f83f7136aa985e29"
 dependencies = [
- "strum_macros 0.26.1",
+ "strum_macros 0.26.2",
 ]
 
 [[package]]
@@ -4560,9 +4560,9 @@ dependencies = [
 
 [[package]]
 name = "strum_macros"
-version = "0.26.1"
+version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a3417fc93d76740d974a01654a09777cb500428cc874ca9f45edfe0c4d4cd18"
+checksum = "c6cf59daf282c0a494ba14fd21610a0325f9f90ec9d1231dea26bcb1d696c946"
 dependencies = [
  "heck",
  "proc-macro2",
