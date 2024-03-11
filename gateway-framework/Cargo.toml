@@ -14,7 +14,7 @@ anyhow.workspace = true
 axum.workspace = true
 candidate-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection.git", rev = "bcd7909" }
 custom_debug = "0.6.1"
-ethers = "2.0.13"
+ethers = "2.0.14"
 eventuals = "0.6.7"
 gateway-common = { path = "../gateway-common" }
 headers = "0.3.9"
