@@ -50,7 +50,7 @@ uuid = { version = "1.7.0", features = ["v7"] }
 
 [dev-dependencies]
 assert_matches = "1.5.0"
-test-with = { version = "0.12.5", default-features = false }
+test-with = { version = "0.12.6", default-features = false }
 
 [build-dependencies]
 tonic-build = "0.11.0"
