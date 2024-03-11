@@ -1,5 +1,6 @@
 pub mod blocks;
 pub mod budgets;
+pub mod chain;
 pub mod config;
 pub mod errors;
 pub mod geoip;
