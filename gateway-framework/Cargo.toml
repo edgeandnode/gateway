@@ -3,10 +3,6 @@ edition = "2021"
 name = "gateway-framework"
 version = "0.0.1"
 
-[features]
-# Enable to run protobuf messages code generation at compile time (requires  protoc, etc.).
-proto-gen = []
-
 [dependencies]
 alloy-primitives.workspace = true
 alloy-sol-types = "0.6.4"
@@ -51,6 +47,3 @@ uuid = { version = "1.7.0", features = ["v7"] }
 [dev-dependencies]
 assert_matches = "1.5.0"
 test-with = { version = "0.12.6", default-features = false }
-
-[build-dependencies]
-tonic-build = "0.11.0"

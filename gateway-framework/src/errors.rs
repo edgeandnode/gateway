@@ -1,4 +1,4 @@
-use crate::{chains::UnresolvedBlock, graphql};
+use crate::{blocks::UnresolvedBlock, graphql};
 use axum::response::{IntoResponse, Response};
 use itertools::Itertools;
 use std::collections::BTreeMap;
@@ -11,9 +11,6 @@ pub enum Error {
     /// Failed to authenticate or authorize the client request.
     #[error("auth error: {0:#}")]
     Auth(anyhow::Error),
-    /// The subgraph chain does not exist or is not supported.
-    #[error("chain not found: {0}")]
-    ChainNotFound(String),
     /// A block required by the query is not found.
     #[error("block not found: {0}")]
     BlockNotFound(UnresolvedBlock),

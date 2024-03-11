@@ -16,7 +16,6 @@ use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
 use futures::future::join_all;
 use gateway_framework::budgets::USD;
-use gateway_framework::chains::UnresolvedBlock;
 use gateway_framework::errors::UnavailableReason;
 use gateway_framework::scalar::ReceiptStatus;
 use headers::ContentType;
@@ -37,7 +36,7 @@ use url::Url;
 use gateway_common::utils::http_ext::HttpBuilderExt;
 use gateway_common::{types::Indexing, utils::timestamp::unix_timestamp};
 use gateway_framework::{
-    block_constraints::BlockConstraint,
+    blocks::BlockConstraint,
     chains::BlockCache,
     errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*},
     metrics::{with_metric, METRICS},

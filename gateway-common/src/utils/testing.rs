@@ -1,12 +1,12 @@
-use std::hash::{Hash as _, Hasher as _};
-use std::io::{Cursor, Write as _};
-use std::sync::Once;
-
+use crate::utils::tracing::init_tracing;
 use alloy_primitives::Address;
 use siphasher::sip::SipHasher24;
-use thegraph_core::types::{BlockPointer, DeploymentId};
-
-use crate::utils::tracing::init_tracing;
+use std::{
+    hash::{Hash as _, Hasher as _},
+    io::{Cursor, Write as _},
+    sync::Once,
+};
+use thegraph_core::types::DeploymentId;
 
 pub const TEST_KEY: &str = "244226452948404D635166546A576E5A7234753778217A25432A462D4A614E64";
 
@@ -17,16 +17,6 @@ pub fn assert_within(value: f64, expected: f64, tolerance: f64) {
         diff <= tolerance,
         "Expected value of {expected} +- {tolerance} but got {value} which is off by {diff}",
     );
-}
-
-pub fn gen_blocks(numbers: &[u64]) -> Vec<BlockPointer> {
-    numbers
-        .iter()
-        .map(|&number| BlockPointer {
-            number,
-            hash: bytes_from_id(number as usize).into(),
-        })
-        .collect()
 }
 
 pub fn test_allocation_id(indexer: &Address, deployment: &DeploymentId) -> Address {

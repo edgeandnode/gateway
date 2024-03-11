@@ -17,10 +17,6 @@ pub struct Metrics {
     pub collect_receipts: ResponseMetrics,
     pub partial_voucher: ResponseMetrics,
     pub voucher: ResponseMetrics,
-    pub block_resolution: ResponseMetricVecs,
-    pub block_cache_hit: IntCounterVec,
-    pub block_cache_miss: IntCounterVec,
-    pub chain_head: IntGaugeVec,
     pub blocks_per_minute: IntGaugeVec,
 }
 
@@ -48,29 +44,6 @@ impl Metrics {
             ),
             partial_voucher: ResponseMetrics::new("gw_partial_voucher", "partial-voucher request"),
             voucher: ResponseMetrics::new("gw_voucher", "requests for voucher"),
-            block_resolution: ResponseMetricVecs::new(
-                "gw_block_resolution",
-                "block requests",
-                &["chain"],
-            ),
-            block_cache_hit: register_int_counter_vec!(
-                "gw_block_cache_hit",
-                "block cache hit count",
-                &["chain"]
-            )
-            .unwrap(),
-            block_cache_miss: register_int_counter_vec!(
-                "gw_block_cache_miss",
-                "block cache miss count",
-                &["chain"]
-            )
-            .unwrap(),
-            chain_head: register_int_gauge_vec!(
-                "gw_chain_head",
-                "chain head block number",
-                &["chain"]
-            )
-            .unwrap(),
             blocks_per_minute: register_int_gauge_vec!(
                 "gw_blocks_per_minute",
                 "chain blocks per minute",

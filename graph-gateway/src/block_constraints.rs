@@ -11,7 +11,7 @@ use itertools::Itertools as _;
 use serde_json::{self, json};
 use thegraph_core::types::BlockPointer;
 
-use gateway_framework::{block_constraints::BlockConstraint, errors::Error};
+use gateway_framework::{blocks::BlockConstraint, errors::Error};
 
 pub fn block_constraints(context: &Context<String>) -> Result<BTreeSet<BlockConstraint>, Error> {
     let mut constraints = BTreeSet::new();

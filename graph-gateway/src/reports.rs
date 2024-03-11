@@ -373,7 +373,6 @@ pub fn legacy_status<T>(result: &Result<T, errors::Error>) -> (String, u32) {
                 "No suitable indexer found for subgraph deployment".to_string(),
                 510359393,
             ),
-            errors::Error::ChainNotFound(_) => (err.to_string(), 1760440045),
             errors::Error::SubgraphNotFound(_) => (err.to_string(), 2599148187),
         },
     }

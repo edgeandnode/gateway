@@ -111,20 +111,6 @@ async fn main() {
         .build()
         .unwrap();
 
-    let block_caches: HashMap<String, &'static BlockCache> = config
-        .chains
-        .into_iter()
-        .flat_map(|chain| {
-            // Build a block cache for each chain
-            let cache = new_block_cache(chain.names.clone(), chain.rpc.clone());
-            let cache: &'static BlockCache = Box::leak(Box::new(cache));
-
-            chain.names.into_iter().map(move |alias| (alias, cache))
-        })
-        .collect();
-    let block_caches: &'static HashMap<String, &'static BlockCache> =
-        Box::leak(Box::new(block_caches));
-
     let grt_per_usd: Eventual<NotNan<f64>> = match config.exchange_rate_provider {
         ExchangeRateProvider::Fixed(grt_per_usd) => {
             Eventual::from_value(NotNan::new(grt_per_usd).expect("NAN exchange rate"))
@@ -284,7 +270,6 @@ async fn main() {
         attestation_domain,
         bad_indexers,
         indexings_blocklist,
-        block_caches,
     };
 
     for (chain, block_cache) in block_caches {
@@ -464,23 +449,6 @@ async fn update_allocations(
         allocations.insert(indexing, indexer.largest_allocation);
     }
     receipt_signer.update_allocations(allocations).await;
-}
-
-/// Returns a new block cache client based on the given configuration.
-fn new_block_cache(names: Vec<String>, config: RpcConfig) -> BlockCache {
-    match config {
-        RpcConfig::Ethereum { rpc_url } => BlockCache::new::<ethereum::Client>(ethereum::Config {
-            names,
-            url: rpc_url,
-        }),
-        RpcConfig::Blockmeta { rpc_url, rpc_auth } => {
-            BlockCache::new::<blockmeta::Client>(blockmeta::Config {
-                names,
-                uri: rpc_url.as_str().parse().expect("invalid URI"),
-                auth: rpc_auth,
-            })
-        }
-    }
 }
 
 async fn handle_metrics() -> impl axum::response::IntoResponse {
