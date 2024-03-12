@@ -108,7 +108,7 @@ pub enum ApiKeys {
         #[serde_as(as = "DisplayFromStr")]
         url: Url,
         /// Bearer auth token
-        auth: String,
+        auth: Hidden<String>,
         /// API keys that won't be blocked for non-payment
         #[serde(default)]
         special: Vec<String>,
