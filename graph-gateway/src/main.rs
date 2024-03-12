@@ -19,6 +19,7 @@ use axum::{
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_framework::geoip::GeoIp;
+use graph_gateway::chains::Chains;
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
@@ -34,15 +35,13 @@ use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
 use gateway_common::types::Indexing;
-use gateway_framework::budgets::USD;
-use gateway_framework::chains::blockmeta;
-use gateway_framework::scalar::ReceiptSigner;
 use gateway_framework::{
     budgets::Budgeter,
-    chains::{ethereum, BlockCache},
+    budgets::USD,
     ipfs, json,
     network::{exchange_rate, network_subgraph},
     scalar,
+    scalar::ReceiptSigner,
 };
 use graph_gateway::client_query::auth::AuthContext;
 use graph_gateway::client_query::context::Context;
@@ -51,7 +50,6 @@ use graph_gateway::client_query::query_id::SetQueryIdLayer;
 use graph_gateway::client_query::query_tracing::QueryTracingLayer;
 use graph_gateway::client_query::rate_limiter::AddRateLimiterLayer;
 use graph_gateway::client_query::require_auth::RequireAuthorizationLayer;
-use graph_gateway::config::chains::RpcConfig;
 use graph_gateway::config::{ApiKeys, Config, ExchangeRateProvider};
 use graph_gateway::indexer_client::IndexerClient;
 use graph_gateway::indexers::indexing;
@@ -110,20 +108,6 @@ async fn main() {
         .timeout(Duration::from_secs(20))
         .build()
         .unwrap();
-
-    let block_caches: HashMap<String, &'static BlockCache> = config
-        .chains
-        .into_iter()
-        .flat_map(|chain| {
-            // Build a block cache for each chain
-            let cache = new_block_cache(chain.names.clone(), chain.rpc.clone());
-            let cache: &'static BlockCache = Box::leak(Box::new(cache));
-
-            chain.names.into_iter().map(move |alias| (alias, cache))
-        })
-        .collect();
-    let block_caches: &'static HashMap<String, &'static BlockCache> =
-        Box::leak(Box::new(block_caches));
 
     let grt_per_usd: Eventual<NotNan<f64>> = match config.exchange_rate_provider {
         ExchangeRateProvider::Fixed(grt_per_usd) => {
@@ -277,6 +261,7 @@ async fn main() {
         budgeter,
         indexer_selection_retry_limit: config.indexer_selection_retry_limit,
         l2_gateway: config.l2_gateway,
+        chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
         grt_per_usd,
         network,
         indexing_perf: IndexingPerformance::new(indexing_statuses.clone()),
@@ -284,14 +269,7 @@ async fn main() {
         attestation_domain,
         bad_indexers,
         indexings_blocklist,
-        block_caches,
     };
-
-    for (chain, block_cache) in block_caches {
-        if block_cache.chain_head.value_immediate().is_none() {
-            tracing::error!(%chain, "missing chain head");
-        }
-    }
 
     // Host metrics on a separate server with a port that isn't open to public requests.
     let metrics_port = config.port_metrics;
@@ -464,23 +442,6 @@ async fn update_allocations(
         allocations.insert(indexing, indexer.largest_allocation);
     }
     receipt_signer.update_allocations(allocations).await;
-}
-
-/// Returns a new block cache client based on the given configuration.
-fn new_block_cache(names: Vec<String>, config: RpcConfig) -> BlockCache {
-    match config {
-        RpcConfig::Ethereum { rpc_url } => BlockCache::new::<ethereum::Client>(ethereum::Config {
-            names,
-            url: rpc_url,
-        }),
-        RpcConfig::Blockmeta { rpc_url, rpc_auth } => {
-            BlockCache::new::<blockmeta::Client>(blockmeta::Config {
-                names,
-                uri: rpc_url.as_str().parse().expect("invalid URI"),
-                auth: rpc_auth,
-            })
-        }
-    }
 }
 
 async fn handle_metrics() -> impl axum::response::IntoResponse {

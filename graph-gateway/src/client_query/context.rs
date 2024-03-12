@@ -1,21 +1,15 @@
-use std::collections::{HashMap, HashSet};
-
+use crate::{
+    chains::Chains, indexer_client::IndexerClient, indexers::indexing,
+    indexing_performance::IndexingPerformance, reports::KafkaClient, topology::GraphNetwork,
+};
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use eventuals::{Eventual, Ptr};
-use gateway_framework::scalar::ReceiptSigner;
-use ordered_float::NotNan;
-use url::Url;
-
 use gateway_common::types::Indexing;
-use gateway_framework::budgets::Budgeter;
-use gateway_framework::chains::BlockCache;
-
-use crate::indexer_client::IndexerClient;
-use crate::indexers::indexing;
-use crate::indexing_performance::IndexingPerformance;
-use crate::reports::KafkaClient;
-use crate::topology::GraphNetwork;
+use gateway_framework::{budgets::Budgeter, scalar::ReceiptSigner};
+use ordered_float::NotNan;
+use std::collections::{HashMap, HashSet};
+use url::Url;
 
 #[derive(Clone)]
 pub struct Context {
@@ -26,7 +20,7 @@ pub struct Context {
     pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,
     pub grt_per_usd: Eventual<NotNan<f64>>,
-    pub block_caches: &'static HashMap<String, &'static BlockCache>,
+    pub chains: &'static Chains,
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, indexing::Status>>>,
     pub indexing_perf: IndexingPerformance,

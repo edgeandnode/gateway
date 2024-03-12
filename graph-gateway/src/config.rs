@@ -1,6 +1,5 @@
 //! The Graph Gateway configuration.
 
-use self::chains::Config as ChainConfig;
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 use crate::subgraph_studio::APIKey;
 use alloy_primitives::{Address, U256};
@@ -27,8 +26,9 @@ pub struct Config {
     /// indexer-selection imperfections.
     #[serde(default)]
     pub bad_indexers: Vec<Address>,
-    /// Block cache chain configurations
-    pub chains: Vec<ChainConfig>,
+    /// Chain aliases
+    #[serde(default)]
+    pub chain_aliases: BTreeMap<String, String>,
     /// Ethereum RPC provider, or fixed exchange rate for testing
     pub exchange_rate_provider: ExchangeRateProvider,
     /// The Gateway unique identifier. This ID is used to identify the Gateway in the network
@@ -115,199 +115,6 @@ pub enum ApiKeys {
     },
     /// Fixed conversion rate of GRT/USD
     Fixed(Vec<APIKey>),
-}
-
-/// The block cache chain configuration.
-pub mod chains {
-    use std::fmt::Display;
-
-    use custom_debug::CustomDebug;
-    use serde::Deserialize;
-    use serde_with::{serde_as, DisplayFromStr};
-    use url::Url;
-
-    /// The chain configuration.
-    #[derive(Clone, Debug, Deserialize)]
-    pub struct Config {
-        /// Chain names.
-        ///
-        /// The first name is used in logs, the others are aliases also supported in subgraph
-        /// manifests.
-        pub names: Vec<String>,
-
-        /// The RPC client type.
-        #[serde(flatten)]
-        pub rpc: RpcConfig,
-    }
-
-    /// The RPC configuration for a chain.
-    #[serde_as]
-    #[derive(Clone, CustomDebug, Deserialize)]
-    #[serde(tag = "rpc_type")]
-    #[serde(rename_all = "snake_case")]
-    pub enum RpcConfig {
-        Ethereum {
-            /// The RPC URL for the chain.
-            #[serde_as(as = "DisplayFromStr")]
-            #[debug(with = "Display::fmt")]
-            rpc_url: Url,
-        },
-        Blockmeta {
-            /// The RPC URL for the chain.
-            #[serde_as(as = "DisplayFromStr")]
-            #[debug(with = "Display::fmt")]
-            rpc_url: Url,
-
-            /// The authentication token for the chain.
-            #[debug(skip)]
-            rpc_auth: String,
-        },
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use assert_matches::assert_matches;
-        use serde_json::json;
-
-        use super::{Config, RpcConfig};
-
-        /// Test that deserializing a chain configuration with the previous format fails.
-        /// The previous format was a single `rpc` field mapped to a URL, without the `rpc_type`
-        /// field.
-        #[test]
-        fn previous_configuration_format_should_fail() {
-            //* Given
-            let expected_rpc_url = "http://localhost:8545/";
-
-            let json_conf = json!({
-                "names": ["ethereum", "eth"],
-                "rpc": expected_rpc_url,
-            });
-
-            //* When
-            let conf = serde_json::from_value::<Config>(json_conf);
-
-            //* Then
-            // Assert that the deserialization fails
-            assert_matches!(conf, Err(err) => {
-                assert!(err.to_string().contains("missing field `rpc_type`"));
-            });
-        }
-
-        #[test]
-        fn deserialize_valid_ethereum_rpc_config() {
-            //* Given
-            let expected_rpc_url = "http://localhost:8545/";
-
-            let json_conf = json!({
-                "names": ["ethereum", "eth"],
-                "rpc_type": "ethereum",
-                "rpc_url": expected_rpc_url
-            });
-
-            //* When
-            let conf = serde_json::from_value::<Config>(json_conf);
-
-            //* Then
-            // Assert that the deserialized config is valid
-            assert_matches!(conf, Ok(conf) => {
-                assert_eq!(conf.names, vec!["ethereum", "eth"]);
-                assert_matches!(conf.rpc, RpcConfig::Ethereum { rpc_url } => {
-                    assert_eq!(rpc_url.as_str(), expected_rpc_url);
-                });
-            });
-        }
-
-        #[test]
-        fn deserialize_valid_blockmeta_rpc_config() {
-            //* Given
-            let expected_rpc_url = "http://localhost:8545/";
-            let expected_rpc_auth = "auth_token";
-
-            let json_conf = json!({
-                "names": ["blockmeta", "bm"],
-                "rpc_type": "blockmeta",
-                "rpc_url": expected_rpc_url,
-                "rpc_auth": expected_rpc_auth
-            });
-
-            //* When
-            let conf = serde_json::from_value::<Config>(json_conf);
-
-            //* Then
-            // Assert that the deserialized config is valid
-            assert_matches!(conf, Ok(conf) => {
-                assert_eq!(conf.names, vec!["blockmeta", "bm"]);
-                assert_matches!(conf.rpc, RpcConfig::Blockmeta { rpc_url, rpc_auth } => {
-                    assert_eq!(rpc_url.as_str(), expected_rpc_url);
-                    assert_eq!(rpc_auth.as_str(), expected_rpc_auth);
-                });
-            });
-        }
-
-        #[test]
-        fn deserialize_invalid_blockmeta_rpc_config_should_fail() {
-            //* Given
-            let expected_rpc_url = "http://localhost:8545/";
-
-            let json_conf = json!({
-                "names": ["blockmeta", "bm"],
-                "rpc_type": "blockmeta",
-                "rpc_url": expected_rpc_url
-                // The `rpc_auth` field is missing
-            });
-
-            //* When
-            let conf = serde_json::from_value::<Config>(json_conf);
-
-            //* Then
-            // Assert that the deserialization fails
-            assert_matches!(conf, Err(err) => {
-                assert!(err.to_string().contains("missing field `rpc_auth`"));
-            });
-        }
-
-        #[test]
-        fn deserialize_unknown_rpc_config_should_fail() {
-            //* Given
-            let expected_rpc_url = "http://localhost:8545/";
-
-            let json_conf = json!({
-                "names": ["blockmeta", "bm"],
-                "rpc_type": "unknown",
-                "rpc_url": expected_rpc_url
-            });
-
-            //* When
-            let conf = serde_json::from_value::<Config>(json_conf);
-
-            //* Then
-            // Assert that the deserialization fails
-            assert_matches!(conf, Err(err) => {
-                assert!(err.to_string().contains("unknown variant"));
-            });
-        }
-
-        #[test]
-        fn blockmeta_rpc_config_auth_should_not_be_displayed() {
-            //* Given
-            let expected_rpc_url = "http://localhost:8545/";
-
-            let rpc_config = RpcConfig::Blockmeta {
-                rpc_url: expected_rpc_url.parse().expect("invalid url"),
-                rpc_auth: "auth_token".to_string(),
-            };
-
-            //* When
-            let debug_str = format!("{:?}", rpc_config);
-
-            //* Then
-            // Assert the `rpc_url` is properly displayed, and
-            // the `rpc_auth` is not displayed
-            assert!(debug_str.contains(expected_rpc_url));
-            assert!(!debug_str.contains("auth_token"));
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]

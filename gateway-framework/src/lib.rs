@@ -1,6 +1,6 @@
-pub mod block_constraints;
+pub mod blocks;
 pub mod budgets;
-pub mod chains;
+pub mod chain;
 pub mod config;
 pub mod errors;
 pub mod geoip;

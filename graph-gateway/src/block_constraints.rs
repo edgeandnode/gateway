@@ -1,19 +1,86 @@
-use std::collections::{BTreeMap, BTreeSet};
-
 use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail};
 use cost_model::Context;
-use graphql::graphql_parser::query::{
-    Definition, Document, Field, OperationDefinition, Selection, SelectionSet, Text, Value,
+use gateway_common::utils::timestamp::unix_timestamp;
+use gateway_framework::{
+    blocks::{BlockConstraint, UnresolvedBlock},
+    chain::Chain,
+    errors::Error,
 };
-use graphql::{IntoStaticValue as _, StaticValue};
+use graphql::{
+    graphql_parser::query::{
+        Definition, Document, Field, OperationDefinition, Selection, SelectionSet, Text, Value,
+    },
+    IntoStaticValue as _, StaticValue,
+};
 use itertools::Itertools as _;
 use serde_json::{self, json};
-use thegraph_core::types::BlockPointer;
+use std::collections::{BTreeMap, BTreeSet};
 
-use gateway_framework::{block_constraints::BlockConstraint, errors::Error};
+#[derive(Debug)]
+pub struct BlockRequirements {
+    /// required block range, for exact block constraints (`number` & `hash`)
+    pub range: Option<(BlockNumber, BlockNumber)>,
+    /// maximum `number_gte` constraint
+    pub number_gte: Option<BlockNumber>,
+    /// does the query benefit from using the latest block (contains NumberGTE or Unconstrained)
+    pub latest: bool,
+}
 
-pub fn block_constraints(context: &Context<String>) -> Result<BTreeSet<BlockConstraint>, Error> {
+pub fn resolve_block_requirements(
+    chain: &Chain,
+    context: &Context<'_, String>,
+    manifest_min_block: BlockNumber,
+) -> Result<BlockRequirements, Error> {
+    let constraints = block_constraints(context).unwrap_or_default();
+
+    let latest = constraints.iter().any(|c| match c {
+        BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
+        BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
+    });
+    let number_gte = constraints
+        .iter()
+        .filter_map(|c| match c {
+            BlockConstraint::NumberGTE(n) => Some(*n),
+            _ => None,
+        })
+        .max();
+
+    let exact_constraints: Vec<u64> = constraints
+        .iter()
+        .filter_map(|c| match c {
+            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => None,
+            BlockConstraint::Number(number) => Some(*number),
+            // resolving block hashes is not guaranteed
+            BlockConstraint::Hash(hash) => chain
+                .find(&UnresolvedBlock::WithHash(*hash))
+                .map(|b| b.number),
+        })
+        .collect();
+    let min_block = exact_constraints.iter().min().cloned();
+    let max_block = exact_constraints.iter().max().cloned();
+
+    // Reject queries for blocks before the minimum start block in the manifest, but only if the
+    // constraint is for an exact block. For example, we always want to allow `block_gte: 0`.
+    let request_contains_invalid_blocks = exact_constraints
+        .iter()
+        .any(|number| *number < manifest_min_block);
+    if request_contains_invalid_blocks {
+        return Err(Error::BadQuery(anyhow!(
+            "requested block {}, before minimum `startBlock` of manifest {}",
+            min_block.unwrap_or_default(),
+            manifest_min_block,
+        )));
+    }
+
+    Ok(BlockRequirements {
+        range: min_block.map(|min| (min, max_block.unwrap())),
+        number_gte,
+        latest,
+    })
+}
+
+fn block_constraints(context: &Context<String>) -> Result<BTreeSet<BlockConstraint>, Error> {
     let mut constraints = BTreeSet::new();
     let vars = &context.variables;
     // ba6c90f1-3baf-45be-ac1c-f60733404436
@@ -62,11 +129,28 @@ pub fn block_constraints(context: &Context<String>) -> Result<BTreeSet<BlockCons
 }
 
 pub fn rewrite_query(
+    chain: &Chain,
     mut ctx: Context<String>,
-    resolved: &BTreeSet<BlockPointer>,
-    latest: &BlockPointer,
+    requirements: &BlockRequirements,
+    blocks_behind: u64,
 ) -> Result<String, Error> {
     if !contains_introspection(&ctx) {
+        let latest_block = requirements.latest.then_some(()).and_then(|_| {
+            let mut block = chain.latest()?;
+            if (blocks_behind > 0) || requirements.number_gte.is_some() {
+                let number = block
+                    .number
+                    .saturating_sub(blocks_behind)
+                    .max(requirements.number_gte.unwrap_or(0));
+                block = chain.find(&UnresolvedBlock::WithNumber(number))?;
+            }
+            let now = unix_timestamp() / 1_000;
+            if now.saturating_sub(block.timestamp) > 30 {
+                return None;
+            }
+            Some(block.clone())
+        });
+
         let vars = &ctx.variables;
         // Similar walk as ba6c90f1-3baf-45be-ac1c-f60733404436. But now including variables, and
         // mutating as we go.
@@ -108,20 +192,26 @@ pub fn rewrite_query(
                     Some((_, arg)) => {
                         match field_constraint(vars, &defaults, arg).map_err(Error::BadQuery)? {
                             BlockConstraint::Hash(_) => (),
-                            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
-                                *arg = deterministic_block(&latest.hash);
-                            }
                             BlockConstraint::Number(number) => {
-                                if let Some(block) = resolved.iter().find(|b| b.number == number) {
+                                if let Some(block) =
+                                    chain.find(&UnresolvedBlock::WithNumber(number))
+                                {
+                                    *arg = deterministic_block(&block.hash);
+                                }
+                            }
+                            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
+                                if let Some(block) = &latest_block {
                                     *arg = deterministic_block(&block.hash);
                                 }
                             }
                         };
                     }
                     None => {
-                        selection_field
-                            .arguments
-                            .push(("block".to_string(), deterministic_block(&latest.hash)));
+                        if let Some(block) = &latest_block {
+                            selection_field
+                                .arguments
+                                .push(("block".to_string(), deterministic_block(&block.hash)));
+                        }
                     }
                 };
             }

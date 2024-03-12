@@ -1,4 +1,5 @@
 pub mod block_constraints;
+pub mod chains;
 pub mod client_query;
 pub mod config;
 pub mod indexer_client;
