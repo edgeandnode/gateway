@@ -471,7 +471,6 @@ async fn handle_client_query_inner(
             // 5. The same context is re-used, including the block requirement set to the hash of
             //    block `n`
             // 6. The indexer is seen as being behind and is unnecessarily penalized
-            // let block_requirements =
             let indexer_request = {
                 let chain = chain.read().await;
                 rewrite_query(

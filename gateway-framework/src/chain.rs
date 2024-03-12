@@ -63,8 +63,8 @@ impl Chain {
     }
 
     fn evict(&mut self) {
-        let min_block = match self.0.pop_first().map(|(block, _)| block) {
-            Some(min_block) => min_block,
+        let min_block = match self.0.pop_first() {
+            Some((min_block, _)) => min_block,
             None => return,
         };
         while let Some(entry) = self.0.first_entry() {
