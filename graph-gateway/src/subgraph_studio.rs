@@ -15,7 +15,8 @@ pub struct APIKey {
     pub key: String,
     pub user_address: Address,
     pub query_status: QueryStatus,
-    #[serde_as(as = "Option<serde_with::DisplayFromStr>")]
+    #[serde_as(as = "Option<serde_with::TryFromInto<f64>>")]
+    #[serde(rename = "max_budget")]
     pub max_budget_usd: Option<NotNan<f64>>,
     #[serde(default)]
     pub deployments: Vec<DeploymentId>,
@@ -35,13 +36,10 @@ pub enum QueryStatus {
 
 pub fn api_keys(
     client: reqwest::Client,
-    mut url: Url,
+    url: Url,
     auth: String,
 ) -> Eventual<Ptr<HashMap<String, Arc<APIKey>>>> {
     let (writer, reader) = Eventual::new();
-    if !url.path().ends_with('/') {
-        url.set_path(&format!("{}/", url.path()));
-    }
     let client: &'static Mutex<Client> = Box::leak(Box::new(Mutex::new(Client {
         client,
         url,
@@ -89,7 +87,7 @@ impl Client {
 
         let response = self
             .client
-            .get(self.url.join("gateway-api-keys")?)
+            .get(self.url.clone())
             .bearer_auth(&self.auth)
             .send()
             .await?

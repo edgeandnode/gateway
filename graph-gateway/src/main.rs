@@ -204,7 +204,7 @@ async fn main() {
     };
     let api_keys = match config.api_keys {
         Some(ApiKeys::Endpoint { url, auth, .. }) => {
-            subgraph_studio::api_keys(http_client.clone(), url, auth)
+            subgraph_studio::api_keys(http_client.clone(), url, auth.0)
         }
         Some(ApiKeys::Fixed(api_keys)) => Eventual::from_value(Ptr::new(
             api_keys
