@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::{Address, BlockHash, BlockNumber};
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use axum::{
@@ -828,7 +828,13 @@ fn rewrite_response(
     }
     #[derive(Deserialize)]
     struct Meta {
-        block: Block,
+        block: MaybeBlock,
+    }
+    #[derive(Deserialize)]
+    struct MaybeBlock {
+        number: BlockNumber,
+        hash: BlockHash,
+        timestamp: Option<u64>,
     }
     let mut payload: GQLResponseBody<ProbedData> =
         serde_json::from_str(response).map_err(|err| IndexerError::BadResponse(err.to_string()))?;
@@ -843,7 +849,13 @@ fn rewrite_response(
         .data
         .as_mut()
         .and_then(|data| data.probe.take())
-        .map(|meta| meta.block);
+        .and_then(|meta| {
+            Some(Block {
+                number: meta.block.number,
+                hash: meta.block.hash,
+                timestamp: meta.block.timestamp?,
+            })
+        });
     let client_response = serde_json::to_string(&payload).unwrap();
     Ok((client_response, payload.errors, block))
 }
