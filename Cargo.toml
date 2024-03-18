@@ -30,7 +30,7 @@ reqwest = { version = "0.11", default-features = false, features = [
 secp256k1 = { version = "0.28", default-features = false }
 semver = { version = "1.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
-siphasher = "1.0.0"
+siphasher = "1.0.1"
 thegraph-core = "0.2.2"
 thegraph-graphql-http = "0.1.0"
 thiserror = "1.0.57"
