@@ -53,5 +53,5 @@ uuid = { version = "1.8", default-features = false, features = ["v4"] }
 [dev-dependencies]
 assert_matches = "1.5.0"
 hyper = "0.14.28"
-tokio-test = "0.4.3"
+tokio-test = "0.4.4"
 tower-test = "0.4.0"
