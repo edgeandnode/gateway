@@ -1,4 +1,4 @@
-FROM rust:1.76-bookworm AS build
+FROM rust:1-bookworm AS build
 
 ARG GH_USER
 ARG GH_TOKEN
