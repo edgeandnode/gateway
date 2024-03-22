@@ -153,7 +153,7 @@ mod tests {
             let value = serde_json::to_string(&attestation).unwrap();
             HeaderValue::from_str(&value).unwrap()
         };
-        let headers = vec![header];
+        let headers = [header];
 
         //* When
         let header = GraphAttestation::decode(&mut headers.iter());
@@ -185,7 +185,7 @@ mod tests {
             let value = serde_json::to_string(&attestation).unwrap();
             HeaderValue::from_str(&value).unwrap()
         };
-        let headers = vec![
+        let headers = [
             header,
             HeaderValue::from_static("invalid"),
             HeaderValue::from_static(""),
@@ -202,7 +202,7 @@ mod tests {
     fn decode_empty_attestation_from_valid_header() {
         //* Given
         let header = HeaderValue::from_static("");
-        let headers = vec![header];
+        let headers = [header];
 
         //* When
         let header = GraphAttestation::decode(&mut headers.iter());
@@ -215,7 +215,7 @@ mod tests {
     fn fail_decode_attestation_from_invalid_header() {
         //* Given
         let header = HeaderValue::from_static("invalid");
-        let headers = vec![header];
+        let headers = [header];
 
         //* When
         let header = GraphAttestation::decode(&mut headers.iter());
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn fail_decode_attestation_if_no_headers() {
         //* Given
-        let headers = vec![];
+        let headers = [];
 
         //* When
         let header = GraphAttestation::decode(&mut headers.iter());
