@@ -1,23 +1,32 @@
-use maxminddb::{geoip2, Reader};
+use anyhow::Context as _;
+use ipnetwork::IpNetwork;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{HashMap, HashSet},
+    fs,
     net::IpAddr,
     path::Path,
 };
 use url::{Host, Url};
 
-pub struct GeoIp {
-    reader: Reader<Vec<u8>>,
-    blocked_countries: BTreeSet<String>,
+pub struct IpBlocker {
+    blocked_networks: HashSet<IpNetwork>,
     dns_resolver: hickory_resolver::TokioAsyncResolver,
     cache: HashMap<String, Result<(), String>>,
 }
 
-impl GeoIp {
-    pub fn new(db_file: impl AsRef<Path>, blocked_countries: Vec<String>) -> anyhow::Result<Self> {
+impl IpBlocker {
+    pub fn new(db_path: Option<&Path>) -> anyhow::Result<Self> {
+        let db = match db_path {
+            Some(path) => fs::read_to_string(path).context("IP blocker DB")?,
+            None => "".into(),
+        };
+        let blocked_networks: HashSet<IpNetwork> = db
+            .lines()
+            .filter_map(|line| line.split_once(',')?.0.parse().ok())
+            .collect();
+        tracing::debug!(blocked_networks = blocked_networks.len());
         Ok(Self {
-            reader: Reader::open_readfile(db_file)?,
-            blocked_countries: blocked_countries.into_iter().collect(),
+            blocked_networks,
             dns_resolver: hickory_resolver::TokioAsyncResolver::tokio_from_system_conf()?,
             cache: Default::default(),
         })
@@ -43,14 +52,7 @@ impl GeoIp {
         };
         let blocked = addrs
             .into_iter()
-            .filter_map(|addr| {
-                self.reader
-                    .lookup::<geoip2::Country>(addr)
-                    .ok()?
-                    .country?
-                    .iso_code
-            })
-            .any(|country| self.blocked_countries.contains(country));
+            .any(|addr| self.blocked_networks.iter().any(|net| net.contains(addr)));
         let result = blocked.then(|| Err("blocked".into())).unwrap_or(Ok(()));
         self.cache.insert(host_str.to_string(), result.clone());
         result

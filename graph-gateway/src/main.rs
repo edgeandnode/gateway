@@ -18,7 +18,7 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
-use gateway_framework::geoip::GeoIp;
+use gateway_framework::ip_blocker::IpBlocker;
 use graph_gateway::chains::Chains;
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
@@ -92,17 +92,8 @@ async fn main() {
     };
 
     reports::init(kafka_client, config.log_json);
-    tracing::info!("Graph gateway starting... ID: {}", gateway_id);
+    tracing::info!("gateway ID: {}", gateway_id);
     tracing::debug!(config = %config_repr);
-
-    let geoip = config
-        .geoip_database
-        .filter(|_| !config.geoip_blocked_countries.is_empty())
-        .map(|db| {
-            GeoIp::new(db, config.geoip_blocked_countries)
-                .context("GeoIp")
-                .unwrap()
-        });
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -130,7 +121,8 @@ async fn main() {
         )));
 
     let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
-    let network = GraphNetwork::new(subgraphs, ipfs, geoip).await;
+    let ip_blocker = IpBlocker::new(config.ip_blocker_db.as_deref()).unwrap();
+    let network = GraphNetwork::new(subgraphs, ipfs, ip_blocker).await;
 
     // Indexer blocklist
     // Periodically check the defective POIs list against the network indexers and update the
@@ -249,7 +241,6 @@ async fn main() {
         USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
-    tracing::info!("Waiting for exchange rate...");
     grt_per_usd.value().await.unwrap();
 
     let client_query_ctx = Context {
