@@ -58,6 +58,7 @@ use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     indexer_client::{check_block_error, IndexerClient, ResponsePayload},
     reports::{self, serialize_attestation},
+    sql_constraints::{validate_query, SqlFieldBehavior},
     unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
 };
 
@@ -283,6 +284,9 @@ async fn handle_client_query_inner(
         .unwrap_or_default();
     let mut context = AgoraContext::new(&payload.query, &variables)
         .map_err(|err| Error::BadQuery(anyhow!("{err}")))?;
+
+    validate_query(&context, SqlFieldBehavior::RejectSql)?;
+
     tracing::info!(
         target: CLIENT_REQUEST_TARGET,
         query = %payload.query,

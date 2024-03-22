@@ -5,5 +5,6 @@ pub mod indexer_client;
 pub mod indexers;
 pub mod indexings_blocklist;
 pub mod reports;
+pub mod sql_constraints;
 pub mod subgraph_studio;
 pub mod unattestable_errors;
