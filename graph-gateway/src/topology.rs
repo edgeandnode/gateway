@@ -5,7 +5,7 @@ use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt, Ptr};
 use futures::future::join_all;
-use gateway_framework::geoip::GeoIp;
+use gateway_framework::ip_blocker::IpBlocker;
 use itertools::Itertools;
 use serde::Deserialize;
 use thegraph_core::types::{DeploymentId, SubgraphId};
@@ -86,18 +86,18 @@ impl GraphNetwork {
     pub async fn new(
         subgraphs: Eventual<Ptr<Vec<network_subgraph::Subgraph>>>,
         ipfs: Arc<ipfs::Client>,
-        geoip: Option<GeoIp>,
+        ip_blocker: IpBlocker,
     ) -> Self {
         let cache: &'static RwLock<IpfsCache> = Box::leak(Box::new(RwLock::new(IpfsCache {
             ipfs,
             manifests: HashMap::new(),
         })));
-        let geoip: &'static Option<Mutex<GeoIp>> = Box::leak(Box::new(geoip.map(Into::into)));
+        let ip_blocker: &'static Mutex<IpBlocker> = Box::leak(Box::new(ip_blocker.into()));
 
         // Create a lookup table for subgraphs, keyed by their ID.
         // Invalid URL indexers are filtered out. See: 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
         let subgraphs = subgraphs.map(move |subgraphs| async move {
-            Ptr::new(Self::subgraphs(&subgraphs, cache, geoip).await)
+            Ptr::new(Self::subgraphs(&subgraphs, cache, ip_blocker).await)
         });
 
         // Create a lookup table for deployments, keyed by their ID (which is also their IPFS hash).
@@ -136,7 +136,7 @@ impl GraphNetwork {
     async fn subgraphs(
         subgraphs: &[network_subgraph::Subgraph],
         cache: &'static RwLock<IpfsCache>,
-        geoip: &'static Option<Mutex<GeoIp>>,
+        ip_blocker: &'static Mutex<IpBlocker>,
     ) -> HashMap<SubgraphId, Subgraph> {
         join_all(subgraphs.iter().map(|subgraph| async move {
             let id = subgraph.id;
@@ -144,7 +144,7 @@ impl GraphNetwork {
                 subgraph
                     .versions
                     .iter()
-                    .map(|version| Self::deployment(subgraphs, version, cache, geoip)),
+                    .map(|version| Self::deployment(subgraphs, version, cache, ip_blocker)),
             )
             .await
             .into_iter()
@@ -166,7 +166,7 @@ impl GraphNetwork {
         subgraphs: &[network_subgraph::Subgraph],
         version: &network_subgraph::SubgraphVersion,
         cache: &'static RwLock<IpfsCache>,
-        geoip: &'static Option<Mutex<GeoIp>>,
+        ip_blocker: &'static Mutex<IpBlocker>,
     ) -> Option<Arc<Deployment>> {
         let id = version.subgraph_deployment.id;
         let manifest = IpfsCache::manifest(cache, &version.subgraph_deployment.id).await?;
@@ -215,18 +215,17 @@ impl GraphNetwork {
             .map(|indexer| (indexer.id, indexer.into()))
             .collect();
 
-        if let Some(geoip) = geoip {
-            let mut blocked: BTreeSet<Address> = Default::default();
-            let mut geoip = geoip.lock().await;
+        let mut blocked: BTreeSet<Address> = Default::default();
+        {
+            let mut ip_blocker = ip_blocker.lock().await;
             for indexer in indexers.values() {
-                if let Err(ip_block) = geoip.is_ip_blocked(&indexer.url).await {
+                if let Err(ip_block) = ip_blocker.is_ip_blocked(&indexer.url).await {
                     tracing::info!(ip_block, indexer = ?indexer.id, url = %indexer.url);
                     blocked.insert(indexer.id);
                 }
             }
-            drop(geoip);
-            indexers.retain(|indexer, _| !blocked.contains(indexer));
         }
+        indexers.retain(|indexer, _| !blocked.contains(indexer));
 
         // abf62a6d-c071-4507-b528-ddc8e250127a
         let transferred_to_l2 = version.subgraph_deployment.transferred_to_l2

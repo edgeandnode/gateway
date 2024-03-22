@@ -31,6 +31,5 @@ RUN apt-get update && apt-get install -y \
   libssl-dev \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/gateway/target/release/graph-gateway /opt/gateway/target/release/graph-gateway
-COPY GeoLite2-Country.mmdb /opt/geoip/GeoLite2-Country.mmdb
 WORKDIR /opt/gateway
 ENTRYPOINT [ "target/release/graph-gateway" ]

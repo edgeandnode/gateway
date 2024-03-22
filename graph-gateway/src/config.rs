@@ -37,11 +37,6 @@ pub struct Config {
     /// If not provided a UUID is generated.
     #[serde(default)]
     pub gateway_id: Option<String>,
-    /// GeoIP database path
-    pub geoip_database: Option<PathBuf>,
-    /// GeoIP blocked countries (ISO 3166-1 alpha-2 codes)
-    #[serde(default)]
-    pub geoip_blocked_countries: Vec<String>,
     /// Graph network environment identifier, inserted into Kafka messages
     pub graph_env_id: String,
     /// Rounds of indexer selection and queries to attempt. Note that indexer queries have a 20s
@@ -52,6 +47,8 @@ pub struct Config {
     #[debug(with = Display::fmt)]
     #[serde_as(as = "DisplayFromStr")]
     pub ipfs: Url,
+    /// File path of CSV containing rows of `IpNetwork,Country`
+    pub ip_blocker_db: Option<PathBuf>,
     /// IP rate limit in requests per second
     pub ip_rate_limit: u16,
     /// See https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md

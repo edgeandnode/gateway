@@ -1801,9 +1801,9 @@ dependencies = [
  "headers",
  "hex",
  "hickory-resolver",
+ "ipnetwork",
  "itertools 0.12.1",
  "lazy_static",
- "maxminddb",
  "ordered-float",
  "primitive-types",
  "prometheus",
@@ -2648,18 +2648,6 @@ name = "matchit"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
-
-[[package]]
-name = "maxminddb"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6087e5d8ea14861bb7c7f573afbc7be3798d3ef0fae87ec4fd9a4de9a127c3c"
-dependencies = [
- "ipnetwork",
- "log",
- "memchr",
- "serde",
-]
 
 [[package]]
 name = "md-5"
