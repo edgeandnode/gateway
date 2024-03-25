@@ -8,7 +8,7 @@ alloy-primitives.workspace = true
 alloy-sol-types = "0.6.4"
 anyhow.workspace = true
 axum.workspace = true
-candidate-selection = { git = "ssh://git@github.com/edgeandnode/candidate-selection.git", rev = "bcd7909" }
+candidate-selection = { git = "https://github.com/edgeandnode/candidate-selection.git", rev = "bcd7909" }
 ethers = "2.0.14"
 eventuals = "0.6.7"
 gateway-common = { path = "../gateway-common" }

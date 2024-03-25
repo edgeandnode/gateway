@@ -1,6 +1,4 @@
-# graph-gateway
-
-Graph Gateway
+# gateway
 
 ### Documentation
 
