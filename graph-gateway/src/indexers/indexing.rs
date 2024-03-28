@@ -1,7 +1,4 @@
-use crate::indexers::{
-    cost_models::{self, CostModelQuery},
-    indexing_statuses, version,
-};
+use crate::indexers::{cost_models, indexing_statuses, version};
 use crate::topology::Deployment;
 use alloy_primitives::{Address, BlockNumber};
 use anyhow::{anyhow, ensure};
@@ -158,8 +155,8 @@ async fn query_status(
     let statuses = indexing_statuses::query(client, status_url, &deployments).await?;
 
     let cost_url = url.join("cost")?;
-    let deployments = statuses.iter().map(|stat| stat.subgraph).collect();
-    let cost_models = cost_models::query(client, cost_url, CostModelQuery { deployments })
+    let deployments: Vec<DeploymentId> = statuses.iter().map(|stat| stat.subgraph).collect();
+    let cost_models = cost_models::query(client, cost_url, &deployments)
         .await
         .unwrap_or_default();
 
