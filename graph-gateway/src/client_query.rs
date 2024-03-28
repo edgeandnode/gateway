@@ -436,7 +436,6 @@ async fn handle_client_query_inner(
                 blocks_behind: blocks_behind as u64,
             });
         }
-        let selections_len = selections.len();
         if selections.is_empty() {
             // Candidates that would never be selected should be filtered out for improved errors.
             tracing::error!("no candidates selected");
@@ -522,13 +521,12 @@ async fn handle_client_query_inner(
             indexer_fees_usd = *total_indexer_fees_usd.0 as f32,
         );
 
-        for _ in 0..selections_len {
-            match outcome_rx.recv().await {
-                None => (),
-                Some((selection, Err(err))) => {
+        while let Some((selection, result)) = outcome_rx.recv().await {
+            match result {
+                Err(err) => {
                     indexer_errors.insert(selection.indexing.indexer, err);
                 }
-                Some((selection, Ok(outcome))) => {
+                Ok(outcome) => {
                     let _ = ctx.budgeter.feedback.send(total_indexer_fees_usd);
 
                     tracing::debug!(?indexer_errors);
