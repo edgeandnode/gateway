@@ -1,8 +1,5 @@
 FROM rust:1-bookworm AS build
 
-ARG GH_USER
-ARG GH_TOKEN
-
 RUN apt-get update && apt-get install -y \
   build-essential \
   clang \
@@ -15,12 +12,6 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /opt/gateway
 COPY ./ ./
 
-# Setup GitHub credentials for cargo fetch
-RUN git config --global credential.helper store \
-  && git config --global --replace-all url."https://github.com".insteadOf "ssh://git@github.com" \
-  && mkdir ~/.cargo && echo "net.git-fetch-with-cli = true" > ~/.cargo/config.toml \
-  && (echo "url=https://github.com"; echo "username=${GH_USER}"; echo "password=${GH_TOKEN}"; echo "") | git credential approve
-
 ENV CC=clang CXX=clang++
 RUN cargo build --release --bin graph-gateway --color=always
 
@@ -30,6 +21,7 @@ RUN apt-get update && apt-get install -y \
   libsasl2-dev \
   libssl-dev \
   && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /opt/gateway/target/release/graph-gateway /opt/gateway/target/release/graph-gateway
 WORKDIR /opt/gateway
 ENTRYPOINT [ "target/release/graph-gateway" ]

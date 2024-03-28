@@ -40,6 +40,3 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
-          build-args: |
-            GH_USER=${{ github.repository_owner }}
-            GH_TOKEN=${{ secrets.GH_PRIVATE_TOKEN }}

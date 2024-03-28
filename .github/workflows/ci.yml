@@ -13,8 +13,6 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
   RUSTFLAGS: "-C link-arg=-fuse-ld=lld -D warnings"
-  GH_USER: ${{ github.repository_owner }}
-  GH_TOKEN: ${{ secrets.GH_PRIVATE_TOKEN }}
 
 jobs:
   check_and_test:
@@ -35,12 +33,7 @@ jobs:
         uses: Leafwing-Studios/cargo-cache@c7e8aa40ae2c975774d3bd766beb92927cfd7771 # v1
 
       - name: Prepare build env
-        run: |
-          git config --global credential.helper store
-          git config --global --replace-all url."https://github.com".insteadOf "ssh://git@github.com"
-          mkdir -p ~/.cargo && echo "net.git-fetch-with-cli = true" > ~/.cargo/config.toml
-          (echo "url=https://github.com"; echo "username=${GH_USER}"; echo "password=${GH_TOKEN}"; echo "") | git credential approve
-          sudo apt-get install -y lld librdkafka-dev libsasl2-dev
+        run: sudo apt-get install -y lld librdkafka-dev libsasl2-dev
 
       - run: cargo check
       - run: cargo fmt --all -- --check
