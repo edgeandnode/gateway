@@ -596,7 +596,7 @@ dependencies = [
 [[package]]
 name = "candidate-selection"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/candidate-selection.git?rev=bcd7909#bcd7909f6bc0344278d9e09e368580201b6fae22"
+source = "git+https://github.com/edgeandnode/candidate-selection?rev=bcd7909#bcd7909f6bc0344278d9e09e368580201b6fae22"
 dependencies = [
  "arrayvec 0.7.4",
  "ordered-float",
@@ -2327,7 +2327,7 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 [[package]]
 name = "indexer-selection"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/candidate-selection.git?rev=bcd7909#bcd7909f6bc0344278d9e09e368580201b6fae22"
+source = "git+https://github.com/edgeandnode/candidate-selection?rev=bcd7909#bcd7909f6bc0344278d9e09e368580201b6fae22"
 dependencies = [
  "candidate-selection",
  "custom_debug",
@@ -3531,7 +3531,7 @@ dependencies = [
 [[package]]
 name = "receipts"
 version = "0.1.0"
-source = "git+ssh://git@github.com/edgeandnode/receipts.git?rev=8bc8f13#8bc8f13acb644c91a1582260dc4e846ec16f5116"
+source = "git+https://github.com/edgeandnode/receipts?rev=8bc8f13#8bc8f13acb644c91a1582260dc4e846ec16f5116"
 dependencies = [
  "itertools 0.12.1",
  "lazy_static",
@@ -4551,7 +4551,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "tap_core"
 version = "0.7.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol.git?rev=aa973d1#aa973d18ad88890524932ff646ff4a2963dd8b4a"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=aa973d1#aa973d18ad88890524932ff646ff4a2963dd8b4a"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",

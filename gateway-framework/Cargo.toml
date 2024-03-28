@@ -8,7 +8,7 @@ alloy-primitives.workspace = true
 alloy-sol-types = "0.6.4"
 anyhow.workspace = true
 axum.workspace = true
-candidate-selection = { git = "https://github.com/edgeandnode/candidate-selection.git", rev = "bcd7909" }
+candidate-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "bcd7909" }
 ethers = "2.0.14"
 eventuals = "0.6.7"
 gateway-common = { path = "../gateway-common" }
@@ -29,7 +29,7 @@ serde.workspace = true
 serde_json = { version = "1.0.114", features = ["raw_value"] }
 serde_with = "3.7.0"
 siphasher.workspace = true
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol.git", rev = "aa973d1" }
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "aa973d1" }
 thegraph-core = { workspace = true, features = ["subgraph-client"] }
 thegraph-graphql-http.workspace = true
 thiserror.workspace = true
