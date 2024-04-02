@@ -334,7 +334,9 @@ async fn main() {
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/collect-receipts",
-            routing::post(scalar::handle_collect_receipts).with_state(legacy_signer),
+            routing::post(scalar::handle_collect_receipts)
+                .with_state(legacy_signer)
+                .layer(DefaultBodyLimit::max(3_000_000)),
         )
         .route(
             "/partial-voucher",
