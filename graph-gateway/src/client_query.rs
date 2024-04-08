@@ -351,7 +351,6 @@ async fn handle_client_query_inner(
                 &block_requirements,
                 chain_head,
                 blocks_per_minute,
-                grt_per_usd,
                 budget,
                 indexing,
             ) {
@@ -552,7 +551,6 @@ fn prepare_candidate(
     block_requirements: &BlockRequirements,
     chain_head: BlockNumber,
     blocks_per_minute: u64,
-    grt_per_usd: NotNan<f64>,
     budget: u128,
     indexing: Indexing,
 ) -> Result<Candidate, IndexerError> {
@@ -582,11 +580,6 @@ fn prepare_candidate(
         }
     }
 
-    let slashable_usd = ((info.staked_tokens as f64 * 1e-18) / *grt_per_usd) as u64;
-    if slashable_usd == 0 {
-        return Err(IndexerError::Unavailable(NoStake));
-    }
-
     Ok(Candidate {
         indexer: indexing.indexer,
         deployment: indexing.deployment,
@@ -594,7 +587,7 @@ fn prepare_candidate(
         perf: perf.response,
         fee,
         seconds_behind: perf.seconds_behind,
-        slashable_usd,
+        slashable_grt: (info.staked_tokens as f64 * 1e-18) as u64,
         subgraph_versions_behind: *versions_behind.get(&indexing.deployment).unwrap_or(&0),
         zero_allocation: info.allocated_tokens == 0,
     })
