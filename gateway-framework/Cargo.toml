@@ -29,7 +29,7 @@ serde.workspace = true
 serde_json = { version = "1.0.115", features = ["raw_value"] }
 serde_with = "3.7.0"
 siphasher.workspace = true
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "6b989ac" }
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "c179dfe" }
 thegraph-core = { workspace = true, features = ["subgraph-client"] }
 thegraph-graphql-http.workspace = true
 thiserror.workspace = true
