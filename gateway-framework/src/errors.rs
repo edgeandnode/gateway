@@ -1,6 +1,6 @@
 use crate::{blocks::UnresolvedBlock, graphql};
+use alloy_primitives::Address;
 use axum::response::{IntoResponse, Response};
-use itertools::Itertools;
 use std::collections::BTreeMap;
 
 #[derive(thiserror::Error, Debug)]
@@ -25,8 +25,8 @@ pub enum Error {
     NoIndexers,
     /// Indexers are available, but failed to return a suitable result. The indexer errors are displayed in descending
     /// order of how many of the potential indexers failed for that reason.
-    #[error("bad indexers: {0}")]
-    BadIndexers(IndexerErrors),
+    #[error("bad indexers: {0:?}")]
+    BadIndexers(BTreeMap<Address, IndexerError>),
 }
 
 impl IntoResponse for Error {
@@ -34,8 +34,6 @@ impl IntoResponse for Error {
         graphql::error_response(self).into_response()
     }
 }
-
-pub struct IndexerErrors(Vec<IndexerError>);
 
 #[derive(thiserror::Error, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IndexerError {
@@ -67,32 +65,4 @@ pub enum UnavailableReason {
     /// The indexer did not have a block required by the query.
     #[error("missing block")]
     MissingBlock,
-}
-
-impl std::fmt::Debug for IndexerErrors {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
-}
-
-impl std::fmt::Display for IndexerErrors {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}]", self.0.iter().map(ToString::to_string).join(", "))
-    }
-}
-
-impl IndexerErrors {
-    /// Sort errors in order of descending occurrence for display.
-    pub fn new<Errors: IntoIterator<Item = IndexerError>>(errors: Errors) -> Self {
-        let errors = errors.into_iter().collect_vec();
-        let mut occurrences: BTreeMap<&IndexerError, usize> = Default::default();
-        for error in &errors {
-            *occurrences.entry(error).or_insert(0) += 1;
-        }
-        // dedup
-        let mut errors = occurrences.keys().map(|&e| e.clone()).collect_vec();
-        errors.sort_unstable_by_key(|error| *occurrences.get(error).unwrap());
-        errors.reverse();
-        Self(errors)
-    }
 }

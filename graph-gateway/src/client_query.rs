@@ -38,7 +38,7 @@ use gateway_common::{
     types::Indexing, utils::http_ext::HttpBuilderExt, utils::timestamp::unix_timestamp,
 };
 use gateway_framework::{
-    errors::{Error, IndexerError, IndexerErrors, UnavailableReason::*},
+    errors::{Error, IndexerError, UnavailableReason::*},
     metrics::{with_metric, METRICS},
     scalar::ScalarReceipt,
 };
@@ -371,9 +371,7 @@ async fn handle_client_query_inner(
 
     if candidates.is_empty() {
         tracing::debug!(?indexer_errors);
-        return Err(Error::BadIndexers(IndexerErrors::new(
-            indexer_errors.into_values(),
-        )));
+        return Err(Error::BadIndexers(indexer_errors));
     }
 
     let mut total_indexer_fees_grt: u128 = 0;
@@ -535,10 +533,7 @@ async fn handle_client_query_inner(
         }
     }
 
-    tracing::debug!(?indexer_errors);
-    Err(Error::BadIndexers(IndexerErrors::new(
-        indexer_errors.into_values(),
-    )))
+    Err(Error::BadIndexers(indexer_errors))
 }
 
 #[allow(clippy::too_many_arguments)]
