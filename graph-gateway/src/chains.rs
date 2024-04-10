@@ -1,9 +1,10 @@
-use alloy_primitives::Address;
-use gateway_framework::{blocks::Block, chain::Chain, metrics::METRICS};
 use std::{
     collections::{BTreeMap, HashMap},
     time::Duration,
 };
+
+use alloy_primitives::Address;
+use gateway_framework::{blocks::Block, chain::Chain, metrics::METRICS};
 use tokio::{
     select, spawn,
     sync::{mpsc, RwLock, RwLockReadGuard},

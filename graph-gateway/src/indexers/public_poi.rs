@@ -6,8 +6,10 @@ use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use thegraph_core::types::DeploymentId;
-use thegraph_graphql_http::graphql::{Document, IntoDocument, IntoDocumentWithVariables};
-use thegraph_graphql_http::http_client::ReqwestExt;
+use thegraph_graphql_http::{
+    graphql::{Document, IntoDocument, IntoDocumentWithVariables},
+    http_client::ReqwestExt,
+};
 use url::Url;
 
 pub type ProofOfIndexing = B256;

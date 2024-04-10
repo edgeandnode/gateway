@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail};
 use cost_model::Context;
@@ -15,7 +17,6 @@ use graphql::{
 };
 use itertools::Itertools as _;
 use serde_json::{self, json};
-use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug)]
 pub struct BlockRequirements {

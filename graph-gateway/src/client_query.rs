@@ -9,23 +9,29 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use axum::{
     body::Bytes,
-    extract::OriginalUri,
-    extract::State,
+    extract::{OriginalUri, State},
     http::{HeaderMap, Response, StatusCode},
     Extension,
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
+use gateway_common::{
+    types::Indexing,
+    utils::{http_ext::HttpBuilderExt, timestamp::unix_timestamp},
+};
 use gateway_framework::{
-    blocks::Block, budgets::USD, errors::UnavailableReason, scalar::ReceiptStatus,
+    blocks::Block,
+    budgets::USD,
+    errors::{Error, IndexerError, UnavailableReason, UnavailableReason::*},
+    metrics::{with_metric, METRICS},
+    scalar::{ReceiptStatus, ScalarReceipt},
 };
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
 use prost::bytes::Buf;
-use rand::Rng as _;
-use rand::{rngs::SmallRng, SeedableRng as _};
+use rand::{rngs::SmallRng, Rng as _, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use thegraph_core::types::{attestation, DeploymentId};
@@ -34,30 +40,21 @@ use tokio::sync::mpsc;
 use tracing::Instrument;
 use url::Url;
 
-use gateway_common::{
-    types::Indexing, utils::http_ext::HttpBuilderExt, utils::timestamp::unix_timestamp,
+use self::{
+    attestation_header::GraphAttestation, auth::AuthToken, context::Context,
+    l2_forwarding::forward_request_to_l2, query_selector::QuerySelector,
+    query_settings::QuerySettings,
 };
-use gateway_framework::{
-    errors::{Error, IndexerError, UnavailableReason::*},
-    metrics::{with_metric, METRICS},
-    scalar::ScalarReceipt,
+use crate::{
+    block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
+    chains::ChainReader,
+    indexer_client::{check_block_error, IndexerClient, ResponsePayload},
+    indexers::indexing,
+    indexing_performance::{self, IndexingPerformance},
+    reports::{self, serialize_attestation, KafkaClient},
+    topology::{Deployment, GraphNetwork, Subgraph},
+    unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
 };
-
-use crate::block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements};
-use crate::chains::ChainReader;
-use crate::indexer_client::{check_block_error, IndexerClient, ResponsePayload};
-use crate::indexers::indexing;
-use crate::indexing_performance::{self, IndexingPerformance};
-use crate::reports::{self, serialize_attestation, KafkaClient};
-use crate::topology::{Deployment, GraphNetwork, Subgraph};
-use crate::unattestable_errors::{miscategorized_attestable, miscategorized_unattestable};
-
-use self::attestation_header::GraphAttestation;
-use self::auth::AuthToken;
-use self::context::Context;
-use self::l2_forwarding::forward_request_to_l2;
-use self::query_selector::QuerySelector;
-use self::query_settings::QuerySettings;
 
 mod attestation_header;
 pub mod auth;
@@ -853,24 +850,27 @@ mod tests {
     use super::*;
 
     mod require_req_auth {
-        use std::collections::HashMap;
-        use std::sync::Arc;
+        use std::{collections::HashMap, sync::Arc};
 
         use assert_matches::assert_matches;
-        use axum::body::BoxBody;
-        use axum::http::{Method, Request, StatusCode};
-        use axum::routing::post;
-        use axum::{middleware, Extension, Router};
+        use axum::{
+            body::BoxBody,
+            http::{Method, Request, StatusCode},
+            middleware,
+            routing::post,
+            Extension, Router,
+        };
         use eventuals::{Eventual, Ptr};
         use headers::{Authorization, ContentType, HeaderMapExt};
         use hyper::Body;
         use tower::ServiceExt;
 
+        use super::{
+            auth::{AuthContext, AuthToken},
+            legacy_auth_adapter::legacy_auth_adapter,
+            require_auth::RequireAuthorizationLayer,
+        };
         use crate::subgraph_studio::APIKey;
-
-        use super::auth::{AuthContext, AuthToken};
-        use super::legacy_auth_adapter::legacy_auth_adapter;
-        use super::require_auth::RequireAuthorizationLayer;
 
         /// Create a test authorization context.
         fn test_auth_ctx(key: Option<&str>) -> AuthContext {

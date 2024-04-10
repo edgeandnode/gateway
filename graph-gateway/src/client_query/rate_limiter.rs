@@ -1,16 +1,15 @@
-use std::sync::atomic::AtomicUsize;
-use std::sync::{atomic, Arc};
-use std::task::{Context, Poll};
-use std::time::Duration;
+use std::{
+    sync::{atomic, atomic::AtomicUsize, Arc},
+    task::{Context, Poll},
+    time::Duration,
+};
 
 use alloy_primitives::Address;
 use axum::http::Request;
 use dashmap::DashMap;
 use eventuals::EventualExt;
+use gateway_framework::{errors::Error, graphql};
 use tower::Service;
-
-use gateway_framework::errors::Error;
-use gateway_framework::graphql;
 
 use self::future::ResponseFuture;
 
@@ -29,9 +28,11 @@ pub struct RateLimitSettings {
 pub mod future {
     //! A future response for the [`RateLimiter`](super::RateLimiter) service.
 
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
+    use std::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll},
+    };
 
     /// The future response kind.
     #[pin_project::pin_project(project = KindProj)]
@@ -227,18 +228,15 @@ impl<S> tower::layer::Layer<S> for AddRateLimiterLayer {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic;
-    use std::time::Duration;
+    use std::{sync::atomic, time::Duration};
 
     use alloy_primitives::Address;
     use assert_matches::assert_matches;
-    use axum::body::BoxBody;
-    use axum::http;
+    use axum::{body::BoxBody, http};
     use headers::{ContentType, HeaderMapExt};
     use tokio_test::assert_ready_ok;
 
-    use crate::client_query::rate_limiter::AddRateLimiterLayer;
-    use crate::client_query::rate_limiter::RateLimitSettings;
+    use crate::client_query::rate_limiter::{AddRateLimiterLayer, RateLimitSettings};
 
     /// Helper function to parse an address string into an `Address`.
     fn test_address(addr: &str) -> Address {

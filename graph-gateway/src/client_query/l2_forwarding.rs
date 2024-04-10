@@ -1,11 +1,9 @@
 use alloy_primitives::bytes::Bytes;
 use anyhow::anyhow;
 use axum::http::{header, HeaderMap, Response, Uri};
+use gateway_framework::{errors::Error, graphql};
 use thegraph_core::types::SubgraphId;
 use url::Url;
-
-use gateway_framework::errors::Error;
-use gateway_framework::graphql;
 
 pub async fn forward_request_to_l2(
     client: &reqwest::Client,

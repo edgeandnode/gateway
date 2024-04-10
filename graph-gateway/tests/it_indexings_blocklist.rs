@@ -1,11 +1,12 @@
 use std::time::Duration;
 
 use alloy_primitives::Address;
+use graph_gateway::{
+    indexers::public_poi::{ProofOfIndexing, ProofOfIndexingInfo},
+    indexings_blocklist::check_indexer_pois,
+};
 use thegraph_core::types::DeploymentId;
 use tokio::time::timeout;
-
-use graph_gateway::indexers::public_poi::{ProofOfIndexing, ProofOfIndexingInfo};
-use graph_gateway::indexings_blocklist::check_indexer_pois;
 
 /// Test utility function to create a valid `ProofOfIndexingInfo` with an zeros POI.
 fn zero_poi() -> ProofOfIndexing {

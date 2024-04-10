@@ -1,19 +1,21 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use alloy_primitives::Address;
 use eventuals::{Eventual, EventualExt, Ptr};
+use gateway_common::types::Indexing;
 use itertools::Itertools as _;
 use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;
 use url::Url;
 
-use gateway_common::types::Indexing;
-
-use crate::indexers::public_poi;
-use crate::indexers::public_poi::ProofOfIndexingInfo;
-use crate::topology::{Deployment, Indexer};
+use crate::{
+    indexers::{public_poi, public_poi::ProofOfIndexingInfo},
+    topology::{Deployment, Indexer},
+};
 
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(20 * 60); // 20 minutes
 

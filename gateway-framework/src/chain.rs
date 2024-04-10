@@ -1,10 +1,12 @@
-use crate::blocks::{Block, UnresolvedBlock};
-use alloy_primitives::Address;
-use itertools::Itertools as _;
 use std::{
     collections::{BTreeMap, BTreeSet},
     iter,
 };
+
+use alloy_primitives::Address;
+use itertools::Itertools as _;
+
+use crate::blocks::{Block, UnresolvedBlock};
 
 #[derive(Default)]
 pub struct Chain(BTreeMap<Block, BTreeSet<Address>>);
@@ -110,13 +112,14 @@ impl Chain {
 
 #[cfg(test)]
 mod test {
-    use super::{Block, Chain, MAX_LEN};
     use alloy_primitives::{Address, BlockHash, U256};
     use itertools::Itertools;
     use rand::{
         rngs::SmallRng, seq::SliceRandom as _, thread_rng, Rng as _, RngCore as _, SeedableRng,
     };
     use toolshed::concat_bytes;
+
+    use super::{Block, Chain, MAX_LEN};
 
     #[test]
     fn chain() {

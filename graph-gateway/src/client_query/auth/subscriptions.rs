@@ -1,19 +1,23 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use alloy_primitives::Address;
 use eventuals::{Eventual, Ptr};
-use thegraph_core::subscriptions::auth::{
-    parse_auth_token as parse_bearer_token, verify_auth_token_claims, AuthTokenClaims,
+use thegraph_core::{
+    subscriptions::auth::{
+        parse_auth_token as parse_bearer_token, verify_auth_token_claims, AuthTokenClaims,
+    },
+    types::{DeploymentId, SubgraphId},
 };
-use thegraph_core::types::{DeploymentId, SubgraphId};
-
-use crate::client_query::query_settings::QuerySettings;
-use crate::client_query::rate_limiter::RateLimitSettings;
-use crate::subscriptions::Subscription;
-use crate::topology::Deployment;
 
 use super::common;
+use crate::{
+    client_query::{query_settings::QuerySettings, rate_limiter::RateLimitSettings},
+    subscriptions::Subscription,
+    topology::Deployment,
+};
 
 /// Auth token wrapper around the Subscriptions auth token claims and the subscription.
 #[derive(Debug, Clone)]

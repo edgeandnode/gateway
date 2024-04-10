@@ -1,12 +1,14 @@
-use crate::utils::tracing::init_tracing;
-use alloy_primitives::Address;
-use siphasher::sip::SipHasher24;
 use std::{
     hash::{Hash as _, Hasher as _},
     io::{Cursor, Write as _},
     sync::Once,
 };
+
+use alloy_primitives::Address;
+use siphasher::sip::SipHasher24;
 use thegraph_core::types::DeploymentId;
+
+use crate::utils::tracing::init_tracing;
 
 pub const TEST_KEY: &str = "244226452948404D635166546A576E5A7234753778217A25432A462D4A614E64";
 

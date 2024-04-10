@@ -1,6 +1,8 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
-use std::sync::Arc;
-use std::time::SystemTime;
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    sync::Arc,
+    time::SystemTime,
+};
 
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
@@ -10,8 +12,7 @@ use gateway_common::types::Indexing;
 use rand::RngCore;
 pub use receipts::{QueryStatus as ReceiptStatus, ReceiptPool};
 use secp256k1::SecretKey;
-use tap_core::eip_712_signed_message::EIP712SignedMessage;
-use tap_core::tap_receipt::Receipt;
+use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
 use tokio::sync::{Mutex, RwLock};
 
 pub struct ReceiptSigner {

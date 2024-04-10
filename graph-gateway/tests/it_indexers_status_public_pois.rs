@@ -2,12 +2,11 @@ use std::time::Duration;
 
 use alloy_primitives::BlockNumber;
 use assert_matches::assert_matches;
-use thegraph_core::types::DeploymentId;
-use tokio::time::timeout;
-
 use graph_gateway::indexers::public_poi::{
     self, PublicProofOfIndexingQuery, PublicProofOfIndexingRequest, MAX_REQUESTS_PER_QUERY,
 };
+use thegraph_core::types::DeploymentId;
+use tokio::time::timeout;
 
 /// Test utility function to create a valid `DeploymentId` with an arbitrary deployment id/ipfs hash.
 fn test_deployment_id(deployment: &str) -> DeploymentId {

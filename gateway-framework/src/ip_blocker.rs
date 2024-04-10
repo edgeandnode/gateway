@@ -1,11 +1,12 @@
-use anyhow::Context as _;
-use ipnetwork::IpNetwork;
 use std::{
     collections::{HashMap, HashSet},
     fs,
     net::IpAddr,
     path::Path,
 };
+
+use anyhow::Context as _;
+use ipnetwork::IpNetwork;
 use url::{Host, Url};
 
 pub struct IpBlocker {

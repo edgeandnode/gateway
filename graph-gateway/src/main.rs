@@ -1,11 +1,13 @@
-use std::collections::{HashMap, HashSet};
-use std::env;
-use std::fs::read_to_string;
-use std::io::Write as _;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+    fs::read_to_string,
+    io::Write as _,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
@@ -18,8 +20,33 @@ use axum::{
     routing, Router, Server,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
-use gateway_framework::ip_blocker::IpBlocker;
-use graph_gateway::chains::Chains;
+use gateway_common::types::Indexing;
+use gateway_framework::{
+    budgets::{Budgeter, USD},
+    ip_blocker::IpBlocker,
+    ipfs, json,
+    network::{exchange_rate, network_subgraph},
+    scalar,
+    scalar::ReceiptSigner,
+};
+use graph_gateway::{
+    chains::Chains,
+    client_query,
+    client_query::{
+        auth::AuthContext, context::Context, legacy_auth_adapter::legacy_auth_adapter,
+        query_id::SetQueryIdLayer, query_tracing::QueryTracingLayer,
+        rate_limiter::AddRateLimiterLayer, require_auth::RequireAuthorizationLayer,
+    },
+    config::{ApiKeys, Config, ExchangeRateProvider},
+    indexer_client::IndexerClient,
+    indexers::indexing,
+    indexing_performance::IndexingPerformance,
+    indexings_blocklist,
+    indexings_blocklist::indexings_blocklist,
+    reports::{self, KafkaClient},
+    subgraph_studio, subscriptions_subgraph,
+    topology::{Deployment, GraphNetwork},
+};
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
@@ -29,35 +56,9 @@ use thegraph_core::{
     client as subgraph_client,
     types::{attestation, DeploymentId},
 };
-use tokio::signal::unix::SignalKind;
-use tokio::spawn;
+use tokio::{signal::unix::SignalKind, spawn};
 use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
-
-use gateway_common::types::Indexing;
-use gateway_framework::{
-    budgets::Budgeter,
-    budgets::USD,
-    ipfs, json,
-    network::{exchange_rate, network_subgraph},
-    scalar,
-    scalar::ReceiptSigner,
-};
-use graph_gateway::client_query::auth::AuthContext;
-use graph_gateway::client_query::context::Context;
-use graph_gateway::client_query::legacy_auth_adapter::legacy_auth_adapter;
-use graph_gateway::client_query::query_id::SetQueryIdLayer;
-use graph_gateway::client_query::query_tracing::QueryTracingLayer;
-use graph_gateway::client_query::rate_limiter::AddRateLimiterLayer;
-use graph_gateway::client_query::require_auth::RequireAuthorizationLayer;
-use graph_gateway::config::{ApiKeys, Config, ExchangeRateProvider};
-use graph_gateway::indexer_client::IndexerClient;
-use graph_gateway::indexers::indexing;
-use graph_gateway::indexing_performance::IndexingPerformance;
-use graph_gateway::indexings_blocklist::indexings_blocklist;
-use graph_gateway::reports::{self, KafkaClient};
-use graph_gateway::topology::{Deployment, GraphNetwork};
-use graph_gateway::{client_query, indexings_blocklist, subgraph_studio, subscriptions_subgraph};
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
