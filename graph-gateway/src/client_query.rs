@@ -504,11 +504,13 @@ async fn handle_client_query_inner(
                         .record_receipt(&selection.indexing, &selection.receipt, receipt_status)
                         .await;
 
-                    let _ = outcome_tx.try_send((selection, response));
+                    let _ = outcome_tx.send((selection, response)).await;
                 }
                 .instrument(span),
             );
         }
+        // This must be dropped to ensure the `outcome_rx.recv()` loop below can eventyually stop.
+        drop(outcome_tx);
 
         let total_indexer_fees_usd =
             USD(NotNan::new(total_indexer_fees_grt as f64 * 1e-18).unwrap() / grt_per_usd);
