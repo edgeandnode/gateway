@@ -1,7 +1,11 @@
 //! The Graph Gateway configuration.
 
-use crate::indexers::public_poi::ProofOfIndexingInfo;
-use crate::subgraph_studio::APIKey;
+use std::{
+    collections::BTreeMap,
+    fmt::{self, Display},
+    path::PathBuf,
+};
+
 use alloy_primitives::{Address, U256};
 use custom_debug::CustomDebug;
 use gateway_framework::config::{Hidden, HiddenSecretKey};
@@ -9,12 +13,9 @@ use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-use std::{
-    collections::BTreeMap,
-    fmt::{self, Display},
-    path::PathBuf,
-};
 use url::Url;
+
+use crate::{indexers::public_poi::ProofOfIndexingInfo, subgraph_studio::APIKey};
 
 #[serde_as]
 #[derive(CustomDebug, Deserialize)]

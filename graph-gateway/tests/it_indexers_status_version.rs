@@ -1,9 +1,8 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use tokio::time::timeout;
-
 use graph_gateway::indexers::version;
+use tokio::time::timeout;
 
 #[tokio::test]
 async fn query_indexer_service_version() {

@@ -1,6 +1,8 @@
 use std::fmt;
 
 use alloy_primitives::Address;
+use gateway_common::utils::timestamp::unix_timestamp;
+use gateway_framework::errors::{self, IndexerError};
 use prost::Message as _;
 use rdkafka::error::KafkaResult;
 use serde::Deserialize;
@@ -9,9 +11,6 @@ use thegraph_core::types::attestation::Attestation;
 use toolshed::concat_bytes;
 use tracing::span;
 use tracing_subscriber::{filter::FilterFn, layer, prelude::*, registry, EnvFilter, Layer};
-
-use gateway_common::utils::timestamp::unix_timestamp;
-use gateway_framework::errors::{self, IndexerError};
 
 use crate::indexer_client::ResponsePayload;
 

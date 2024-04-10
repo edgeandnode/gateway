@@ -1,20 +1,18 @@
 //! Authorization middleware.
 
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use axum::http::Request;
-use headers::authorization::Bearer;
-use headers::{Authorization, HeaderMapExt, Origin};
+use gateway_framework::{errors::Error, graphql};
+use headers::{authorization::Bearer, Authorization, HeaderMapExt, Origin};
 use tower::Service;
 
-use gateway_framework::errors::Error;
-use gateway_framework::graphql;
-
-use crate::reports;
-
 use super::auth::{AuthContext, AuthToken};
+use crate::reports;
 
 #[pin_project::pin_project(project = KindProj)]
 enum Kind<F> {
@@ -212,8 +210,7 @@ impl<S> tower::layer::Layer<S> for RequireAuthorizationLayer {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
 
     use assert_matches::assert_matches;
     use axum::body::BoxBody;
@@ -223,11 +220,11 @@ mod tests {
     use ordered_float::NotNan;
     use tokio_test::assert_ready_ok;
 
-    use crate::client_query::auth::studio::AuthToken as StudioAuthToken;
-    use crate::client_query::query_settings::QuerySettings;
-    use crate::subgraph_studio::APIKey;
-
     use super::{AuthContext, AuthToken, RequireAuthorizationLayer};
+    use crate::{
+        client_query::{auth::studio::AuthToken as StudioAuthToken, query_settings::QuerySettings},
+        subgraph_studio::APIKey,
+    };
 
     fn test_auth_ctx(key: Option<&str>) -> AuthContext {
         let mut ctx = AuthContext {

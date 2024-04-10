@@ -1,6 +1,7 @@
+use std::time::Duration;
+
 use assert_matches::assert_matches;
 use graph_gateway::indexers::cost_models;
-use std::time::Duration;
 use tokio::time::timeout;
 
 #[tokio::test]

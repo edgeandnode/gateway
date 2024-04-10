@@ -1,5 +1,5 @@
-use crate::indexers::{cost_models, indexing_statuses, version};
-use crate::topology::Deployment;
+use std::{collections::HashMap, sync::Arc};
+
 use alloy_primitives::{Address, BlockNumber};
 use anyhow::{anyhow, ensure};
 use cost_model::CostModel;
@@ -7,11 +7,15 @@ use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
 use gateway_common::types::Indexing;
 use semver::Version;
-use std::{collections::HashMap, sync::Arc};
 use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;
 use toolshed::epoch_cache::EpochCache;
 use url::Url;
+
+use crate::{
+    indexers::{cost_models, indexing_statuses, version},
+    topology::Deployment,
+};
 
 #[derive(Clone)]
 pub struct Status {

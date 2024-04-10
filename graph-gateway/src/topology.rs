@@ -1,19 +1,19 @@
-use std::collections::{BTreeSet, HashMap};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+};
 
 use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt, Ptr};
 use futures::future::join_all;
-use gateway_framework::ip_blocker::IpBlocker;
+use gateway_common::types::Indexing;
+use gateway_framework::{ip_blocker::IpBlocker, ipfs, network::network_subgraph};
 use itertools::Itertools;
 use serde::Deserialize;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::sync::{Mutex, RwLock};
 use url::Url;
-
-use gateway_common::types::Indexing;
-use gateway_framework::{ipfs, network::network_subgraph};
 
 /// Representation of the graph network being used to serve queries
 #[derive(Clone)]

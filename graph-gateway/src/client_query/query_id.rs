@@ -1,6 +1,7 @@
-use std::sync::atomic::AtomicU64;
-use std::sync::{atomic, Arc};
-use std::task::{Context, Poll};
+use std::{
+    sync::{atomic, atomic::AtomicU64, Arc},
+    task::{Context, Poll},
+};
 
 use axum::http::{HeaderName, HeaderValue, Request, Response};
 use tower::Service;

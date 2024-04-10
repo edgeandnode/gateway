@@ -1,13 +1,15 @@
-use crate::indexers::indexing;
+use std::{collections::HashMap, ops::Deref, time::Duration};
+
 use alloy_primitives::BlockNumber;
 use eventuals::{Closed, Eventual, Ptr};
 use gateway_common::types::Indexing;
-use std::{collections::HashMap, ops::Deref, time::Duration};
 use tokio::{
     select,
     sync::{mpsc, oneshot, RwLock},
     time,
 };
+
+use crate::indexers::indexing;
 
 #[derive(Default)]
 pub struct Snapshot {

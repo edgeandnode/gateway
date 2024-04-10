@@ -3,8 +3,7 @@ use std::time::Duration;
 use candidate_selection::criteria::decay::DecayBuffer;
 use eventuals::{Eventual, EventualWriter};
 use ordered_float::NotNan;
-use tokio::time::interval;
-use tokio::{select, spawn, sync::mpsc};
+use tokio::{select, spawn, sync::mpsc, time::interval};
 
 use crate::metrics::METRICS;
 

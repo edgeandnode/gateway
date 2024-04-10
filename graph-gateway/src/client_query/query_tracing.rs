@@ -2,8 +2,10 @@ use std::task::{Context, Poll};
 
 use axum::http::{Request, Response};
 use tower::Service;
-use tracing::field;
-use tracing::instrument::{Instrument, Instrumented};
+use tracing::{
+    field,
+    instrument::{Instrument, Instrumented},
+};
 
 use crate::reports;
 

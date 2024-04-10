@@ -1,6 +1,7 @@
+use std::fmt;
+
 use alloy_primitives::{BlockHash, BlockNumber};
 use serde::Deserialize;
-use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 pub struct Block {

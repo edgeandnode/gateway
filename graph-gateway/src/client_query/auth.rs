@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use thegraph_core::types::{DeploymentId, SubgraphId};
 
-use crate::topology::Deployment;
-
 pub use self::context::AuthContext;
+use crate::topology::Deployment;
 
 mod common;
 mod context;

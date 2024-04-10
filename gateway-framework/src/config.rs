@@ -1,5 +1,4 @@
-use std::ops::Deref;
-use std::str::FromStr;
+use std::{ops::Deref, str::FromStr};
 
 use alloy_primitives::B256;
 use secp256k1::SecretKey;

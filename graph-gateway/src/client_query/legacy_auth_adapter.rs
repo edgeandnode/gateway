@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 
-use axum::body::BoxBody;
-use axum::extract::Path;
-use axum::http::{header, Request, Response};
-use axum::middleware::Next;
-use axum::RequestPartsExt;
+use axum::{
+    body::BoxBody,
+    extract::Path,
+    http::{header, Request, Response},
+    middleware::Next,
+    RequestPartsExt,
+};
 use headers::{Authorization, HeaderMapExt};
 
 /// This adapter middleware extracts the authorization token from the `api_key` path parameter,
@@ -40,11 +42,13 @@ pub async fn legacy_auth_adapter<ReqBody>(
 
 #[cfg(test)]
 mod tests {
-    use axum::body::Body;
-    use axum::http::header::AUTHORIZATION;
-    use axum::http::{HeaderMap, Method, Request, StatusCode};
-    use axum::routing::{get, post};
-    use axum::{middleware, Router};
+    use axum::{
+        body::Body,
+        http::{header::AUTHORIZATION, HeaderMap, Method, Request, StatusCode},
+        middleware,
+        routing::{get, post},
+        Router,
+    };
     use tower::ServiceExt;
 
     use super::legacy_auth_adapter;

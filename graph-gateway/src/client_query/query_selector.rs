@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
-use axum::async_trait;
-use axum::extract::{FromRequestParts, Path};
-use axum::http::request::Parts;
-use axum::response::IntoResponse;
+use axum::{
+    async_trait,
+    extract::{FromRequestParts, Path},
+    http::request::Parts,
+    response::IntoResponse,
+};
+use gateway_framework::{errors::Error, graphql};
 use thegraph_core::types::{DeploymentId, SubgraphId};
-
-use gateway_framework::errors::Error;
-use gateway_framework::graphql;
 
 /// Rejection type for the query selector extractor, [`QuerySelector`].
 ///
@@ -90,9 +90,11 @@ where
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use axum::body::{Body, BoxBody};
-    use axum::http::{Method, Request};
-    use axum::Router;
+    use axum::{
+        body::{Body, BoxBody},
+        http::{Method, Request},
+        Router,
+    };
     use thegraph_core::types::{DeploymentId, SubgraphId};
     use tower::ServiceExt;
 

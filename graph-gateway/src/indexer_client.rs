@@ -1,8 +1,9 @@
-use crate::client_query::Selection;
 use alloy_primitives::BlockNumber;
 use gateway_framework::errors::{IndexerError, UnavailableReason::*};
 use serde::Deserialize;
 use thegraph_core::types::attestation::Attestation;
+
+use crate::client_query::Selection;
 
 pub struct IndexerResponse {
     pub status: u16,

@@ -1,12 +1,10 @@
-use std::time::Duration;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy_primitives::Address;
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
+use gateway_common::utils::timestamp::unix_timestamp;
 use thegraph_core::client as subgraph_client;
 use tokio::sync::Mutex;
-
-use gateway_common::utils::timestamp::unix_timestamp;
 
 use crate::subscriptions::{ActiveSubscription, Subscription};
 

@@ -1,18 +1,18 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use alloy_primitives::Address;
 use axum::extract::FromRef;
 use eventuals::{Eventual, Ptr};
 
-use crate::client_query::query_settings::QuerySettings;
-use crate::client_query::rate_limiter::RateLimitSettings;
-use crate::subgraph_studio::APIKey;
-use crate::subscriptions::Subscription;
-
-use super::studio;
-use super::subscriptions;
-use super::AuthToken;
+use super::{studio, subscriptions, AuthToken};
+use crate::{
+    client_query::{query_settings::QuerySettings, rate_limiter::RateLimitSettings},
+    subgraph_studio::APIKey,
+    subscriptions::Subscription,
+};
 
 #[derive(Clone)]
 pub struct AuthContext {

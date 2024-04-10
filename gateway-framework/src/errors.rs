@@ -1,7 +1,9 @@
-use crate::{blocks::UnresolvedBlock, graphql};
+use std::collections::BTreeMap;
+
 use alloy_primitives::Address;
 use axum::response::{IntoResponse, Response};
-use std::collections::BTreeMap;
+
+use crate::{blocks::UnresolvedBlock, graphql};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
