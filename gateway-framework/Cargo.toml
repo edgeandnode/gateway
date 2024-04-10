@@ -5,7 +5,7 @@ version = "0.0.1"
 
 [dependencies]
 alloy-primitives.workspace = true
-alloy-sol-types = "0.6.4"
+alloy-sol-types = "0.7.0"
 anyhow.workspace = true
 axum.workspace = true
 candidate-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "bcd7909" }
