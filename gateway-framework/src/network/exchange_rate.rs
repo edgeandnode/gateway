@@ -18,7 +18,7 @@ abigen!(
     event_derives(serde::Deserialize, serde::Serialize);
 );
 
-pub async fn grt_per_usd(provider: Url) -> anyhow::Result<Eventual<NotNan<f64>>> {
+pub fn grt_per_usd(provider: Url) -> anyhow::Result<Eventual<NotNan<f64>>> {
     // https://data.chain.link/ethereum/mainnet/crypto-eth/grt-eth
     let chainlink_eth_per_grt: Address = "0x17d054ecac33d91f7340645341efb5de9009f1c1"
         .parse()

@@ -104,7 +104,7 @@ async fn main() {
         ExchangeRateProvider::Fixed(grt_per_usd) => {
             Eventual::from_value(NotNan::new(grt_per_usd).expect("NAN exchange rate"))
         }
-        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await.unwrap(),
+        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).unwrap(),
     };
 
     let network_subgraph_client =
@@ -217,7 +217,7 @@ async fn main() {
     };
     let auth_handler = AuthContext::create(
         config.payment_required,
-        api_keys,
+        api_keys.clone(),
         special_api_keys,
         subscriptions,
         config
@@ -242,6 +242,7 @@ async fn main() {
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
     grt_per_usd.value().await.unwrap();
+    api_keys.value().await.unwrap();
 
     let client_query_ctx = Context {
         indexer_client: IndexerClient {
