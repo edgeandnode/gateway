@@ -4561,8 +4561,9 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tap_core"
-version = "0.7.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=aa973d1#aa973d18ad88890524932ff646ff4a2963dd8b4a"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ee4bdef618598aad5fc955500ab152cca403698f09efb686f277046b7cca915"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
