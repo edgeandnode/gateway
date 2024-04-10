@@ -12,7 +12,7 @@ use gateway_common::types::Indexing;
 use rand::RngCore;
 pub use receipts::{QueryStatus as ReceiptStatus, ReceiptPool};
 use secp256k1::SecretKey;
-use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
+use tap_core::{receipt::Receipt, signed_message::EIP712SignedMessage};
 use tokio::sync::{Mutex, RwLock};
 
 pub struct ReceiptSigner {
@@ -111,7 +111,6 @@ impl ReceiptSigner {
         let wallet =
             Wallet::from_bytes(self.signer.as_ref()).expect("failed to prepare receipt wallet");
         let signed = EIP712SignedMessage::new(&self.domain, receipt, &wallet)
-            .await
             .expect("failed to sign receipt");
         Some(ScalarReceipt::TAP(signed))
     }
