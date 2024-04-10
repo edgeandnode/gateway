@@ -11,7 +11,6 @@ pub mod graphql;
 pub mod ipfs;
 pub mod json;
 pub mod network;
-pub mod rate_limiter;
 pub mod reporting;
 pub mod scalar;
 pub mod subscriptions;

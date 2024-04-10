@@ -9,13 +9,11 @@ use headers::authorization::Bearer;
 use headers::{Authorization, HeaderMapExt, Origin};
 use tower::Service;
 
-use gateway_framework::{
+use crate::{
     auth::{context::AuthContext, AuthToken},
     errors::Error,
     graphql,
 };
-
-use crate::reports;
 
 #[pin_project::pin_project(project = KindProj)]
 enum Kind<F> {
@@ -143,12 +141,12 @@ where
 
         match &auth_token {
             AuthToken::ApiKey(auth) => tracing::info!(
-                target: reports::CLIENT_QUERY_TARGET,
+                target: "client_request",
                 user_address = ?auth.user(),
                 api_key = %auth.key(),
             ),
             AuthToken::SubscriptionsAuthToken(auth) => tracing::info!(
-                target: reports::CLIENT_QUERY_TARGET,
+                target: "client_request",
                 user_address = ?auth.user(),
             ),
         };
@@ -224,8 +222,7 @@ mod tests {
     use ordered_float::NotNan;
     use tokio_test::assert_ready_ok;
 
-    use crate::client_query::query_settings::QuerySettings;
-    use gateway_framework::auth::methods::api_keys;
+    use crate::auth::{methods::api_keys, QuerySettings};
 
     use super::{AuthContext, AuthToken, RequireAuthorizationLayer};
 

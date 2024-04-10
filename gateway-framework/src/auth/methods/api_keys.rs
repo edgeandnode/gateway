@@ -10,7 +10,7 @@ use eventuals::{Eventual, Ptr};
 use thegraph_core::types::{DeploymentId, SubgraphId};
 
 use crate::auth::QuerySettings;
-use crate::rate_limiter::RateLimitSettings;
+use crate::gateway::http::middleware::RateLimitSettings;
 use crate::topology::network::Deployment;
 
 use super::common;

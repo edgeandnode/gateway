@@ -51,6 +51,8 @@ tokio = { version = "1.36", features = [
     "time",
 ] }
 toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "toolshed-v0.6.0" }
+tower = "0.4.13"
+tower-http = { version = "0.4.0", features = ["cors"] }
 tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",

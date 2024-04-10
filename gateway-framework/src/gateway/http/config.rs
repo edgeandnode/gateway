@@ -26,6 +26,9 @@ pub struct GatewayConfig {
     #[serde(default = "default_gateway_id")]
     pub gateway_id: String,
 
+    /// Graph network environment identifier, inserted into Kafka messages
+    pub graph_env_id: String,
+
     /// Executable name of the gateway implementation (e.g. "subgraph-gateway")
     pub executable_name: String,
 
@@ -70,6 +73,9 @@ pub struct GatewayConfig {
     /// Target for indexer fees paid per request
     pub query_fees_target: f64,
 
+    /// Main API port
+    pub api_port: u16,
+
     /// Private metrics port
     pub metrics_port: u16,
 
@@ -99,6 +105,11 @@ pub struct GatewayConfig {
 
     /// Check payment state of client (disable for testnets)
     pub payment_required: bool,
+
+    /// Rounds of indexer selection and queries to attempt. Note that indexer queries have a 20s
+    /// timeout, so setting this to 5 for example would result in a 100s worst case response time
+    /// for a client query.
+    pub indexer_selection_retry_limit: usize,
 }
 
 #[derive(Clone, Debug, Deserialize)]

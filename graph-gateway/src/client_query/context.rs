@@ -7,14 +7,18 @@ use url::Url;
 
 use gateway_common::types::Indexing;
 use gateway_framework::{
-    budgets::Budgeter, chains::Chains, network::discovery::Status, reporting::KafkaClient,
-    scalar::ReceiptSigner, topology::network::GraphNetwork,
+    budgets::Budgeter,
+    chains::Chains,
+    network::{discovery::Status, indexing_performance::IndexingPerformance},
+    reporting::KafkaClient,
+    scalar::ReceiptSigner,
+    topology::network::GraphNetwork,
 };
 
-use crate::{indexer_client::IndexerClient, indexing_performance::IndexingPerformance};
+use crate::indexer_client::IndexerClient;
 
 #[derive(Clone)]
-pub struct Context {
+pub struct GatewayState {
     pub indexer_client: IndexerClient,
     pub receipt_signer: &'static ReceiptSigner,
     pub kafka_client: &'static KafkaClient,

@@ -9,7 +9,8 @@ use tokio::{
 };
 
 use gateway_common::types::Indexing;
-use gateway_framework::network::discovery::Status;
+
+use crate::network::discovery::Status;
 
 #[derive(Default)]
 pub struct Snapshot {

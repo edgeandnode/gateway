@@ -10,9 +10,8 @@ use thegraph_core::{
     types::{DeploymentId, SubgraphId},
 };
 
-use crate::{
-    rate_limiter::RateLimitSettings, subscriptions::Subscription, topology::network::Deployment,
-};
+use crate::gateway::http::middleware::RateLimitSettings;
+use crate::{subscriptions::Subscription, topology::network::Deployment};
 
 use super::common;
 use crate::auth::QuerySettings;

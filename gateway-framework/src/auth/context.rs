@@ -5,7 +5,7 @@ use alloy_primitives::Address;
 use axum::extract::FromRef;
 use eventuals::{Eventual, Ptr};
 
-use crate::rate_limiter::RateLimitSettings;
+use crate::gateway::http::middleware::RateLimitSettings;
 use crate::subscriptions::Subscription;
 
 use super::{
