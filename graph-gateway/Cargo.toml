@@ -5,7 +5,7 @@ version = "20.0.2"
 
 [dependencies]
 alloy-primitives.workspace = true
-alloy-sol-types = "0.7.0"
+alloy-sol-types.workspace = true
 anyhow.workspace = true
 axum = { workspace = true, features = ["headers"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
