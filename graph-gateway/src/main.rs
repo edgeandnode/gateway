@@ -28,14 +28,13 @@ use gateway_framework::{
     ip_blocker::IpBlocker,
     ipfs, json,
     network::{exchange_rate, network_subgraph},
-    scalar,
-    scalar::ReceiptSigner,
+    reporting::{self, EventFilterFn, EventHandlerFn, KafkaClient, LoggingOptions},
+    scalar::{self, ReceiptSigner},
 };
 use graph_gateway::{
     chains::Chains,
-    client_query,
     client_query::{
-        auth::AuthContext, context::Context, legacy_auth_adapter::legacy_auth_adapter,
+        self, auth::AuthContext, context::Context, legacy_auth_adapter::legacy_auth_adapter,
         query_id::SetQueryIdLayer, query_tracing::QueryTracingLayer,
         rate_limiter::AddRateLimiterLayer, require_auth::RequireAuthorizationLayer,
     },
@@ -43,9 +42,10 @@ use graph_gateway::{
     indexer_client::IndexerClient,
     indexers::indexing,
     indexing_performance::IndexingPerformance,
-    indexings_blocklist,
-    indexings_blocklist::indexings_blocklist,
-    reports::{self, KafkaClient},
+    indexings_blocklist::{self, indexings_blocklist},
+    reports::{
+        report_client_query, report_indexer_query, CLIENT_QUERY_TARGET, INDEXER_QUERY_TARGET,
+    },
     subgraph_studio, subscriptions_subgraph,
     topology::{Deployment, GraphNetwork},
 };
@@ -94,7 +94,26 @@ async fn main() {
         }
     };
 
-    reports::init(kafka_client, config.log_json);
+    // Initialize logging
+    reporting::init(
+        kafka_client,
+        LoggingOptions {
+            executable_name: "graph-gateway".into(),
+            json: config.log_json,
+            event_filter: EventFilterFn::new(|metadata| {
+                (metadata.target() == CLIENT_QUERY_TARGET)
+                    || (metadata.target() == INDEXER_QUERY_TARGET)
+            }),
+            event_handler: EventHandlerFn::new(|client, metadata, fields| {
+                match metadata.target() {
+                    CLIENT_QUERY_TARGET => report_client_query(client, fields),
+                    INDEXER_QUERY_TARGET => report_indexer_query(client, fields),
+                    _ => unreachable!("invalid event target for KafkaLayer"),
+                }
+            }),
+        },
+    );
+
     tracing::info!("gateway ID: {}", gateway_id);
     tracing::debug!(config = %config_repr);
 

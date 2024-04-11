@@ -4,13 +4,13 @@ use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use eventuals::{Eventual, Ptr};
 use gateway_common::types::Indexing;
-use gateway_framework::{budgets::Budgeter, scalar::ReceiptSigner};
+use gateway_framework::{budgets::Budgeter, reporting::KafkaClient, scalar::ReceiptSigner};
 use ordered_float::NotNan;
 use url::Url;
 
 use crate::{
     chains::Chains, indexer_client::IndexerClient, indexers::indexing,
-    indexing_performance::IndexingPerformance, reports::KafkaClient, topology::GraphNetwork,
+    indexing_performance::IndexingPerformance, topology::GraphNetwork,
 };
 
 #[derive(Clone)]

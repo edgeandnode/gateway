@@ -4,7 +4,7 @@ use std::{
 };
 
 use alloy_primitives::Address;
-use gateway_framework::{blocks::Block, chain::Chain, metrics::METRICS};
+use gateway_framework::{blocks::Block, chain::Chain, reporting::METRICS};
 use tokio::{
     select, spawn,
     sync::{mpsc, RwLock, RwLockReadGuard},
