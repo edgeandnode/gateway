@@ -32,6 +32,7 @@ use gateway_framework::{
     },
     reporting::{with_metric, KafkaClient, METRICS},
     scalar::{ReceiptStatus, ScalarReceipt},
+    topology::network::{Deployment, GraphNetwork, Subgraph},
 };
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
@@ -57,7 +58,6 @@ use crate::{
     chains::ChainReader,
     indexer_client::{check_block_error, IndexerClient, ResponsePayload},
     reports::{self, serialize_attestation},
-    topology::{Deployment, GraphNetwork, Subgraph},
     unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
 };
 

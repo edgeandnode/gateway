@@ -9,11 +9,12 @@ use gateway_framework::{
     network::{discovery::Status, indexing_performance::IndexingPerformance},
     reporting::KafkaClient,
     scalar::ReceiptSigner,
+    topology::network::GraphNetwork,
 };
 use ordered_float::NotNan;
 use url::Url;
 
-use crate::{chains::Chains, indexer_client::IndexerClient, topology::GraphNetwork};
+use crate::{chains::Chains, indexer_client::IndexerClient};
 
 #[derive(Clone)]
 pub struct Context {
