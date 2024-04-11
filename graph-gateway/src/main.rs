@@ -372,7 +372,7 @@ async fn main() {
         app_listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    // Wait until https://github.com/tokio-rs/axum/pull/2653 is released
+    // TODO: Wait until https://github.com/tokio-rs/axum/pull/2653 is released
     // // disable Nagel's algorithm
     // .tcp_nodelay(true)
     .with_graceful_shutdown(await_shutdown_signals())
