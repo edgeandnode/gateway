@@ -27,7 +27,10 @@ use gateway_framework::{
     budgets::{Budgeter, USD},
     ip_blocker::IpBlocker,
     ipfs, json,
-    network::{exchange_rate, network_subgraph},
+    network::{
+        discovery::Status, exchange_rate, indexing_performance::IndexingPerformance,
+        network_subgraph,
+    },
     reporting::{self, EventFilterFn, EventHandlerFn, KafkaClient, LoggingOptions},
     scalar::{self, ReceiptSigner},
 };
@@ -41,7 +44,6 @@ use graph_gateway::{
     config::{ApiKeys, Config, ExchangeRateProvider},
     indexer_client::IndexerClient,
     indexers::indexing,
-    indexing_performance::IndexingPerformance,
     indexings_blocklist::{self, indexings_blocklist},
     reports::{
         report_client_query, report_indexer_query, CLIENT_QUERY_TARGET, INDEXER_QUERY_TARGET,
@@ -443,7 +445,7 @@ async fn ip_rate_limit(
 async fn update_allocations(
     receipt_signer: &ReceiptSigner,
     deployments: &HashMap<DeploymentId, Arc<Deployment>>,
-    indexing_statuses: &HashMap<Indexing, indexing::Status>,
+    indexing_statuses: &HashMap<Indexing, Status>,
 ) {
     tracing::info!(
         deployments = deployments.len(),

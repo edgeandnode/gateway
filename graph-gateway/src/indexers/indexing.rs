@@ -1,11 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::Address;
 use anyhow::{anyhow, ensure};
 use cost_model::CostModel;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
 use gateway_common::types::Indexing;
+use gateway_framework::network::discovery::Status;
 use semver::Version;
 use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;
@@ -16,14 +17,6 @@ use crate::{
     indexers::{cost_models, indexing_statuses, version},
     topology::Deployment,
 };
-
-#[derive(Clone)]
-pub struct Status {
-    pub block: BlockNumber,
-    pub min_block: Option<BlockNumber>,
-    pub cost_model: Option<Ptr<CostModel>>,
-    pub legacy_scalar: bool,
-}
 
 pub async fn statuses(
     deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,

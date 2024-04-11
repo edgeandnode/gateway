@@ -9,15 +9,17 @@ alloy-sol-types.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-candidate-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "bcd7909" }
+candidate-selection.workspace = true
+cost-model.workspace = true
 ethers = "2.0.14"
 eventuals = "0.6.7"
 gateway-common = { path = "../gateway-common" }
 headers.workspace = true
 hex.workspace = true
 hickory-resolver = "0.24.0"
-ipnetwork = "0.20.0"
+indexer-selection.workspace = true
 itertools = "0.12.1"
+ipnetwork = "0.20.0"
 lazy_static = "1.4.0"
 ordered-float = "4.2.0"
 primitive-types.workspace = true

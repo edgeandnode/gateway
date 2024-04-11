@@ -26,6 +26,10 @@ use gateway_framework::{
         Error, IndexerError,
         UnavailableReason::{self, *},
     },
+    network::{
+        discovery::Status,
+        indexing_performance::{IndexingPerformance, Snapshot},
+    },
     reporting::{with_metric, KafkaClient, METRICS},
     scalar::{ReceiptStatus, ScalarReceipt},
 };
@@ -52,8 +56,6 @@ use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     chains::ChainReader,
     indexer_client::{check_block_error, IndexerClient, ResponsePayload},
-    indexers::indexing,
-    indexing_performance::{self, IndexingPerformance},
     reports::{self, serialize_attestation},
     topology::{Deployment, GraphNetwork, Subgraph},
     unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
@@ -541,8 +543,8 @@ async fn handle_client_query_inner(
 #[allow(clippy::too_many_arguments)]
 fn prepare_candidate(
     network: &GraphNetwork,
-    statuses: &HashMap<Indexing, indexing::Status>,
-    perf_snapshots: &HashMap<Indexing, indexing_performance::Snapshot>,
+    statuses: &HashMap<Indexing, Status>,
+    perf_snapshots: &HashMap<Indexing, Snapshot>,
     versions_behind: &BTreeMap<DeploymentId, u8>,
     context: &mut AgoraContext<String>,
     block_requirements: &BlockRequirements,
@@ -597,7 +599,7 @@ struct Perf {
 }
 
 fn perf(
-    snapshot: &indexing_performance::Snapshot,
+    snapshot: &Snapshot,
     block_requirements: &BlockRequirements,
     chain_head: BlockNumber,
     blocks_per_minute: u64,
