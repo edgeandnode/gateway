@@ -232,8 +232,9 @@ mod tests {
 
     use alloy_primitives::Address;
     use assert_matches::assert_matches;
-    use axum::{body::BoxBody, http};
+    use axum::{body::Body, http};
     use headers::{ContentType, HeaderMapExt};
+    use http_body_util::BodyExt;
     use tokio_test::assert_ready_ok;
 
     use crate::client_query::rate_limiter::{AddRateLimiterLayer, RateLimitSettings};
@@ -257,12 +258,12 @@ mod tests {
 
     /// Deserialize a GraphQL response body.
     async fn deserialize_graphql_response_body<T>(
-        body: &mut BoxBody,
+        body: &mut Body,
     ) -> serde_json::Result<thegraph_graphql_http::http::response::ResponseBody<T>>
     where
         for<'de> T: serde::Deserialize<'de>,
     {
-        let body = hyper::body::to_bytes(body).await.expect("valid body");
+        let body = body.collect().await.expect("valid body").to_bytes();
         serde_json::from_slice(body.as_ref())
     }
 
