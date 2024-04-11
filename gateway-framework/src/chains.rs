@@ -4,12 +4,13 @@ use std::{
 };
 
 use alloy_primitives::Address;
-use gateway_framework::{blocks::Block, chain::Chain, reporting::METRICS};
 use tokio::{
     select, spawn,
     sync::{mpsc, RwLock, RwLockReadGuard},
     time::interval,
 };
+
+use crate::{blocks::Block, chain::Chain, reporting::METRICS};
 
 #[derive(Clone)]
 pub struct ChainReader {

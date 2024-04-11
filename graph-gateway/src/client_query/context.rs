@@ -6,6 +6,7 @@ use eventuals::{Eventual, Ptr};
 use gateway_common::types::Indexing;
 use gateway_framework::{
     budgets::Budgeter,
+    chains::Chains,
     network::{discovery::Status, indexing_performance::IndexingPerformance},
     reporting::KafkaClient,
     scalar::ReceiptSigner,
@@ -14,7 +15,7 @@ use gateway_framework::{
 use ordered_float::NotNan;
 use url::Url;
 
-use crate::{chains::Chains, indexer_client::IndexerClient};
+use crate::indexer_client::IndexerClient;
 
 #[derive(Clone)]
 pub struct Context {

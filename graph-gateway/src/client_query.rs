@@ -22,6 +22,7 @@ use gateway_common::{
 use gateway_framework::{
     blocks::Block,
     budgets::USD,
+    chains::ChainReader,
     errors::{
         Error, IndexerError,
         UnavailableReason::{self, *},
@@ -55,7 +56,6 @@ use self::{
 };
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
-    chains::ChainReader,
     indexer_client::{check_block_error, IndexerClient, ResponsePayload},
     reports::{self, serialize_attestation},
     unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
