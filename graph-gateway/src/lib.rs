@@ -9,5 +9,4 @@ pub mod reports;
 pub mod subgraph_studio;
 pub mod subscriptions;
 pub mod subscriptions_subgraph;
-pub mod topology;
 pub mod unattestable_errors;

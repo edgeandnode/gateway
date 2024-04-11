@@ -5,13 +5,13 @@ use std::{
 
 use alloy_primitives::Address;
 use eventuals::{Eventual, Ptr};
+use gateway_framework::topology::network::Deployment;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 
 use super::common;
 use crate::{
     client_query::{query_settings::QuerySettings, rate_limiter::RateLimitSettings},
     subgraph_studio::{APIKey, QueryStatus},
-    topology::Deployment,
 };
 
 /// Errors that may occur when parsing a Studio API key.

@@ -5,6 +5,7 @@ use std::{
 
 use alloy_primitives::Address;
 use eventuals::{Eventual, Ptr};
+use gateway_framework::topology::network::Deployment;
 use thegraph_core::{
     subscriptions::auth::{
         parse_auth_token as parse_bearer_token, verify_auth_token_claims, AuthTokenClaims,
@@ -16,7 +17,6 @@ use super::common;
 use crate::{
     client_query::{query_settings::QuerySettings, rate_limiter::RateLimitSettings},
     subscriptions::Subscription,
-    topology::Deployment,
 };
 
 /// Auth token wrapper around the Subscriptions auth token claims and the subscription.

@@ -33,6 +33,7 @@ use gateway_framework::{
     },
     reporting::{self, EventFilterFn, EventHandlerFn, KafkaClient, LoggingOptions},
     scalar::{self, ReceiptSigner},
+    topology::network::{Deployment, GraphNetwork},
 };
 use graph_gateway::{
     chains::Chains,
@@ -49,7 +50,6 @@ use graph_gateway::{
         report_client_query, report_indexer_query, CLIENT_QUERY_TARGET, INDEXER_QUERY_TARGET,
     },
     subgraph_studio, subscriptions_subgraph,
-    topology::{Deployment, GraphNetwork},
 };
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};

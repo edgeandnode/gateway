@@ -10,4 +10,5 @@ pub mod json;
 pub mod network;
 pub mod reporting;
 pub mod scalar;
+pub mod topology;
 pub mod utils;
