@@ -20,7 +20,7 @@ gateway-common = { path = "../gateway-common" }
 gateway-framework = { path = "../gateway-framework" }
 graphql.workspace = true
 headers.workspace = true
-indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "4b6ce4a" }
+indexer-selection.workspace = true
 indoc = "2.0.5"
 itertools = "0.12.1"
 num-traits = "0.2.18"

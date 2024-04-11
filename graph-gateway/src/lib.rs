@@ -4,7 +4,6 @@ pub mod client_query;
 pub mod config;
 pub mod indexer_client;
 pub mod indexers;
-pub mod indexing_performance;
 pub mod indexings_blocklist;
 pub mod reports;
 pub mod subgraph_studio;
