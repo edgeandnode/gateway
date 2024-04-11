@@ -375,7 +375,7 @@ async fn handle_client_query_inner(
     }
 
     let mut total_indexer_fees_grt: u128 = 0;
-    for retry in 0..state.config.indexer_selection_retry_limit {
+    for retry in 0..state.config.indexer_selection.retry_limit {
         // Make sure our observations are up-to-date if retrying.
         if retry > 0 {
             state.indexing_performance.flush().await;

@@ -24,97 +24,101 @@ fn default_gateway_id() -> String {
 #[serde_as]
 #[derive(Clone, CustomDebug, Deserialize)]
 pub struct GatewayConfig {
-    /// The Gateway unique identifier. This ID is used to identify the Gateway in
-    /// the network and traceability purposes.
-    ///
-    /// If not provided a UUID is generated.
-    #[serde(default = "default_gateway_id")]
-    pub gateway_id: String,
+    pub gateway_details: GatewayDetails,
+    pub indexer_selection: IndexerSelectionConfig,
+    pub payments: PaymentsConfig,
+    pub chains: ChainsConfig,
+    pub network: NetworkConfig,
 
-    /// Graph network environment identifier, inserted into Kafka messages
-    pub graph_env_id: String,
-
-    /// Executable name of the gateway implementation (e.g. "subgraph-gateway")
-    pub executable_name: String,
-
-    /// File path of CSV containing rows of `IpNetwork,Country`
-    pub ip_blocker_db: Option<PathBuf>,
-
-    /// Chain aliases
-    #[serde(default)]
-    pub chain_aliases: BTreeMap<String, String>,
-
-    /// Block cache chain configurations
-    pub chains: Vec<chains::Config>,
-
-    /// IPFS endpoint with access to the subgraph files
+    /// IPFS endpoint with access to the manifest files
     #[debug(with = Display::fmt)]
     #[serde_as(as = "DisplayFromStr")]
     pub ipfs: Url,
+    /// Main API port
+    pub api_port: u16,
+    /// Private metrics port
+    pub metrics_port: u16,
+    /// See https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
+    #[serde(default)]
+    pub kafka: KafkaConfig,
+    /// Format log output as JSON
+    pub log_json: bool,
+    /// IP rate limit in requests per second
+    pub ip_rate_limit: u16,
+    /// API key configuration
+    #[serde(default)]
+    pub api_keys: Option<ApiKeys>,
+    /// API keys that won't be blocked for non-payment
+    #[serde(default)]
+    pub special_api_keys: Vec<String>,
+}
 
-    /// Ethereum RPC provider, or fixed exchange rate for testing
-    pub exchange_rate_provider: ExchangeRateProvider,
-
-    /// Network subgraph query path
-    #[debug(with = Display::fmt)]
-    #[serde_as(as = "DisplayFromStr")]
-    pub network_subgraph: Url,
-
+#[serde_as]
+#[derive(Clone, CustomDebug, Deserialize)]
+pub struct GatewayDetails {
+    /// The Gateway unique identifier. This ID is used to identify the Gateway
+    /// in the network and traceability purposes. If not provided a UUID is
+    /// generated.
+    #[serde(default = "default_gateway_id")]
+    pub id: String,
+    /// Executable name of the gateway implementation (e.g. "subgraph-gateway")
+    pub executable_name: String,
     /// L2 gateway to forward client queries to
     #[debug(with = fmt_optional_url)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub l2_gateway: Option<Url>,
+}
 
+#[serde_as]
+#[derive(Clone, CustomDebug, Deserialize)]
+pub struct NetworkConfig {
+    /// Graph network environment identifier, inserted into Kafka messages
+    pub id: String,
+    /// Network subgraph query path
+    #[debug(with = Display::fmt)]
+    #[serde_as(as = "DisplayFromStr")]
+    pub network_subgraph: Url,
+    // Attestation configuration
     pub attestations: AttestationConfig,
+}
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct IndexerSelectionConfig {
+    /// File path of CSV containing rows of `IpNetwork,Country`
+    pub ip_blocker_db: Option<PathBuf>,
     /// List of indexer addresses to block. This should only be used
     /// temprorarily, to compensate for indexer-selection imperfections.
     #[serde(default)]
     pub bad_indexers: Vec<Address>,
-
-    /// Scalar TAP config (receipt signing)
-    pub scalar: ScalarConfig,
-
-    /// Target for indexer fees paid per request
-    pub query_fees_target: f64,
-
-    /// Main API port
-    pub api_port: u16,
-
-    /// Private metrics port
-    pub metrics_port: u16,
-
-    /// See https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
-    #[serde(default)]
-    pub kafka: KafkaConfig,
-
-    /// Format log output as JSON
-    pub log_json: bool,
-
-    /// IP rate limit in requests per second
-    pub ip_rate_limit: u16,
-
-    /// API key configuration
-    #[serde(default)]
-    pub api_keys: Option<ApiKeys>,
-
-    /// API keys that won't be blocked for non-payment
-    #[serde(default)]
-    pub special_api_keys: Vec<String>,
-
-    /// Subscriptions configuration
-    pub subscriptions: Option<Subscriptions>,
-
-    /// Respect the payment state of API keys (disable for testnets)
-    pub api_key_payment_required: bool,
-
-    /// Check payment state of client (disable for testnets)
-    pub payment_required: bool,
-
     /// Rounds of indexer selection and queries to attempt. Note that indexer queries have a 20s
     /// timeout, so setting this to 5 for example would result in a 100s worst case response time
     /// for a client query.
-    pub indexer_selection_retry_limit: usize,
+    pub retry_limit: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct PaymentsConfig {
+    /// Scalar TAP config (receipt signing)
+    pub scalar: ScalarConfig,
+    /// Target for indexer fees paid per request
+    pub query_fees_target: f64,
+    /// Check payment state of client (disable for testnets)
+    pub payment_required: bool,
+    /// Respect the payment state of API keys (disable for testnets)
+    pub api_key_payment_required: bool,
+    /// Subscriptions configuration
+    pub subscriptions: Option<Subscriptions>,
+    /// Ethereum RPC provider, or fixed exchange rate for testing
+    pub exchange_rate_provider: ExchangeRateProvider,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ChainsConfig {
+    /// Block cache chain configurations
+    pub chains: Vec<chains::Config>,
+    /// Chain aliases
+    #[serde(default)]
+    pub aliases: BTreeMap<String, String>,
 }
 
 #[serde_as]

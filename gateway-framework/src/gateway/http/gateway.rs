@@ -148,10 +148,24 @@ where
 
         let gateway_config = config.clone();
 
+        let GatewayConfig {
+            chains,
+            gateway_details,
+            indexer_selection,
+            network,
+            payments,
+            ..
+        } = config;
+
+        let network_id = network.id.clone();
+
         // Set the Kafka group.id setting to whatever the gateway executable
         // name is (e.g. "subgraph-gateway")
         let mut kafka_config = config.kafka.clone();
-        kafka_config.insert("group.id".to_string(), config.executable_name.clone());
+        kafka_config.insert(
+            "group.id".to_string(),
+            gateway_details.executable_name.clone(),
+        );
 
         // Instantiate the Kafka client
         let kafka_client: &'static KafkaClient =
@@ -167,20 +181,20 @@ where
         reporting::init(
             kafka_client,
             LoggingOptions {
-                executable_name: config.executable_name,
+                executable_name: gateway_details.executable_name,
                 json: config.log_json,
                 event_filter: logging.event_filter,
                 event_handler: logging.event_handler,
             },
         );
 
-        tracing::info!("Gateway starting... ID: {}", config.gateway_id);
+        tracing::info!("Gateway starting... ID: {}", gateway_details.id);
 
-        let ip_blocker = IpBlocker::new(config.ip_blocker_db.as_deref()).unwrap();
+        let ip_blocker = IpBlocker::new(indexer_selection.ip_blocker_db.as_deref()).unwrap();
 
-        let chains = Box::leak(Box::new(Chains::new(config.chain_aliases)));
+        let chains = Box::leak(Box::new(Chains::new(chains.aliases)));
 
-        let grt_per_usd: Eventual<NotNan<f64>> = match config.exchange_rate_provider {
+        let grt_per_usd: Eventual<NotNan<f64>> = match payments.exchange_rate_provider {
             ExchangeRateProvider::Fixed(grt_per_usd) => {
                 Eventual::from_value(NotNan::new(grt_per_usd).expect("NAN exchange rate"))
             }
@@ -206,23 +220,27 @@ where
             .unwrap();
 
         let network_subgraph_client =
-            subgraph_client::Client::new(http_client.clone(), config.network_subgraph);
+            subgraph_client::Client::new(http_client.clone(), network.network_subgraph);
         let subgraphs = gateway_impl
-            .publications(network_subgraph_client, config.l2_gateway.is_some())
+            .publications(
+                network_subgraph_client,
+                gateway_details.l2_gateway.is_some(),
+            )
             .await;
 
         let attestation_domain: &'static Eip712Domain =
             Box::leak(Box::new(attestation::eip712_domain(
-                U256::from_str_radix(&config.attestations.chain_id, 10)
+                U256::from_str_radix(&network.attestations.chain_id, 10)
                     .expect("failed to parse attestation domain chain_id"),
-                config.attestations.dispute_manager,
+                network.attestations.dispute_manager,
             )));
 
         let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
         let network = GraphNetwork::new(subgraphs, ipfs, ip_blocker).await;
 
-        let bad_indexers: &'static HashSet<Address> =
-            Box::leak(Box::new(config.bad_indexers.into_iter().collect()));
+        let bad_indexers: &'static HashSet<Address> = Box::leak(Box::new(
+            indexer_selection.bad_indexers.into_iter().collect(),
+        ));
 
         let indexing_statuses = gateway_impl
             .indexing_statuses(network.deployments.clone())
@@ -237,17 +255,17 @@ where
             .await;
 
         let legacy_signer: &'static SecretKey = Box::leak(Box::new(
-            config
+            payments
                 .scalar
                 .legacy_signer
                 .map(|s| s.0)
-                .unwrap_or(config.scalar.signer.0),
+                .unwrap_or(payments.scalar.signer.0),
         ));
         let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(
             ReceiptSigner::new(
-                config.scalar.signer.0,
-                config.scalar.chain_id,
-                config.scalar.verifier,
+                payments.scalar.signer.0,
+                payments.scalar.chain_id,
+                payments.scalar.verifier,
                 legacy_signer,
                 legacy_indexers,
             )
@@ -261,7 +279,7 @@ where
         );
 
         let query_fees_target =
-            USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
+            USD(NotNan::new(payments.query_fees_target).expect("invalid query_fees_target"));
         let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
         // Host metrics on a separate server with a port that isn't open to
@@ -280,7 +298,7 @@ where
             .expect("Failed to start metrics server");
         });
 
-        let subscriptions = match &config.subscriptions {
+        let subscriptions = match &payments.subscriptions {
             None => Eventual::from_value(Ptr::default()),
             Some(subscriptions) => subscriptions_subgraph::Client::create(
                 subgraph_client::Client::builder(
@@ -293,21 +311,21 @@ where
         };
 
         let auth_handler = AuthContext::create(
-            config.payment_required,
+            payments.payment_required,
             api_keys,
             special_api_keys,
             subscriptions,
-            config
+            payments
                 .subscriptions
                 .iter()
                 .flat_map(|s| s.special_signers.clone())
                 .collect(),
-            config
+            payments
                 .subscriptions
                 .as_ref()
                 .map(|s| s.rate_per_query)
                 .unwrap_or(0),
-            config
+            payments
                 .subscriptions
                 .iter()
                 .flat_map(|s| &s.domains)
@@ -319,7 +337,7 @@ where
             config: gateway_config,
             gateway_impl,
 
-            l2_gateway: config.l2_gateway,
+            l2_gateway: gateway_details.l2_gateway,
             network,
             chains,
             indexings_blocklist,
@@ -370,9 +388,9 @@ where
                             .allow_methods([http::Method::OPTIONS, http::Method::POST]),
                     )
                     // Set up the query tracing span
-                    .layer(RequestTracingLayer::new(config.graph_env_id.clone()))
+                    .layer(RequestTracingLayer::new(network_id))
                     // Set the request ID on the request
-                    .layer(SetRequestIdLayer::new(config.gateway_id))
+                    .layer(SetRequestIdLayer::new(gateway_details.id))
                     // Handle legacy in-path auth, and convert it into a header
                     .layer(middleware::from_fn(legacy_auth_adapter))
                     // Require requests to be authorized
