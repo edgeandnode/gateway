@@ -23,7 +23,7 @@ hex = "0.4"
 primitive-types = "0.12.2"
 rand = { version = "0.8", features = ["small_rng"] }
 receipts = { git = "https://github.com/edgeandnode/receipts", rev = "8bc8f13" }
-reqwest = { version = "0.11", default-features = false, features = [
+reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "default-tls",
     "gzip",
