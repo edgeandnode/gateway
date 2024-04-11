@@ -278,7 +278,7 @@ async fn main() {
         .await
         .expect("Failed to bind metrics server");
         axum::serve(metrics_listener, router.into_make_service())
-            // Wait until https://github.com/tokio-rs/axum/pull/2653 is released
+            // TODO: Wait until https://github.com/tokio-rs/axum/pull/2653 is released
             // // disable Nagel's algorithm
             // .tcp_nodelay(true)
             .await
