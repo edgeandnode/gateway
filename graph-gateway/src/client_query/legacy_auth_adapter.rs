@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use axum::{
-    body::BoxBody,
-    extract::Path,
-    http::{header, Request, Response},
+    body::Body,
+    extract::{Path, Request},
+    http::{header, Response},
     middleware::Next,
     RequestPartsExt,
 };
@@ -16,10 +16,7 @@ use headers::{Authorization, HeaderMapExt};
 /// If the request does not have an `api_key` path parameter, it is left unchanged.
 ///
 /// This is a temporary adapter middleware to allow legacy clients to use the new auth scheme.
-pub async fn legacy_auth_adapter<ReqBody>(
-    mut request: Request<ReqBody>,
-    next: Next<ReqBody>,
-) -> Response<BoxBody> {
+pub async fn legacy_auth_adapter(mut request: Request, next: Next) -> Response<Body> {
     // If the request already has an `Authorization` header, don't do anything
     if !request.headers().contains_key(header::AUTHORIZATION) {
         let (mut parts, body) = request.into_parts();
@@ -49,6 +46,7 @@ mod tests {
         routing::{get, post},
         Router,
     };
+    use http_body_util::BodyExt;
     use tower::ServiceExt;
 
     use super::legacy_auth_adapter;
@@ -98,7 +96,7 @@ mod tests {
         // Then
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = hyper::body::to_bytes(res).await.unwrap();
+        let body = res.collect().await.unwrap().to_bytes();
         assert_eq!(&body[..], auth_header.as_bytes());
     }
 
@@ -122,7 +120,7 @@ mod tests {
         // Then
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = hyper::body::to_bytes(res).await.unwrap();
+        let body = res.collect().await.unwrap().to_bytes();
         assert_eq!(&body[..], auth_header.as_bytes());
     }
 
@@ -147,7 +145,7 @@ mod tests {
         // Then
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = hyper::body::to_bytes(res).await.unwrap();
+        let body = res.collect().await.unwrap().to_bytes();
         assert_eq!(&body[..], auth_header.as_bytes());
     }
 
@@ -168,7 +166,7 @@ mod tests {
         // Then
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = hyper::body::to_bytes(res).await.unwrap();
+        let body = res.collect().await.unwrap().to_bytes();
         assert_eq!(&body[..], b"");
     }
 }

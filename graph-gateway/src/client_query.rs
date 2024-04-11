@@ -854,7 +854,7 @@ mod tests {
 
         use assert_matches::assert_matches;
         use axum::{
-            body::BoxBody,
+            body::Body,
             http::{Method, Request, StatusCode},
             middleware,
             routing::post,
@@ -862,7 +862,7 @@ mod tests {
         };
         use eventuals::{Eventual, Ptr};
         use headers::{Authorization, ContentType, HeaderMapExt};
-        use hyper::Body;
+        use http_body_util::BodyExt;
         use tower::ServiceExt;
 
         use super::{
@@ -949,18 +949,18 @@ mod tests {
 
         /// Deserialize a GraphQL response body.
         async fn deserialize_graphql_response_body<T>(
-            body: &mut BoxBody,
+            body: &mut Body,
         ) -> serde_json::Result<thegraph_graphql_http::http::response::ResponseBody<T>>
         where
             for<'de> T: serde::Deserialize<'de>,
         {
-            let body = hyper::body::to_bytes(body).await.expect("valid body");
+            let body = body.collect().await.expect("valid body").to_bytes();
             serde_json::from_slice(body.as_ref())
         }
 
         /// Parse text response body.
-        async fn parse_text_response_body(body: &mut BoxBody) -> anyhow::Result<String> {
-            let body = hyper::body::to_bytes(body).await.expect("valid body");
+        async fn parse_text_response_body(body: &mut Body) -> anyhow::Result<String> {
+            let body = body.collect().await.expect("valid body").to_bytes();
             let text = String::from_utf8(body.to_vec())?;
             Ok(text)
         }

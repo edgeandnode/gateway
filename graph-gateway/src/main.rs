@@ -13,11 +13,13 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
 use anyhow::{self, Context as _};
 use axum::{
+    body::Body,
     extract::{ConnectInfo, DefaultBodyLimit, State},
     http::{self, status::StatusCode, Request},
     middleware,
+    middleware::Next,
     response::Response,
-    routing, Router, Server,
+    routing, Router,
 };
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_common::types::Indexing;
@@ -56,7 +58,7 @@ use thegraph_core::{
     client as subgraph_client,
     types::{attestation, DeploymentId},
 };
-use tokio::{signal::unix::SignalKind, spawn};
+use tokio::{net::TcpListener, signal::unix::SignalKind, spawn};
 use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
@@ -269,15 +271,18 @@ async fn main() {
     spawn(async move {
         let router = Router::new().route("/metrics", routing::get(handle_metrics));
 
-        Server::bind(&SocketAddr::new(
+        let metrics_listener = TcpListener::bind(SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
             metrics_port,
         ))
-        // disable Nagel's algorithm
-        .tcp_nodelay(true)
-        .serve(router.into_make_service())
         .await
-        .expect("Failed to start metrics server");
+        .expect("Failed to bind metrics server");
+        axum::serve(metrics_listener, router.into_make_service())
+            // Wait until https://github.com/tokio-rs/axum/pull/2653 is released
+            // // disable Nagel's algorithm
+            // .tcp_nodelay(true)
+            .await
+            .expect("Failed to start metrics server");
     });
 
     let rate_limiter_slots = 10;
@@ -357,13 +362,19 @@ async fn main() {
         .nest("/api", api)
         .layer(middleware::from_fn_with_state(rate_limiter, ip_rate_limit));
 
-    Server::bind(&SocketAddr::new(
+    let app_listener = TcpListener::bind(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         config.port_api,
     ))
-    // disable Nagel's algorithm
-    .tcp_nodelay(true)
-    .serve(router.into_make_service_with_connect_info::<SocketAddr>())
+    .await
+    .expect("Failed to bind API server");
+    axum::serve(
+        app_listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    // Wait until https://github.com/tokio-rs/axum/pull/2653 is released
+    // // disable Nagel's algorithm
+    // .tcp_nodelay(true)
     .with_graceful_shutdown(await_shutdown_signals())
     .await
     .expect("Failed to start API server");
@@ -397,15 +408,16 @@ async fn await_shutdown_signals() {
     }
 }
 
-async fn ip_rate_limit<B>(
+async fn ip_rate_limit(
     State(limiter): State<&'static RateLimiter<String>>,
     ConnectInfo(info): ConnectInfo<SocketAddr>,
-    req: Request<B>,
-    next: middleware::Next<B>,
+    req: Request<Body>,
+    next: Next,
 ) -> Result<Response, json::JsonResponse> {
     if limiter.check_limited(info.ip().to_string()) {
         return Err(graphql_error_response("Too many requests, try again later"));
     }
+
     Ok(next.run(req).await)
 }
 

@@ -13,17 +13,18 @@ debug = true
 anyhow = "1.0"
 alloy-primitives = { version = "0.7.0", features = ["serde"] }
 alloy-sol-types = "0.7.0"
-axum = { version = "0.6.20", default-features = false, features = [
+axum = { version = "0.7.5", default-features = false, features = [
     "json",
     "tokio",
     "original-uri",
 ] }
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
+headers = "0.4.0"
 hex = "0.4"
 primitive-types = "0.12.2"
 rand = { version = "0.8", features = ["small_rng"] }
 receipts = { git = "https://github.com/edgeandnode/receipts", rev = "8bc8f13" }
-reqwest = { version = "0.11", default-features = false, features = [
+reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "default-tls",
     "gzip",
@@ -32,8 +33,8 @@ secp256k1 = { version = "0.28", default-features = false }
 semver = { version = "1.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 siphasher = "1.0.1"
-thegraph-core = "0.2.3"
-thegraph-graphql-http = "0.1.1"
+thegraph-core = "0.3.0"
+thegraph-graphql-http = "0.2.0"
 thiserror = "1.0.58"
 tokio = { version = "1.37", features = [
     "macros",
