@@ -25,6 +25,7 @@ use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_common::types::Indexing;
 use gateway_framework::{
     budgets::{Budgeter, USD},
+    chains::Chains,
     ip_blocker::IpBlocker,
     ipfs, json,
     network::{
@@ -36,7 +37,6 @@ use gateway_framework::{
     topology::network::{Deployment, GraphNetwork},
 };
 use graph_gateway::{
-    chains::Chains,
     client_query::{
         self, auth::AuthContext, context::Context, legacy_auth_adapter::legacy_auth_adapter,
         query_id::SetQueryIdLayer, query_tracing::QueryTracingLayer,

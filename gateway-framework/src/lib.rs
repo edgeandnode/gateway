@@ -1,6 +1,7 @@
 pub mod blocks;
 pub mod budgets;
 pub mod chain;
+pub mod chains;
 pub mod config;
 pub mod errors;
 pub mod graphql;
