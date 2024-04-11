@@ -5,7 +5,7 @@ use eventuals::{Eventual, EventualWriter};
 use ordered_float::NotNan;
 use tokio::{select, spawn, sync::mpsc, time::interval};
 
-use crate::metrics::METRICS;
+use crate::reporting::METRICS;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct USD(pub NotNan<f64>);

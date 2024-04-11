@@ -22,8 +22,11 @@ use gateway_common::{
 use gateway_framework::{
     blocks::Block,
     budgets::USD,
-    errors::{Error, IndexerError, UnavailableReason, UnavailableReason::*},
-    metrics::{with_metric, METRICS},
+    errors::{
+        Error, IndexerError,
+        UnavailableReason::{self, *},
+    },
+    reporting::{with_metric, KafkaClient, METRICS},
     scalar::{ReceiptStatus, ScalarReceipt},
 };
 use headers::ContentType;
@@ -51,7 +54,7 @@ use crate::{
     indexer_client::{check_block_error, IndexerClient, ResponsePayload},
     indexers::indexing,
     indexing_performance::{self, IndexingPerformance},
-    reports::{self, serialize_attestation, KafkaClient},
+    reports::{self, serialize_attestation},
     topology::{Deployment, GraphNetwork, Subgraph},
     unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
 };

@@ -7,7 +7,7 @@ pub mod graphql;
 pub mod ip_blocker;
 pub mod ipfs;
 pub mod json;
-pub mod metrics;
 pub mod network;
+pub mod reporting;
 pub mod scalar;
 pub mod utils;

@@ -38,7 +38,10 @@ serde_with = "3.7"
 serde_yaml = "0.9"
 simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
-thegraph-core = { workspace = true, features = ["subgraph-client", "subscriptions"] }
+thegraph-core = { workspace = true, features = [
+    "subgraph-client",
+    "subscriptions",
+] }
 thegraph-graphql-http.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
