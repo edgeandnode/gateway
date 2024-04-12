@@ -7,12 +7,14 @@ use std::{
 };
 
 use axum::http::Request;
-use gateway_framework::{errors::Error, graphql};
 use headers::{authorization::Bearer, Authorization, HeaderMapExt, Origin};
 use tower::Service;
 
-use super::auth::{AuthContext, AuthToken};
-use crate::reports;
+use crate::{
+    auth::{AuthContext, AuthToken},
+    errors::Error,
+    graphql,
+};
 
 #[pin_project::pin_project(project = KindProj)]
 enum Kind<F> {
@@ -139,13 +141,13 @@ where
             };
 
         match &auth_token {
-            AuthToken::StudioApiKey(auth) => tracing::info!(
-                target: reports::CLIENT_QUERY_TARGET,
+            AuthToken::ApiKey(auth) => tracing::info!(
+                target: "client_request",
                 user_address = ?auth.user(),
                 api_key = %auth.key(),
             ),
             AuthToken::SubscriptionsAuthToken(auth) => tracing::info!(
-                target: reports::CLIENT_QUERY_TARGET,
+                target: "client_request",
                 user_address = ?auth.user(),
             ),
         };
@@ -222,10 +224,7 @@ mod tests {
     use tokio_test::assert_ready_ok;
 
     use super::{AuthContext, AuthToken, RequireAuthorizationLayer};
-    use crate::{
-        client_query::{auth::studio::AuthToken as StudioAuthToken, query_settings::QuerySettings},
-        subgraph_studio::APIKey,
-    };
+    use crate::auth::{methods::api_keys, QuerySettings};
 
     fn test_auth_ctx(key: Option<&str>) -> AuthContext {
         let mut ctx = AuthContext {
@@ -240,7 +239,7 @@ mod tests {
         if let Some(key) = key {
             ctx.api_keys = Eventual::from_value(Ptr::new(HashMap::from([(
                 key.into(),
-                Arc::new(APIKey {
+                Arc::new(api_keys::APIKey {
                     key: key.into(),
                     max_budget_usd: Some(NotNan::new(1e3).unwrap()),
                     ..Default::default()
@@ -283,7 +282,7 @@ mod tests {
     fn test_req_with_auth_token_extension(auth: &str) -> http::Request<()> {
         let mut req = http::Request::builder().body(()).unwrap();
 
-        let auth_token = AuthToken::from(StudioAuthToken::new(Arc::new(APIKey {
+        let auth_token = AuthToken::from(api_keys::AuthToken::new(Arc::new(api_keys::APIKey {
             key: auth.into(),
             ..Default::default()
         })));
@@ -455,7 +454,7 @@ mod tests {
             .expect("service received a request");
 
         //* Then
-        assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::StudioApiKey(api_key)) => {
+        assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::ApiKey(api_key)) => {
             assert_eq!(api_key.key(), "0123456789abcdef0123456789abcdef");
         });
     }
@@ -486,7 +485,7 @@ mod tests {
             .expect("service received a request");
 
         //* Then
-        assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::StudioApiKey(api_key)) => {
+        assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::ApiKey(api_key)) => {
             assert_eq!(api_key.key(), "test-api-key");
         });
     }
@@ -519,7 +518,7 @@ mod tests {
             .expect("service received a request");
 
         //* Then
-        assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::StudioApiKey(api_key)) => {
+        assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::ApiKey(api_key)) => {
             assert_eq!(api_key.key(), "0123456789abcdef0123456789abcdef");
         });
         assert_matches!(r.extensions().get::<QuerySettings>(), Some(_));

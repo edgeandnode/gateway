@@ -11,8 +11,10 @@ axum.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 candidate-selection.workspace = true
 cost-model.workspace = true
+dashmap = "5.5.3"
 ethers = "2.0.14"
 eventuals = "0.6.7"
+faster-hex = "0.9.0"
 futures.workspace = true
 gateway-common = { path = "../gateway-common" }
 headers.workspace = true
@@ -23,6 +25,7 @@ itertools = "0.12.1"
 ipnetwork = "0.20.0"
 lazy_static = "1.4.0"
 ordered-float = "4.2.0"
+pin-project = "1.1.5"
 primitive-types.workspace = true
 prometheus = "0.13.3"
 rand.workspace = true
@@ -33,6 +36,8 @@ secp256k1.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 serde_with.workspace = true
+serde_yaml.workspace = true
+simple-rate-limiter.workspace = true
 siphasher.workspace = true
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "c179dfe" }
 thegraph-core = { workspace = true, features = ["subgraph-client"] }
@@ -40,10 +45,16 @@ thegraph-graphql-http.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toolshed.workspace = true
+tower.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url = "2.5.0"
 
 [dev-dependencies]
 assert_matches = "1.5.0"
+http-body-util = "0.1.1"
+hyper = "1.2.0"
 test-with = { version = "0.12.6", default-features = false }
+tokio-test = "0.4.4"
+tower-test = "0.4.0"
