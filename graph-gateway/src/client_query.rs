@@ -64,11 +64,8 @@ use crate::{
 mod attestation_header;
 pub mod context;
 mod l2_forwarding;
-pub mod legacy_auth_adapter;
-pub mod query_id;
 mod query_selector;
 mod query_settings;
-pub mod query_tracing;
 
 const SELECTION_LIMIT: usize = 3;
 
@@ -849,8 +846,6 @@ fn rewrite_response(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     mod require_req_auth {
         use std::{collections::HashMap, sync::Arc};
 
@@ -865,13 +860,11 @@ mod tests {
         use eventuals::{Eventual, Ptr};
         use gateway_framework::{
             auth::{methods::api_keys::APIKey, AuthContext, AuthToken},
-            http::middleware::RequireAuthorizationLayer,
+            http::middleware::{legacy_auth_adapter, RequireAuthorizationLayer},
         };
         use headers::{Authorization, ContentType, HeaderMapExt};
         use http_body_util::BodyExt;
         use tower::ServiceExt;
-
-        use super::legacy_auth_adapter::legacy_auth_adapter;
 
         /// Create a test authorization context.
         fn test_auth_ctx(key: Option<&str>) -> AuthContext {
