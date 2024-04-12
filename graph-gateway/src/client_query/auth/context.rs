@@ -6,12 +6,12 @@ use std::{
 use alloy_primitives::Address;
 use axum::extract::FromRef;
 use eventuals::{Eventual, Ptr};
+use gateway_framework::subscriptions::Subscription;
 
 use super::{studio, subscriptions, AuthToken};
 use crate::{
     client_query::{query_settings::QuerySettings, rate_limiter::RateLimitSettings},
     subgraph_studio::APIKey,
-    subscriptions::Subscription,
 };
 
 #[derive(Clone)]

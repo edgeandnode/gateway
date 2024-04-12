@@ -6,6 +6,4 @@ pub mod indexers;
 pub mod indexings_blocklist;
 pub mod reports;
 pub mod subgraph_studio;
-pub mod subscriptions;
-pub mod subscriptions_subgraph;
 pub mod unattestable_errors;
