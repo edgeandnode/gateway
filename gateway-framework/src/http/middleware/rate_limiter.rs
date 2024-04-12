@@ -8,10 +8,10 @@ use alloy_primitives::Address;
 use axum::http::Request;
 use dashmap::DashMap;
 use eventuals::EventualExt;
-use gateway_framework::{errors::Error, graphql};
 use tower::Service;
 
 use self::future::ResponseFuture;
+use crate::{errors::Error, graphql};
 
 /// Rate limit settings.
 ///
@@ -237,7 +237,7 @@ mod tests {
     use http_body_util::BodyExt;
     use tokio_test::assert_ready_ok;
 
-    use crate::client_query::rate_limiter::{AddRateLimiterLayer, RateLimitSettings};
+    use super::{AddRateLimiterLayer, RateLimitSettings};
 
     /// Helper function to parse an address string into an `Address`.
     fn test_address(addr: &str) -> Address {

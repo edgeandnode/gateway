@@ -20,6 +20,7 @@ use gateway_common::{
     utils::{http_ext::HttpBuilderExt, timestamp::unix_timestamp},
 };
 use gateway_framework::{
+    auth::AuthToken,
     blocks::Block,
     budgets::USD,
     chains::ChainReader,
@@ -50,9 +51,8 @@ use tracing::Instrument;
 use url::Url;
 
 use self::{
-    attestation_header::GraphAttestation, auth::AuthToken, context::Context,
-    l2_forwarding::forward_request_to_l2, query_selector::QuerySelector,
-    query_settings::QuerySettings,
+    attestation_header::GraphAttestation, context::Context, l2_forwarding::forward_request_to_l2,
+    query_selector::QuerySelector, query_settings::QuerySettings,
 };
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
@@ -62,7 +62,6 @@ use crate::{
 };
 
 mod attestation_header;
-pub mod auth;
 pub mod context;
 mod l2_forwarding;
 pub mod legacy_auth_adapter;
@@ -70,8 +69,6 @@ pub mod query_id;
 mod query_selector;
 mod query_settings;
 pub mod query_tracing;
-pub mod rate_limiter;
-pub mod require_auth;
 
 const SELECTION_LIMIT: usize = 3;
 
@@ -866,16 +863,15 @@ mod tests {
             Extension, Router,
         };
         use eventuals::{Eventual, Ptr};
+        use gateway_framework::{
+            auth::{methods::api_keys::APIKey, AuthContext, AuthToken},
+            http::middleware::RequireAuthorizationLayer,
+        };
         use headers::{Authorization, ContentType, HeaderMapExt};
         use http_body_util::BodyExt;
         use tower::ServiceExt;
 
-        use super::{
-            auth::{AuthContext, AuthToken},
-            legacy_auth_adapter::legacy_auth_adapter,
-            require_auth::RequireAuthorizationLayer,
-        };
-        use crate::subgraph_studio::APIKey;
+        use super::legacy_auth_adapter::legacy_auth_adapter;
 
         /// Create a test authorization context.
         fn test_auth_ctx(key: Option<&str>) -> AuthContext {
@@ -937,7 +933,7 @@ mod tests {
         fn test_router(auth_ctx: AuthContext) -> Router {
             async fn handler(Extension(auth): Extension<AuthToken>) -> String {
                 match auth {
-                    AuthToken::StudioApiKey(auth_token) => auth_token.key().to_string(),
+                    AuthToken::ApiKey(auth_token) => auth_token.key().to_string(),
                     _ => unreachable!(),
                 }
             }

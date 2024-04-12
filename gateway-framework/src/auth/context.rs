@@ -6,13 +6,15 @@ use std::{
 use alloy_primitives::Address;
 use axum::extract::FromRef;
 use eventuals::{Eventual, Ptr};
-use gateway_framework::subscriptions::Subscription;
 
-use super::{studio, subscriptions, AuthToken};
-use crate::{
-    client_query::{query_settings::QuerySettings, rate_limiter::RateLimitSettings},
-    subgraph_studio::APIKey,
+use super::{
+    methods::{
+        api_keys::{self, APIKey},
+        subscriptions,
+    },
+    AuthToken, QuerySettings,
 };
+use crate::{http::middleware::RateLimitSettings, subscriptions::Subscription};
 
 #[derive(Clone)]
 pub struct AuthContext {
@@ -33,10 +35,10 @@ pub struct AuthContext {
     pub subscription_domains: Arc<HashMap<u64, Address>>,
 }
 
-impl FromRef<AuthContext> for studio::AuthContext {
+impl FromRef<AuthContext> for api_keys::AuthContext {
     fn from_ref(auth: &AuthContext) -> Self {
         Self {
-            studio_keys: auth.api_keys.clone(),
+            api_keys: auth.api_keys.clone(),
             special_api_keys: auth.special_api_keys.clone(),
         }
     }
@@ -83,10 +85,10 @@ impl AuthContext {
             return Err(anyhow::anyhow!("not found"));
         }
 
-        // First, parse the bearer token as it was a Studio API key
-        let ctx = studio::AuthContext::from_ref(self);
+        // First, parse the bearer token as it was an API key
+        let ctx = api_keys::AuthContext::from_ref(self);
         if let Ok((auth, query_settings, rate_limit_settings)) =
-            studio::parse_auth_token(&ctx, input)
+            api_keys::parse_auth_token(&ctx, input)
         {
             return Ok((AuthToken::from(auth), query_settings, rate_limit_settings));
         }
@@ -102,9 +104,9 @@ impl AuthContext {
 
     pub fn check_auth_requirements(&self, token: &AuthToken) -> anyhow::Result<()> {
         match token {
-            AuthToken::StudioApiKey(auth) => {
-                let ctx = studio::AuthContext::from_ref(self);
-                studio::check_auth_requirements(&ctx, auth)
+            AuthToken::ApiKey(auth) => {
+                let ctx = api_keys::AuthContext::from_ref(self);
+                api_keys::check_auth_requirements(&ctx, auth)
             }
             AuthToken::SubscriptionsAuthToken(auth) => {
                 let ctx = subscriptions::AuthContext::from_ref(self);

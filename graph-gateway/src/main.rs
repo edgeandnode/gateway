@@ -24,8 +24,10 @@ use axum::{
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_common::types::Indexing;
 use gateway_framework::{
+    auth::AuthContext,
     budgets::{Budgeter, USD},
     chains::Chains,
+    http::middleware::{AddRateLimiterLayer, RequireAuthorizationLayer},
     ip_blocker::IpBlocker,
     json,
     network::{
@@ -39,9 +41,8 @@ use gateway_framework::{
 };
 use graph_gateway::{
     client_query::{
-        self, auth::AuthContext, context::Context, legacy_auth_adapter::legacy_auth_adapter,
+        self, context::Context, legacy_auth_adapter::legacy_auth_adapter,
         query_id::SetQueryIdLayer, query_tracing::QueryTracingLayer,
-        rate_limiter::AddRateLimiterLayer, require_auth::RequireAuthorizationLayer,
     },
     config::{ApiKeys, Config, ExchangeRateProvider},
     indexer_client::IndexerClient,

@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use gateway_framework::topology::network::Deployment;
 use thegraph_core::types::{DeploymentId, SubgraphId};
+
+use crate::topology::network::Deployment;
 
 /// Check if the given deployments are authorized by the given authorized deployments.
 ///

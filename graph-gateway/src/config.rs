@@ -8,14 +8,17 @@ use std::{
 
 use alloy_primitives::{Address, U256};
 use custom_debug::CustomDebug;
-use gateway_framework::config::{Hidden, HiddenSecretKey};
+use gateway_framework::{
+    auth::methods::api_keys::APIKey,
+    config::{Hidden, HiddenSecretKey},
+};
 use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use url::Url;
 
-use crate::{indexers::public_poi::ProofOfIndexingInfo, subgraph_studio::APIKey};
+use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 #[serde_as]
 #[derive(CustomDebug, Deserialize)]

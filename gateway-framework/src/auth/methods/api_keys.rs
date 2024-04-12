@@ -5,16 +5,42 @@ use std::{
 
 use alloy_primitives::Address;
 use eventuals::{Eventual, Ptr};
-use gateway_framework::topology::network::Deployment;
+use ordered_float::NotNan;
+use serde::Deserialize;
+use serde_with::serde_as;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 
 use super::common;
 use crate::{
-    client_query::{query_settings::QuerySettings, rate_limiter::RateLimitSettings},
-    subgraph_studio::{APIKey, QueryStatus},
+    auth::QuerySettings, http::middleware::RateLimitSettings, topology::network::Deployment,
 };
 
-/// Errors that may occur when parsing a Studio API key.
+#[serde_as]
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct APIKey {
+    pub key: String,
+    pub user_address: Address,
+    pub query_status: QueryStatus,
+    #[serde_as(as = "Option<serde_with::TryFromInto<f64>>")]
+    #[serde(rename = "max_budget")]
+    pub max_budget_usd: Option<NotNan<f64>>,
+    #[serde(default)]
+    pub deployments: Vec<DeploymentId>,
+    #[serde(default)]
+    pub subgraphs: Vec<SubgraphId>,
+    #[serde(default)]
+    pub domains: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum QueryStatus {
+    #[default]
+    Active,
+    ServiceShutoff,
+}
+
+/// Errors that may occur when parsing an API key.
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
     #[error("invalid length: {0}")]
@@ -24,10 +50,10 @@ pub enum ParseError {
     InvalidHex(faster_hex::Error),
 }
 
-/// Parses a Studio API key from a string.
+/// Parses an API key from a string.
 ///
 /// The API key is expected to be a 32-character hex string.
-pub fn parse_studio_api_key(value: &str) -> Result<[u8; 16], ParseError> {
+pub fn parse_api_key(value: &str) -> Result<[u8; 16], ParseError> {
     if value.len() != 32 {
         return Err(ParseError::InvalidLength(value.len()));
     }
@@ -37,10 +63,10 @@ pub fn parse_studio_api_key(value: &str) -> Result<[u8; 16], ParseError> {
     Ok(buf)
 }
 
-/// Auth token wrapper around the Studio API key.
+/// Auth token wrapper around an API key.
 #[derive(Debug, Clone)]
 pub struct AuthToken {
-    /// The Studio API key.
+    /// The API key.
     api_key: Arc<APIKey>,
 }
 
@@ -50,17 +76,17 @@ impl AuthToken {
         Self { api_key }
     }
 
-    /// Get the Studio API key user address.
+    /// Get the API key user address.
     pub fn user(&self) -> Address {
         self.api_key.user_address
     }
 
-    /// Get the Studio API key string.
+    /// Get the API key string.
     pub fn key(&self) -> &str {
         &self.api_key.key
     }
 
-    /// Get the Studio API key.
+    /// Get the API key.
     pub fn api_key(&self) -> &APIKey {
         &self.api_key
     }
@@ -108,23 +134,20 @@ impl std::fmt::Display for AuthToken {
 
 /// App state (a.k.a [Context](crate::client_query::Context)) sub-state.
 pub struct AuthContext {
-    /// A map between Studio auth bearer token string and the Studio [ApiKey].
-    ///
-    /// API keys are fetched periodically (every 30s) from the Studio API by the gateway using the
-    /// [`subgraph_studio` client](crate::subgraph_studio::Client).
-    pub(crate) studio_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
+    /// A map between auth bearer token string and the [ApiKey].
+    pub(crate) api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
 
     /// Special API keys that don't require payment.
     ///
-    /// An API key is considered special when does not require payment and is not subsidized, i.e., these
-    /// keys won't be rejected due to non-payment.
+    /// An API key is considered special when does not require payment and is
+    /// not subsidized, i.e., these keys won't be rejected due to non-payment.
     pub(crate) special_api_keys: Arc<HashSet<String>>,
 }
 
 impl AuthContext {
-    /// Get the Studio API key associated with the given bearer token string.
+    /// Get the API key associated with the given bearer token string.
     pub fn get_api_key(&self, token: &str) -> Option<Arc<APIKey>> {
-        self.studio_keys.value_immediate()?.get(token).cloned()
+        self.api_keys.value_immediate()?.get(token).cloned()
     }
 
     /// Check if the given API key is a special key.
@@ -136,13 +159,13 @@ impl AuthContext {
     }
 }
 
-/// Parse the bearer token as a Studio API key and retrieve the associated API key.
+/// Parse the bearer token as a API key and retrieve the associated API key.
 pub fn parse_auth_token(
     ctx: &AuthContext,
     token: &str,
 ) -> anyhow::Result<(AuthToken, Option<QuerySettings>, Option<RateLimitSettings>)> {
     // Check if the bearer token is a valid 32 hex digits key
-    if parse_studio_api_key(token).is_err() {
+    if parse_api_key(token).is_err() {
         return Err(anyhow::anyhow!("invalid api key format"));
     }
 
@@ -159,7 +182,7 @@ pub fn parse_auth_token(
     Ok((AuthToken::new(api_key.clone()), Some(query_settings), None))
 }
 
-/// Perform studio API keys auth token specific requirements checks.
+/// Perform API key auth token specific requirements checks.
 ///
 /// Checks performed:
 ///  1. Check if the API key is a special key.
@@ -187,39 +210,39 @@ mod tests {
     mod parser {
         use assert_matches::assert_matches;
 
-        use super::{parse_studio_api_key, ParseError};
+        use super::{parse_api_key, ParseError};
 
         #[test]
-        fn parse_invalid_length_studio_api_key() {
+        fn parse_invalid_length_api_key() {
             //* Given
             let api_key = "0123456789abcdef0123456789abcde";
 
             //* When
-            let result = parse_studio_api_key(api_key);
+            let result = parse_api_key(api_key);
 
             //* Then
             assert_matches!(result, Err(ParseError::InvalidLength(31)));
         }
 
         #[test]
-        fn parse_invalid_format_studio_api_key() {
+        fn parse_invalid_format_api_key() {
             //* Given
             let api_key = "abcdefghijklmnopqrstuvwxyz123456";
 
             //* When
-            let result = parse_studio_api_key(api_key);
+            let result = parse_api_key(api_key);
 
             //* Then
             assert_matches!(result, Err(ParseError::InvalidHex(_)));
         }
 
         #[test]
-        fn parse_valid_studio_api_key() {
+        fn parse_valid_api_key() {
             //* Given
             let api_key = "0123456789abcdef0123456789abcdef";
 
             //* When
-            let result = parse_studio_api_key(api_key);
+            let result = parse_api_key(api_key);
 
             //* Then
             assert_matches!(result, Ok(key) => {
