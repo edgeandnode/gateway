@@ -10,9 +10,9 @@ use thegraph_core::types::{DeploymentId, SubgraphId};
 pub use self::context::AuthContext;
 use crate::topology::network::Deployment;
 
-/// User query settings typically associated with an auth token.
+/// User request settings typically associated with an auth token.
 #[derive(Clone, Debug, Default)]
-pub struct QuerySettings {
+pub struct RequestSettings {
     pub budget_usd: Option<NotNan<f64>>,
 }
 

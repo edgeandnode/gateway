@@ -12,7 +12,7 @@ use super::{
         api_keys::{self, APIKey},
         subscriptions,
     },
-    AuthToken, QuerySettings,
+    AuthToken, RequestSettings,
 };
 use crate::{http::middleware::RateLimitSettings, subscriptions::Subscription};
 
@@ -79,7 +79,11 @@ impl AuthContext {
     pub fn parse_auth_token(
         &self,
         input: &str,
-    ) -> anyhow::Result<(AuthToken, Option<QuerySettings>, Option<RateLimitSettings>)> {
+    ) -> anyhow::Result<(
+        AuthToken,
+        Option<RequestSettings>,
+        Option<RateLimitSettings>,
+    )> {
         // Ensure the bearer token is not empty
         if input.is_empty() {
             return Err(anyhow::anyhow!("not found"));

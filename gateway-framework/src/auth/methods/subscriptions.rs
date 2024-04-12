@@ -14,7 +14,7 @@ use thegraph_core::{
 
 use super::common;
 use crate::{
-    auth::QuerySettings, http::middleware::RateLimitSettings, subscriptions::Subscription,
+    auth::RequestSettings, http::middleware::RateLimitSettings, subscriptions::Subscription,
     topology::network::Deployment,
 };
 
@@ -136,7 +136,11 @@ impl AuthContext {
 pub fn parse_auth_token(
     ctx: &AuthContext,
     token: &str,
-) -> anyhow::Result<(AuthToken, Option<QuerySettings>, Option<RateLimitSettings>)> {
+) -> anyhow::Result<(
+    AuthToken,
+    Option<RequestSettings>,
+    Option<RateLimitSettings>,
+)> {
     let (claims, signature) =
         parse_bearer_token(token).map_err(|_| anyhow::anyhow!("invalid auth token"))?;
 

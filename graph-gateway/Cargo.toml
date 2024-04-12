@@ -7,9 +7,10 @@ version = "20.0.3"
 alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 anyhow.workspace = true
-axum = { workspace = true, features = ["tokio", "http1"] }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
+axum.workspace = true
+axum-extra = "0.9.3"
+chrono.workspace = true
+cost-model.workspace = true
 custom_debug = "0.6.1"
 eventuals = "0.6.7"
 futures.workspace = true
@@ -25,14 +26,13 @@ ordered-float = "4.2.0"
 prometheus = { version = "0.13", default-features = false }
 prost = "0.12.4"
 rand.workspace = true
-rdkafka = { version = "0.36.2", features = ["gssapi", "tracing"] }
+rdkafka.workspace = true
 reqwest.workspace = true
 secp256k1.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 serde_with.workspace = true
-simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
 thegraph-core = { workspace = true, features = [
     "subgraph-client",
@@ -41,11 +41,10 @@ thegraph-core = { workspace = true, features = [
 thegraph-graphql-http.workspace = true
 tokio.workspace = true
 toolshed.workspace = true
-tower = "0.4.13"
-tower-http = { version = "0.5.2", features = ["cors"] }
+tower.workspace = true
 tracing.workspace = true
 url = "2.5.0"
-uuid = { version = "1.8", default-features = false, features = ["v4"] }
+uuid.workspace = true
 
 [dev-dependencies]
 assert_matches = "1.5.0"

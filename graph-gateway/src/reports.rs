@@ -1,7 +1,7 @@
 use alloy_primitives::Address;
 use gateway_common::utils::timestamp::unix_timestamp;
 use gateway_framework::{
-    errors::{self, IndexerError},
+    errors::IndexerError,
     reporting::{error_log, KafkaClient, CLIENT_REQUEST_TARGET, INDEXER_REQUEST_TARGET},
 };
 use prost::Message as _;
@@ -9,8 +9,6 @@ use serde::Deserialize;
 use serde_json::{json, Map};
 use thegraph_core::types::attestation::Attestation;
 use toolshed::concat_bytes;
-
-use crate::indexer_client::ResponsePayload;
 
 pub fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Value>) {
     #[derive(Deserialize)]
@@ -176,36 +174,15 @@ pub fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json:
     );
 }
 
-pub fn legacy_status<T>(result: &Result<T, errors::Error>) -> (String, u32) {
-    match result {
-        Ok(_) => ("200 OK".to_string(), 0),
-        Err(err) => match err {
-            errors::Error::BlockNotFound(_) => ("Unresolved block".to_string(), 604610595),
-            errors::Error::Internal(_) => ("Internal error".to_string(), 816601499),
-            errors::Error::Auth(_) => ("Invalid API key".to_string(), 888904173),
-            errors::Error::BadQuery(_) => ("Invalid query".to_string(), 595700117),
-            errors::Error::NoIndexers => (
-                "No indexers found for subgraph deployment".to_string(),
-                1621366907,
-            ),
-            errors::Error::BadIndexers(_) => (
-                "No suitable indexer found for subgraph deployment".to_string(),
-                510359393,
-            ),
-            errors::Error::SubgraphNotFound(_) => (err.to_string(), 2599148187),
-        },
-    }
-}
-
 // Like much of this file. This is maintained is a partially backward-compatible state for data
 // science, and should be deleted ASAP.
-pub fn indexer_attempt_status_code(result: &Result<ResponsePayload, IndexerError>) -> u32 {
-    let (prefix, data) = match &result {
-        Ok(_) => (0x0, 200_u32.to_be()),
-        Err(IndexerError::Internal(_)) => (0x1, 0x0),
-        Err(IndexerError::Unavailable(_)) => (0x2, 0x0),
-        Err(IndexerError::Timeout) => (0x3, 0x0),
-        Err(IndexerError::BadResponse(_)) => (0x4, 0x0),
+pub fn indexer_error_status_code(error: Option<&IndexerError>) -> u32 {
+    let (prefix, data) = match error {
+        None => (0x0, 200_u32.to_be()),
+        Some(IndexerError::Internal(_)) => (0x1, 0x0),
+        Some(IndexerError::Unavailable(_)) => (0x2, 0x0),
+        Some(IndexerError::Timeout) => (0x3, 0x0),
+        Some(IndexerError::BadResponse(_)) => (0x4, 0x0),
     };
     (prefix << 28) | (data & (u32::MAX >> 4))
 }

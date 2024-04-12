@@ -9,7 +9,7 @@ use tokio::{
     time,
 };
 
-use crate::network::discovery::Status;
+use crate::gateway::http::IndexingStatus;
 
 #[derive(Default)]
 pub struct Snapshot {
@@ -35,7 +35,7 @@ pub enum Msg {
 
 impl IndexingPerformance {
     #[allow(clippy::new_without_default)]
-    pub fn new(indexing_statuses: Eventual<Ptr<HashMap<Indexing, Status>>>) -> Self {
+    pub fn new(indexing_statuses: Eventual<Ptr<HashMap<Indexing, impl IndexingStatus>>>) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let data: &'static DoubleBuffer = Box::leak(Box::default());
         Actor::spawn(data, rx, indexing_statuses);
@@ -90,7 +90,7 @@ impl Actor {
     fn spawn(
         data: &'static DoubleBuffer,
         mut msgs: mpsc::UnboundedReceiver<Msg>,
-        indexing_statuses: Eventual<Ptr<HashMap<Indexing, Status>>>,
+        indexing_statuses: Eventual<Ptr<HashMap<Indexing, impl IndexingStatus>>>,
     ) {
         let mut actor = Self { data };
         let mut timer = time::interval(Duration::from_secs(1));
@@ -149,7 +149,10 @@ impl Actor {
         debug_assert!(msgs.is_empty());
     }
 
-    async fn handle_statuses(&mut self, statuses: Result<Ptr<HashMap<Indexing, Status>>, Closed>) {
+    async fn handle_statuses(
+        &mut self,
+        statuses: Result<Ptr<HashMap<Indexing, impl IndexingStatus>>, Closed>,
+    ) {
         let statuses = match statuses {
             Ok(statuses) => statuses,
             Err(_) => {
@@ -161,8 +164,8 @@ impl Actor {
             let mut locked = unlocked.write().await;
             for (indexing, status) in statuses.iter() {
                 let snapshot = locked.entry(*indexing).or_default();
-                if status.block >= snapshot.latest_block.unwrap_or(0) {
-                    snapshot.latest_block = Some(status.block);
+                if status.block() >= snapshot.latest_block.unwrap_or(0) {
+                    snapshot.latest_block = Some(status.block());
                 };
             }
         }

@@ -1,4 +1,7 @@
-use axum::http::{Response, StatusCode};
+use axum::{
+    body::Body,
+    http::{Response, StatusCode},
+};
 use gateway_common::utils::http_ext::HttpBuilderExt;
 use headers::ContentType;
 use thegraph_graphql_http::http::response::{IntoError as IntoGraphqlResponseError, ResponseBody};
@@ -12,11 +15,11 @@ fn error_response_body(message: impl IntoGraphqlResponseError) -> String {
 }
 
 /// Create a GraphQL error response.
-pub fn error_response(err: impl IntoGraphqlResponseError) -> Response<String> {
+pub fn error_response(err: impl IntoGraphqlResponseError) -> Response<Body> {
     Response::builder()
         .status(StatusCode::OK)
         .header_typed(ContentType::json())
-        .body(error_response_body(err))
+        .body(error_response_body(err).into())
         .unwrap()
 }
 
@@ -25,6 +28,7 @@ mod tests {
     use assert_matches::assert_matches;
     use axum::http::StatusCode;
     use headers::{ContentType, HeaderMapExt};
+    use http_body_util::BodyExt;
     use thegraph_graphql_http::http::response::ResponseBody;
 
     use super::error_response;
@@ -44,8 +48,8 @@ mod tests {
     }
 
     /// Ensure that the error response body is correctly serialized.
-    #[test]
-    fn create_graphql_error_response() {
+    #[tokio::test]
+    async fn create_graphql_error_response() {
         //* Given
         let error = TestError {
             cause: "test message".to_string(),
@@ -59,7 +63,9 @@ mod tests {
         assert_eq!(response.headers().typed_get(), Some(ContentType::json()));
 
         // Ensure that the response body is a valid GraphQL error response.
-        assert_matches!(deserialize_response_body(response.body()), Ok(resp_body) => {
+        let response_body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let response_body = std::str::from_utf8(&response_body_bytes).unwrap();
+        assert_matches!(deserialize_response_body(response_body), Ok(resp_body) => {
             // No data should be returned
             assert_eq!(resp_body.data, None);
             // There should be one error

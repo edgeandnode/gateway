@@ -225,7 +225,7 @@ mod tests {
     use tokio_test::assert_ready_ok;
 
     use super::{AuthContext, AuthToken, RequireAuthorizationLayer};
-    use crate::auth::{methods::api_keys, QuerySettings};
+    use crate::auth::{methods::api_keys, RequestSettings};
 
     fn test_auth_ctx(key: Option<&str>) -> AuthContext {
         let mut ctx = AuthContext {
@@ -522,6 +522,6 @@ mod tests {
         assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::ApiKey(api_key)) => {
             assert_eq!(api_key.key(), "0123456789abcdef0123456789abcdef");
         });
-        assert_matches!(r.extensions().get::<QuerySettings>(), Some(_));
+        assert_matches!(r.extensions().get::<RequestSettings>(), Some(_));
     }
 }

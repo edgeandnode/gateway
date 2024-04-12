@@ -8,9 +8,10 @@ alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 anyhow.workspace = true
 axum.workspace = true
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 candidate-selection.workspace = true
+chrono.workspace = true
 cost-model.workspace = true
+custom_debug = "0.6.1"
 dashmap = "5.5.3"
 ethers = "2.0.14"
 eventuals = "0.6.7"
@@ -29,24 +30,30 @@ pin-project = "1.1.5"
 primitive-types.workspace = true
 prometheus = "0.13.3"
 rand.workspace = true
-rdkafka = { version = "0.36.2", features = ["gssapi", "tracing"] }
+rdkafka.workspace = true
 receipts.workspace = true
 reqwest.workspace = true
 secp256k1.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 serde_with.workspace = true
+simple-rate-limiter = "1.0"
 siphasher.workspace = true
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "c179dfe" }
-thegraph-core = { workspace = true, features = ["subgraph-client"] }
+thegraph-core = { workspace = true, features = [
+    "subgraph-client",
+    "subscriptions",
+] }
 thegraph-graphql-http.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toolshed.workspace = true
 tower.workspace = true
+tower-http = { version = "0.5.2", features = ["cors"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url = "2.5.0"
+uuid.workspace = true
 
 [dev-dependencies]
 assert_matches = "1.5.0"

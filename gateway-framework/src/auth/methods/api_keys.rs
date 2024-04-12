@@ -12,7 +12,7 @@ use thegraph_core::types::{DeploymentId, SubgraphId};
 
 use super::common;
 use crate::{
-    auth::QuerySettings, http::middleware::RateLimitSettings, topology::network::Deployment,
+    auth::RequestSettings, http::middleware::RateLimitSettings, topology::network::Deployment,
 };
 
 #[serde_as]
@@ -164,7 +164,11 @@ impl AuthContext {
 pub fn parse_auth_token(
     ctx: &AuthContext,
     token: &str,
-) -> anyhow::Result<(AuthToken, Option<QuerySettings>, Option<RateLimitSettings>)> {
+) -> anyhow::Result<(
+    AuthToken,
+    Option<RequestSettings>,
+    Option<RateLimitSettings>,
+)> {
     // Check if the bearer token is a valid 32 hex digits key
     if parse_api_key(token).is_err() {
         return Err(anyhow::anyhow!("invalid api key format"));
@@ -176,7 +180,7 @@ pub fn parse_auth_token(
         .ok_or_else(|| anyhow::anyhow!("api key not found"))?;
 
     // Build the query settings struct
-    let query_settings = QuerySettings {
+    let query_settings = RequestSettings {
         budget_usd: api_key.max_budget_usd,
     };
 

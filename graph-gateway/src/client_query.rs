@@ -8,35 +8,25 @@ use alloy_primitives::{Address, BlockHash, BlockNumber};
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use axum::{
+    self,
     body::Bytes,
-    extract::{OriginalUri, State},
-    http::{HeaderMap, Response, StatusCode},
-    Extension,
+    http::{Response, StatusCode},
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
-use gateway_common::{
-    types::Indexing,
-    utils::{http_ext::HttpBuilderExt, timestamp::unix_timestamp},
-};
+use gateway_common::types::Indexing;
 use gateway_framework::{
-    auth::AuthToken,
+    auth::RequestSettings,
     blocks::Block,
     budgets::USD,
     chains::ChainReader,
-    errors::{
-        Error, IndexerError,
-        UnavailableReason::{self, *},
-    },
-    network::{
-        discovery::Status,
-        indexing_performance::{IndexingPerformance, Snapshot},
-    },
+    errors::{Error, IndexerError, UnavailableReason},
+    gateway::http::{GatewayState, SelectionInfo},
+    network::indexing_performance::{IndexingPerformance, Snapshot},
     reporting::{with_metric, KafkaClient, CLIENT_REQUEST_TARGET, INDEXER_REQUEST_TARGET, METRICS},
     scalar::{ReceiptStatus, ScalarReceipt},
-    topology::network::{Deployment, GraphNetwork, Subgraph},
+    topology::network::{Deployment, GraphNetwork},
 };
-use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
@@ -48,24 +38,16 @@ use thegraph_core::types::{attestation, DeploymentId};
 use thegraph_graphql_http::http::response::{Error as GQLError, ResponseBody as GQLResponseBody};
 use tokio::sync::mpsc;
 use tracing::Instrument;
-use url::Url;
 
-use self::{
-    attestation_header::GraphAttestation, context::Context, l2_forwarding::forward_request_to_l2,
-    query_selector::QuerySelector, query_settings::QuerySettings,
-};
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
+    gateway::{SubgraphGateway, SubgraphIndexingStatus},
     indexer_client::{check_block_error, IndexerClient, ResponsePayload},
     reports::{self, serialize_attestation},
     unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
 };
 
-mod attestation_header;
 pub mod context;
-mod l2_forwarding;
-mod query_selector;
-mod query_settings;
 
 const SELECTION_LIMIT: usize = 3;
 
@@ -75,168 +57,31 @@ pub struct QueryBody {
     pub variables: Option<Box<RawValue>>,
 }
 
-pub struct Selection {
-    pub indexing: Indexing,
-    pub url: Url,
-    pub receipt: ScalarReceipt,
-    pub blocks_behind: u64,
-}
-
 #[allow(clippy::too_many_arguments)]
-pub async fn handle_query(
-    State(ctx): State<Context>,
-    Extension(auth): Extension<AuthToken>,
-    query_settings: Option<Extension<QuerySettings>>,
-    OriginalUri(original_uri): OriginalUri,
-    selector: QuerySelector,
-    headers: HeaderMap,
-    payload: Bytes,
-) -> Result<Response<String>, Error> {
-    let start_time = Instant::now();
-    let timestamp = unix_timestamp();
+pub async fn handle_query() -> Result<Response<String>, Error> {
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .body("Hello".to_string())
+        .unwrap())
 
-    // Check if the query selector is authorized by the auth token
-    match &selector {
-        QuerySelector::Subgraph(id) => {
-            if !auth.is_subgraph_authorized(id) {
-                return Err(Error::Auth(anyhow!("Subgraph not authorized by user")));
-            }
-        }
-        QuerySelector::Deployment(id) => {
-            if !auth.is_deployment_authorized(id) {
-                return Err(Error::Auth(anyhow!("Deployment not authorized by user")));
-            }
-        }
-    }
-
-    let (deployments, subgraph) = resolve_subgraph_deployments(&ctx.network, &selector)?;
-    tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
-
-    // Check authorization for the resolved deployments
-    if !auth.are_deployments_authorized(&deployments) {
-        return Err(Error::Auth(anyhow::anyhow!(
-            "deployment not authorized by user"
-        )));
-    }
-
-    if !auth.are_subgraphs_authorized(&deployments) {
-        return Err(Error::Auth(anyhow::anyhow!(
-            "subgraph not authorized by user"
-        )));
-    }
-
-    if let Some(l2_url) = ctx.l2_gateway.as_ref() {
-        // Forward query to L2 gateway if it's marked as transferred & there are no allocations.
-        // abf62a6d-c071-4507-b528-ddc8e250127a
-        let transferred_to_l2 = deployments.iter().all(|d| d.transferred_to_l2);
-        if transferred_to_l2 {
-            return Ok(forward_request_to_l2(
-                &ctx.indexer_client.client,
-                l2_url,
-                &original_uri,
-                headers,
-                payload,
-                subgraph.and_then(|s| s.l2_id),
-            )
-            .await);
-        }
-    }
-
-    let result = handle_client_query_inner(
-        &ctx,
-        query_settings.map(|Extension(settings)| settings),
-        deployments,
-        payload,
-    )
-    .in_current_span()
-    .await;
-
-    // Metrics and tracing
-    {
-        let deployment: Option<String> = result
-            .as_ref()
-            .map(|(selection, _)| selection.indexing.deployment.to_string())
-            .ok();
-        let metric_labels = [deployment.as_deref().unwrap_or("")];
-
-        METRICS.client_query.check(&metric_labels, &result);
-        with_metric(&METRICS.client_query.duration, &metric_labels, |h| {
-            h.observe((Instant::now() - start_time).as_secs_f64())
-        });
-
-        let status_message = match &result {
-            Ok(_) => "200 OK".to_string(),
-            Err(err) => err.to_string(),
-        };
-        let (legacy_status_message, legacy_status_code) = reports::legacy_status(&result);
-        tracing::info!(
-            target: CLIENT_REQUEST_TARGET,
-            start_time_ms = timestamp,
-            deployment,
-            %status_message,
-            %legacy_status_message,
-            legacy_status_code,
-        );
-    }
-
-    result.map(|(_, ResponsePayload { body, attestation })| {
-        Response::builder()
-            .status(StatusCode::OK)
-            .header_typed(ContentType::json())
-            .header_typed(GraphAttestation(attestation))
-            .body(body.to_string())
-            .unwrap()
-    })
-}
-
-/// Given a query selector, resolve the subgraph deployments for the query. If the selector is a subgraph ID, return
-/// the subgraph's deployment instances. If the selector is a deployment ID, return the deployment instance.
-fn resolve_subgraph_deployments(
-    network: &GraphNetwork,
-    selector: &QuerySelector,
-) -> Result<(Vec<Arc<Deployment>>, Option<Subgraph>), Error> {
-    match selector {
-        QuerySelector::Subgraph(subgraph_id) => {
-            // Get the subgraph by ID
-            let subgraph = network
-                .subgraph_by_id(subgraph_id)
-                .ok_or_else(|| Error::SubgraphNotFound(anyhow!("{subgraph_id}")))?;
-
-            // Get the subgraph's chain (from the last of its deployments)
-            let subgraph_chain = subgraph
-                .deployments
-                .last()
-                .map(|deployment| deployment.manifest.network.clone())
-                .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
-
-            // Get the subgraph's deployments. Make sure we only select from deployments indexing
-            // the same chain. This simplifies dealing with block constraints later
-            let versions = subgraph
-                .deployments
-                .iter()
-                .filter(|deployment| deployment.manifest.network == subgraph_chain)
-                .cloned()
-                .collect();
-
-            Ok((versions, Some(subgraph)))
-        }
-        QuerySelector::Deployment(deployment_id) => {
-            // Get the deployment by ID
-            let deployment = network.deployment_by_id(deployment_id).ok_or_else(|| {
-                Error::SubgraphNotFound(anyhow!("deployment not found: {deployment_id}"))
-            })?;
-
-            Ok((vec![deployment], None))
-        }
-    }
+    // let result = handle_client_query_inner(
+    //     &state,
+    //     query_settings.map(|Extension(settings)| settings),
+    //     deployments,
+    //     payload,
+    // )
+    // .in_current_span()
+    // .await;
 }
 
 async fn handle_client_query_inner(
-    ctx: &Context,
-    query_settings: Option<QuerySettings>,
+    state: &GatewayState<SubgraphGateway>,
+    query_settings: Option<RequestSettings>,
     deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
-) -> Result<(Selection, ResponsePayload), Error> {
+) -> Result<(SelectionInfo, ResponsePayload), Error> {
+    let GatewayState { gateway_impl, .. } = state;
+
     let subgraph_chain = deployments
         .last()
         .map(|deployment| deployment.manifest.network.clone())
@@ -244,7 +89,7 @@ async fn handle_client_query_inner(
     tracing::info!(target: CLIENT_REQUEST_TARGET, subgraph_chain);
 
     let manifest_min_block = deployments.last().unwrap().manifest.min_block;
-    let chain = ctx.chains.chain(&subgraph_chain).await;
+    let chain = state.chains.chain(&subgraph_chain).await;
 
     let payload: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
@@ -261,13 +106,16 @@ async fn handle_client_query_inner(
             })
         })
         .collect();
-    let blocklist = ctx
+    let blocklist = state
         .indexings_blocklist
         .value_immediate()
         .unwrap_or_default();
     available_indexers.retain(|candidate| {
-        if blocklist.contains(candidate) || ctx.bad_indexers.contains(&candidate.indexer) {
-            indexer_errors.insert(candidate.indexer, IndexerError::Unavailable(NoStatus));
+        if blocklist.contains(candidate) || state.bad_indexers.contains(&candidate.indexer) {
+            indexer_errors.insert(
+                candidate.indexer,
+                IndexerError::Unavailable(UnavailableReason::NoStatus),
+            );
             return false;
         }
         true
@@ -289,12 +137,12 @@ async fn handle_client_query_inner(
         %variables,
     );
 
-    let grt_per_usd = ctx
+    let grt_per_usd = state
         .grt_per_usd
         .value_immediate()
         .ok_or_else(|| Error::Internal(anyhow!("missing exchange rate")))?;
     let one_grt = NotNan::new(1e18).unwrap();
-    let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
+    let mut budget = *(state.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
     let query_settings = query_settings.unwrap_or_default();
     if let Some(user_budget_usd) = query_settings.budget_usd {
         // Security: Consumers can and will set their budget to unreasonably high values.
@@ -324,7 +172,7 @@ async fn handle_client_query_inner(
         let chain_head = chain.latest().map(|b| b.number);
         (chain_head, blocks_per_minute, block_requirements)
     };
-    let indexing_statuses = ctx.indexing_statuses.value_immediate().unwrap();
+    let indexing_statuses = state.indexing_statuses.value_immediate().unwrap();
     let chain_head = chain_head.unwrap_or_else(|| {
         available_indexers
             .iter()
@@ -336,10 +184,10 @@ async fn handle_client_query_inner(
 
     let mut candidates = Vec::new();
     {
-        let perf = ctx.indexing_perf.latest();
+        let perf = state.indexing_performance.latest();
         for indexing in available_indexers {
             match prepare_candidate(
-                &ctx.network,
+                &state.network,
                 &indexing_statuses,
                 &perf,
                 &versions_behind,
@@ -371,13 +219,13 @@ async fn handle_client_query_inner(
     }
 
     let mut total_indexer_fees_grt: u128 = 0;
-    for retry in 0..ctx.indexer_selection_retry_limit {
+    for retry in 0..state.config.indexer_selection.retry_limit {
         // Make sure our observations are up-to-date if retrying.
         if retry > 0 {
-            ctx.indexing_perf.flush().await;
+            state.indexing_performance.flush().await;
 
             // Update candidate performance.
-            let perf_snapshots = ctx.indexing_perf.latest();
+            let perf_snapshots = state.indexing_performance.latest();
             for candidate in &mut candidates {
                 let indexing = Indexing {
                     indexer: candidate.indexer,
@@ -395,7 +243,7 @@ async fn handle_client_query_inner(
         let selected_candidates: ArrayVec<&Candidate, SELECTION_LIMIT> =
             indexer_selection::select(&candidates);
         let selections_len = selected_candidates.len();
-        let mut selections: Vec<Selection> = Default::default();
+        let mut selections: Vec<SelectionInfo> = Default::default();
         for candidate in selected_candidates {
             let indexing = Indexing {
                 indexer: candidate.indexer,
@@ -403,7 +251,7 @@ async fn handle_client_query_inner(
             };
 
             // over-pay indexers to hit target
-            let min_fee = ctx
+            let min_fee = state
                 .budgeter
                 .min_indexer_fees
                 .value_immediate()
@@ -412,7 +260,7 @@ async fn handle_client_query_inner(
             let indexer_fee = candidate.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
 
-            let receipt = match ctx.receipt_signer.create_receipt(&indexing, fee).await {
+            let receipt = match state.receipt_signer.create_receipt(&indexing, fee).await {
                 Some(receipt) => receipt,
                 None => {
                     tracing::error!(?indexing, "failed to create receipt");
@@ -422,7 +270,7 @@ async fn handle_client_query_inner(
             debug_assert!(fee == receipt.grt_value());
 
             let blocks_behind = (candidate.seconds_behind as f64 / 60.0) * blocks_per_minute as f64;
-            selections.push(Selection {
+            selections.push(SelectionInfo {
                 indexing,
                 url: candidate.url.clone(),
                 receipt,
@@ -443,11 +291,11 @@ async fn handle_client_query_inner(
                 .unwrap()
                 .clone();
             let indexer_query_context = IndexerQueryContext {
-                indexer_client: ctx.indexer_client.clone(),
-                kafka_client: ctx.kafka_client,
+                indexer_client: gateway_impl.indexer_client.clone(),
+                kafka_client: state.kafka_client,
                 chain: chain.clone(),
-                attestation_domain: ctx.attestation_domain,
-                indexing_perf: ctx.indexing_perf.clone(),
+                attestation_domain: state.attestation_domain,
+                indexing_perf: state.indexing_performance.clone(),
                 deployment,
                 response_time: Duration::default(),
             };
@@ -485,7 +333,7 @@ async fn handle_client_query_inner(
                 "indexer_request",
                 indexer = ?selection.indexing.indexer,
             );
-            let receipt_signer = ctx.receipt_signer;
+            let receipt_signer = state.receipt_signer;
             tokio::spawn(
                 async move {
                     let response =
@@ -522,7 +370,7 @@ async fn handle_client_query_inner(
                     indexer_errors.insert(selection.indexing.indexer, err);
                 }
                 Ok(outcome) => {
-                    let _ = ctx.budgeter.feedback.send(total_indexer_fees_usd);
+                    let _ = state.budgeter.feedback.send(total_indexer_fees_usd);
 
                     tracing::debug!(?indexer_errors);
                     return Ok((selection, outcome));
@@ -537,7 +385,7 @@ async fn handle_client_query_inner(
 #[allow(clippy::too_many_arguments)]
 fn prepare_candidate(
     network: &GraphNetwork,
-    statuses: &HashMap<Indexing, Status>,
+    statuses: &HashMap<Indexing, SubgraphIndexingStatus>,
     perf_snapshots: &HashMap<Indexing, Snapshot>,
     versions_behind: &BTreeMap<DeploymentId, u8>,
     context: &mut AgoraContext<String>,
@@ -625,7 +473,7 @@ struct IndexerQueryContext {
 
 async fn handle_indexer_query(
     mut ctx: IndexerQueryContext,
-    selection: &Selection,
+    selection: &SelectionInfo,
     indexer_request: String,
 ) -> Result<ResponsePayload, IndexerError> {
     let indexing = selection.indexing;
@@ -657,7 +505,7 @@ async fn handle_indexer_query(
             Ok(_) => "200 OK".to_string(),
             Err(err) => format!("{err:?}"),
         },
-        status_code = reports::indexer_attempt_status_code(&result),
+        status_code = reports::indexer_error_status_code(result.as_ref().err()),
     );
 
     ctx.indexing_perf
@@ -682,7 +530,7 @@ impl From<IndexerError> for ExtendedIndexerError {
 
 async fn handle_indexer_query_inner(
     ctx: &mut IndexerQueryContext,
-    selection: &Selection,
+    selection: &SelectionInfo,
     indexer_request: String,
 ) -> Result<(ResponsePayload, Option<Block>), ExtendedIndexerError> {
     let start_time = Instant::now();
@@ -722,7 +570,7 @@ async fn handle_indexer_query_inner(
         .iter()
         .try_for_each(|err| check_block_error(&err.message))
         .map_err(|block_error| ExtendedIndexerError {
-            error: IndexerError::Unavailable(MissingBlock),
+            error: IndexerError::Unavailable(UnavailableReason::MissingBlock),
             latest_block: block_error.latest_block,
         })?;
 
@@ -795,8 +643,10 @@ pub fn indexer_fee(
         .map(|model| model.cost_with_context(context))
     {
         None => Ok(0),
-        Some(Ok(fee)) => fee.to_u128().ok_or(IndexerError::Unavailable(NoFee)),
-        Some(Err(_)) => Err(IndexerError::Unavailable(NoFee)),
+        Some(Ok(fee)) => fee
+            .to_u128()
+            .ok_or(IndexerError::Unavailable(UnavailableReason::NoFee)),
+        Some(Err(_)) => Err(IndexerError::Unavailable(UnavailableReason::NoFee)),
     }
 }
 

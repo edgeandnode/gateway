@@ -1,19 +1,20 @@
 use alloy_primitives::BlockNumber;
-use gateway_framework::errors::{IndexerError, UnavailableReason::*};
+use gateway_framework::{
+    errors::{IndexerError, UnavailableReason::*},
+    gateway::http::SelectionInfo,
+};
 use serde::Deserialize;
 use thegraph_core::types::attestation::Attestation;
-
-use crate::client_query::Selection;
-
-pub struct IndexerResponse {
-    pub status: u16,
-    pub payload: ResponsePayload,
-}
 
 #[derive(Clone, Debug)]
 pub struct ResponsePayload {
     pub body: String,
     pub attestation: Option<Attestation>,
+}
+
+pub struct IndexerResponse {
+    pub status: u16,
+    pub payload: ResponsePayload,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -38,7 +39,7 @@ pub struct IndexerClient {
 impl IndexerClient {
     pub async fn query_indexer(
         &self,
-        selection: &Selection,
+        selection: &SelectionInfo,
         query: String,
     ) -> Result<IndexerResponse, IndexerError> {
         let url = selection

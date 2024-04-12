@@ -264,7 +264,7 @@ fn deterministic_block<'c>(hash: &BlockHash) -> Value<'c, String> {
     )]))
 }
 
-fn field_constraint(
+pub fn field_constraint(
     vars: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
     field: &Value<'_, String>,
