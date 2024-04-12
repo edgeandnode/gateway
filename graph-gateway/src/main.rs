@@ -27,7 +27,10 @@ use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
     chains::Chains,
-    http::middleware::{AddRateLimiterLayer, RequireAuthorizationLayer},
+    http::middleware::{
+        legacy_auth_adapter, AddRateLimiterLayer, RequestTracingLayer, RequireAuthorizationLayer,
+        SetRequestIdLayer,
+    },
     ip_blocker::IpBlocker,
     json,
     network::{
@@ -43,10 +46,7 @@ use gateway_framework::{
     topology::network::{Deployment, GraphNetwork},
 };
 use graph_gateway::{
-    client_query::{
-        self, context::Context, legacy_auth_adapter::legacy_auth_adapter,
-        query_id::SetQueryIdLayer, query_tracing::QueryTracingLayer,
-    },
+    client_query::{self, context::Context},
     config::{ApiKeys, Config, ExchangeRateProvider},
     indexer_client::IndexerClient,
     indexers::indexing,
@@ -343,9 +343,9 @@ async fn main() {
                         .allow_methods([http::Method::OPTIONS, http::Method::POST]),
                 )
                 // Set up the query tracing span
-                .layer(QueryTracingLayer::new(config.graph_env_id.clone()))
+                .layer(RequestTracingLayer::new(config.graph_env_id.clone()))
                 // Set the query ID on the request
-                .layer(SetQueryIdLayer::new(gateway_id))
+                .layer(SetRequestIdLayer::new(gateway_id))
                 // Handle legacy in-path auth, and convert it into a header
                 .layer(middleware::from_fn(legacy_auth_adapter))
                 // Require the query to be authorized
