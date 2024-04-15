@@ -38,8 +38,6 @@ semver = { version = "1.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.115", features = ["raw_value"] }
 serde_with = "3.7.0"
-serde_yaml = "0.9"
-simple-rate-limiter = "1.0"
 siphasher = "1.0.1"
 thegraph-core = "0.3.0"
 thegraph-graphql-http = "0.2.0"
@@ -54,7 +52,6 @@ tokio = { version = "1.37", features = [
 ] }
 toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "toolshed-v0.6.0" }
 tower = "0.4.13"
-tower-http = { version = "0.5.2", features = ["cors"] }
 tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",
