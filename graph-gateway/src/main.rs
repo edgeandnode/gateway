@@ -27,7 +27,7 @@ use gateway_framework::{
     budgets::{Budgeter, USD},
     chains::Chains,
     ip_blocker::IpBlocker,
-    ipfs, json,
+    json,
     network::{
         discovery::Status, exchange_rate, indexing_performance::IndexingPerformance,
         network_subgraph,
@@ -145,9 +145,8 @@ async fn main() {
             config.attestations.dispute_manager,
         )));
 
-    let ipfs = ipfs::Client::new(http_client.clone(), config.ipfs, 50);
     let ip_blocker = IpBlocker::new(config.ip_blocker_db.as_deref()).unwrap();
-    let network = GraphNetwork::new(subgraphs, ipfs, ip_blocker).await;
+    let network = GraphNetwork::new(subgraphs, ip_blocker).await;
 
     // Indexer blocklist
     // Periodically check the defective POIs list against the network indexers and update the

@@ -4,17 +4,15 @@ use std::{
 };
 
 use alloy_primitives::Address;
-use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt, Ptr};
 use futures::future::join_all;
 use gateway_common::types::Indexing;
 use itertools::Itertools;
-use serde::Deserialize;
 use thegraph_core::types::{DeploymentId, SubgraphId};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use url::Url;
 
-use crate::{ip_blocker::IpBlocker, ipfs, network::network_subgraph};
+use crate::{ip_blocker::IpBlocker, network::network_subgraph};
 
 /// Deployment manifest information needed for the gateway to work.
 pub struct Manifest {
@@ -59,7 +57,7 @@ pub struct Subgraph {
 
 pub struct Deployment {
     pub id: DeploymentId,
-    pub manifest: Arc<Manifest>,
+    pub manifest: Manifest,
     /// An indexer may have multiple active allocations on a deployment. We collapse them into a
     /// single logical allocation using the largest allocation ID and sum of the allocated tokens.
     pub indexers: HashMap<Address, Arc<Indexer>>,
@@ -87,19 +85,14 @@ pub struct GraphNetwork {
 impl GraphNetwork {
     pub async fn new(
         subgraphs: Eventual<Ptr<Vec<network_subgraph::Subgraph>>>,
-        ipfs: Arc<ipfs::Client>,
         ip_blocker: IpBlocker,
     ) -> Self {
-        let cache: &'static RwLock<IpfsCache> = Box::leak(Box::new(RwLock::new(IpfsCache {
-            ipfs,
-            manifests: HashMap::new(),
-        })));
         let ip_blocker: &'static Mutex<IpBlocker> = Box::leak(Box::new(ip_blocker.into()));
 
         // Create a lookup table for subgraphs, keyed by their ID.
         // Invalid URL indexers are filtered out. See: 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
         let subgraphs = subgraphs.map(move |subgraphs| async move {
-            Ptr::new(Self::subgraphs(&subgraphs, cache, ip_blocker).await)
+            Ptr::new(Self::subgraphs(&subgraphs, ip_blocker).await)
         });
 
         // Create a lookup table for deployments, keyed by their ID (which is also their IPFS hash).
@@ -137,7 +130,6 @@ impl GraphNetwork {
 
     async fn subgraphs(
         subgraphs: &[network_subgraph::Subgraph],
-        cache: &'static RwLock<IpfsCache>,
         ip_blocker: &'static Mutex<IpBlocker>,
     ) -> HashMap<SubgraphId, Subgraph> {
         join_all(subgraphs.iter().map(|subgraph| async move {
@@ -146,7 +138,7 @@ impl GraphNetwork {
                 subgraph
                     .versions
                     .iter()
-                    .map(|version| Self::deployment(subgraphs, version, cache, ip_blocker)),
+                    .map(|version| Self::deployment(subgraphs, version, ip_blocker)),
             )
             .await
             .into_iter()
@@ -167,11 +159,14 @@ impl GraphNetwork {
     async fn deployment(
         subgraphs: &[network_subgraph::Subgraph],
         version: &network_subgraph::SubgraphVersion,
-        cache: &'static RwLock<IpfsCache>,
         ip_blocker: &'static Mutex<IpBlocker>,
     ) -> Option<Arc<Deployment>> {
         let id = version.subgraph_deployment.id;
-        let manifest = IpfsCache::manifest(cache, &version.subgraph_deployment.id).await?;
+        let manifest = version.subgraph_deployment.manifest.as_ref()?;
+        let manifest = Manifest {
+            network: manifest.network.as_ref()?.clone(),
+            min_block: manifest.start_block.unwrap_or(0),
+        };
         let subgraphs = subgraphs
             .iter()
             .filter(|subgraph| {
@@ -260,74 +255,5 @@ impl GraphNetwork {
             .indexers
             .get(&indexing.indexer)
             .cloned()
-    }
-}
-
-struct IpfsCache {
-    ipfs: Arc<ipfs::Client>,
-    manifests: HashMap<DeploymentId, Arc<Manifest>>,
-}
-
-impl IpfsCache {
-    async fn manifest(cache: &RwLock<Self>, deployment: &DeploymentId) -> Option<Arc<Manifest>> {
-        let read = cache.read().await;
-        if let Some(manifest) = read.manifests.get(deployment) {
-            return Some(manifest.clone());
-        }
-        let ipfs = read.ipfs.clone();
-        drop(read);
-
-        let manifest = match Self::cat_manifest(&ipfs, deployment).await {
-            Ok(manifest) => Arc::new(manifest),
-            Err(manifest_err) => {
-                tracing::warn!(%deployment, %manifest_err);
-                return None;
-            }
-        };
-
-        let mut write = cache.write().await;
-        write.manifests.insert(*deployment, manifest.clone());
-        Some(manifest)
-    }
-
-    async fn cat_manifest(
-        ipfs: &ipfs::Client,
-        deployment: &DeploymentId,
-    ) -> anyhow::Result<Manifest> {
-        // Subgraph manifest schema:
-        // https://github.com/graphprotocol/graph-node/blob/master/docs/subgraph-manifest.md
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct ManifestSrc {
-            data_sources: Vec<DataSource>,
-        }
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct DataSource {
-            network: String,
-            source: EthereumContractSource,
-        }
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct EthereumContractSource {
-            start_block: Option<u64>,
-        }
-
-        let payload = ipfs.cat(&deployment.to_string()).await?;
-        let manifest = serde_yaml::from_str::<ManifestSrc>(&payload)?;
-        let min_block = manifest
-            .data_sources
-            .iter()
-            .map(|data_source| data_source.source.start_block.unwrap_or(0))
-            .min()
-            .unwrap_or(0);
-        // We are assuming that all `dataSource.network` fields are identical.
-        let network = manifest
-            .data_sources
-            .into_iter()
-            .map(|data_source| data_source.network)
-            .next()
-            .ok_or_else(|| anyhow!("Network not found"))?;
-        Ok(Manifest { network, min_block })
     }
 }

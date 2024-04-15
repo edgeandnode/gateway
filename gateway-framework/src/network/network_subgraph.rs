@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, BlockNumber};
 use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use serde::Deserialize;
 use serde_with::serde_as;
@@ -18,6 +18,15 @@ pub struct Subgraph {
     pub versions: Vec<SubgraphVersion>,
 }
 
+#[serde_as]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Manifest {
+    pub network: Option<String>,
+    #[serde_as(as = "Option<serde_with::DisplayFromStr>")]
+    pub start_block: Option<BlockNumber>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubgraphVersion {
@@ -31,6 +40,7 @@ pub struct SubgraphDeployment {
     pub id: DeploymentId,
     #[serde(rename = "indexerAllocations")]
     pub allocations: Vec<Allocation>,
+    pub manifest: Option<Manifest>,
     #[serde(default)]
     pub transferred_to_l2: bool,
 }
@@ -110,6 +120,10 @@ impl Client {
                 versions(orderBy: version, orderDirection: asc) {{
                     subgraphDeployment {{
                         ipfsHash
+                        manifest {{
+                            network
+                            startBlock
+                        }}
                         indexerAllocations(
                             first: 100
                             orderBy: createdAt, orderDirection: asc
