@@ -18,7 +18,7 @@ axum = { version = "0.7.5", default-features = false, features = [
     "tokio",
     "original-uri",
 ] }
-candidate-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "4b6ce4a" }
+candidate-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "b58f057" }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 futures = "0.3"
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
