@@ -8,7 +8,6 @@ alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 anyhow.workspace = true
 axum = { workspace = true, features = ["tokio", "http1"] }
-axum-extra = "0.9.3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 custom_debug = "0.6.1"
@@ -36,7 +35,6 @@ semver.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 serde_with.workspace = true
-serde_yaml.workspace = true
 simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
 thegraph-core = { workspace = true, features = [
@@ -50,7 +48,6 @@ toolshed.workspace = true
 tower = "0.4.13"
 tower-http = { version = "0.5.2", features = ["cors"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
 url = "2.5.0"
 uuid = { version = "1.8", default-features = false, features = ["v4"] }
 

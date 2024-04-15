@@ -44,10 +44,6 @@ pub struct Config {
     /// timeout, so setting this to 5 for example would result in a 100s worst case response time
     /// for a client query.
     pub indexer_selection_retry_limit: usize,
-    /// IPFS endpoint with access to the subgraph files
-    #[debug(with = Display::fmt)]
-    #[serde_as(as = "DisplayFromStr")]
-    pub ipfs: Url,
     /// File path of CSV containing rows of `IpNetwork,Country`
     pub ip_blocker_db: Option<PathBuf>,
     /// IP rate limit in requests per second
