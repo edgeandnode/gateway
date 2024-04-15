@@ -85,7 +85,7 @@ impl AuthContext {
             return Err(anyhow::anyhow!("not found"));
         }
 
-        // First, parse the bearer token as it was an API key
+        // First, parse the bearer token as if it is an API key
         let ctx = api_keys::AuthContext::from_ref(self);
         if let Ok((auth, query_settings, rate_limit_settings)) =
             api_keys::parse_auth_token(&ctx, input)
