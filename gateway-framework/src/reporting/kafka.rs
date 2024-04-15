@@ -31,8 +31,6 @@ impl KafkaClient {
     }
 }
 
-pub type EventFilterFn = tracing_subscriber::filter::FilterFn;
-
 pub struct EventHandlerFn<
     F = fn(&KafkaClient, &tracing::Metadata<'_>, Map<String, serde_json::Value>),
 >(F);
