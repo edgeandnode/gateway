@@ -1853,8 +1853,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "serde_yaml",
- "simple-rate-limiter",
  "siphasher 1.0.1",
  "tap_core",
  "test-with",
@@ -1865,7 +1863,6 @@ dependencies = [
  "tokio-test",
  "toolshed",
  "tower",
- "tower-http",
  "tower-test",
  "tracing",
  "tracing-subscriber",
@@ -1930,9 +1927,7 @@ dependencies = [
  "chrono",
  "cost-model",
  "custom_debug",
- "dashmap",
  "eventuals",
- "faster-hex",
  "futures",
  "gateway-common",
  "gateway-framework",
@@ -1945,7 +1940,6 @@ dependencies = [
  "itertools 0.12.1",
  "num-traits",
  "ordered-float",
- "pin-project",
  "prometheus",
  "prost",
  "rand",
@@ -1960,7 +1954,6 @@ dependencies = [
  "snmalloc-rs",
  "thegraph-core",
  "thegraph-graphql-http",
- "thiserror",
  "tokio",
  "tokio-test",
  "toolshed",
@@ -4369,19 +4362,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_yaml"
-version = "0.9.34+deprecated"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
-dependencies = [
- "indexmap 2.2.6",
- "itoa",
- "ryu",
- "serde",
- "unsafe-libyaml",
-]
-
-[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5346,12 +5326,6 @@ checksum = "382810877fe448991dfc7f0dd6e3ae5d58088fd0ea5e35189655f84e6814fa56"
 dependencies = [
  "void",
 ]
-
-[[package]]
-name = "unsafe-libyaml"
-version = "0.2.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

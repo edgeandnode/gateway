@@ -11,9 +11,7 @@ axum = { workspace = true, features = ["tokio", "http1"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 custom_debug = "0.6.1"
-dashmap = "5.5.3"
 eventuals = "0.6.7"
-faster-hex = "0.9.0"
 futures.workspace = true
 gateway-common = { path = "../gateway-common" }
 gateway-framework = { path = "../gateway-framework" }
@@ -24,7 +22,6 @@ indoc = "2.0.5"
 itertools = "0.12.1"
 num-traits = "0.2.18"
 ordered-float = "4.2.0"
-pin-project = "1.1.5"
 prometheus = { version = "0.13", default-features = false }
 prost = "0.12.4"
 rand.workspace = true
@@ -42,7 +39,6 @@ thegraph-core = { workspace = true, features = [
     "subscriptions",
 ] }
 thegraph-graphql-http.workspace = true
-thiserror.workspace = true
 tokio.workspace = true
 toolshed.workspace = true
 tower = "0.4.13"
