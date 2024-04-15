@@ -34,7 +34,10 @@ use gateway_framework::{
         discovery::Status, exchange_rate, indexing_performance::IndexingPerformance,
         network_subgraph,
     },
-    reporting::{self, EventFilterFn, EventHandlerFn, KafkaClient, LoggingOptions},
+    reporting::{
+        self, EventHandlerFn, KafkaClient, LoggingOptions, CLIENT_REQUEST_TARGET,
+        INDEXER_REQUEST_TARGET,
+    },
     scalar::{self, ReceiptSigner},
     subscriptions::subgraph as subscriptions_subgraph,
     topology::network::{Deployment, GraphNetwork},
@@ -48,9 +51,7 @@ use graph_gateway::{
     indexer_client::IndexerClient,
     indexers::indexing,
     indexings_blocklist::{self, indexings_blocklist},
-    reports::{
-        report_client_query, report_indexer_query, CLIENT_QUERY_TARGET, INDEXER_QUERY_TARGET,
-    },
+    reports::{report_client_query, report_indexer_query},
     subgraph_studio,
 };
 use ordered_float::NotNan;
@@ -104,14 +105,10 @@ async fn main() {
         LoggingOptions {
             executable_name: "graph-gateway".into(),
             json: config.log_json,
-            event_filter: EventFilterFn::new(|metadata| {
-                (metadata.target() == CLIENT_QUERY_TARGET)
-                    || (metadata.target() == INDEXER_QUERY_TARGET)
-            }),
             event_handler: EventHandlerFn::new(|client, metadata, fields| {
                 match metadata.target() {
-                    CLIENT_QUERY_TARGET => report_client_query(client, fields),
-                    INDEXER_QUERY_TARGET => report_indexer_query(client, fields),
+                    CLIENT_REQUEST_TARGET => report_client_query(client, fields),
+                    INDEXER_REQUEST_TARGET => report_indexer_query(client, fields),
                     _ => unreachable!("invalid event target for KafkaLayer"),
                 }
             }),

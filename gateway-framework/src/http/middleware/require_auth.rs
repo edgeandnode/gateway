@@ -14,6 +14,7 @@ use crate::{
     auth::{AuthContext, AuthToken},
     errors::Error,
     graphql,
+    reporting::CLIENT_REQUEST_TARGET,
 };
 
 #[pin_project::pin_project(project = KindProj)]
@@ -142,12 +143,12 @@ where
 
         match &auth_token {
             AuthToken::ApiKey(auth) => tracing::info!(
-                target: "client_request",
+                target: CLIENT_REQUEST_TARGET,
                 user_address = ?auth.user(),
                 api_key = %auth.key(),
             ),
             AuthToken::SubscriptionsAuthToken(auth) => tracing::info!(
-                target: "client_request",
+                target: CLIENT_REQUEST_TARGET,
                 user_address = ?auth.user(),
             ),
         };
