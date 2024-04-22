@@ -19,7 +19,7 @@ futures.workspace = true
 gateway-common = { path = "../gateway-common" }
 headers.workspace = true
 hex.workspace = true
-hickory-resolver = "0.24.0"
+hickory-resolver = "0.24.1"
 indexer-selection.workspace = true
 itertools = "0.12.1"
 ipnetwork = "0.20.0"
