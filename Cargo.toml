@@ -41,7 +41,7 @@ serde_with = "3.7.0"
 siphasher = "1.0.1"
 thegraph-core = "0.3.0"
 thegraph-graphql-http = "0.2.0"
-thiserror = "1.0.58"
+thiserror = "1.0.59"
 tokio = { version = "1.37", features = [
     "macros",
     "parking_lot",
