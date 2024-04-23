@@ -43,6 +43,10 @@ pub struct Config {
     pub gateway_id: Option<String>,
     /// Graph network environment identifier, inserted into Kafka messages
     pub graph_env_id: String,
+    /// Attempt queries by deployment ID on the hosted service if there are no active allocations on
+    /// the deployment.
+    #[serde(default)]
+    pub hosted_service_fallback: bool,
     /// Rounds of indexer selection and queries to attempt. Note that indexer queries have a 20s
     /// timeout, so setting this to 5 for example would result in a 100s worst case response time
     /// for a client query.

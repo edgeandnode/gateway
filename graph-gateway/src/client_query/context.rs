@@ -23,6 +23,7 @@ pub struct Context {
     pub receipt_signer: &'static ReceiptSigner,
     pub kafka_client: &'static KafkaClient,
     pub budgeter: &'static Budgeter,
+    pub hosted_service_fallback: bool,
     pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,
     pub grt_per_usd: Eventual<NotNan<f64>>,

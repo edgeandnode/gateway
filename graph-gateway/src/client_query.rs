@@ -142,6 +142,45 @@ pub async fn handle_query(
         }
     }
 
+    if ctx.hosted_service_fallback
+        && (deployments.len() == 1)
+        && deployments.iter().all(|d| d.indexers.is_empty())
+    {
+        let deployment = deployments[0].id;
+        let response = ctx
+            .indexer_client
+            .client
+            .post(format!(
+                "https://api.thegraph.com/subgraphs/id/{deployment}"
+            ))
+            .header("content-type", "application/json")
+            .body(payload.clone())
+            .send()
+            .await;
+        let response: anyhow::Result<String> = match response {
+            Ok(response) if response.status().is_success() => {
+                response.text().await.map_err(Into::into)
+            }
+            Ok(response) => {
+                let status = response.status();
+                Err(anyhow!(response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| status.to_string())))
+            }
+            Err(err) => Err(err.into()),
+        };
+        let hosted_service_status = response.as_ref().map(|_| ());
+        tracing::info!(?hosted_service_status);
+        if let Ok(response) = response {
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header_typed(ContentType::json())
+                .body(response)
+                .unwrap());
+        }
+    }
+
     let result = handle_client_query_inner(
         &ctx,
         query_settings.map(|Extension(settings)| settings),
