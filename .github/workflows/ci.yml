@@ -38,11 +38,31 @@ jobs:
       - run: cargo check
       - run: cargo clippy -- -D warnings
 
+      ## Tests
+      # Install sops (needed for decrypting tests .env file)
+      - name: Setup sops
+        uses: nhedger/setup-sops@358bac533e4e92f9ce9f9da563d6265929c88cda # v2
+
+      # Install age (needed for decrypting tests .env file)
+      - name: Setup age
+        uses: alessiodionisi/setup-age-action@82b9aea163ade7fe23441552a514cf666b214077 # v1.3.0
+        
       - name: Unit tests
-        run: cargo test --lib
+        uses: LNSD/sops-exec-action@6da1fbca63459d9796097496d5f5e6233555b31a # v1
+        env:
+          SOPS_AGE_KEY: ${{ secrets.IT_TESTS_AGE_KEY }}
+        with:
+          env_file: .env
+          run: cargo test --lib
 
       - name: Integration tests
-        run: cargo test --test '*'
+        uses: LNSD/sops-exec-action@6da1fbca63459d9796097496d5f5e6233555b31a # v1
+        env:
+          SOPS_AGE_KEY: ${{ secrets.IT_TESTS_AGE_KEY }}
+        with:
+          env_file: .env
+          run: cargo test --test '*'
+
   check_formatting:
     name: 'check formatting'
     runs-on: ubuntu-latest
