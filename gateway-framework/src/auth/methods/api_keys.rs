@@ -38,6 +38,7 @@ pub enum QueryStatus {
     #[default]
     Active,
     ServiceShutoff,
+    MonthlyCapReached,
 }
 
 /// Errors that may occur when parsing an API key.
@@ -200,6 +201,9 @@ pub fn check_auth_requirements(ctx: &AuthContext, token: &AuthToken) -> anyhow::
         QueryStatus::ServiceShutoff => Err(anyhow::anyhow!(
             "payment required for subsequent requests for this API key"
         )),
+        QueryStatus::MonthlyCapReached => {
+            Err(anyhow::anyhow!("spend limit exceeded for this API key"))
+        }
     }
 }
 
