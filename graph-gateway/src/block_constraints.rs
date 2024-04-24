@@ -271,11 +271,9 @@ fn field_constraint(
 ) -> anyhow::Result<BlockConstraint> {
     match field {
         Value::Object(fields) => parse_constraint(vars, defaults, fields),
-        Value::Variable(name) => match vars
-            .get(name)
-            .ok_or_else(|| anyhow!("missing variable: {name}"))?
-        {
-            Value::Object(fields) => parse_constraint(vars, defaults, fields),
+        Value::Variable(name) => match vars.get(name) {
+            None => Ok(BlockConstraint::Unconstrained),
+            Some(Value::Object(fields)) => parse_constraint(vars, defaults, fields),
             _ => Err(anyhow!("malformed block constraint")),
         },
         _ => Err(anyhow!("malformed block constraint")),
@@ -428,6 +426,10 @@ mod tests {
             ),
             (
                 "query($h: String) { a(block:{hash:$h}) }",
+                Ok(vec![Unconstrained]),
+            ),
+            (
+                "query($b: Block_height) { a(block:$b) }",
                 Ok(vec![Unconstrained]),
             ),
         ];
