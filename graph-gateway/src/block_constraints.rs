@@ -271,11 +271,9 @@ fn field_constraint(
 ) -> anyhow::Result<BlockConstraint> {
     match field {
         Value::Object(fields) => parse_constraint(vars, defaults, fields),
-        Value::Variable(name) => match vars
-            .get(name)
-            .ok_or_else(|| anyhow!("missing variable: {name}"))?
-        {
-            Value::Object(fields) => parse_constraint(vars, defaults, fields),
+        Value::Variable(name) => match vars.get(name).or_else(|| defaults.get(name)) {
+            None => Ok(BlockConstraint::Unconstrained),
+            Some(Value::Object(fields)) => parse_constraint(vars, defaults, fields),
             _ => Err(anyhow!("malformed block constraint")),
         },
         _ => Err(anyhow!("malformed block constraint")),
@@ -294,11 +292,18 @@ fn parse_constraint<'c, T: Text<'c>>(
     match field {
         None => Ok(BlockConstraint::Unconstrained),
         Some((k, v)) => match (k.as_ref(), v) {
-            ("hash", hash) => parse_hash(hash, vars, defaults).map(BlockConstraint::Hash),
-            ("number", number) => parse_number(number, vars, defaults).map(BlockConstraint::Number),
-            ("number_gte", number) => {
-                parse_number(number, vars, defaults).map(BlockConstraint::NumberGTE)
-            }
+            ("hash", hash) => parse_hash(hash, vars, defaults).map(|h| {
+                h.map(BlockConstraint::Hash)
+                    .unwrap_or(BlockConstraint::Unconstrained)
+            }),
+            ("number", number) => parse_number(number, vars, defaults).map(|n| {
+                n.map(BlockConstraint::Number)
+                    .unwrap_or(BlockConstraint::Unconstrained)
+            }),
+            ("number_gte", number) => parse_number(number, vars, defaults).map(|n| {
+                n.map(BlockConstraint::NumberGTE)
+                    .unwrap_or(BlockConstraint::Unconstrained)
+            }),
             _ => Err(anyhow!("unexpected block constraint: {}", k.as_ref())),
         },
     }
@@ -308,10 +313,11 @@ fn parse_hash<'c, T: Text<'c>>(
     hash: &Value<'c, T>,
     variables: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
-) -> anyhow::Result<BlockHash> {
+) -> anyhow::Result<Option<BlockHash>> {
     match hash {
         Value::String(hash) => hash
             .parse()
+            .map(Some)
             .map_err(|err| anyhow!("malformed block hash: {err}")),
         Value::Variable(name) => match variables
             .get(name.as_ref())
@@ -319,8 +325,9 @@ fn parse_hash<'c, T: Text<'c>>(
         {
             Some(Value::String(hash)) => hash
                 .parse()
+                .map(Some)
                 .map_err(|err| anyhow!("malformed block hash: {err}")),
-            _ => Err(anyhow!("missing variable: {}", name.as_ref())),
+            _ => Ok(None),
         },
         _ => Err(anyhow!("malformed block constraint")),
     }
@@ -330,7 +337,7 @@ fn parse_number<'c, T: Text<'c>>(
     number: &Value<'c, T>,
     variables: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
-) -> anyhow::Result<BlockNumber> {
+) -> anyhow::Result<Option<BlockNumber>> {
     let n = match number {
         Value::Int(n) => n,
         Value::Variable(name) => match variables
@@ -338,12 +345,12 @@ fn parse_number<'c, T: Text<'c>>(
             .or_else(|| defaults.get(name.as_ref()))
         {
             Some(Value::Int(n)) => n,
-            _ => bail!("missing variable: {}", name.as_ref()),
+            _ => return Ok(None),
         },
         _ => bail!("malformed block number"),
     };
     n.as_i64()
-        .and_then(|n| n.try_into().ok())
+        .map(|n| n.try_into().ok())
         .ok_or_else(|| anyhow!("block number out of range"))
 }
 
@@ -412,6 +419,22 @@ mod tests {
             (
                 "query($n: Int = 1) { a(block:{number_gte:$n}) }",
                 Ok(vec![NumberGTE(1)]),
+            ),
+            (
+                "query($n: Int) { a(block:{number_gte:$n}) }",
+                Ok(vec![Unconstrained]),
+            ),
+            (
+                "query($h: String) { a(block:{hash:$h}) }",
+                Ok(vec![Unconstrained]),
+            ),
+            (
+                "query($b: Block_height) { a(block:$b) }",
+                Ok(vec![Unconstrained]),
+            ),
+            (
+                "query($b: Block_height = {number_gte:0}) { a(block:$b) }",
+                Ok(vec![NumberGTE(0)]),
             ),
         ];
         for (query, expected) in tests {
