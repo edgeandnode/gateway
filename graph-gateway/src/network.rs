@@ -4,4 +4,6 @@
 
 pub mod blocklists;
 pub mod indexers_addr_blocklist;
+pub mod indexers_host_blocklist;
+pub mod indexers_host_resolver;
 pub mod subgraph;

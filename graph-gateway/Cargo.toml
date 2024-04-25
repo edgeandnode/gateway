@@ -17,8 +17,10 @@ gateway-common = { path = "../gateway-common" }
 gateway-framework = { path = "../gateway-framework" }
 graphql.workspace = true
 headers.workspace = true
+hickory-resolver = "0.24.0"
 indexer-selection.workspace = true
 indoc = "2.0.5"
+ipnetwork = { version = "0.20.0", default-features = false }
 itertools = "0.12.1"
 num-traits = "0.2.18"
 ordered-float = "4.2.0"
@@ -39,6 +41,7 @@ thegraph-core = { workspace = true, features = [
     "subscriptions",
 ] }
 thegraph-graphql-http.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 toolshed.workspace = true
 tower = "0.4.13"
