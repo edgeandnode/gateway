@@ -393,7 +393,7 @@ async fn handle_client_query_inner(
         }
 
         let selected_candidates: ArrayVec<&Candidate, SELECTION_LIMIT> =
-            indexer_selection::select(&mut rng, &candidates);
+            indexer_selection::select(&candidates);
         let selections_len = selected_candidates.len();
         let mut selections: Vec<Selection> = Default::default();
         for candidate in selected_candidates {
