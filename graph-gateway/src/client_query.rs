@@ -32,7 +32,7 @@ use gateway_framework::{
         discovery::Status,
         indexing_performance::{IndexingPerformance, Snapshot},
     },
-    reporting::{with_metric, KafkaClient, METRICS},
+    reporting::{with_metric, KafkaClient, CLIENT_REQUEST_TARGET, INDEXER_REQUEST_TARGET, METRICS},
     scalar::{ReceiptStatus, ScalarReceipt},
     topology::network::{Deployment, GraphNetwork, Subgraph},
 };
@@ -170,7 +170,7 @@ pub async fn handle_query(
         };
         let (legacy_status_message, legacy_status_code) = reports::legacy_status(&result);
         tracing::info!(
-            target: reports::CLIENT_QUERY_TARGET,
+            target: CLIENT_REQUEST_TARGET,
             start_time_ms = timestamp,
             deployment,
             %status_message,
@@ -241,7 +241,7 @@ async fn handle_client_query_inner(
         .last()
         .map(|deployment| deployment.manifest.network.clone())
         .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
-    tracing::info!(target: reports::CLIENT_QUERY_TARGET, subgraph_chain);
+    tracing::info!(target: CLIENT_REQUEST_TARGET, subgraph_chain);
 
     let manifest_min_block = deployments.last().unwrap().manifest.min_block;
     let chain = ctx.chains.chain(&subgraph_chain).await;
@@ -284,7 +284,7 @@ async fn handle_client_query_inner(
     let mut context = AgoraContext::new(&payload.query, &variables)
         .map_err(|err| Error::BadQuery(anyhow!("{err}")))?;
     tracing::info!(
-        target: reports::CLIENT_QUERY_TARGET,
+        target: CLIENT_REQUEST_TARGET,
         query = %payload.query,
         %variables,
     );
@@ -305,7 +305,7 @@ async fn handle_client_query_inner(
         budget = (*(user_budget_usd * grt_per_usd * one_grt) as u128).min(max_budget);
     }
     tracing::info!(
-        target: reports::CLIENT_QUERY_TARGET,
+        target: CLIENT_REQUEST_TARGET,
         query_count = 1,
         budget_grt = (budget as f64 * 1e-18) as f32,
     );
@@ -481,7 +481,7 @@ async fn handle_client_query_inner(
             // there's a race between creating this span and another indexer responding which will
             // close the outer client_query span.
             let span = tracing::info_span!(
-                target: reports::INDEXER_QUERY_TARGET,
+                target: INDEXER_REQUEST_TARGET,
                 "indexer_query",
                 indexer = ?selection.indexing.indexer,
             );
@@ -511,7 +511,7 @@ async fn handle_client_query_inner(
         let total_indexer_fees_usd =
             USD(NotNan::new(total_indexer_fees_grt as f64 * 1e-18).unwrap() / grt_per_usd);
         tracing::info!(
-            target: reports::CLIENT_QUERY_TARGET,
+            target: CLIENT_REQUEST_TARGET,
             indexer_fees_grt = (total_indexer_fees_grt as f64 * 1e-18) as f32,
             indexer_fees_usd = *total_indexer_fees_usd.0 as f32,
         );
@@ -644,7 +644,7 @@ async fn handle_indexer_query(
 
     let latency_ms = ctx.response_time.as_millis() as u32;
     tracing::info!(
-        target: reports::INDEXER_QUERY_TARGET,
+        target: INDEXER_REQUEST_TARGET,
         %deployment,
         url = %selection.url,
         blocks_behind = selection.blocks_behind,
@@ -714,7 +714,7 @@ async fn handle_indexer_query_inner(
         .collect::<Vec<&str>>()
         .join("; ");
     tracing::info!(
-        target: reports::INDEXER_QUERY_TARGET,
+        target: INDEXER_REQUEST_TARGET,
         indexer_errors = errors_repr,
     );
 
