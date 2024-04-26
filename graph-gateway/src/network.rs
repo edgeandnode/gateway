@@ -6,6 +6,7 @@ pub mod blocklists;
 pub mod indexers_addr_blocklist;
 pub mod indexers_host_blocklist;
 pub mod indexers_host_resolver;
+pub mod indexers_indexing_status_resolver;
 pub mod indexers_poi_blocklist;
 pub mod indexers_poi_resolver;
 pub mod subgraph;
