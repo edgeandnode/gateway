@@ -50,7 +50,7 @@ pub fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::
         "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
         "fields": {
             "message": "Client query result",
-            "request_id": &fields.request_id,
+            "query_id": &fields.request_id,
             "ray_id": &fields.request_id, // In production this will be the Ray ID.
             "deployment": fields.deployment.as_deref().unwrap_or(""),
             "network": fields.subgraph_chain.as_deref().unwrap_or(""),
@@ -69,7 +69,7 @@ pub fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::
     println!("{log}");
 
     let kafka_msg = json!({
-        "request_id": &fields.request_id,
+        "query_id": &fields.request_id,
         "ray_id": &fields.request_id, // In production this will be the Ray ID.
         "graph_env": &fields.graph_env,
         "timestamp": timestamp,
@@ -130,7 +130,7 @@ pub fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json:
         "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
         "fields": {
             "message": "Indexer attempt",
-            "request_id": &fields.request_id,
+            "query_id": &fields.request_id,
             "ray_id": &fields.request_id, // In production this will be the Ray ID.
             "deployment": &fields.deployment,
             "indexer": &fields.indexer,
@@ -150,7 +150,7 @@ pub fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json:
     println!("{log}");
 
     let kafka_msg = json!({
-        "request_id": &fields.request_id,
+        "query_id": &fields.request_id,
         "ray_id": &fields.request_id, // In production this will be the Ray ID.
         "graph_env": &fields.graph_env,
         "timestamp": unix_timestamp(),
