@@ -25,7 +25,7 @@ fn test_deployment_id(deployment: &str) -> DeploymentId {
 
 #[tokio::test]
 async fn check_indexer_pois_should_find_matches() {
-    //// Given
+    //* Given
     let client = reqwest::Client::new();
 
     let indexer_addr = Address::default();
@@ -67,13 +67,13 @@ async fn check_indexer_pois_should_find_matches() {
         },
     ];
 
-    //// When
+    //* When
     let request = check_indexer_pois(client, indexer_addr, status_url, pois_to_query, 1);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
 
-    //// Then
+    //* Then
     let (address, pois) = response;
     assert_eq!(address, indexer_addr);
     assert_eq!(pois.len(), 2);

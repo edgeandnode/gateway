@@ -15,7 +15,7 @@ fn test_deployment_id(deployment: &str) -> DeploymentId {
 
 #[tokio::test]
 async fn query_indexer_public_pois() {
-    //// Given
+    //* Given
     let client = reqwest::Client::new();
     let status_url = "https://testnet-indexer-03-europe-cent.thegraph.com/status"
         .parse()
@@ -36,13 +36,13 @@ async fn query_indexer_public_pois() {
         ],
     };
 
-    //// When
+    //* When
     let request = public_poi::query(client, status_url, query);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
 
-    //// Then
+    //* Then
     assert_matches!(response, Ok(resp) => {
         assert_eq!(resp.public_proofs_of_indexing.len(), 2);
 
@@ -58,7 +58,7 @@ async fn query_indexer_public_pois() {
 /// Error with the following message: "query is too expensive".
 #[tokio::test]
 async fn requests_over_max_requests_per_query_should_fail() {
-    //// Given
+    //* Given
 
     let client = reqwest::Client::new();
     let status_url = "https://testnet-indexer-03-europe-cent.thegraph.com/status"
@@ -75,19 +75,19 @@ async fn requests_over_max_requests_per_query_should_fail() {
             .collect(),
     };
 
-    //// When
+    //* When
     let request = public_poi::query(client, status_url, query);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
 
-    //// Then
+    //* Then
     assert!(response.is_err());
 }
 
 #[tokio::test]
 async fn send_batched_queries_and_merge_results() {
-    //// Given
+    //* Given
     let client = reqwest::Client::new();
     let status_url = "https://testnet-indexer-03-europe-cent.thegraph.com/status"
         .parse()
@@ -99,14 +99,14 @@ async fn send_batched_queries_and_merge_results() {
         .map(|i| (deployment, i as BlockNumber))
         .collect::<Vec<_>>();
 
-    //// When
+    //* When
     let request =
         public_poi::merge_queries(client, status_url, pois_to_query, MAX_REQUESTS_PER_QUERY);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
 
-    //// Then
+    //* Then
     assert_eq!(response.len(), MAX_REQUESTS_PER_QUERY + 2);
     assert!(response.contains_key(&(deployment, 1)));
     assert!(response.contains_key(&(deployment, 2)));
