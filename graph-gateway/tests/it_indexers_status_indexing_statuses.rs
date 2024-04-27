@@ -12,7 +12,7 @@ fn test_deployment_id(deployment: &str) -> DeploymentId {
 
 #[tokio::test]
 async fn query_indexer_indexing_statuses() {
-    //// Given
+    //* Given
     let client = reqwest::Client::new();
     let status_url = "https://testnet-indexer-03-europe-cent.thegraph.com/status"
         .parse()
@@ -23,13 +23,13 @@ async fn query_indexer_indexing_statuses() {
         test_deployment_id("QmSqxfDGyGenGFPkqw9sqnYar4XgzaioVWNvhw5QQ3RB1U"),
     ];
 
-    //// When
+    //* When
     let request = indexing_statuses::query(&client, status_url, &test_deployments);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
 
-    //// Then
+    //* Then
     assert_matches!(response, Ok(indexing_statuses) => {
         assert!(indexing_statuses.len() == 2);
         assert!(test_deployments.iter().all(|deployment| indexing_statuses.iter().any(|status| &status.subgraph == deployment)));
