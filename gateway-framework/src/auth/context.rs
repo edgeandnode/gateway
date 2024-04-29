@@ -76,6 +76,17 @@ impl AuthContext {
         }
     }
 
+    /// Waits for the API keys to be fetched.
+    ///
+    /// Internally, it waits for the `api_keys` eventual value to resolve.
+    pub async fn wait_for_api_keys(&self) -> anyhow::Result<()> {
+        self.api_keys
+            .value()
+            .await
+            .map_err(|_| anyhow::anyhow!("api keys fetch failed"))?;
+        Ok(())
+    }
+
     pub fn parse_auth_token(
         &self,
         input: &str,
