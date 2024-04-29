@@ -1941,6 +1941,7 @@ dependencies = [
  "serde_with",
  "simple-rate-limiter",
  "snmalloc-rs",
+ "test-with",
  "thegraph-core",
  "thegraph-graphql-http",
  "tokio",
