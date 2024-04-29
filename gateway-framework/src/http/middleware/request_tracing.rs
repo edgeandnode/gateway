@@ -56,7 +56,7 @@ where
             target: REQUEST_SPAN_TARGET,
             "client request",  // name
             graph_env = %self.env_id,
-            query_id = field::Empty,
+            request_id = field::Empty,
             selector = field::Empty,
         )
         .entered();

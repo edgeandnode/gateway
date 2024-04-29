@@ -2,7 +2,7 @@ use alloy_primitives::Address;
 use gateway_common::utils::timestamp::unix_timestamp;
 use gateway_framework::{
     errors::{self, IndexerError},
-    reporting::{error_log, KafkaClient},
+    reporting::{error_log, KafkaClient, CLIENT_REQUEST_TARGET, INDEXER_REQUEST_TARGET},
 };
 use prost::Message as _;
 use serde::Deserialize;
@@ -12,13 +12,10 @@ use toolshed::concat_bytes;
 
 use crate::indexer_client::ResponsePayload;
 
-pub const CLIENT_QUERY_TARGET: &str = "client_query";
-pub const INDEXER_QUERY_TARGET: &str = "indexer_query";
-
 pub fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Value>) {
     #[derive(Deserialize)]
     struct Fields {
-        query_id: String,
+        request_id: String,
         graph_env: String,
         legacy_status_message: String,
         legacy_status_code: u32,
@@ -36,7 +33,7 @@ pub fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::
         Ok(fields) => fields,
         Err(err) => {
             error_log(
-                CLIENT_QUERY_TARGET,
+                CLIENT_REQUEST_TARGET,
                 &format!("failed to report client query: {}", err),
             );
             return;
@@ -48,13 +45,13 @@ pub fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::
 
     // data science: bigquery datasets still rely on this log line
     let log = serde_json::to_string(&json!({
-        "target": CLIENT_QUERY_TARGET,
+        "target": CLIENT_REQUEST_TARGET,
         "level": "INFO",
         "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
         "fields": {
             "message": "Client query result",
-            "query_id": &fields.query_id,
-            "ray_id": &fields.query_id, // In production this will be the Ray ID.
+            "query_id": &fields.request_id,
+            "ray_id": &fields.request_id, // In production this will be the Ray ID.
             "deployment": fields.deployment.as_deref().unwrap_or(""),
             "network": fields.subgraph_chain.as_deref().unwrap_or(""),
             "user": &fields.user_address,
@@ -72,8 +69,8 @@ pub fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::
     println!("{log}");
 
     let kafka_msg = json!({
-        "query_id": &fields.query_id,
-        "ray_id": &fields.query_id, // In production this will be the Ray ID.
+        "query_id": &fields.request_id,
+        "ray_id": &fields.request_id, // In production this will be the Ray ID.
         "graph_env": &fields.graph_env,
         "timestamp": timestamp,
         "user": &fields.user_address,
@@ -98,7 +95,7 @@ pub fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::
 pub fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json::Value>) {
     #[derive(Deserialize)]
     struct Fields {
-        query_id: String,
+        request_id: String,
         graph_env: String,
         api_key: Option<String>,
         user_address: Option<String>,
@@ -119,7 +116,7 @@ pub fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json:
         Ok(fields) => fields,
         Err(err) => {
             error_log(
-                INDEXER_QUERY_TARGET,
+                INDEXER_REQUEST_TARGET,
                 &format!("failed to report indexer query: {}", err),
             );
             return;
@@ -128,13 +125,13 @@ pub fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json:
 
     // data science: bigquery datasets still rely on this log line
     let log = serde_json::to_string(&json!({
-        "target": INDEXER_QUERY_TARGET,
+        "target": INDEXER_REQUEST_TARGET,
         "level": "INFO",
         "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
         "fields": {
             "message": "Indexer attempt",
-            "query_id": &fields.query_id,
-            "ray_id": &fields.query_id, // In production this will be the Ray ID.
+            "query_id": &fields.request_id,
+            "ray_id": &fields.request_id, // In production this will be the Ray ID.
             "deployment": &fields.deployment,
             "indexer": &fields.indexer,
             "url": &fields.url,
@@ -153,8 +150,8 @@ pub fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json:
     println!("{log}");
 
     let kafka_msg = json!({
-        "query_id": &fields.query_id,
-        "ray_id": &fields.query_id, // In production this will be the Ray ID.
+        "query_id": &fields.request_id,
+        "ray_id": &fields.request_id, // In production this will be the Ray ID.
         "graph_env": &fields.graph_env,
         "timestamp": unix_timestamp(),
         "api_key": fields.api_key.as_deref().unwrap_or(""),
