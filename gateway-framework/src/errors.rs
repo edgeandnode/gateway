@@ -64,6 +64,9 @@ pub enum UnavailableReason {
     /// The indexer's cost model did not produce a fee for the GraphQL document.
     #[error("no fee")]
     NoFee,
+    /// The indexer is unable to receive SQL queries.
+    #[error("no sql")]
+    NoSql,
     /// The indexer did not have a block required by the query.
     #[error("missing block")]
     MissingBlock,
