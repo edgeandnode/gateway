@@ -18,13 +18,13 @@ axum = { version = "0.7.5", default-features = false, features = [
     "tokio",
     "original-uri",
 ] }
-candidate-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "f1c11fe" }
+candidate-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "cfef0ac" }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 futures = "0.3"
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
 headers = "0.4.0"
 hex = "0.4"
-indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "f1c11fe" }
+indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "cfef0ac" }
 primitive-types = "0.12.2"
 rand = { version = "0.8", features = ["small_rng"] }
 receipts = { git = "https://github.com/edgeandnode/receipts", rev = "b12e197" }
