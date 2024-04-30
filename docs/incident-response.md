@@ -27,7 +27,7 @@ For indexers, note that automated allocation management might not allocate to a 
 
   ```jsx
   |~ "GyijYxW9yiSRcEd5u2gfquSvneQKi5QuvU3WZgFyfFSn|QmeBPZyEeaHyZAiFS2Q7cT3CESS49hhgGuT3E9S8RYoHNm"
-  |= "indexer_errors" != "indexer_query"
+  |= "indexer_errors" != "indexer_request"
   | pattern "<timestamp> stdout F <json>" | line_format "{{.json}}" | json query_id="spans[0].query_id", errors="fields.indexer_errors" | line_format "{{.query_id}} {{.errors}}"
   ```
 
