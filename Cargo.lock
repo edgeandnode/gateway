@@ -614,7 +614,7 @@ dependencies = [
 [[package]]
 name = "candidate-selection"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/candidate-selection?rev=ce9de97#ce9de97ccb09354099ab17cde5309e2c71163803"
+source = "git+https://github.com/edgeandnode/candidate-selection?rev=f1c11fe#f1c11fe995da220fb01c3f3d8d5df76c356e58d5"
 dependencies = [
  "arrayvec 0.7.4",
  "ordered-float",
@@ -2449,7 +2449,7 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 [[package]]
 name = "indexer-selection"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/candidate-selection?rev=ce9de97#ce9de97ccb09354099ab17cde5309e2c71163803"
+source = "git+https://github.com/edgeandnode/candidate-selection?rev=f1c11fe#f1c11fe995da220fb01c3f3d8d5df76c356e58d5"
 dependencies = [
  "candidate-selection",
  "custom_debug",
