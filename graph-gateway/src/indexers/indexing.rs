@@ -189,6 +189,9 @@ async fn query_status(
             let chain = &status.chains.first()?;
             let cost_model = cost_models.remove(&indexing.deployment);
             let block_status = chain.latest_block.as_ref()?;
+            let sql_enabled = cost_model
+                .as_ref()
+                .map_or(false, |model| model.contains_statement_field("sql"));
             let status = Status {
                 block: block_status.number.parse().ok()?,
                 min_block: chain
@@ -197,6 +200,7 @@ async fn query_status(
                     .and_then(|b| b.number.parse::<u64>().ok()),
                 cost_model,
                 legacy_scalar,
+                sql_enabled,
             };
             Some((indexing, status))
         })
@@ -228,4 +232,20 @@ fn compile_cost_model(
 struct CostModelSource {
     model: String,
     variables: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::indexers::indexing::compile_cost_model;
+    use toolshed::epoch_cache::EpochCache;
+
+    #[test]
+    fn test_if_model_is_sql() {
+        let model = "
+            query { sql } => 1;
+        ";
+        let mut cache = EpochCache::new();
+        let cost_model = compile_cost_model(&mut cache, model.to_string(), None).unwrap();
+        assert!(cost_model.contains_statement_field("sql"));
+    }
 }

@@ -8,4 +8,5 @@ pub struct Status {
     pub min_block: Option<BlockNumber>,
     pub cost_model: Option<Ptr<CostModel>>,
     pub legacy_scalar: bool,
+    pub sql_enabled: bool,
 }
