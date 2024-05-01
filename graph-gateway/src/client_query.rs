@@ -566,7 +566,8 @@ fn prepare_candidate(
         // range. This is to compensate for the gateway's lack of knowledge about which blocks
         // indexers have responded with already. All else being equal, indexers closer to chain head
         // and with higher success rate will be favored.
-        let range = status.min_block.unwrap_or(0)..=(perf.latest_block + blocks_per_minute);
+        let latest_block = status.block.max(perf.latest_block + blocks_per_minute);
+        let range = status.min_block.unwrap_or(0)..=latest_block;
         let number_gte = block_requirements.number_gte.unwrap_or(0);
         if !range.contains(min) || !range.contains(max) || (*range.end() < number_gte) {
             return Err(IndexerError::Unavailable(UnavailableReason::MissingBlock));
