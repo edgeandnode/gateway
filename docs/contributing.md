@@ -94,7 +94,7 @@ Once your Age public key is associated with the `.env` file, you can add new sec
 the following command to add a new secret to the file:
 
 ```shell
-sops --set '["<env-var-name>" "<env-var-value>"]' .env
+sops --set '["<env-var-name>"] "<env-var-value>"' .env
 ```
 
 Note that the `env-var-name` and `env-var-value` should be replaced with the name and value of the new environment
@@ -103,9 +103,10 @@ will update the value of the existing environment variable.
 
 #### Encrypting and decrypting the `.env` file
 
-> [!WARNING] ⚠️⚠️⚠️⚠️
+> [!WARNING]
 >
-> This procedure is completely discouraged due to the risk of leaking sensitive information. Only project maintainers
+> This procedure is completely discouraged due to the ⚠️**risk of leaking sensitive information**⚠️. Only project
+> maintainers
 > should encrypt and decrypt the `.env` file.
 >
 > Refer to the [Adding new contributors public keys](#adding-new-contributors-public-keys)
