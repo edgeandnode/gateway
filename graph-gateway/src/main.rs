@@ -47,7 +47,7 @@ use gateway_framework::{
 };
 use graph_gateway::{
     client_query::{self, context::Context},
-    config::{ApiKeys, Config, ExchangeRateProvider},
+    config::{ApiKeys, Config, ExchangeRateProvider, Subscriptions},
     indexer_client::IndexerClient,
     indexers::indexing,
     indexings_blocklist::{self, indexings_blocklist},
@@ -212,59 +212,25 @@ async fn main() {
         })
         .forever();
 
-    let special_api_keys = match &config.api_keys {
-        Some(ApiKeys::Endpoint { special, .. }) => HashSet::from_iter(special.clone()),
-        _ => Default::default(),
-    };
-    let api_keys = match config.api_keys {
-        Some(ApiKeys::Endpoint { url, auth, .. }) => {
-            subgraph_studio::api_keys(http_client.clone(), url, auth.0)
-        }
-        Some(ApiKeys::Fixed(api_keys)) => Eventual::from_value(Ptr::new(
-            api_keys
-                .into_iter()
-                .map(|k| (k.key.clone(), k.into()))
-                .collect(),
-        )),
-        None => Eventual::from_value(Ptr::default()),
-    };
-
-    let subscriptions = match &config.subscriptions {
-        None => Eventual::from_value(Ptr::default()),
-        Some(subscriptions) => subscriptions_subgraph::Client::create(
-            subgraph_client::Client::builder(http_client.clone(), subscriptions.subgraph.clone())
-                .with_auth_token(subscriptions.ticket.clone())
-                .build(),
-        ),
-    };
-    let auth_handler = AuthContext::create(
+    let auth_service = init_auth_service(
         config.payment_required,
-        api_keys.clone(),
-        special_api_keys,
-        subscriptions,
-        config
-            .subscriptions
-            .iter()
-            .flat_map(|s| s.special_signers.clone())
-            .collect(),
-        config
-            .subscriptions
-            .as_ref()
-            .map(|s| s.rate_per_query)
-            .unwrap_or(0),
-        config
-            .subscriptions
-            .iter()
-            .flat_map(|s| &s.domains)
-            .map(|d| (d.chain_id, d.contract))
-            .collect(),
+        http_client.clone(),
+        config.api_keys,
+        http_client.clone(),
+        config.subscriptions,
     );
+
     let query_fees_target =
         USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
     grt_per_usd.value().await.unwrap();
-    api_keys.value().await.unwrap();
+
+    // Wait for the API keys to be fetched before starting the server
+    if let Err(err) = auth_service.wait_for_api_keys().await {
+        tracing::error!(%err);
+        panic!("Failed to initialize the auth service: {err}");
+    }
 
     let client_query_ctx = Context {
         indexer_client: IndexerClient {
@@ -349,7 +315,7 @@ async fn main() {
                 // Handle legacy in-path auth, and convert it into a header
                 .layer(middleware::from_fn(legacy_auth_adapter))
                 // Require the query to be authorized
-                .layer(RequireAuthorizationLayer::new(auth_handler))
+                .layer(RequireAuthorizationLayer::new(auth_service))
                 // Check the query rate limit with a 60s reset interval
                 .layer(AddRateLimiterLayer::default()),
         );
@@ -485,4 +451,65 @@ async fn handle_metrics() -> impl axum::response::IntoResponse {
 
 fn graphql_error_response<S: ToString>(message: S) -> json::JsonResponse {
     json::json_response([], json!({"errors": [{"message": message.to_string()}]}))
+}
+
+/// Creates a new [`AuthContext`] from the given configuration.
+///
+/// This functions awaits the completion of the initial API keys and subscriptions fetches.
+fn init_auth_service(
+    payment_required: bool,
+    api_keys_http_client: reqwest::Client,
+    api_keys: Option<ApiKeys>,
+    subscriptions_http_client: reqwest::Client,
+    subscriptions: Option<Subscriptions>,
+) -> AuthContext {
+    let special_api_keys = match &api_keys {
+        Some(ApiKeys::Endpoint { special, .. }) => HashSet::from_iter(special.clone()),
+        _ => Default::default(),
+    };
+
+    let api_keys_ev = match api_keys {
+        Some(ApiKeys::Endpoint { url, auth, .. }) => {
+            subgraph_studio::api_keys(api_keys_http_client, url, auth.0)
+        }
+        Some(ApiKeys::Fixed(api_keys)) => Eventual::from_value(Ptr::new(
+            api_keys
+                .into_iter()
+                .map(|k| (k.key.clone(), k.into()))
+                .collect(),
+        )),
+        None => Eventual::from_value(Ptr::default()),
+    };
+
+    let subscriptions_ev = match &subscriptions {
+        None => Eventual::from_value(Ptr::default()),
+        Some(subscriptions) => subscriptions_subgraph::Client::create(
+            subgraph_client::Client::builder(
+                subscriptions_http_client,
+                subscriptions.subgraph.clone(),
+            )
+            .with_auth_token(subscriptions.ticket.clone())
+            .build(),
+        ),
+    };
+
+    AuthContext::create(
+        payment_required,
+        api_keys_ev,
+        special_api_keys,
+        subscriptions_ev,
+        subscriptions
+            .iter()
+            .flat_map(|s| s.special_signers.clone())
+            .collect(),
+        subscriptions
+            .as_ref()
+            .map(|s| s.rate_per_query)
+            .unwrap_or(0),
+        subscriptions
+            .iter()
+            .flat_map(|s| &s.domains)
+            .map(|d| (d.chain_id, d.contract))
+            .collect(),
+    )
 }
