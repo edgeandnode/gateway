@@ -2,13 +2,23 @@ use std::time::Duration;
 
 use alloy_primitives::Address;
 use graph_gateway::{
+    indexers,
     indexers::public_poi::{ProofOfIndexing, ProofOfIndexingInfo},
     indexings_blocklist::check_indexer_pois,
 };
 use thegraph_core::types::DeploymentId;
 use tokio::time::timeout;
+use url::Url;
 
-/// Test utility function to create a valid `ProofOfIndexingInfo` with an zeros POI.
+/// Test helper to get the testnet indexer url from the environment.
+fn test_indexer_url() -> Url {
+    std::env::var("IT_TEST_TESTNET_INDEXER_URL")
+        .expect("Missing IT_TEST_TESTNET_INDEXER_URL")
+        .parse()
+        .expect("Invalid IT_TEST_TESTNET_INDEXER_URL")
+}
+
+/// Test utility function to create a valid `ProofOfIndexingInfo` with a zeros POI.
 fn zero_poi() -> ProofOfIndexing {
     ProofOfIndexing::from([0u8; 32])
 }
@@ -23,15 +33,14 @@ fn test_deployment_id(deployment: &str) -> DeploymentId {
     deployment.parse().expect("invalid deployment id/ipfs hash")
 }
 
+#[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
 #[tokio::test]
 async fn check_indexer_pois_should_find_matches() {
     //* Given
     let client = reqwest::Client::new();
 
     let indexer_addr = Address::default();
-    let status_url = "https://testnet-indexer-03-europe-cent.thegraph.com/status"
-        .parse()
-        .expect("Invalid status url");
+    let status_url = indexers::status_url(test_indexer_url());
 
     let deployment = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
 
