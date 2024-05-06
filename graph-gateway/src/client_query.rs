@@ -582,7 +582,7 @@ fn prepare_candidate(
         fee,
         seconds_behind: perf.seconds_behind,
         slashable_grt: (info.staked_tokens as f64 * 1e-18) as u64,
-        subgraph_versions_behind: *versions_behind.get(&indexing.deployment).unwrap_or(&0),
+        versions_behind: *versions_behind.get(&indexing.deployment).unwrap_or(&0),
         zero_allocation: info.allocated_tokens == 0,
     })
 }
