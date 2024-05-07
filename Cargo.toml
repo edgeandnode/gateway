@@ -23,7 +23,7 @@ futures = "0.3"
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
 headers = "0.4.0"
 hex = "0.4"
-indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "281d0d7" }
+indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "6d2e682" }
 primitive-types = "0.12.2"
 rand = { version = "0.8", features = ["small_rng"] }
 receipts = { git = "https://github.com/edgeandnode/receipts", rev = "b12e197" }
