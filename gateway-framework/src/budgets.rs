@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use candidate_selection::criteria::decay::DecayBuffer;
 use eventuals::{Eventual, EventualWriter};
 use ordered_float::NotNan;
 use tokio::{select, spawn, sync::mpsc, time::interval};
@@ -117,5 +116,64 @@ impl Controller {
         USD(NotNan::new(control_variable)
             .unwrap_or_default()
             .clamp(min, max))
+    }
+}
+
+// TODO: the following is overkill now that it's only used here.
+
+#[derive(Clone, Debug)]
+struct DecayBuffer<T, const F: usize, const D: u16> {
+    frames: [T; F],
+}
+
+trait Decay {
+    fn decay(&mut self, prev: &Self, retain: f64, take: f64);
+}
+
+impl Decay for f64 {
+    fn decay(&mut self, prev: &Self, retain: f64, take: f64) {
+        *self = (*self * retain) + (prev * take);
+    }
+}
+
+impl<T, const F: usize, const D: u16> Default for DecayBuffer<T, F, D>
+where
+    [T; F]: Default,
+{
+    fn default() -> Self {
+        debug_assert!(F > 0);
+        debug_assert!(D < 1000);
+        Self {
+            frames: Default::default(),
+        }
+    }
+}
+
+impl<T, const F: usize, const D: u16> DecayBuffer<T, F, D> {
+    fn current_mut(&mut self) -> &mut T {
+        &mut self.frames[0]
+    }
+
+    fn frames(&self) -> &[T] {
+        &self.frames
+    }
+}
+
+impl<T, const F: usize, const D: u16> DecayBuffer<T, F, D>
+where
+    T: Decay + Default,
+{
+    fn decay(&mut self) {
+        // BQN: (1-1e¯3×d)×((1-4⋆-↕f)×⊢)+(«4⋆-↕f)×⊢
+        // LLVM should be capable of constant folding & unrolling this loop nicely.
+        // https://rust.godbolt.org/z/K13dj78Ge
+        for i in (1..self.frames.len()).rev() {
+            let retain = 1.0 - 4_f64.powi(-(i as i32));
+            let take = 4_f64.powi(-(i as i32 - 1));
+            let decay = 1.0 - 1e-3 * D as f64;
+            let (cur, prev) = self.frames[..=i].split_last_mut().unwrap();
+            cur.decay(prev.last().unwrap(), retain * decay, take * decay);
+        }
+        self.frames[0] = T::default();
     }
 }

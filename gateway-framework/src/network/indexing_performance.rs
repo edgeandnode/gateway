@@ -27,7 +27,7 @@ pub enum Msg {
     Feedback {
         indexing: Indexing,
         success: bool,
-        latency_ms: u32,
+        latency_ms: u16,
         latest_block: Option<BlockNumber>,
     },
     Flush(oneshot::Sender<()>),
@@ -59,7 +59,7 @@ impl IndexingPerformance {
         &self,
         indexing: Indexing,
         success: bool,
-        latency_ms: u32,
+        latency_ms: u16,
         latest_block: Option<BlockNumber>,
     ) {
         self.msgs
