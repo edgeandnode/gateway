@@ -13,6 +13,7 @@ use gateway_framework::{
     topology::network::GraphNetwork,
 };
 use ordered_float::NotNan;
+use tokio::sync::watch;
 use url::Url;
 
 use crate::indexer_client::IndexerClient;
@@ -25,7 +26,7 @@ pub struct Context {
     pub budgeter: &'static Budgeter,
     pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,
-    pub grt_per_usd: Eventual<NotNan<f64>>,
+    pub grt_per_usd: watch::Receiver<NotNan<f64>>,
     pub chains: &'static Chains,
     pub network: GraphNetwork,
     pub indexing_statuses: Eventual<Ptr<HashMap<Indexing, Status>>>,

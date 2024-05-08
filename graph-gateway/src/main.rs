@@ -63,7 +63,7 @@ use thegraph_core::{
     client as subgraph_client,
     types::{attestation, DeploymentId},
 };
-use tokio::{net::TcpListener, signal::unix::SignalKind, spawn};
+use tokio::{net::TcpListener, signal::unix::SignalKind, spawn, sync::watch};
 use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
@@ -123,11 +123,11 @@ async fn main() {
         .build()
         .unwrap();
 
-    let grt_per_usd: Eventual<NotNan<f64>> = match config.exchange_rate_provider {
+    let grt_per_usd: watch::Receiver<NotNan<f64>> = match config.exchange_rate_provider {
         ExchangeRateProvider::Fixed(grt_per_usd) => {
-            Eventual::from_value(NotNan::new(grt_per_usd).expect("NAN exchange rate"))
+            watch::channel(NotNan::new(grt_per_usd).expect("NAN exchange rate")).1
         }
-        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).unwrap(),
+        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await.unwrap(),
     };
 
     let network_subgraph_client =
@@ -223,8 +223,6 @@ async fn main() {
     let query_fees_target =
         USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
-
-    grt_per_usd.value().await.unwrap();
 
     // Wait for the API keys to be fetched before starting the server
     if let Err(err) = auth_service.wait_for_api_keys().await {
