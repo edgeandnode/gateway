@@ -403,11 +403,7 @@ async fn handle_client_query_inner(
             };
 
             // over-pay indexers to hit target
-            let min_fee = ctx
-                .budgeter
-                .min_indexer_fees
-                .value_immediate()
-                .unwrap_or_default();
+            let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections_len as f64;
             let indexer_fee = candidate.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
