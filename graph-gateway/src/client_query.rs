@@ -289,10 +289,7 @@ async fn handle_client_query_inner(
         %variables,
     );
 
-    let grt_per_usd = ctx
-        .grt_per_usd
-        .value_immediate()
-        .ok_or_else(|| Error::Internal(anyhow!("missing exchange rate")))?;
+    let grt_per_usd = *ctx.grt_per_usd.borrow();
     let one_grt = NotNan::new(1e18).unwrap();
     let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
     let query_settings = query_settings.unwrap_or_default();

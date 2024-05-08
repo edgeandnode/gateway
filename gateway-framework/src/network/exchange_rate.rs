@@ -6,9 +6,8 @@ use ethers::{
     prelude::{abigen, Http},
     providers::Provider,
 };
-use eventuals::{Eventual, EventualExt, EventualWriter};
 use ordered_float::NotNan;
-use tokio::sync::Mutex;
+use tokio::{sync::watch, time::sleep};
 use url::Url;
 
 abigen!(
@@ -17,7 +16,7 @@ abigen!(
     event_derives(serde::Deserialize, serde::Serialize);
 );
 
-pub fn grt_per_usd(provider: Url) -> anyhow::Result<Eventual<NotNan<f64>>> {
+pub async fn grt_per_usd(provider: Url) -> anyhow::Result<watch::Receiver<NotNan<f64>>> {
     // https://data.chain.link/ethereum/mainnet/crypto-eth/grt-eth
     let chainlink_eth_per_grt: Address = "0x17d054ecac33d91f7340645341efb5de9009f1c1"
         .parse()
@@ -35,11 +34,10 @@ pub fn grt_per_usd(provider: Url) -> anyhow::Result<Eventual<NotNan<f64>>> {
         ChainlinkPriceFeed::new(chainlink_usd_per_eth, provider),
     ));
 
-    let (writer, reader) = Eventual::new();
-    let writer: &'static Mutex<EventualWriter<NotNan<f64>>> =
-        Box::leak(Box::new(Mutex::new(writer)));
-    eventuals::timer(Duration::from_secs(60))
-        .pipe_async(move |_| async {
+    let (tx, mut rx) = watch::channel(NotNan::new(0.0).unwrap());
+    tokio::spawn(async move {
+        loop {
+            sleep(Duration::from_secs(60)).await;
             let eth_per_grt = match fetch_price(eth_per_grt).await {
                 Ok(eth_per_grt) => eth_per_grt,
                 Err(eth_per_grt_err) => {
@@ -56,10 +54,14 @@ pub fn grt_per_usd(provider: Url) -> anyhow::Result<Eventual<NotNan<f64>>> {
             };
             let grt_per_usd = NotNan::new((eth_per_grt * usd_per_eth).recip()).unwrap();
             tracing::info!(%grt_per_usd);
-            writer.lock().await.write(grt_per_usd);
-        })
-        .forever();
-    Ok(reader)
+            if let Err(grt_per_usd_send_err) = tx.send(grt_per_usd) {
+                tracing::error!(%grt_per_usd_send_err);
+            }
+        }
+    });
+
+    let _ = rx.wait_for(|v| *v != 0.0).await;
+    Ok(rx)
 }
 
 async fn fetch_price(contract: &ChainlinkPriceFeed<Provider<Http>>) -> anyhow::Result<NotNan<f64>> {
