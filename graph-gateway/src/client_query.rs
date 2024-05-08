@@ -643,7 +643,7 @@ async fn handle_indexer_query(
         }) => (Err(error), latest_block),
     };
 
-    let latency_ms = ctx.response_time.as_millis() as u32;
+    let latency_ms = ctx.response_time.as_millis() as u16;
     tracing::info!(
         target: INDEXER_REQUEST_TARGET,
         %deployment,
