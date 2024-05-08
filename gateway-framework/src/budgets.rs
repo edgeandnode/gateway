@@ -1,8 +1,11 @@
 use std::time::Duration;
 
-use eventuals::{Eventual, EventualWriter};
 use ordered_float::NotNan;
-use tokio::{select, spawn, sync::mpsc, time::interval};
+use tokio::{
+    select, spawn,
+    sync::{mpsc, watch},
+    time::interval,
+};
 
 use crate::reporting::METRICS;
 
@@ -12,14 +15,13 @@ pub struct USD(pub NotNan<f64>);
 pub struct Budgeter {
     pub feedback: mpsc::UnboundedSender<USD>,
     pub query_fees_target: USD,
-    pub min_indexer_fees: Eventual<USD>,
+    pub min_indexer_fees: watch::Receiver<USD>,
 }
 
 impl Budgeter {
     pub fn new(query_fees_target: USD) -> Self {
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
-        let (mut min_indexer_fees_tx, min_indexer_fees_rx) = Eventual::new();
-        min_indexer_fees_tx.write(query_fees_target);
+        let (min_indexer_fees_tx, min_indexer_fees_rx) = watch::channel(query_fees_target);
         Actor::create(feedback_rx, min_indexer_fees_tx, query_fees_target);
         Self {
             feedback: feedback_tx,
@@ -31,14 +33,14 @@ impl Budgeter {
 
 struct Actor {
     feedback: mpsc::UnboundedReceiver<USD>,
-    min_indexer_fees: EventualWriter<USD>,
+    min_indexer_fees: watch::Sender<USD>,
     controller: Controller,
 }
 
 impl Actor {
     fn create(
         feedback: mpsc::UnboundedReceiver<USD>,
-        min_indexer_fees: EventualWriter<USD>,
+        min_indexer_fees: watch::Sender<USD>,
         query_fees_target: USD,
     ) {
         let mut actor = Actor {
@@ -67,7 +69,9 @@ impl Actor {
         }
         let min_indexer_fees = self.controller.control_variable();
         tracing::debug!(?min_indexer_fees);
-        self.min_indexer_fees.write(min_indexer_fees);
+        if let Err(min_indexer_fees_send_err) = self.min_indexer_fees.send(min_indexer_fees) {
+            tracing::error!(%min_indexer_fees_send_err);
+        };
     }
 }
 
