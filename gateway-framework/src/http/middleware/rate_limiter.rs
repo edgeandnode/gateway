@@ -7,7 +7,7 @@ use std::{
 use alloy_primitives::Address;
 use axum::http::Request;
 use dashmap::DashMap;
-use eventuals::EventualExt;
+use tokio::time::sleep;
 use tower::Service;
 
 use self::future::ResponseFuture;
@@ -190,8 +190,10 @@ impl AddRateLimiterLayer {
         // After the retain, shrink the map to fit the number of elements.
         // c6f70ddd-9dbe-462a-9214-da94b199a544
         let counters = state.clone();
-        eventuals::timer(interval)
-            .pipe(move |_| {
+        tokio::spawn(async move {
+            loop {
+                sleep(interval).await;
+
                 counters.retain(|_, value: &mut AtomicUsize| {
                     // If the counter is 0, remove it
                     if value.load(atomic::Ordering::Relaxed) == 0 {
@@ -205,8 +207,8 @@ impl AddRateLimiterLayer {
 
                 // Shrink the map to fit the number of elements
                 counters.shrink_to_fit();
-            })
-            .forever();
+            }
+        });
 
         Self { counters: state }
     }
@@ -555,7 +557,7 @@ mod tests {
             .get(&settings.key)
             .map(|counter| counter.load(atomic::Ordering::Relaxed));
 
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_millis(501)).await;
 
         let after_reset_counters = rate_limit_counters
             .get(&settings.key)
@@ -636,13 +638,13 @@ mod tests {
             .get(&settings.key)
             .map(|counter| counter.load(atomic::Ordering::Relaxed));
 
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_millis(501)).await;
 
         let after_reset_counters = rate_limit_counters
             .get(&settings.key)
             .map(|counter| counter.load(atomic::Ordering::Relaxed));
 
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_millis(501)).await;
 
         let after_remove_counters = rate_limit_counters
             .get(&settings.key)
