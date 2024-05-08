@@ -1,46 +1,45 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::Address;
-use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
+use anyhow::anyhow;
 use gateway_common::utils::timestamp::unix_timestamp;
 use thegraph_core::client as subgraph_client;
-use tokio::sync::Mutex;
+use tokio::{sync::watch, time::sleep};
 
 use crate::subscriptions::{ActiveSubscription, Subscription};
 
 pub struct Client {
     subgraph_client: subgraph_client::Client,
-    subscriptions: EventualWriter<Ptr<HashMap<Address, Subscription>>>,
+    subscriptions: watch::Sender<HashMap<Address, Subscription>>,
 }
 
 impl Client {
-    pub fn create(
+    pub async fn create(
         subgraph_client: subgraph_client::Client,
-    ) -> Eventual<Ptr<HashMap<Address, Subscription>>> {
-        let (subscriptions_tx, subscriptions_rx) = Eventual::new();
-        let client = Arc::new(Mutex::new(Client {
+    ) -> watch::Receiver<HashMap<Address, Subscription>> {
+        let (tx, mut rx) = watch::channel(Default::default());
+        let mut client = Client {
             subgraph_client,
-            subscriptions: subscriptions_tx,
-        }));
+            subscriptions: tx,
+        };
 
-        eventuals::timer(Duration::from_secs(30))
-            .pipe_async(move |_| {
-                let client = client.clone();
-                async move {
-                    let mut client = client.lock().await;
-                    if let Err(poll_active_subscriptions_err) =
-                        client.poll_active_subscriptions().await
-                    {
-                        tracing::error!(%poll_active_subscriptions_err);
-                    }
+        tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(30)).await;
+                if let Err(poll_active_subscriptions_err) = client.poll_active_subscriptions().await
+                {
+                    tracing::error!(%poll_active_subscriptions_err);
                 }
-            })
-            .forever();
+            }
+        });
 
-        subscriptions_rx
+        rx.wait_for(|subscriptions| !subscriptions.is_empty())
+            .await
+            .unwrap();
+        rx
     }
 
-    async fn poll_active_subscriptions(&mut self) -> Result<(), String> {
+    async fn poll_active_subscriptions(&mut self) -> anyhow::Result<()> {
         // Serve queries for subscriptions that end 10 minutes ago and later.
         let active_sub_end = (unix_timestamp() / 1000) - (60 * 10);
 
@@ -72,7 +71,8 @@ impl Client {
         let active_subscriptions_response = self
             .subgraph_client
             .paginated_query::<ActiveSubscription>(query)
-            .await?;
+            .await
+            .map_err(|err| anyhow!(err))?;
         if active_subscriptions_response.is_empty() {
             tracing::warn!("discarding empty update (active_subscriptions)");
             return Ok(());
@@ -96,7 +96,8 @@ impl Client {
                 Some((user.id, Subscription { signers, rate }))
             })
             .collect();
-        self.subscriptions.write(Ptr::new(subscriptions_map));
+
+        self.subscriptions.send(subscriptions_map)?;
 
         Ok(())
     }

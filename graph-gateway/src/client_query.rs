@@ -851,34 +851,35 @@ mod tests {
             routing::post,
             Extension, Router,
         };
-        use eventuals::{Eventual, Ptr};
         use gateway_framework::{
             auth::{methods::api_keys::APIKey, AuthContext, AuthToken},
             http::middleware::{legacy_auth_adapter, RequireAuthorizationLayer},
         };
         use headers::{Authorization, ContentType, HeaderMapExt};
         use http_body_util::BodyExt;
+        use tokio::sync::watch;
         use tower::ServiceExt;
 
         /// Create a test authorization context.
         fn test_auth_ctx(key: Option<&str>) -> AuthContext {
             let mut ctx = AuthContext {
                 payment_required: false,
-                api_keys: Eventual::from_value(Ptr::new(Default::default())),
+                api_keys: watch::channel(Default::default()).1,
                 special_api_keys: Default::default(),
                 special_query_key_signers: Default::default(),
-                subscriptions: Eventual::from_value(Ptr::new(Default::default())),
+                subscriptions: watch::channel(Default::default()).1,
                 subscription_rate_per_query: 0,
                 subscription_domains: Default::default(),
             };
             if let Some(key) = key {
-                ctx.api_keys = Eventual::from_value(Ptr::new(HashMap::from([(
+                ctx.api_keys = watch::channel(HashMap::from([(
                     key.into(),
                     Arc::new(APIKey {
                         key: key.into(),
                         ..Default::default()
                     }),
-                )])));
+                )]))
+                .1;
             }
             ctx
         }
