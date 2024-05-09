@@ -6,7 +6,7 @@ use ordered_float::NotNan;
 use serde::Deserialize;
 use tokio::{
     sync::watch,
-    time::{interval, Duration},
+    time::{interval, Duration, MissedTickBehavior},
 };
 use url::Url;
 
@@ -19,6 +19,7 @@ pub async fn api_keys(
     let mut client = Client { client, url, auth };
     tokio::spawn(async move {
         let mut interval = interval(Duration::from_secs(30));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
 

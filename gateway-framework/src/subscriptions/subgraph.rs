@@ -4,7 +4,10 @@ use alloy_primitives::Address;
 use anyhow::anyhow;
 use gateway_common::utils::timestamp::unix_timestamp;
 use thegraph_core::client as subgraph_client;
-use tokio::{sync::watch, time::interval};
+use tokio::{
+    sync::watch,
+    time::{interval, MissedTickBehavior},
+};
 
 use crate::subscriptions::{ActiveSubscription, Subscription};
 
@@ -25,6 +28,7 @@ impl Client {
 
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(30));
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
 
