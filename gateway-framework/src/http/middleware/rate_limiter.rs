@@ -7,7 +7,6 @@ use std::{
 use alloy_primitives::Address;
 use axum::http::Request;
 use dashmap::DashMap;
-use tokio::time::sleep;
 use tower::Service;
 
 use self::future::ResponseFuture;
@@ -191,9 +190,8 @@ impl AddRateLimiterLayer {
         // c6f70ddd-9dbe-462a-9214-da94b199a544
         let counters = state.clone();
         tokio::spawn(async move {
+            let mut interval = tokio::time::interval(interval);
             loop {
-                sleep(interval).await;
-
                 counters.retain(|_, value: &mut AtomicUsize| {
                     // If the counter is 0, remove it
                     if value.load(atomic::Ordering::Relaxed) == 0 {
@@ -207,6 +205,8 @@ impl AddRateLimiterLayer {
 
                 // Shrink the map to fit the number of elements
                 counters.shrink_to_fit();
+
+                interval.tick().await;
             }
         });
 
