@@ -5,7 +5,7 @@ use std::{
 
 use alloy_primitives::Address;
 use axum::extract::FromRef;
-use eventuals::{Eventual, Ptr};
+use tokio::sync::watch;
 
 use super::{
     methods::{
@@ -25,11 +25,11 @@ pub struct AuthContext {
     pub payment_required: bool,
 
     // Studio API keys
-    pub api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
+    pub api_keys: watch::Receiver<HashMap<String, Arc<APIKey>>>,
     pub special_api_keys: Arc<HashSet<String>>,
 
     // Subscriptions
-    pub subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
+    pub subscriptions: watch::Receiver<HashMap<Address, Subscription>>,
     pub special_query_key_signers: Arc<HashSet<Address>>,
     pub subscription_rate_per_query: u128,
     pub subscription_domains: Arc<HashMap<u64, Address>>,
@@ -58,9 +58,9 @@ impl FromRef<AuthContext> for subscriptions::AuthContext {
 impl AuthContext {
     pub fn create(
         payment_required: bool,
-        api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
+        api_keys: watch::Receiver<HashMap<String, Arc<APIKey>>>,
         special_api_keys: HashSet<String>,
-        subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
+        subscriptions: watch::Receiver<HashMap<Address, Subscription>>,
         special_query_key_signers: HashSet<Address>,
         subscription_rate_per_query: u128,
         subscription_domains: HashMap<u64, Address>,
@@ -74,17 +74,6 @@ impl AuthContext {
             subscription_rate_per_query,
             subscription_domains: Arc::new(subscription_domains),
         }
-    }
-
-    /// Waits for the API keys to be fetched.
-    ///
-    /// Internally, it waits for the `api_keys` eventual value to resolve.
-    pub async fn wait_for_api_keys(&self) -> anyhow::Result<()> {
-        self.api_keys
-            .value()
-            .await
-            .map_err(|_| anyhow::anyhow!("api keys fetch failed"))?;
-        Ok(())
     }
 
     pub fn parse_auth_token(

@@ -4,11 +4,11 @@ use std::{
 };
 
 use alloy_primitives::Address;
-use eventuals::{Eventual, Ptr};
 use ordered_float::NotNan;
 use serde::Deserialize;
 use serde_with::serde_as;
 use thegraph_core::types::{DeploymentId, SubgraphId};
+use tokio::sync::watch;
 
 use super::common;
 use crate::{
@@ -136,7 +136,7 @@ impl std::fmt::Display for AuthToken {
 /// App state (a.k.a [Context](crate::client_query::Context)) sub-state.
 pub struct AuthContext {
     /// A map between auth bearer token string and the [ApiKey].
-    pub(crate) api_keys: Eventual<Ptr<HashMap<String, Arc<APIKey>>>>,
+    pub(crate) api_keys: watch::Receiver<HashMap<String, Arc<APIKey>>>,
 
     /// Special API keys that don't require payment.
     ///
@@ -148,7 +148,7 @@ pub struct AuthContext {
 impl AuthContext {
     /// Get the API key associated with the given bearer token string.
     pub fn get_api_key(&self, token: &str) -> Option<Arc<APIKey>> {
-        self.api_keys.value_immediate()?.get(token).cloned()
+        self.api_keys.borrow().get(token).cloned()
     }
 
     /// Check if the given API key is a special key.

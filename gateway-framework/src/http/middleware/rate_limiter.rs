@@ -7,7 +7,7 @@ use std::{
 use alloy_primitives::Address;
 use axum::http::Request;
 use dashmap::DashMap;
-use eventuals::EventualExt;
+use tokio::time::MissedTickBehavior;
 use tower::Service;
 
 use self::future::ResponseFuture;
@@ -190,8 +190,12 @@ impl AddRateLimiterLayer {
         // After the retain, shrink the map to fit the number of elements.
         // c6f70ddd-9dbe-462a-9214-da94b199a544
         let counters = state.clone();
-        eventuals::timer(interval)
-            .pipe(move |_| {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(interval);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+
                 counters.retain(|_, value: &mut AtomicUsize| {
                     // If the counter is 0, remove it
                     if value.load(atomic::Ordering::Relaxed) == 0 {
@@ -205,8 +209,8 @@ impl AddRateLimiterLayer {
 
                 // Shrink the map to fit the number of elements
                 counters.shrink_to_fit();
-            })
-            .forever();
+            }
+        });
 
         Self { counters: state }
     }

@@ -217,11 +217,11 @@ mod tests {
 
     use assert_matches::assert_matches;
     use axum::body::Body;
-    use eventuals::{Eventual, Ptr};
     use headers::{Authorization, ContentType, HeaderMapExt};
     use http_body_util::BodyExt;
     use hyper::http;
     use ordered_float::NotNan;
+    use tokio::sync::watch;
     use tokio_test::assert_ready_ok;
 
     use super::{AuthContext, AuthToken, RequireAuthorizationLayer};
@@ -230,22 +230,23 @@ mod tests {
     fn test_auth_ctx(key: Option<&str>) -> AuthContext {
         let mut ctx = AuthContext {
             payment_required: false,
-            api_keys: Eventual::from_value(Ptr::new(Default::default())),
+            api_keys: watch::channel(Default::default()).1,
             special_api_keys: Default::default(),
             special_query_key_signers: Default::default(),
-            subscriptions: Eventual::from_value(Ptr::new(Default::default())),
+            subscriptions: watch::channel(Default::default()).1,
             subscription_rate_per_query: 0,
             subscription_domains: Default::default(),
         };
         if let Some(key) = key {
-            ctx.api_keys = Eventual::from_value(Ptr::new(HashMap::from([(
+            ctx.api_keys = watch::channel(HashMap::from([(
                 key.into(),
                 Arc::new(api_keys::APIKey {
                     key: key.into(),
                     max_budget_usd: Some(NotNan::new(1e3).unwrap()),
                     ..Default::default()
                 }),
-            )])));
+            )]))
+            .1;
         }
         ctx
     }

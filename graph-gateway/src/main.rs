@@ -218,17 +218,12 @@ async fn main() {
         config.api_keys,
         http_client.clone(),
         config.subscriptions,
-    );
+    )
+    .await;
 
     let query_fees_target =
         USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
-
-    // Wait for the API keys to be fetched before starting the server
-    if let Err(err) = auth_service.wait_for_api_keys().await {
-        tracing::error!(%err);
-        panic!("Failed to initialize the auth service: {err}");
-    }
 
     let client_query_ctx = Context {
         indexer_client: IndexerClient {
@@ -454,7 +449,7 @@ fn graphql_error_response<S: ToString>(message: S) -> json::JsonResponse {
 /// Creates a new [`AuthContext`] from the given configuration.
 ///
 /// This functions awaits the completion of the initial API keys and subscriptions fetches.
-fn init_auth_service(
+async fn init_auth_service(
     payment_required: bool,
     api_keys_http_client: reqwest::Client,
     api_keys: Option<ApiKeys>,
@@ -468,27 +463,31 @@ fn init_auth_service(
 
     let api_keys_ev = match api_keys {
         Some(ApiKeys::Endpoint { url, auth, .. }) => {
-            subgraph_studio::api_keys(api_keys_http_client, url, auth.0)
+            subgraph_studio::api_keys(api_keys_http_client, url, auth.0).await
         }
-        Some(ApiKeys::Fixed(api_keys)) => Eventual::from_value(Ptr::new(
-            api_keys
+        Some(ApiKeys::Fixed(api_keys)) => {
+            let api_keys = api_keys
                 .into_iter()
                 .map(|k| (k.key.clone(), k.into()))
-                .collect(),
-        )),
-        None => Eventual::from_value(Ptr::default()),
+                .collect();
+            watch::channel(api_keys).1
+        }
+        None => watch::channel(Default::default()).1,
     };
 
     let subscriptions_ev = match &subscriptions {
-        None => Eventual::from_value(Ptr::default()),
-        Some(subscriptions) => subscriptions_subgraph::Client::create(
-            subgraph_client::Client::builder(
-                subscriptions_http_client,
-                subscriptions.subgraph.clone(),
+        None => watch::channel(Default::default()).1,
+        Some(subscriptions) => {
+            subscriptions_subgraph::Client::create(
+                subgraph_client::Client::builder(
+                    subscriptions_http_client,
+                    subscriptions.subgraph.clone(),
+                )
+                .with_auth_token(subscriptions.ticket.clone())
+                .build(),
             )
-            .with_auth_token(subscriptions.ticket.clone())
-            .build(),
-        ),
+            .await
+        }
     };
 
     AuthContext::create(

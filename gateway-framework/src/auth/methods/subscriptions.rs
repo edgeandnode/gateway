@@ -4,13 +4,13 @@ use std::{
 };
 
 use alloy_primitives::Address;
-use eventuals::{Eventual, Ptr};
 use thegraph_core::{
     subscriptions::auth::{
         parse_auth_token as parse_bearer_token, verify_auth_token_claims, AuthTokenClaims,
     },
     types::{DeploymentId, SubgraphId},
 };
+use tokio::sync::watch;
 
 use super::common;
 use crate::{
@@ -99,7 +99,7 @@ pub struct AuthContext {
     ///
     /// Subscriptions are fetched periodically (every 30s) from the Subscriptions subgraph by
     /// the gateway using the [`subscriptions_subgraph` client](crate::subscriptions_subgraph::Client).
-    pub(crate) subscriptions: Eventual<Ptr<HashMap<Address, Subscription>>>,
+    pub(crate) subscriptions: watch::Receiver<HashMap<Address, Subscription>>,
 
     /// Auth token signers that don't require payment.
     pub(crate) special_signers: Arc<HashSet<Address>>,
@@ -114,7 +114,7 @@ pub struct AuthContext {
 impl AuthContext {
     /// Get the subscription associated with the auth token claims user.
     pub fn get_subscription_for_user(&self, user: &Address) -> Option<Subscription> {
-        self.subscriptions.value_immediate()?.get(user).cloned()
+        self.subscriptions.borrow().get(user).cloned()
     }
 
     /// Returns `true` if the given address corresponds to a special signer.

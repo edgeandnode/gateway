@@ -1,42 +1,47 @@
 use std::{collections::HashMap, error::Error, sync::Arc};
 
 use alloy_primitives::Address;
-use eventuals::{self, Eventual, EventualExt as _, EventualWriter, Ptr};
 use gateway_framework::auth::methods::api_keys::{APIKey, QueryStatus};
 use ordered_float::NotNan;
 use serde::Deserialize;
-use tokio::{sync::Mutex, time::Duration};
+use tokio::{
+    sync::watch,
+    time::{interval, Duration, MissedTickBehavior},
+};
 use url::Url;
 
-pub fn api_keys(
+pub async fn api_keys(
     client: reqwest::Client,
     url: Url,
     auth: String,
-) -> Eventual<Ptr<HashMap<String, Arc<APIKey>>>> {
-    let (writer, reader) = Eventual::new();
-    let client: &'static Mutex<Client> = Box::leak(Box::new(Mutex::new(Client {
-        client,
-        url,
-        auth,
-        api_keys_writer: writer,
-    })));
-    eventuals::timer(Duration::from_secs(30))
-        .pipe_async(move |_| async move {
-            let mut client = client.lock().await;
+) -> watch::Receiver<HashMap<String, Arc<APIKey>>> {
+    let (tx, mut rx) = watch::channel(Default::default());
+    let mut client = Client { client, url, auth };
+    tokio::spawn(async move {
+        let mut interval = interval(Duration::from_secs(30));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+
             match client.fetch_api_keys().await {
-                Ok(api_keys) => client.api_keys_writer.write(Ptr::new(api_keys)),
+                Ok(api_keys) => {
+                    if let Err(api_keys_send_err) = tx.send(api_keys) {
+                        tracing::error!(%api_keys_send_err);
+                    }
+                }
                 Err(api_key_fetch_error) => tracing::error!(%api_key_fetch_error),
             };
-        })
-        .forever();
-    reader
+        }
+    });
+
+    rx.wait_for(|api_keys| !api_keys.is_empty()).await.unwrap();
+    rx
 }
 
 struct Client {
     client: reqwest::Client,
     url: Url,
     auth: String,
-    api_keys_writer: EventualWriter<Ptr<HashMap<String, Arc<APIKey>>>>,
 }
 
 impl Client {
