@@ -7,7 +7,7 @@ use ethers::{
     providers::Provider,
 };
 use ordered_float::NotNan;
-use tokio::{sync::watch, time::sleep};
+use tokio::{sync::watch, time::interval};
 use url::Url;
 
 abigen!(
@@ -36,8 +36,8 @@ pub async fn grt_per_usd(provider: Url) -> anyhow::Result<watch::Receiver<NotNan
 
     let (tx, mut rx) = watch::channel(NotNan::new(0.0).unwrap());
     tokio::spawn(async move {
+        let mut interval = interval(Duration::from_secs(60));
         loop {
-            sleep(Duration::from_secs(60)).await;
             let eth_per_grt = match fetch_price(eth_per_grt).await {
                 Ok(eth_per_grt) => eth_per_grt,
                 Err(eth_per_grt_err) => {
@@ -57,6 +57,8 @@ pub async fn grt_per_usd(provider: Url) -> anyhow::Result<watch::Receiver<NotNan
             if let Err(grt_per_usd_send_err) = tx.send(grt_per_usd) {
                 tracing::error!(%grt_per_usd_send_err);
             }
+
+            interval.tick().await;
         }
     });
 
