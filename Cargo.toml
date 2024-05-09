@@ -26,7 +26,7 @@ hex = "0.4"
 indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "9737d67" }
 primitive-types = "0.12.2"
 rand = { version = "0.8", features = ["small_rng"] }
-receipts = { git = "https://github.com/edgeandnode/receipts", rev = "b12e197" }
+receipts = { git = "https://github.com/edgeandnode/receipts", rev = "e94e0f1" }
 reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "default-tls",

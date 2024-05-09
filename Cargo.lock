@@ -3651,7 +3651,7 @@ dependencies = [
 [[package]]
 name = "receipts"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/receipts?rev=b12e197#b12e1971db9aac813a339e1ac75178a7cb3883bd"
+source = "git+https://github.com/edgeandnode/receipts?rev=e94e0f1#e94e0f11c41632328b349394b15c3d93fbda1d4b"
 dependencies = [
  "itertools 0.12.1",
  "lazy_static",
