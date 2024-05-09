@@ -7,7 +7,10 @@ use ethers::{
     providers::Provider,
 };
 use ordered_float::NotNan;
-use tokio::{sync::watch, time::interval};
+use tokio::{
+    sync::watch,
+    time::{interval, MissedTickBehavior},
+};
 use url::Url;
 
 abigen!(
@@ -37,6 +40,7 @@ pub async fn grt_per_usd(provider: Url) -> anyhow::Result<watch::Receiver<NotNan
     let (tx, mut rx) = watch::channel(NotNan::new(0.0).unwrap());
     tokio::spawn(async move {
         let mut interval = interval(Duration::from_secs(60));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
 
