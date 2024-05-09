@@ -4,7 +4,7 @@ use ordered_float::NotNan;
 use tokio::{
     select, spawn,
     sync::{mpsc, watch},
-    time::interval,
+    time::{interval, MissedTickBehavior},
 };
 
 use crate::reporting::METRICS;
@@ -49,6 +49,7 @@ impl Actor {
             controller: Controller::new(query_fees_target),
         };
         let mut budget_timer = interval(Duration::from_secs(1));
+        budget_timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
         spawn(async move {
             loop {
                 select! {

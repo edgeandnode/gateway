@@ -7,7 +7,7 @@ use alloy_primitives::Address;
 use tokio::{
     select, spawn,
     sync::{mpsc, RwLock, RwLockReadGuard},
-    time::interval,
+    time::{interval, MissedTickBehavior},
 };
 
 use crate::{blocks::Block, chain::Chain, reporting::METRICS};
@@ -73,6 +73,7 @@ impl Actor {
         spawn(async move {
             let mut msgs: Vec<Msg> = Default::default();
             let mut timer = interval(Duration::from_secs(1));
+            timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
             loop {
                 select! {
                     _ = rx.recv_many(&mut msgs, 32) => Self::handle_msgs(chain, &mut msgs).await,

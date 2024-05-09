@@ -6,7 +6,7 @@ use gateway_common::types::Indexing;
 use tokio::{
     select,
     sync::{mpsc, oneshot, RwLock},
-    time,
+    time::{self, MissedTickBehavior},
 };
 
 use crate::network::discovery::Status;
@@ -93,8 +93,9 @@ impl Actor {
         indexing_statuses: Eventual<Ptr<HashMap<Indexing, Status>>>,
     ) {
         let mut actor = Self { data };
-        let mut timer = time::interval(Duration::from_secs(1));
         let mut statuses = indexing_statuses.subscribe();
+        let mut timer = time::interval(Duration::from_secs(1));
+        timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
         tokio::spawn(async move {
             let batch_limit = 32;
             let mut msg_buf = Vec::with_capacity(batch_limit);
