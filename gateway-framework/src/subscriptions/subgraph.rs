@@ -26,12 +26,12 @@ impl Client {
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(30));
             loop {
+                interval.tick().await;
+
                 if let Err(poll_active_subscriptions_err) = client.poll_active_subscriptions().await
                 {
                     tracing::error!(%poll_active_subscriptions_err);
                 }
-
-                interval.tick().await;
             }
         });
 
