@@ -192,6 +192,8 @@ impl AddRateLimiterLayer {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(interval);
             loop {
+                interval.tick().await;
+
                 counters.retain(|_, value: &mut AtomicUsize| {
                     // If the counter is 0, remove it
                     if value.load(atomic::Ordering::Relaxed) == 0 {
@@ -205,8 +207,6 @@ impl AddRateLimiterLayer {
 
                 // Shrink the map to fit the number of elements
                 counters.shrink_to_fit();
-
-                interval.tick().await;
             }
         });
 
@@ -557,7 +557,7 @@ mod tests {
             .get(&settings.key)
             .map(|counter| counter.load(atomic::Ordering::Relaxed));
 
-        tokio::time::sleep(Duration::from_millis(501)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         let after_reset_counters = rate_limit_counters
             .get(&settings.key)
@@ -638,13 +638,13 @@ mod tests {
             .get(&settings.key)
             .map(|counter| counter.load(atomic::Ordering::Relaxed));
 
-        tokio::time::sleep(Duration::from_millis(501)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         let after_reset_counters = rate_limit_counters
             .get(&settings.key)
             .map(|counter| counter.load(atomic::Ordering::Relaxed));
 
-        tokio::time::sleep(Duration::from_millis(501)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         let after_remove_counters = rate_limit_counters
             .get(&settings.key)
