@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     sync::Arc,
     time::SystemTime,
 };
@@ -84,10 +84,9 @@ impl ReceiptSigner {
             .unwrap_or_default()
             .contains(&indexing.indexer)
         {
-            let legacy_pools = self.legacy_pools.read().await;
-            let legacy_pool = legacy_pools.get(indexing)?;
+            let legacy_pool = self.legacy_pools.read().await.get(indexing)?.clone();
             let mut legacy_pool = legacy_pool.lock().await;
-            let receipt = legacy_pool.commit(fee.into()).ok()?;
+            let receipt = legacy_pool.commit(self.legacy_signer, fee.into()).ok()?;
             return Some(ScalarReceipt::Legacy(fee, receipt));
         }
 
@@ -132,44 +131,22 @@ impl ReceiptSigner {
     }
 
     pub async fn update_allocations(&self, indexings: HashMap<Indexing, Address>) {
-        for (indexing, allocation) in &indexings {
-            let legacy_pool = self.get(indexing).await;
-            let mut legacy_pool = legacy_pool.lock().await;
-            // remove stale allocations
-            for old_allocation in legacy_pool
-                .addresses()
-                .into_iter()
-                .filter(|a| a != *allocation)
-            {
-                legacy_pool.remove_allocation(&old_allocation);
-            }
-            // add allocation, if not already present
-            if !legacy_pool.contains_allocation(allocation) {
-                legacy_pool.add_allocation(*self.legacy_signer, *allocation.0);
+        // refresh legacy pools
+        {
+            let mut legacy_pools = self.legacy_pools.write().await;
+            legacy_pools.retain(|indexing, _| indexings.contains_key(indexing));
+            for (indexing, allocation) in &indexings {
+                legacy_pools
+                    .entry(*indexing)
+                    .or_insert_with(|| Arc::new(Mutex::new(ReceiptPool::new(allocation.0 .0))));
             }
         }
 
+        // refresh allocations
         let mut allocations = self.allocations.write().await;
-        // remove stale allocations
         allocations.retain(|k, _| indexings.contains_key(k));
-        // update allocations
         for (indexing, allocation) in indexings {
             allocations.insert(indexing, allocation);
-        }
-    }
-
-    async fn get(&self, indexing: &Indexing) -> Arc<Mutex<ReceiptPool>> {
-        if let Some(pool) = self.legacy_pools.read().await.get(indexing) {
-            return pool.clone();
-        }
-        let mut legacy_pools = self.legacy_pools.write().await;
-        match legacy_pools.entry(*indexing) {
-            Entry::Occupied(entry) => entry.get().clone(),
-            Entry::Vacant(entry) => {
-                let pool = Arc::new(Mutex::default());
-                entry.insert(pool.clone());
-                pool
-            }
         }
     }
 }
