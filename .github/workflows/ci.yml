@@ -26,8 +26,6 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-          profile: minimal
-          override: true
 
       - name: Cache Cargo build files
         uses: Leafwing-Studios/cargo-cache@c7e8aa40ae2c975774d3bd766beb92927cfd7771 # v1
@@ -46,7 +44,7 @@ jobs:
       # Install age (needed for decrypting tests .env file)
       - name: Setup age
         uses: alessiodionisi/setup-age-action@82b9aea163ade7fe23441552a514cf666b214077 # v1.3.0
-        
+
       - name: Unit tests
         uses: LNSD/sops-exec-action@6da1fbca63459d9796097496d5f5e6233555b31a # v1
         env:
