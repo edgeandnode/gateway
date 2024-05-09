@@ -7,6 +7,7 @@ use std::{
 use alloy_primitives::Address;
 use axum::http::Request;
 use dashmap::DashMap;
+use tokio::time::MissedTickBehavior;
 use tower::Service;
 
 use self::future::ResponseFuture;
@@ -191,6 +192,7 @@ impl AddRateLimiterLayer {
         let counters = state.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(interval);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
 
