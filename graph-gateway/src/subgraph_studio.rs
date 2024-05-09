@@ -6,7 +6,7 @@ use ordered_float::NotNan;
 use serde::Deserialize;
 use tokio::{
     sync::watch,
-    time::{sleep, Duration},
+    time::{interval, Duration},
 };
 use url::Url;
 
@@ -18,8 +18,8 @@ pub async fn api_keys(
     let (tx, mut rx) = watch::channel(Default::default());
     let mut client = Client { client, url, auth };
     tokio::spawn(async move {
+        let mut interval = interval(Duration::from_secs(30));
         loop {
-            sleep(Duration::from_secs(30)).await;
             match client.fetch_api_keys().await {
                 Ok(api_keys) => {
                     if let Err(api_keys_send_err) = tx.send(api_keys) {
@@ -28,6 +28,8 @@ pub async fn api_keys(
                 }
                 Err(api_key_fetch_error) => tracing::error!(%api_key_fetch_error),
             };
+
+            interval.tick().await;
         }
     });
 

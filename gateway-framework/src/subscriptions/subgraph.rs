@@ -4,7 +4,7 @@ use alloy_primitives::Address;
 use anyhow::anyhow;
 use gateway_common::utils::timestamp::unix_timestamp;
 use thegraph_core::client as subgraph_client;
-use tokio::{sync::watch, time::sleep};
+use tokio::{sync::watch, time::interval};
 
 use crate::subscriptions::{ActiveSubscription, Subscription};
 
@@ -24,12 +24,14 @@ impl Client {
         };
 
         tokio::spawn(async move {
+            let mut interval = interval(Duration::from_secs(30));
             loop {
-                sleep(Duration::from_secs(30)).await;
                 if let Err(poll_active_subscriptions_err) = client.poll_active_subscriptions().await
                 {
                     tracing::error!(%poll_active_subscriptions_err);
                 }
+
+                interval.tick().await;
             }
         });
 
