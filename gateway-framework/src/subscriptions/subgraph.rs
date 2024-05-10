@@ -76,7 +76,7 @@ impl Client {
         );
         let active_subscriptions_response = self
             .subgraph_client
-            .paginated_query::<ActiveSubscription>(query)
+            .paginated_query::<ActiveSubscription>(query, 200)
             .await
             .map_err(|err| anyhow!(err))?;
         if active_subscriptions_response.is_empty() {
