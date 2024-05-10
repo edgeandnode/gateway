@@ -485,6 +485,7 @@ async fn init_auth_service(
                 )
                 .with_auth_token(subscriptions.ticket.clone())
                 .build(),
+                subscriptions.allow_empty,
             )
             .await
         }
