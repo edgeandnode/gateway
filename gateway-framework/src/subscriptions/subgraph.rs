@@ -19,6 +19,7 @@ pub struct Client {
 impl Client {
     pub async fn create(
         subgraph_client: subgraph_client::Client,
+        allow_empty: bool,
     ) -> watch::Receiver<HashMap<Address, Subscription>> {
         let (tx, mut rx) = watch::channel(Default::default());
         let mut client = Client {
@@ -39,9 +40,11 @@ impl Client {
             }
         });
 
-        rx.wait_for(|subscriptions| !subscriptions.is_empty())
-            .await
-            .unwrap();
+        if !allow_empty {
+            rx.wait_for(|subscriptions| !subscriptions.is_empty())
+                .await
+                .unwrap();
+        }
         rx
     }
 

@@ -196,6 +196,9 @@ pub struct Subscriptions {
     /// e.g. If 0.01 USDC (6 decimals) is required per query per minute, then this should be set to
     /// 10000.
     pub rate_per_query: u128,
+    /// Allow startup with no active subscriptions.
+    #[serde(default)]
+    pub allow_empty: bool,
 }
 
 #[serde_as]
