@@ -153,7 +153,7 @@ impl Client {
 
         let subgraphs = self
             .subgraph_client
-            .paginated_query::<Subgraph>(query)
+            .paginated_query::<Subgraph>(query, 200)
             .await?;
 
         if subgraphs.is_empty() {

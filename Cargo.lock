@@ -614,7 +614,7 @@ dependencies = [
 [[package]]
 name = "candidate-selection"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/candidate-selection?rev=9737d67#9737d6744cf90c4e71ac3862bd32cb925d2f0cc1"
+source = "git+https://github.com/edgeandnode/candidate-selection?rev=9ba7b8d#9ba7b8dc694e345d15dbf61b649782dbdea3273d"
 dependencies = [
  "arrayvec 0.7.4",
  "ordered-float",
@@ -2449,7 +2449,7 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 [[package]]
 name = "indexer-selection"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/candidate-selection?rev=9737d67#9737d6744cf90c4e71ac3862bd32cb925d2f0cc1"
+source = "git+https://github.com/edgeandnode/candidate-selection?rev=9ba7b8d#9ba7b8dc694e345d15dbf61b649782dbdea3273d"
 dependencies = [
  "candidate-selection",
  "custom_debug",
@@ -4769,9 +4769,9 @@ dependencies = [
 
 [[package]]
 name = "thegraph-core"
-version = "0.3.2"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0f179034f9427c1238d3024f771ac1b728562c27491f219b9abd831855d5b7e"
+checksum = "cff46d3b5fbf4a774c59ef9fdc1010faff8e721d0422be39126f6acd5cefbe5d"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
