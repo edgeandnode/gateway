@@ -37,28 +37,33 @@ fn init_test_tracing() {
 
 /// Test helper to get the test url from the environment.
 fn test_base_url() -> Url {
-    std::env::var("IT_TEST_HOSTED_SERVICE_URL")
-        .expect("Missing IT_TEST_HOSTED_SERVICE_URL")
+    std::env::var("IT_TEST_ARBITRUM_GATEWAY_URL")
+        .expect("Missing IT_TEST_ARBITRUM_GATEWAY_URL")
         .parse()
-        .expect("Invalid IT_TEST_HOSTED_SERVICE_URL")
+        .expect("Invalid IT_TEST_ARBITRUM_GATEWAY_URL")
+}
+
+/// Test helper to get the test auth token from the environment.
+fn test_auth_token() -> String {
+    std::env::var("IT_TEST_ARBITRUM_GATEWAY_AUTH").expect("Missing IT_TEST_ARBITRUM_GATEWAY_AUTH")
 }
 
 /// Test helper to build the subgraph url with the given subgraph ID.
-fn hosted_service_url_with_subgraph_name(name: impl AsRef<str>) -> Url {
+fn url_with_subgraph_id(name: impl AsRef<str>) -> Url {
     test_base_url()
-        .join(&format!("subgraphs/name/{}", name.as_ref()))
+        .join(&format!("api/subgraphs/id/{}", name.as_ref()))
         .expect("Invalid URL")
 }
+
+/// The Graph Network Arbitrum in the network.
+///
+/// https://thegraph.com/explorer/subgraphs/DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp
+const GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID: &str = "DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp";
 
 /// Test helper to get an [`Address`] from a given string.
 fn test_address(addr: impl AsRef<str>) -> Address {
     addr.as_ref().parse().expect("Invalid address")
 }
-
-/// The Graph Network Mainnet in the hosted service.
-///
-/// https://thegraph.com/hosted-service/subgraph/graphprotocol/graph-network-mainnet
-const GRAPH_NETWORK_MAINNET_SUBGRAPH_ID: &str = "graphprotocol/graph-network-mainnet";
 
 /// Test helper to build the service config for the tests.
 fn test_service_state(
@@ -122,13 +127,13 @@ static FETCHED_NETWORK_INFO: OnceCell<Vec1<internal_types::IndexerInfo>> = OnceC
 async fn fetch_and_pre_process_indexers_info() -> Vec1<internal_types::IndexerInfo> {
     FETCHED_NETWORK_INFO
         .get_or_try_init(move || async move {
-            let subgraph_url =
-                hosted_service_url_with_subgraph_name(GRAPH_NETWORK_MAINNET_SUBGRAPH_ID);
+            let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
+            let auth_token = test_auth_token();
 
             let mut client = {
                 let http_client = reqwest::Client::new();
                 let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
-                    .with_auth_token(None) // Not required for the hosted service
+                    .with_auth_token(Some(auth_token))
                     .build();
                 Client::new(subgraph_client, true)
             };
@@ -148,12 +153,13 @@ async fn fetch_and_pre_process_indexers_info() -> Vec1<internal_types::IndexerIn
 
 /// Test helper to fetch, process and construct the network topology snapshot.
 async fn fetch_update(service: &InternalState) -> anyhow::Result<GraphNetwork> {
-    let subgraph_url = hosted_service_url_with_subgraph_name(GRAPH_NETWORK_MAINNET_SUBGRAPH_ID);
+    let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
+    let auth_token = test_auth_token();
 
     let client = {
         let http_client = reqwest::Client::new();
         let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
-            .with_auth_token(None) // Not required for the hosted service
+            .with_auth_token(Some(auth_token))
             .build();
         Mutex::new(Client::new(subgraph_client, true))
     };
@@ -161,7 +167,7 @@ async fn fetch_update(service: &InternalState) -> anyhow::Result<GraphNetwork> {
     internal_fetch_update(&client, service).await
 }
 
-#[test_with::env(IT_TEST_HOSTED_SERVICE_URL)]
+#[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]
 #[tokio::test]
 async fn fetch_a_network_topology_update() {
     init_test_tracing();
@@ -367,7 +373,7 @@ async fn fetch_a_network_topology_update() {
     );
 }
 
-#[test_with::env(IT_TEST_HOSTED_SERVICE_URL)]
+#[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]
 #[tokio::test]
 async fn fetch_indexers_info_and_block_an_indexer_by_address() {
     init_test_tracing();
@@ -417,7 +423,7 @@ async fn fetch_indexers_info_and_block_an_indexer_by_address() {
     );
 }
 
-#[test_with::env(IT_TEST_HOSTED_SERVICE_URL)]
+#[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]
 #[tokio::test]
 async fn fetch_indexers_info_and_block_an_indexer_by_host() {
     init_test_tracing();
@@ -470,7 +476,7 @@ async fn fetch_indexers_info_and_block_an_indexer_by_host() {
     );
 }
 
-#[test_with::env(IT_TEST_HOSTED_SERVICE_URL)]
+#[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]
 #[tokio::test]
 async fn fetch_indexers_info_and_block_all_indexers_by_agent_version() {
     init_test_tracing();

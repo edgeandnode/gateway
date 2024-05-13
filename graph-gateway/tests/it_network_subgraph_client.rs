@@ -7,34 +7,40 @@ use url::Url;
 
 /// Test helper to get the test url from the environment.
 fn test_base_url() -> Url {
-    std::env::var("IT_TEST_HOSTED_SERVICE_URL")
-        .expect("Missing IT_TEST_HOSTED_SERVICE_URL")
+    std::env::var("IT_TEST_ARBITRUM_GATEWAY_URL")
+        .expect("Missing IT_TEST_ARBITRUM_GATEWAY_URL")
         .parse()
-        .expect("Invalid IT_TEST_HOSTED_SERVICE_URL")
+        .expect("Invalid IT_TEST_ARBITRUM_GATEWAY_URL")
+}
+
+/// Test helper to get the test auth token from the environment.
+fn test_auth_token() -> String {
+    std::env::var("IT_TEST_ARBITRUM_GATEWAY_AUTH").expect("Missing IT_TEST_ARBITRUM_GATEWAY_AUTH")
 }
 
 /// Test helper to build the subgraph url with the given subgraph ID.
-fn hosted_service_url_with_subgraph_name(name: impl AsRef<str>) -> Url {
+fn url_with_subgraph_id(name: impl AsRef<str>) -> Url {
     test_base_url()
-        .join(&format!("subgraphs/name/{}", name.as_ref()))
+        .join(&format!("api/subgraphs/id/{}", name.as_ref()))
         .expect("Invalid URL")
 }
 
-/// The Graph Network Mainnet in the hosted service.
+/// The Graph Network Arbitrum in the network.
 ///
-/// https://thegraph.com/hosted-service/subgraph/graphprotocol/graph-network-mainnet
-const GRAPH_NETWORK_MAINNET_SUBGRAPH_ID: &str = "graphprotocol/graph-network-mainnet";
+/// https://thegraph.com/explorer/subgraphs/DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp
+const GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID: &str = "DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp";
 
-#[test_with::env(IT_TEST_HOSTED_SERVICE_URL)]
+#[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]
 #[tokio::test]
 async fn fetch_indexers_and_deserialize() {
     //* Given
-    let subgraph_url = hosted_service_url_with_subgraph_name(GRAPH_NETWORK_MAINNET_SUBGRAPH_ID);
+    let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
+    let auth_token = test_auth_token();
 
     let mut network_subgraph_client = {
         let http_client = reqwest::Client::new();
         let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
-            .with_auth_token(None) // Not required for the hosted service
+            .with_auth_token(Some(auth_token))
             .build();
         Client::new(subgraph_client, true)
     };
@@ -53,16 +59,17 @@ async fn fetch_indexers_and_deserialize() {
     });
 }
 
-#[test_with::env(IT_TEST_HOSTED_SERVICE_URL)]
+#[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]
 #[tokio::test]
 async fn fetch_subgraphs_and_deserialize() {
     //* Given
-    let subgraph_url = hosted_service_url_with_subgraph_name(GRAPH_NETWORK_MAINNET_SUBGRAPH_ID);
+    let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
+    let auth_token = test_auth_token();
 
     let mut network_subgraph_client = {
         let http_client = reqwest::Client::new();
         let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
-            .with_auth_token(None) // Not required for the hosted service
+            .with_auth_token(Some(auth_token))
             .build();
         Client::new(subgraph_client, true)
     };
@@ -81,16 +88,17 @@ async fn fetch_subgraphs_and_deserialize() {
     });
 }
 
-#[test_with::env(IT_TEST_HOSTED_SERVICE_URL)]
+#[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]
 #[tokio::test]
 async fn fetch_subgraph_no_l2_transfer_support_and_deserialize() {
     //* Given
-    let subgraph_url = hosted_service_url_with_subgraph_name(GRAPH_NETWORK_MAINNET_SUBGRAPH_ID);
+    let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
+    let auth_token = test_auth_token();
 
     let mut network_subgraph_client = {
         let http_client = reqwest::Client::new();
         let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
-            .with_auth_token(None) // Not required for the hosted service
+            .with_auth_token(Some(auth_token))
             .build();
         Client::new(subgraph_client, false)
     };
