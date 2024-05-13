@@ -51,6 +51,7 @@ impl IndexingStatusResolver {
         indexer_status_url: Url,
         indexer_deployments: &[DeploymentId],
     ) -> Result<HashMap<DeploymentId, IndexingStatusInfo>, ResolutionError> {
+        // TODO: Handle the different errors once the indexers client module reports them
         let statuses = indexers::indexing_statuses::query(
             &self.client,
             indexer_status_url,

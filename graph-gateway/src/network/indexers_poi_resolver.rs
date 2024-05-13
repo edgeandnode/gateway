@@ -73,6 +73,7 @@ impl PoiResolver {
         indexer_status_url: Url,
         pois_meta: Vec<(DeploymentId, BlockNumber)>,
     ) -> HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> {
+        // TODO: Handle the different errors once the indexers client module reports them
         indexers::public_poi::merge_queries(
             self.client.clone(),
             indexer_status_url,

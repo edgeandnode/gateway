@@ -9,14 +9,6 @@ use url::Url;
 
 use crate::{indexers, indexers::cost_models::CostModelSource};
 
-/// Error type for cost model resolution.
-#[derive(Debug, Clone, thiserror::Error)]
-enum ResolutionError {
-    /// The cost model couldn't be fetched.
-    #[error("fetch failed: {0}")]
-    FetchFailed(String),
-}
-
 /// Resolve the indexers' cost models sources and compile them into cost models.
 pub struct CostModelResolver {
     client: reqwest::Client,
@@ -37,14 +29,14 @@ impl CostModelResolver {
         indexer_cost_url: Url,
         indexer_deployments: &[DeploymentId],
     ) -> HashMap<DeploymentId, CostModelSource> {
+        // TODO: Handle the different errors once the indexers client module reports them
         let sources =
             match indexers::cost_models::query(&self.client, indexer_cost_url, indexer_deployments)
                 .await
-                .map_err(|err| ResolutionError::FetchFailed(err.to_string()))
             {
                 Ok(sources) => sources,
                 Err(err) => {
-                    tracing::debug!("Failed to resole cost models: {err}");
+                    tracing::debug!("Failed to resolve cost models: {err}");
                     return HashMap::new();
                 }
             };
