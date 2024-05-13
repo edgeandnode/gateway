@@ -88,6 +88,9 @@ pub struct Indexer {
     ///
     /// It is a set of deployment IDs that the indexer is indexing.
     pub indexings: HashSet<DeploymentId>,
+
+    /// The indexer's staked tokens.
+    pub staked_tokens: u128,
 }
 
 #[derive(Clone)]

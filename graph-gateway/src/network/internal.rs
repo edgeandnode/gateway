@@ -944,6 +944,7 @@ pub fn construct_network_topology_snapshot(
                     graph_node_version: indexer.graph_node_version.clone(),
                     legacy_scalar: indexer.legacy_scalar,
                     indexings: indexer.deployments.iter().copied().collect(),
+                    staked_tokens: indexer.staked_tokens,
                 }),
             )
         })
