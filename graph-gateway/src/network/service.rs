@@ -366,8 +366,7 @@ fn spawn_updater_task(
                         }
                         // If the fetch fails, log a warning and skip the update
                         Err(err) => {
-                            tracing::warn!("network update fetch failed");
-                            tracing::debug!("network update fetch failed: {err}");
+                            tracing::warn!(network_update_err=%err);
                         }
                     }
                 }
