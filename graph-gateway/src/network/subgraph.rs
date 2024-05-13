@@ -14,7 +14,8 @@ use thegraph_core::client as subgraph_client;
 ///
 /// Please, DO NOT mix or merge them.
 /// </div>
-// TODO: Add references to the Graph Network Subgraph schema
+///
+/// See: https://github.com/graphprotocol/graph-network-subgraph/blob/master/schema.graphql
 pub mod types {
     pub mod fetch_subgraphs {
         use alloy_primitives::{Address, BlockNumber};
@@ -115,7 +116,6 @@ pub mod types {
 /// The Graph network subgraph client.
 pub struct Client {
     client: subgraph_client::Client,
-    // TODO: remove when L2 subgraph transfer support is on mainnet network subgraphs
     l2_transfer_support: bool,
 }
 
@@ -194,7 +194,7 @@ impl Client {
         );
 
         self.client
-            .paginated_query(query)
+            .paginated_query(query, 200)
             .await
             .map_err(|err| anyhow::anyhow!(err))
     }
@@ -242,7 +242,7 @@ impl Client {
         "#;
 
         self.client
-            .paginated_query(query)
+            .paginated_query(query, 200)
             .await
             .map_err(|err| anyhow::anyhow!(err))
     }

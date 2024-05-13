@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use itertools::Itertools;
 use semver::Version;
 use tokio::sync::Mutex;
 use tracing::Instrument;
@@ -85,17 +86,9 @@ pub mod types {
     pub struct DeploymentInfo {
         pub id: DeploymentId,
         pub allocations: Vec1<AllocationInfo>,
-        pub manifest: ManifestInfo,
+        pub manifest_network: String,
+        pub manifest_start_block: BlockNumber,
         pub transferred_to_l2: bool,
-    }
-
-    /// Internal representation of the fetched deployment information.
-    ///
-    /// This is not the final representation of the deployment.
-    #[derive(Clone, Debug)]
-    pub struct ManifestInfo {
-        pub network: String,
-        pub start_block: BlockNumber,
     }
 
     /// Internal representation of the fetched allocation information.
@@ -103,8 +96,10 @@ pub mod types {
     /// This is not the final representation of the allocation.
     #[derive(Clone, Debug)]
     pub struct AllocationInfo {
+        // The allocation ID.
         pub id: Address,
-        pub indexer_id: Address,
+        // The indexer ID.
+        pub indexer: Address,
     }
 
     /// Internal representation of the fetched indexer information.
@@ -126,13 +121,6 @@ pub mod types {
         /// The deployments are ordered from highest to lowest associated token allocation.
         //  See ref: d260724b-a445-4842-964e-fb95062c119d
         pub deployments: Vec1<DeploymentId>,
-        /// The largest allocation address.
-        pub largest_allocation: Address,
-        /// The total amount of tokens allocated for this indexer.
-        ///
-        /// It is the sum of all the `allocated_tokens` from the indexer's allocations.
-        pub total_allocated_tokens: u128,
-
         /// The indexer's "indexer service" version.
         pub indexer_agent_version: Version,
         /// The indexer's "scalar_tap" version.
@@ -142,6 +130,11 @@ pub mod types {
 
         /// A flag indicating if the indexer is using the legacy scalar.
         pub legacy_scalar: bool,
+
+        /// The largest allocation per indexing.
+        pub largest_allocation: HashMap<DeploymentId, Address>,
+        /// The total amount of tokens allocated by the indexer per indexing.
+        pub total_allocated_tokens: HashMap<DeploymentId, u128>,
 
         /// The indexer's indexing status.
         pub indexings_status: HashMap<DeploymentId, IndexerIndexingStatusInfo>,
@@ -343,35 +336,62 @@ fn try_into_internal_indexer_info(
         .try_into()
         .map_err(|_| anyhow!("no allocations"))?;
 
-    // Get the largest allocation and the total amount of tokens allocated
-    // NOTE: The allocations are ordered by `allocatedTokens` in descending order, and
-    // the largest allocation is the first one.
-    // See ref: d260724b-a445-4842-964e-fb95062c119d
-    let indexer_largest_allocation = indexer_allocations.first();
-    let indexer_largest_allocation_id = indexer_largest_allocation.id;
-    let indexer_total_allocated_tokens = indexer_allocations
-        .iter()
-        .map(|alloc| alloc.allocated_tokens)
-        .sum();
-
-    // Get the list of deployments the indexer is associated with.
+    // Get the list of unique deployment IDs the indexer is associated with.
     // NOTE: The indexer is guaranteed to have at least one allocation and one
     // deployment.
     // See ref: d260724b-a445-4842-964e-fb95062c119d
-    let indexer_deployment_ids = indexer_allocations
+    let indexer_deployment_ids: Vec1<_> = indexer_allocations
         .iter()
         .map(|alloc| alloc.subgraph_deployment.id)
+        .unique()
         .collect::<Vec<_>>()
         .try_into()
         .map_err(|_| anyhow!("no deployments"))?;
+
+    // Get the largest allocation and the total amount of tokens allocated for each indexing
+    // NOTE: The allocations are ordered by `allocatedTokens` in descending order, and
+    // the largest allocation is the first one.
+    // See ref: d260724b-a445-4842-964e-fb95062c119d
+    let indexer_indexing_largest_allocations = indexer_deployment_ids
+        .iter()
+        .flat_map(|deployment_id| {
+            indexer_allocations
+                .iter()
+                .filter_map(|alloc| {
+                    if alloc.subgraph_deployment.id == *deployment_id {
+                        Some((*deployment_id, alloc.id))
+                    } else {
+                        None
+                    }
+                })
+                .next()
+        })
+        .collect::<HashMap<_, _>>();
+
+    let indexer_indexing_total_allocated_tokens = indexer_deployment_ids
+        .iter()
+        .map(|deployment_id| {
+            let total = indexer_allocations
+                .iter()
+                .filter_map(|alloc| {
+                    if alloc.subgraph_deployment.id == *deployment_id {
+                        Some(alloc.allocated_tokens)
+                    } else {
+                        None
+                    }
+                })
+                .sum();
+            (*deployment_id, total)
+        })
+        .collect::<HashMap<_, _>>();
 
     Ok(types::IndexerInfo {
         id: indexer.id,
         url: indexer_url,
         staked_tokens: indexer.staked_tokens,
         deployments: indexer_deployment_ids,
-        largest_allocation: indexer_largest_allocation_id,
-        total_allocated_tokens: indexer_total_allocated_tokens,
+        largest_allocation: indexer_indexing_largest_allocations,
+        total_allocated_tokens: indexer_indexing_total_allocated_tokens,
         indexer_agent_version: Version::new(0, 0, 0), // Placeholder
         scalar_tap_version: Version::new(0, 0, 0),    // Placeholder
         graph_node_version: Version::new(0, 0, 0),    // Placeholder
@@ -405,7 +425,9 @@ fn try_into_internal_subgraph_info(
             .entered();
 
             // Deployment must have a valid manifest to be considered valid.
-            let deployment_manifest = match deployment.manifest {
+            let (deployment_manifest_network, deployment_manifest_start_block) = match deployment
+                .manifest
+            {
                 // Deployment must have a valid manifest to be considered valid.
                 None => {
                     tracing::trace!("filtering-out version-deployment: no manifest");
@@ -415,10 +437,7 @@ fn try_into_internal_subgraph_info(
                     tracing::trace!("filtering-out version-deployment: no manifest network info");
                     return None;
                 }
-                Some(manifest) => types::ManifestInfo {
-                    network: manifest.network?,
-                    start_block: manifest.start_block.unwrap_or(0),
-                },
+                Some(manifest) => (manifest.network?, manifest.start_block.unwrap_or(0)),
             };
 
             // Deployment must have at least one allocation to be considered valid.
@@ -427,7 +446,7 @@ fn try_into_internal_subgraph_info(
                 .into_iter()
                 .map(|allocation| types::AllocationInfo {
                     id: allocation.id,
-                    indexer_id: allocation.indexer.id,
+                    indexer: allocation.indexer.id,
                 })
                 .collect::<Vec<_>>()
                 .try_into()
@@ -447,7 +466,8 @@ fn try_into_internal_subgraph_info(
             let version_deployment = types::DeploymentInfo {
                 id: deployment_id,
                 allocations: deployment_allocations,
-                manifest: deployment_manifest,
+                manifest_network: deployment_manifest_network,
+                manifest_start_block: deployment_manifest_start_block,
                 transferred_to_l2: deployment_transferred_to_l2,
             };
 
@@ -920,9 +940,6 @@ pub fn construct_network_topology_snapshot(
                 Arc::new(Indexer {
                     id: indexer.id,
                     url: indexer.url.clone(),
-                    staked_tokens: indexer.staked_tokens,
-                    largest_allocation: indexer.largest_allocation,
-                    total_allocated_tokens: indexer.total_allocated_tokens,
                     indexer_agent_version: indexer.indexer_agent_version.clone(),
                     graph_node_version: indexer.graph_node_version.clone(),
                     legacy_scalar: indexer.legacy_scalar,
@@ -939,9 +956,9 @@ pub fn construct_network_topology_snapshot(
             let highest_version = subgraph.versions.first();
             let highest_version_number = highest_version.version;
             let highest_version_deployment_manifest_chain =
-                highest_version.deployment.manifest.network.clone();
+                highest_version.deployment.manifest_network.clone();
             let highest_version_deployment_manifest_start_block =
-                highest_version.deployment.manifest.start_block;
+                highest_version.deployment.manifest_start_block;
 
             let versions_behind_table = subgraph
                 .versions
@@ -981,7 +998,7 @@ pub fn construct_network_topology_snapshot(
                         .filter_map(|alloc| {
                             // If the indexer is not in the indexers table, exclude it. It might
                             // have been filtered out due to different reasons, e.g., invalid info.
-                            let indexing_indexer_id = alloc.indexer_id;
+                            let indexing_indexer_id = alloc.indexer;
                             let indexing_indexer_info =
                                 indexers_info_table.get(&indexing_indexer_id)?;
 
@@ -994,6 +1011,16 @@ pub fn construct_network_topology_snapshot(
 
                             let indexing_indexer =
                                 indexings_indexers_table.get(&indexing_indexer_id)?;
+
+                            // If the indexing has no allocations, exclude it
+                            let indexing_largest_allocation_addr = indexing_indexer_info
+                                .largest_allocation
+                                .get(&deployment_id)?;
+
+                            // If the indexing has no total allocated tokens, exclude it
+                            let indexing_total_allocated_tokens = indexing_indexer_info
+                                .total_allocated_tokens
+                                .get(&deployment_id)?;
 
                             let indexing_status = indexing_indexer_info
                                 .indexings_status
@@ -1015,6 +1042,8 @@ pub fn construct_network_topology_snapshot(
                             let indexing = Indexing {
                                 id: indexing_id,
                                 versions_behind: indexing_deployment_versions_behind,
+                                largest_allocation: *indexing_largest_allocation_addr,
+                                total_allocated_tokens: *indexing_total_allocated_tokens,
                                 indexer: indexing_indexer.clone(),
                                 status: indexing_status,
                                 cost_model: indexing_cost_model,
@@ -1056,8 +1085,8 @@ pub fn construct_network_topology_snapshot(
         .into_iter()
         .filter_map(|(deployment_id, deployment)| {
             let deployment_versions_behind = 0;
-            let deployment_manifest_chain = deployment.manifest.network.clone();
-            let deployment_manifest_start_block = deployment.manifest.start_block;
+            let deployment_manifest_chain = deployment.manifest_network.clone();
+            let deployment_manifest_start_block = deployment.manifest_start_block;
 
             let deployment_indexings = deployment
                 .allocations
@@ -1065,7 +1094,7 @@ pub fn construct_network_topology_snapshot(
                 .filter_map(|alloc| {
                     // If the indexer is not in the indexers table, exclude it. It might
                     // have been filtered out due to different reasons, e.g., invalid info.
-                    let indexing_indexer_id = alloc.indexer_id;
+                    let indexing_indexer_id = alloc.indexer;
                     let indexing_indexer_info = indexers_info_table.get(&indexing_indexer_id)?;
 
                     // The indexer deployments list contains the healthy deployments. It must
@@ -1076,6 +1105,14 @@ pub fn construct_network_topology_snapshot(
                     }
 
                     let indexing_indexer = indexings_indexers_table.get(&indexing_indexer_id)?;
+
+                    let indexing_largest_allocation_addr = indexing_indexer_info
+                        .largest_allocation
+                        .get(&deployment_id)?;
+
+                    let indexing_total_allocated_tokens = indexing_indexer_info
+                        .total_allocated_tokens
+                        .get(&deployment_id)?;
 
                     let indexing_status = indexing_indexer_info
                         .indexings_status
@@ -1097,6 +1134,8 @@ pub fn construct_network_topology_snapshot(
                     let indexing = Indexing {
                         id: indexing_id,
                         versions_behind: deployment_versions_behind,
+                        largest_allocation: *indexing_largest_allocation_addr,
+                        total_allocated_tokens: *indexing_total_allocated_tokens,
                         indexer: indexing_indexer.clone(),
                         status: indexing_status,
                         cost_model: indexing_cost_model,

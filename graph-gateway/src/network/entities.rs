@@ -32,6 +32,16 @@ pub struct Indexing {
     /// The versions behind the highest version of the subgraph being indexed.
     pub versions_behind: u8,
 
+    /// The largest allocation address.
+    ///
+    /// This is, among all allocations associated with the indexer and deployment, the address
+    /// with the largest amount of allocated tokens.
+    pub largest_allocation: Address,
+    /// The indexer's indexing total allocated tokens.
+    ///
+    /// This is, the sum of all allocated tokens associated with the indexer and deployment.
+    pub total_allocated_tokens: u128,
+
     /// The indexer
     pub indexer: Arc<Indexer>,
 
@@ -65,15 +75,6 @@ pub struct Indexer {
     /// It is guaranteed that the URL scheme is either HTTP or HTTPS and the URL has a host.
     #[debug(with = Display::fmt)]
     pub url: Url,
-
-    /// The total amount of tokens staked by the indexer.
-    pub staked_tokens: u128,
-    /// The largest allocation address.
-    pub largest_allocation: Address,
-    /// The total amount of tokens allocated for this indexer.
-    ///
-    /// It is the sum of all the `allocated_tokens` from the indexer's allocations.
-    pub total_allocated_tokens: u128,
 
     /// The indexer's "indexer service" version.
     pub indexer_agent_version: Version,

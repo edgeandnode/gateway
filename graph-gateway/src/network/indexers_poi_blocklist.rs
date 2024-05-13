@@ -13,7 +13,7 @@ use alloy_primitives::BlockNumber;
 use itertools::Itertools;
 use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 
-use crate::{indexers::public_poi::ProofOfIndexingInfo, network::blocklists::BlockState};
+use crate::{indexers::public_poi::ProofOfIndexingInfo, network::blocklists::BlocklistResult};
 
 /// A blocklist based on the Proof of Indexing (POI) of indexers.
 pub struct PoiBlocklist {
@@ -62,7 +62,7 @@ impl PoiBlocklist {
     pub fn check(
         &self,
         pois: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>,
-    ) -> HashMap<DeploymentId, BlockState> {
+    ) -> HashMap<DeploymentId, BlocklistResult> {
         pois.iter()
             .map(|((deployment_id, block_number), poi)| {
                 let state = self.check_poi(*deployment_id, *block_number, *poi);
@@ -77,9 +77,9 @@ impl PoiBlocklist {
         deployment_id: DeploymentId,
         block_number: BlockNumber,
         poi: ProofOfIndexing,
-    ) -> BlockState {
+    ) -> BlocklistResult {
         match self.blocklist.get(&deployment_id) {
-            None => BlockState::Allowed,
+            None => BlocklistResult::Allowed,
             Some(blocked_pois) => {
                 // Check if the POI is blocked
                 if blocked_pois.iter().any(|blocked| {
@@ -87,9 +87,9 @@ impl PoiBlocklist {
                         && blocked.block_number == block_number
                         && blocked.proof_of_indexing == poi
                 }) {
-                    BlockState::Blocked
+                    BlocklistResult::Blocked
                 } else {
-                    BlockState::Allowed
+                    BlocklistResult::Allowed
                 }
             }
         }

@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use alloy_primitives::Address;
 
-use super::blocklists::BlockState;
+use super::blocklists::BlocklistResult;
 
 /// A blocklist for indexer addresses.
 #[derive(Debug, Clone, Default)]
@@ -22,13 +22,13 @@ impl AddrBlocklist {
 
     /// Check if an indexer's address is in the blocklist.
     ///
-    /// If the address is in the blocklist, return [`BlockState::Blocked`], otherwise return
-    /// [`BlockState::Allowed`].
-    pub fn check(&self, addr: &Address) -> BlockState {
+    /// If the address is in the blocklist, return [`BlocklistResult::Blocked`], otherwise return
+    /// [`BlocklistResult::Allowed`].
+    pub fn check(&self, addr: &Address) -> BlocklistResult {
         if self.blocklist.contains(addr) {
-            BlockState::Blocked
+            BlocklistResult::Blocked
         } else {
-            BlockState::Allowed
+            BlocklistResult::Allowed
         }
     }
 }

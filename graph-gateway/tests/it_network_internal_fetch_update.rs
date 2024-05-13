@@ -129,7 +129,6 @@ async fn fetch_and_pre_process_indexers_info() -> Vec1<internal_types::IndexerIn
                 let http_client = reqwest::Client::new();
                 let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
                     .with_auth_token(None) // Not required for the hosted service
-                    .with_page_size(200) // The default page size is 200
                     .build();
                 Client::new(subgraph_client, true)
             };
@@ -155,7 +154,6 @@ async fn fetch_update(service: &InternalState) -> anyhow::Result<GraphNetwork> {
         let http_client = reqwest::Client::new();
         let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
             .with_auth_token(None) // Not required for the hosted service
-            .with_page_size(200) // The default page size is 200
             .build();
         Mutex::new(Client::new(subgraph_client, true))
     };

@@ -10,7 +10,7 @@ use std::{collections::HashSet, fs, net::IpAddr, path::Path};
 use anyhow::Context as _;
 use ipnetwork::IpNetwork;
 
-use super::blocklists::BlockState;
+use super::blocklists::BlocklistResult;
 
 /// Load the IP blocklist from a CSV file.
 ///
@@ -45,16 +45,16 @@ impl HostBlocklist {
     /// Check if any of the resolved IP addresses are blocked.
     ///
     /// If any of the resolved IP addresses are blocked, the function will return
-    /// [`BlockState::Blocked`], otherwise it will return [`BlockState::Allowed`].
-    pub fn check(&self, addrs: &[IpAddr]) -> BlockState {
+    /// [`BlocklistResult::Blocked`], otherwise it will return [`BlocklistResult::Allowed`].
+    pub fn check(&self, addrs: &[IpAddr]) -> BlocklistResult {
         // Check if any of the IP addresses are contained in any of the blocked networks
         if addrs
             .iter()
             .any(|addr| self.conf.iter().any(|net| net.contains(*addr)))
         {
-            BlockState::Blocked
+            BlocklistResult::Blocked
         } else {
-            BlockState::Allowed
+            BlocklistResult::Allowed
         }
     }
 }
