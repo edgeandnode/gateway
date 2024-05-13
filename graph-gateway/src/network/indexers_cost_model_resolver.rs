@@ -13,7 +13,7 @@ use crate::{indexers, indexers::cost_models::CostModelSource};
 #[derive(Debug, Clone, thiserror::Error)]
 enum ResolutionError {
     /// The cost model couldn't be fetched.
-    #[error("The cost model couldn't be fetched: {0}")]
+    #[error("fetch failed: {0}")]
     FetchFailed(String),
 }
 
@@ -44,7 +44,7 @@ impl CostModelResolver {
             {
                 Ok(sources) => sources,
                 Err(err) => {
-                    tracing::debug!("Failed to fetch cost models: {err}");
+                    tracing::debug!("Failed to resole cost models: {err}");
                     return HashMap::new();
                 }
             };
