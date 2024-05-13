@@ -24,10 +24,7 @@ use gateway_framework::{
     blocks::Block,
     budgets::USD,
     chains::ChainReader,
-    errors::{
-        Error, IndexerError,
-        UnavailableReason::{self, *},
-    },
+    errors::{Error, IndexerError, UnavailableReason},
     network::{
         discovery::Status,
         indexing_performance::{IndexingPerformance, Snapshot},
@@ -38,6 +35,7 @@ use gateway_framework::{
 };
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
+use itertools::Itertools;
 use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
 use prost::bytes::Buf;
@@ -113,13 +111,19 @@ pub async fn handle_query(
     tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
 
     // Check authorization for the resolved deployments
-    if !auth.are_deployments_authorized(&deployments) {
+    let resolved_deployments_ids = deployments.iter().map(|d| d.id).collect::<Vec<_>>();
+    if !auth.are_deployments_authorized(&resolved_deployments_ids) {
         return Err(Error::Auth(anyhow::anyhow!(
             "deployment not authorized by user"
         )));
     }
 
-    if !auth.are_subgraphs_authorized(&deployments) {
+    let resolved_subgraph_ids = deployments
+        .iter()
+        .flat_map(|d| d.subgraphs.iter().copied())
+        .unique()
+        .collect::<Vec<_>>();
+    if !auth.are_subgraphs_authorized(&resolved_subgraph_ids) {
         return Err(Error::Auth(anyhow::anyhow!(
             "subgraph not authorized by user"
         )));
@@ -267,7 +271,10 @@ async fn handle_client_query_inner(
         .unwrap_or_default();
     available_indexers.retain(|candidate| {
         if blocklist.contains(candidate) || ctx.bad_indexers.contains(&candidate.indexer) {
-            indexer_errors.insert(candidate.indexer, IndexerError::Unavailable(NoStatus));
+            indexer_errors.insert(
+                candidate.indexer,
+                IndexerError::Unavailable(UnavailableReason::NoStatus),
+            );
             return false;
         }
         true
@@ -716,7 +723,7 @@ async fn handle_indexer_query_inner(
         .iter()
         .try_for_each(|err| check_block_error(&err.message))
         .map_err(|block_error| ExtendedIndexerError {
-            error: IndexerError::Unavailable(MissingBlock),
+            error: IndexerError::Unavailable(UnavailableReason::MissingBlock),
             latest_block: block_error.latest_block,
         })?;
 
@@ -789,8 +796,10 @@ pub fn indexer_fee(
         .map(|model| model.cost_with_context(context))
     {
         None => Ok(0),
-        Some(Ok(fee)) => fee.to_u128().ok_or(IndexerError::Unavailable(NoFee)),
-        Some(Err(_)) => Err(IndexerError::Unavailable(NoFee)),
+        Some(Ok(fee)) => fee
+            .to_u128()
+            .ok_or(IndexerError::Unavailable(UnavailableReason::NoFee)),
+        Some(Err(_)) => Err(IndexerError::Unavailable(UnavailableReason::NoFee)),
     }
 }
 

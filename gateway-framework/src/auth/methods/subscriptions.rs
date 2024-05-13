@@ -15,7 +15,6 @@ use tokio::sync::watch;
 use super::common;
 use crate::{
     auth::QuerySettings, http::middleware::RateLimitSettings, subscriptions::Subscription,
-    topology::network::Deployment,
 };
 
 /// Auth token wrapper around the Subscriptions auth token claims and the subscription.
@@ -75,12 +74,14 @@ impl AuthToken {
         common::is_deployment_authorized(allowed_deployments, deployment)
     }
 
-    pub fn are_subgraphs_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+    /// Check if ALL subgraphs are authorized by the auth token claims.
+    pub fn are_subgraphs_authorized(&self, subgraphs: &[SubgraphId]) -> bool {
         let allowed_subgraphs = &self.claims.allowed_subgraphs;
-        common::are_subgraphs_authorized(allowed_subgraphs, deployments)
+        common::are_subgraphs_authorized(allowed_subgraphs, subgraphs)
     }
 
-    pub fn are_deployments_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+    /// Check if ALL deployments are authorized by the auth token claims.
+    pub fn are_deployments_authorized(&self, deployments: &[DeploymentId]) -> bool {
         let allowed_deployments = &self.claims.allowed_deployments;
         common::are_deployments_authorized(allowed_deployments, deployments)
     }

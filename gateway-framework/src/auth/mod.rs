@@ -1,14 +1,11 @@
-pub mod context;
-pub mod methods;
-
-use std::sync::Arc;
-
 use methods::{api_keys, subscriptions};
 use ordered_float::NotNan;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 
 pub use self::context::AuthContext;
-use crate::topology::network::Deployment;
+
+pub mod context;
+pub mod methods;
 
 /// User query settings typically associated with an auth token.
 #[derive(Clone, Debug, Default)]
@@ -49,14 +46,16 @@ impl AuthToken {
         }
     }
 
-    pub fn are_subgraphs_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+    /// Check if ALL subgraphs are authorized for this auth token.
+    pub fn are_subgraphs_authorized(&self, subgraphs: &[SubgraphId]) -> bool {
         match self {
-            AuthToken::ApiKey(auth) => auth.are_subgraphs_authorized(deployments),
-            AuthToken::SubscriptionsAuthToken(auth) => auth.are_subgraphs_authorized(deployments),
+            AuthToken::ApiKey(auth) => auth.are_subgraphs_authorized(subgraphs),
+            AuthToken::SubscriptionsAuthToken(auth) => auth.are_subgraphs_authorized(subgraphs),
         }
     }
 
-    pub fn are_deployments_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+    /// Check if ALL deployments are authorized for this auth token.
+    pub fn are_deployments_authorized(&self, deployments: &[DeploymentId]) -> bool {
         match self {
             AuthToken::ApiKey(auth) => auth.are_deployments_authorized(deployments),
             AuthToken::SubscriptionsAuthToken(auth) => auth.are_deployments_authorized(deployments),

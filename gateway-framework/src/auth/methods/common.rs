@@ -1,46 +1,44 @@
-use std::sync::Arc;
-
 use thegraph_core::types::{DeploymentId, SubgraphId};
 
-use crate::topology::network::Deployment;
-
-/// Check if the given deployments are authorized by the given authorized deployments.
+/// Check if the given deployment is authorized.
 ///
-/// If the authorized deployments set is empty, all deployments are considered authorized.
-pub fn are_deployments_authorized(
-    authorized: &[DeploymentId],
-    deployments: &[Arc<Deployment>],
-) -> bool {
-    authorized.is_empty()
-        || deployments
-            .iter()
-            .any(|deployment| authorized.contains(&deployment.id))
-}
-
-/// Check if the given deployment is authorized by the given authorized deployments.
+/// It checks if the given deployment is contained in the authorized set. If the authorized set is
+/// empty, any deployment is considered authorized.
 pub fn is_deployment_authorized(authorized: &[DeploymentId], deployment: &DeploymentId) -> bool {
     authorized.is_empty() || authorized.contains(deployment)
 }
 
-/// Check if any of the given deployments are authorized by the given authorized subgraphs.
+/// Check if ALL the deployments are authorized.
 ///
-/// If the authorized subgraphs set is empty, all deployments are considered authorized.
-pub fn are_subgraphs_authorized(
-    authorized: &[SubgraphId],
-    deployments: &[Arc<Deployment>],
+/// It checks if all deployments are contained in the authorized set. If the authorized set is
+/// empty, any deployment is considered authorized.
+pub fn are_deployments_authorized(
+    authorized: &[DeploymentId],
+    deployments: &[DeploymentId],
 ) -> bool {
     authorized.is_empty()
-        || deployments.iter().any(|deployment| {
-            deployment
-                .subgraphs
-                .iter()
-                .any(|subgraph_id| authorized.contains(subgraph_id))
-        })
+        || deployments
+            .iter()
+            .all(|deployment| authorized.contains(deployment))
 }
 
-/// Check if the given subgraph is authorized by the given authorized subgraphs.
+/// Check if the given subgraph is authorized.
+///
+/// It checks if the given subgraph is contained in the authorized set. If the authorized set is
+/// empty, any subgraph is considered authorized.
 pub fn is_subgraph_authorized(authorized: &[SubgraphId], subgraph: &SubgraphId) -> bool {
     authorized.is_empty() || authorized.contains(subgraph)
+}
+
+/// Check if ALL the subgraphs are authorized.
+///
+/// It checks if all subgraphs are contained in the authorized set. If the authorized set is empty,
+/// any subgraph is considered authorized.
+pub fn are_subgraphs_authorized(authorized: &[SubgraphId], subgraphs: &[SubgraphId]) -> bool {
+    authorized.is_empty()
+        || subgraphs
+            .iter()
+            .all(|subgraph| authorized.contains(subgraph))
 }
 
 /// Check if the query origin domain is authorized.

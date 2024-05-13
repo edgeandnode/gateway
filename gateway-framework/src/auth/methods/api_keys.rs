@@ -11,9 +11,7 @@ use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::sync::watch;
 
 use super::common;
-use crate::{
-    auth::QuerySettings, http::middleware::RateLimitSettings, topology::network::Deployment,
-};
+use crate::{auth::QuerySettings, http::middleware::RateLimitSettings};
 
 #[serde_as]
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -116,12 +114,14 @@ impl AuthToken {
         common::is_deployment_authorized(allowed_deployments, deployment)
     }
 
-    pub fn are_subgraphs_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+    /// Check if ALL subgraphs are authorized by the API key.
+    pub fn are_subgraphs_authorized(&self, subgraphs: &[SubgraphId]) -> bool {
         let allowed_subgraphs = &self.api_key.subgraphs;
-        common::are_subgraphs_authorized(allowed_subgraphs, deployments)
+        common::are_subgraphs_authorized(allowed_subgraphs, subgraphs)
     }
 
-    pub fn are_deployments_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
+    /// Check if ALL deployments are authorized by the API key.
+    pub fn are_deployments_authorized(&self, deployments: &[DeploymentId]) -> bool {
         let allowed_deployments = &self.api_key.deployments;
         common::are_deployments_authorized(allowed_deployments, deployments)
     }
