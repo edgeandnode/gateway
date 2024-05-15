@@ -1,8 +1,10 @@
+use alloy_primitives::BlockNumber;
 use anyhow::{bail, ensure};
 use futures::future::join_all;
 use indoc::formatdoc;
 use itertools::Itertools;
 use serde::Deserialize;
+use serde_with::serde_as;
 use thegraph_core::types::DeploymentId;
 use thegraph_graphql_http::http_client::ReqwestExt as _;
 
@@ -19,12 +21,8 @@ pub async fn query(
                     subgraph
                     chains {{
                         network
-                        latestBlock {{
-                            number
-                        }}
-                        earliestBlock {{
-                            number
-                        }}
+                        latestBlock {{ number }}
+                        earliestBlock {{ number }}
                     }}
                 }}
             }}"#
@@ -72,9 +70,11 @@ pub struct ChainStatus {
     pub earliest_block: Option<BlockStatus>,
 }
 
+#[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct BlockStatus {
-    pub number: String,
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    pub number: BlockNumber,
 }
 
 #[cfg(test)]

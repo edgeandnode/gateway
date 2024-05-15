@@ -190,11 +190,8 @@ async fn query_status(
             let cost_model = cost_models.remove(&indexing.deployment);
             let block_status = chain.latest_block.as_ref()?;
             let status = Status {
-                block: block_status.number.parse().ok()?,
-                min_block: chain
-                    .earliest_block
-                    .as_ref()
-                    .and_then(|b| b.number.parse::<u64>().ok()),
+                block: block_status.number,
+                min_block: chain.earliest_block.as_ref().map(|b| b.number),
                 cost_model,
                 legacy_scalar,
             };
