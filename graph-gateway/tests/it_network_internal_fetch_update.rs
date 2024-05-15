@@ -379,8 +379,8 @@ async fn fetch_indexers_info_and_block_an_indexer_by_address() {
     init_test_tracing();
 
     //* Given
-    // The Indexer ID (address) of the 'mainnet-indexer-01-us-central' indexer
-    let address = test_address("0xa959b5afe73c6faa803541b5c4edc0492dfda294");
+    // The Indexer ID (address) of the 'https://indexer.upgrade.thegraph.com/' indexer
+    let address = test_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
 
     let addr_blocklist = HashSet::from([address]);
     let service = test_service_state(
@@ -429,10 +429,10 @@ async fn fetch_indexers_info_and_block_an_indexer_by_host() {
     init_test_tracing();
 
     //* Given
-    // The Indexer ID (address) of the 'mainnet-indexer-01-us-central' indexer
-    let address = test_address("0xa959b5afe73c6faa803541b5c4edc0492dfda294");
+    // The Indexer ID (address) of the 'https://indexer.upgrade.thegraph.com/' indexer
+    let address = test_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
 
-    // The IP network of the 'mainnet-indexer-01-us-central' indexer (IPv4: 104.18.40.31)
+    // The IP network of the 'https://indexer.upgrade.thegraph.com/' indexer (IPv4: 104.18.40.31)
     let ip_network = "104.18.40.0/24".parse().expect("Invalid IP network");
 
     let host_blocklist = HashSet::from([ip_network]);

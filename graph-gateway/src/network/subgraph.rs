@@ -228,7 +228,6 @@ impl Client {
                 url
                 stakedTokens
                 allocations(
-                    first: 100,
                     orderBy: allocatedTokens, orderDirection: desc
                     where: { status: Active }
                 ) {

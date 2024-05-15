@@ -247,6 +247,11 @@ pub async fn fetch_and_pre_process_indexers_info(
         .filter_map(|indexer| {
             let _span =
                 tracing::debug_span!("indexer pre-processing", indexer.id = %indexer.id).entered();
+            tracing::trace!(
+                indexer.allocations_count = %indexer.allocations.len(),
+                indexer.url = ?indexer.url,
+            );
+
             match try_into_internal_indexer_info(indexer) {
                 Ok(indexer) => Some(indexer),
                 Err(err) => {
@@ -291,7 +296,7 @@ pub async fn fetch_and_pre_process_subgraphs_info(
         .filter_map(|subgraph| {
             let _span = tracing::debug_span!(
                 "subgraph pre-processing",
-                subgraph = %subgraph.id,
+                subgraph.id = %subgraph.id,
             )
             .entered();
             match try_into_internal_subgraph_info(subgraph) {
