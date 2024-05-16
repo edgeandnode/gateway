@@ -35,7 +35,6 @@ use gateway_framework::{
 };
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
-use itertools::Itertools;
 use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
 use prost::bytes::Buf;
@@ -93,41 +92,37 @@ pub async fn handle_query(
     let start_time = Instant::now();
     let timestamp = unix_timestamp();
 
-    // Check if the query selector is authorized by the auth token
-    match &selector {
+    // Check if the query selector is authorized by the auth token and
+    // resolve the subgraph deployments for the query.
+    let (deployments, subgraph) = match &selector {
         QuerySelector::Subgraph(id) => {
+            // If the subgraph is not authorized, return an error.
             if !auth.is_subgraph_authorized(id) {
                 return Err(Error::Auth(anyhow!("Subgraph not authorized by user")));
             }
+
+            resolve_subgraph_deployments(&ctx.network, &selector)?
         }
-        QuerySelector::Deployment(id) => {
-            if !auth.is_deployment_authorized(id) {
+        QuerySelector::Deployment(_) => {
+            // Authorization is based on the "authorized subgraphs" allowlist. We need to resolve
+            // the subgraph deployments to check if any of the deployment's subgraphs are
+            // authorized, otherwise return an error.
+            let (deployments, subgraph) = resolve_subgraph_deployments(&ctx.network, &selector)?;
+
+            // If none of the deployment's subgraphs are authorized, return an error.
+            let deployment_subgraphs = deployments
+                .iter()
+                .flat_map(|d| d.subgraphs.iter())
+                .collect::<Vec<_>>();
+            if !auth.is_any_deployment_subgraph_authorized(&deployment_subgraphs) {
                 return Err(Error::Auth(anyhow!("Deployment not authorized by user")));
             }
+
+            (deployments, subgraph)
         }
-    }
+    };
 
-    let (deployments, subgraph) = resolve_subgraph_deployments(&ctx.network, &selector)?;
     tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
-
-    // Check authorization for the resolved deployments
-    let resolved_deployments_ids = deployments.iter().map(|d| d.id).collect::<Vec<_>>();
-    if !auth.are_deployments_authorized(&resolved_deployments_ids) {
-        return Err(Error::Auth(anyhow::anyhow!(
-            "deployment not authorized by user"
-        )));
-    }
-
-    let resolved_subgraph_ids = deployments
-        .iter()
-        .flat_map(|d| d.subgraphs.iter().copied())
-        .unique()
-        .collect::<Vec<_>>();
-    if !auth.are_subgraphs_authorized(&resolved_subgraph_ids) {
-        return Err(Error::Auth(anyhow::anyhow!(
-            "subgraph not authorized by user"
-        )));
-    }
 
     if let Some(l2_url) = ctx.l2_gateway.as_ref() {
         // Forward query to L2 gateway if it's marked as transferred & there are no allocations.

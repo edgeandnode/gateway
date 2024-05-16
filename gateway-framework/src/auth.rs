@@ -1,8 +1,8 @@
-use methods::{api_keys, subscriptions};
 use ordered_float::NotNan;
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::SubgraphId;
 
 pub use self::context::AuthContext;
+use self::methods::{api_keys, subscriptions};
 
 pub mod context;
 pub mod methods;
@@ -30,35 +30,23 @@ impl AuthToken {
         }
     }
 
-    /// Check if the given deployment is authorized for this auth token.
-    pub fn is_deployment_authorized(&self, deployment: &DeploymentId) -> bool {
+    /// Check if ANY of the given deployment subgraphs are authorized for this auth token.
+    pub fn is_any_deployment_subgraph_authorized(&self, subgraphs: &[&SubgraphId]) -> bool {
         match self {
-            AuthToken::ApiKey(auth) => auth.is_deployment_authorized(deployment),
-            AuthToken::SubscriptionsAuthToken(auth) => auth.is_deployment_authorized(deployment),
+            AuthToken::ApiKey(auth) => subgraphs
+                .iter()
+                .any(|subgraph| auth.is_subgraph_authorized(subgraph)),
+            AuthToken::SubscriptionsAuthToken(auth) => subgraphs
+                .iter()
+                .any(|subgraph| auth.is_subgraph_authorized(subgraph)),
         }
     }
 
-    /// Check if the given origin domain is authorized for this auth token.    
+    /// Check if the given origin domain is authorized for this auth token.
     pub fn is_domain_authorized(&self, domain: &str) -> bool {
         match self {
             AuthToken::ApiKey(auth) => auth.is_domain_authorized(domain),
             AuthToken::SubscriptionsAuthToken(auth) => auth.is_domain_authorized(domain),
-        }
-    }
-
-    /// Check if ALL subgraphs are authorized for this auth token.
-    pub fn are_subgraphs_authorized(&self, subgraphs: &[SubgraphId]) -> bool {
-        match self {
-            AuthToken::ApiKey(auth) => auth.are_subgraphs_authorized(subgraphs),
-            AuthToken::SubscriptionsAuthToken(auth) => auth.are_subgraphs_authorized(subgraphs),
-        }
-    }
-
-    /// Check if ALL deployments are authorized for this auth token.
-    pub fn are_deployments_authorized(&self, deployments: &[DeploymentId]) -> bool {
-        match self {
-            AuthToken::ApiKey(auth) => auth.are_deployments_authorized(deployments),
-            AuthToken::SubscriptionsAuthToken(auth) => auth.are_deployments_authorized(deployments),
         }
     }
 }

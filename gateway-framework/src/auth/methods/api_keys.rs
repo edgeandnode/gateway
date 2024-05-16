@@ -7,12 +7,14 @@ use alloy_primitives::Address;
 use ordered_float::NotNan;
 use serde::Deserialize;
 use serde_with::serde_as;
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::SubgraphId;
 use tokio::sync::watch;
 
 use super::common;
 use crate::{auth::QuerySettings, http::middleware::RateLimitSettings};
 
+// TODO: This type MUST NOT implement the `Deserialize` trait.
+//   Decouple the API keys fetch types from the API keys types.
 #[serde_as]
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct APIKey {
@@ -23,13 +25,13 @@ pub struct APIKey {
     #[serde(rename = "max_budget")]
     pub max_budget_usd: Option<NotNan<f64>>,
     #[serde(default)]
-    pub deployments: Vec<DeploymentId>,
-    #[serde(default)]
     pub subgraphs: Vec<SubgraphId>,
     #[serde(default)]
     pub domains: Vec<String>,
 }
 
+// TODO: This type MUST NOT implement the `Deserialize` trait.
+//   Decouple the API keys fetch types from the API keys types.
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum QueryStatus {
@@ -107,24 +109,6 @@ impl AuthToken {
         let allowed_subgraphs = &self.api_key.subgraphs;
         common::is_subgraph_authorized(allowed_subgraphs, subgraph)
     }
-
-    /// Check if the given deployment is authorized by the API key.
-    pub fn is_deployment_authorized(&self, deployment: &DeploymentId) -> bool {
-        let allowed_deployments = &self.api_key.deployments;
-        common::is_deployment_authorized(allowed_deployments, deployment)
-    }
-
-    /// Check if ALL subgraphs are authorized by the API key.
-    pub fn are_subgraphs_authorized(&self, subgraphs: &[SubgraphId]) -> bool {
-        let allowed_subgraphs = &self.api_key.subgraphs;
-        common::are_subgraphs_authorized(allowed_subgraphs, subgraphs)
-    }
-
-    /// Check if ALL deployments are authorized by the API key.
-    pub fn are_deployments_authorized(&self, deployments: &[DeploymentId]) -> bool {
-        let allowed_deployments = &self.api_key.deployments;
-        common::are_deployments_authorized(allowed_deployments, deployments)
-    }
 }
 
 impl std::fmt::Display for AuthToken {
@@ -160,7 +144,7 @@ impl AuthContext {
     }
 }
 
-/// Parse the bearer token as a API key and retrieve the associated API key.
+/// Parse the bearer token as an API key and retrieve the associated API key.
 pub fn parse_auth_token(
     ctx: &AuthContext,
     token: &str,
