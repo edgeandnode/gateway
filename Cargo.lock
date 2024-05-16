@@ -404,8 +404,7 @@ checksum = "0c4b4d0bd25bd0b74681c0ad21497610ce1b7c91b1022cd21c80c6fbdd9476b0"
 [[package]]
 name = "axum"
 version = "0.7.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a6c9af12842a67734c9a2e355436e5d03b22383ed60cf13cd0c18fbfe3dcbcf"
+source = "git+https://github.com/tokio-rs/axum?rev=50c035c#50c035c20b7bf7987b9b9b126574852318e92e2c"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -436,8 +435,7 @@ dependencies = [
 [[package]]
 name = "axum-core"
 version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a15c63fd72d41492dc4f497196f5da1fb04fb7529e631d73630d1b491e47a2e3"
+source = "git+https://github.com/tokio-rs/axum?rev=50c035c#50c035c20b7bf7987b9b9b126574852318e92e2c"
 dependencies = [
  "async-trait",
  "bytes",
@@ -448,7 +446,7 @@ dependencies = [
  "mime",
  "pin-project-lite",
  "rustversion",
- "sync_wrapper 0.1.2",
+ "sync_wrapper 1.0.1",
  "tower-layer",
  "tower-service",
 ]
@@ -3518,9 +3516,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.12.4"
+version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0f5d036824e4761737860779c906171497f6d55681139d8312388f8fe398922"
+checksum = "32445183788a6159990b6e44d9955d0d6c06b7b9384b4c3e9a0d152a1bf30d56"
 dependencies = [
  "bytes",
  "prost-derive",
