@@ -256,9 +256,8 @@ async fn main() {
         .await
         .expect("Failed to bind metrics server");
         axum::serve(metrics_listener, router.into_make_service())
-            // TODO: Wait until https://github.com/tokio-rs/axum/pull/2653 is released
-            // // disable Nagel's algorithm
-            // .tcp_nodelay(true)
+            // disable Nagle's algorithm
+            .tcp_nodelay(true)
             .await
             .expect("Failed to start metrics server");
     });
@@ -350,9 +349,8 @@ async fn main() {
         app_listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    // TODO: Wait until https://github.com/tokio-rs/axum/pull/2653 is released
-    // // disable Nagel's algorithm
-    // .tcp_nodelay(true)
+    // disable Nagle's algorithm
+    .tcp_nodelay(true)
     .with_graceful_shutdown(await_shutdown_signals())
     .await
     .expect("Failed to start API server");
