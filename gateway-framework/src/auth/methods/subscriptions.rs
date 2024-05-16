@@ -8,14 +8,13 @@ use thegraph_core::{
     subscriptions::auth::{
         parse_auth_token as parse_bearer_token, verify_auth_token_claims, AuthTokenClaims,
     },
-    types::{DeploymentId, SubgraphId},
+    types::SubgraphId,
 };
 use tokio::sync::watch;
 
 use super::common;
 use crate::{
     auth::QuerySettings, http::middleware::RateLimitSettings, subscriptions::Subscription,
-    topology::network::Deployment,
 };
 
 /// Auth token wrapper around the Subscriptions auth token claims and the subscription.
@@ -67,22 +66,6 @@ impl AuthToken {
     pub fn is_subgraph_authorized(&self, subgraph: &SubgraphId) -> bool {
         let allowed_subgraphs = &self.claims.allowed_subgraphs;
         common::is_subgraph_authorized(allowed_subgraphs, subgraph)
-    }
-
-    /// Check if the given deployment is authorized by the auth token claims.
-    pub fn is_deployment_authorized(&self, deployment: &DeploymentId) -> bool {
-        let allowed_deployments = &self.claims.allowed_deployments;
-        common::is_deployment_authorized(allowed_deployments, deployment)
-    }
-
-    pub fn are_subgraphs_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
-        let allowed_subgraphs = &self.claims.allowed_subgraphs;
-        common::are_subgraphs_authorized(allowed_subgraphs, deployments)
-    }
-
-    pub fn are_deployments_authorized(&self, deployments: &[Arc<Deployment>]) -> bool {
-        let allowed_deployments = &self.claims.allowed_deployments;
-        common::are_deployments_authorized(allowed_deployments, deployments)
     }
 }
 

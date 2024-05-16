@@ -37,7 +37,7 @@ serde_json = { workspace = true, features = ["raw_value"] }
 serde_with.workspace = true
 siphasher.workspace = true
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "c179dfe" }
-thegraph-core = { workspace = true, features = ["subgraph-client"] }
+thegraph-core = { workspace = true, features = ["subgraph-client", "subscriptions"] }
 thegraph-graphql-http.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
