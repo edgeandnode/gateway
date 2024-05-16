@@ -90,7 +90,7 @@ impl Client {
             .api_keys
             .into_iter()
             .map(|api_key| {
-                // Map the fetched 9and deserialized) API key into the gateway framework API key.
+                // Map the fetched (and deserialized) API key into the gateway framework API key.
                 let api_key = APIKey {
                     key: api_key.key,
                     user_address: api_key.user_address,
