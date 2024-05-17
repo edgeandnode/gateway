@@ -20,7 +20,7 @@ headers.workspace = true
 hex.workspace = true
 hickory-resolver = "0.24.1"
 indexer-selection.workspace = true
-itertools = "0.12.1"
+itertools = "0.13.0"
 ipnetwork = "0.20.0"
 lazy_static = "1.4.0"
 ordered-float = "4.2.0"
@@ -37,7 +37,10 @@ serde_json = { workspace = true, features = ["raw_value"] }
 serde_with.workspace = true
 siphasher.workspace = true
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "c179dfe" }
-thegraph-core = { workspace = true, features = ["subgraph-client", "subscriptions"] }
+thegraph-core = { workspace = true, features = [
+  "subgraph-client",
+  "subscriptions",
+] }
 thegraph-graphql-http.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
