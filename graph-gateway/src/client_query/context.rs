@@ -24,7 +24,6 @@ pub struct Context {
     pub receipt_signer: &'static ReceiptSigner,
     pub kafka_client: &'static KafkaClient,
     pub budgeter: &'static Budgeter,
-    pub indexer_selection_retry_limit: usize,
     pub l2_gateway: Option<Url>,
     pub grt_per_usd: watch::Receiver<NotNan<f64>>,
     pub chains: &'static Chains,

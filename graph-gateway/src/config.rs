@@ -43,10 +43,6 @@ pub struct Config {
     pub gateway_id: Option<String>,
     /// Graph network environment identifier, inserted into Kafka messages
     pub graph_env_id: String,
-    /// Rounds of indexer selection and queries to attempt. Note that indexer queries have a 20s
-    /// timeout, so setting this to 5 for example would result in a 100s worst case response time
-    /// for a client query.
-    pub indexer_selection_retry_limit: usize,
     /// File path of CSV containing rows of `IpNetwork,Country`
     pub ip_blocker_db: Option<PathBuf>,
     /// IP rate limit in requests per second
