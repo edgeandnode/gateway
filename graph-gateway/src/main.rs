@@ -232,7 +232,6 @@ async fn main() {
         receipt_signer,
         kafka_client,
         budgeter,
-        indexer_selection_retry_limit: config.indexer_selection_retry_limit,
         l2_gateway: config.l2_gateway,
         chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
         grt_per_usd,
