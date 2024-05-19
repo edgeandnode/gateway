@@ -1,18 +1,19 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
+};
 
 use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail};
 use cost_model::Context;
 use gateway_common::utils::timestamp::unix_timestamp;
 use gateway_framework::{
-    blocks::{BlockConstraint, UnresolvedBlock},
+    blocks::{Block, BlockConstraint, UnresolvedBlock},
     chain::Chain,
     errors::Error,
 };
 use graphql::{
-    graphql_parser::query::{
-        Definition, Document, Field, OperationDefinition, Selection, SelectionSet, Text, Value,
-    },
+    graphql_parser::query::{Field, OperationDefinition, Selection, SelectionSet, Text, Value},
     IntoStaticValue as _, StaticValue,
 };
 use itertools::Itertools as _;
@@ -30,7 +31,7 @@ pub struct BlockRequirements {
 
 pub fn resolve_block_requirements(
     chain: &Chain,
-    context: &Context<'_, String>,
+    context: &Context,
     manifest_min_block: BlockNumber,
 ) -> Result<BlockRequirements, Error> {
     let constraints = block_constraints(context).unwrap_or_default();
@@ -81,7 +82,7 @@ pub fn resolve_block_requirements(
     })
 }
 
-fn block_constraints(context: &Context<String>) -> Result<BTreeSet<BlockConstraint>, Error> {
+fn block_constraints(context: &Context) -> Result<BTreeSet<BlockConstraint>, Error> {
     let mut constraints = BTreeSet::new();
     let vars = &context.variables;
     // ba6c90f1-3baf-45be-ac1c-f60733404436
@@ -92,12 +93,14 @@ fn block_constraints(context: &Context<String>) -> Result<BTreeSet<BlockConstrai
             }
             OperationDefinition::Query(query) if query.directives.is_empty() => {
                 // Add default definitions for variables not set at top level.
-                let defaults = query
+                let defaults: BTreeMap<String, StaticValue> = query
                     .variable_definitions
                     .iter()
-                    .filter(|d| !vars.0.contains_key(&d.name))
-                    .filter_map(|d| Some((d.name.clone(), d.default_value.as_ref()?.to_graphql())))
-                    .collect::<BTreeMap<String, StaticValue>>();
+                    .filter(|d| !vars.0.contains_key(d.name))
+                    .filter_map(|d| {
+                        Some((d.name.to_string(), d.default_value.as_ref()?.to_graphql()))
+                    })
+                    .collect();
                 (&query.selection_set, defaults)
             }
             OperationDefinition::Query(_)
@@ -129,13 +132,21 @@ fn block_constraints(context: &Context<String>) -> Result<BTreeSet<BlockConstrai
     Ok(constraints)
 }
 
-pub fn rewrite_query(
+pub fn rewrite_query<'q>(
     chain: &Chain,
-    mut ctx: Context<String>,
+    ctx: &Context<'q>,
     requirements: &BlockRequirements,
     blocks_behind: u64,
 ) -> Result<String, Error> {
-    if !contains_introspection(&ctx) {
+    let mut buf: String = Default::default();
+    for fragment in &ctx.fragments {
+        write!(&mut buf, "{}", fragment).unwrap();
+    }
+    if contains_introspection(ctx) {
+        for operation in &ctx.operations {
+            write!(&mut buf, "{}", operation).unwrap();
+        }
+    } else {
         let latest_block = requirements.latest.then_some(()).and_then(|_| {
             let mut block = chain.latest()?;
             if (blocks_behind > 0) || requirements.number_gte.is_some() {
@@ -152,101 +163,128 @@ pub fn rewrite_query(
             Some(block.clone())
         });
 
-        let vars = &ctx.variables;
-        // Similar walk as ba6c90f1-3baf-45be-ac1c-f60733404436. But now including variables, and
-        // mutating as we go.
-        for operation in &mut ctx.operations {
-            let (selection_set, defaults) = match operation {
-                OperationDefinition::SelectionSet(selection_set) => {
-                    (selection_set, BTreeMap::default())
+        let serialize_field =
+            |buf: &mut String,
+             field: &Field<'q, &'q str>,
+             defaults: &BTreeMap<String, StaticValue>| {
+                buf.push_str("  ");
+                if let Some(alias) = field.alias {
+                    write!(buf, "{alias}: ").unwrap();
                 }
-                OperationDefinition::Query(query) if query.directives.is_empty() => {
-                    // Add default definitions for variables not set at top level.
-                    let defaults = query
-                        .variable_definitions
-                        .iter()
-                        .filter(|d| !vars.0.contains_key(&d.name))
-                        .filter_map(|d| {
-                            Some((d.name.clone(), d.default_value.as_ref()?.to_graphql()))
-                        })
-                        .collect::<BTreeMap<String, StaticValue>>();
-                    (&mut query.selection_set, defaults)
+                write!(buf, "{}", field.name).unwrap();
+                for directive in &field.directives {
+                    write!(buf, " {}", directive).unwrap();
                 }
-                OperationDefinition::Query(_)
-                | OperationDefinition::Mutation(_)
-                | OperationDefinition::Subscription(_) => {
-                    return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
-                }
-            };
-            for selection in &mut selection_set.items {
-                let selection_field = match selection {
-                    Selection::Field(field) => field,
-                    Selection::FragmentSpread(_) | Selection::InlineFragment(_) => {
-                        return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
-                    }
-                };
-                match selection_field
+                buf.push_str("(block: ");
+                if let Some(constraint) = field
                     .arguments
-                    .iter_mut()
-                    .find(|(k, _)| *k == "block")
+                    .iter()
+                    .find(|(n, _)| *n == "block")
+                    .and_then(|(_, field)| field_constraint(&ctx.variables, defaults, field).ok())
                 {
-                    Some((_, arg)) => {
-                        match field_constraint(vars, &defaults, arg).map_err(Error::BadQuery)? {
-                            BlockConstraint::Hash(_) => (),
-                            BlockConstraint::Number(number) => {
-                                if let Some(block) =
-                                    chain.find(&UnresolvedBlock::WithNumber(number))
-                                {
-                                    *arg = deterministic_block(&block.hash);
-                                }
-                            }
-                            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
-                                if let Some(block) = &latest_block {
-                                    *arg = deterministic_block(&block.hash);
-                                }
-                            }
-                        };
-                    }
-                    None => {
-                        if let Some(block) = &latest_block {
-                            selection_field
-                                .arguments
-                                .push(("block".to_string(), deterministic_block(&block.hash)));
+                    match constraint {
+                        BlockConstraint::Hash(hash) => {
+                            write!(buf, "{{ hash: \"{hash}\" }}").unwrap()
                         }
+                        BlockConstraint::Number(number) => {
+                            match chain.find(&UnresolvedBlock::WithNumber(number)) {
+                                Some(Block { hash, .. }) => {
+                                    write!(buf, "{{ hash: \"{hash}\" }}").unwrap()
+                                }
+                                None => write!(buf, "{{ number: \"{number}\" }}").unwrap(),
+                            }
+                        }
+                        BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
+                            match &latest_block {
+                                Some(Block { hash, .. }) => {
+                                    write!(buf, "{{ hash: \"{hash}\" }}").unwrap()
+                                }
+                                None => write!(buf, "{{}}").unwrap(),
+                            }
+                        }
+                    };
+                } else if let Some(block) = &latest_block {
+                    write!(buf, "{{ hash: \"{}\" }}", block.hash).unwrap();
+                } else {
+                    buf.push_str("{}");
+                }
+                for (name, value) in &field.arguments {
+                    if *name != "block" {
+                        write!(buf, ", {name}: {value}").unwrap();
                     }
-                };
-            }
-        }
-
-        for operation in &mut ctx.operations {
-            match operation {
-                OperationDefinition::Query(q) => q.selection_set.items.push(probe()),
-                OperationDefinition::SelectionSet(s) => s.items.push(probe()),
-                _ => (),
+                }
+                buf.push(')');
+                if !field.selection_set.items.is_empty() {
+                    buf.push_str(" {\n");
+                    for selection in &field.selection_set.items {
+                        let field = match selection {
+                            Selection::Field(field) => field,
+                            Selection::InlineFragment(_) | Selection::FragmentSpread(_) => continue,
+                        };
+                        write!(buf, "    {}", field).unwrap();
+                    }
+                    buf.push_str("  }");
+                }
+                buf.push('\n');
             };
+        let serialize_selection_set =
+            |buf: &mut String,
+             selection_set: &SelectionSet<'q, &'q str>,
+             defaults: &BTreeMap<String, StaticValue>| {
+                buf.push_str("{\n");
+                for selection in &selection_set.items {
+                    match selection {
+                        Selection::Field(field) => serialize_field(buf, field, defaults),
+                        Selection::FragmentSpread(_) | Selection::InlineFragment(_) => (),
+                    };
+                }
+                buf.push_str("  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n");
+            };
+        let serialize_operation =
+            |buf: &mut String, operation: &OperationDefinition<'q, &'q str>| {
+                match operation {
+                    OperationDefinition::SelectionSet(selection_set) => {
+                        serialize_selection_set(buf, selection_set, &BTreeMap::default());
+                    }
+                    OperationDefinition::Query(query) => {
+                        buf.push_str("query");
+                        if let Some(name) = query.name {
+                            write!(buf, " {name}").unwrap();
+                        }
+                        if !query.variable_definitions.is_empty() {
+                            write!(buf, "({}", query.variable_definitions[0]).unwrap();
+                            for var in &query.variable_definitions[1..] {
+                                write!(buf, ", {var}").unwrap();
+                            }
+                            buf.push(')');
+                        }
+                        debug_assert!(query.directives.is_empty());
+                        buf.push_str(" {");
+                        let defaults = query
+                            .variable_definitions
+                            .iter()
+                            .filter(|d| !ctx.variables.0.contains_key(d.name))
+                            .filter_map(|d| {
+                                Some((d.name.to_string(), d.default_value.as_ref()?.to_graphql()))
+                            })
+                            .collect::<BTreeMap<String, StaticValue>>();
+                        serialize_selection_set(buf, &query.selection_set, &defaults);
+                        buf.push_str(" }\n");
+                    }
+                    OperationDefinition::Mutation(_) | OperationDefinition::Subscription(_) => (),
+                };
+            };
+        for operation in &ctx.operations {
+            serialize_operation(&mut buf, operation);
         }
     }
 
-    let Context {
-        fragments,
-        operations,
-        ..
-    } = ctx;
-
-    let definitions = fragments
-        .into_iter()
-        .map(Definition::Fragment)
-        .chain(operations.into_iter().map(Definition::Operation))
-        .collect();
-
-    serde_json::to_string(
-        &json!({ "query": Document { definitions }.to_string(), "variables": ctx.variables }),
-    )
-    .map_err(|err| Error::Internal(anyhow!("failed to serialize query: {err}")))
+    serde_json::to_string(&json!({ "query": buf, "variables": ctx.variables }))
+        .map_err(|err| Error::Internal(anyhow!("failed to serialize query: {err}")))
 }
 
-fn contains_introspection(ctx: &Context<String>) -> bool {
-    let is_introspection_field = |s: &Selection<'_, String>| match s {
+fn contains_introspection<'q>(ctx: &Context<'q>) -> bool {
+    let is_introspection_field = |s: &Selection<'q, &'q str>| match s {
         Selection::Field(f) => f.name.starts_with("__"),
         Selection::FragmentSpread(_) | Selection::InlineFragment(_) => false,
     };
@@ -257,21 +295,17 @@ fn contains_introspection(ctx: &Context<String>) -> bool {
     })
 }
 
-fn deterministic_block<'c>(hash: &BlockHash) -> Value<'c, String> {
-    Value::Object(BTreeMap::from_iter([(
-        "hash".to_string(),
-        Value::String(hash.to_string()),
-    )]))
-}
-
-fn field_constraint(
+fn field_constraint<'c, T: Text<'c>>(
     vars: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
-    field: &Value<'_, String>,
+    field: &Value<'c, T>,
 ) -> anyhow::Result<BlockConstraint> {
     match field {
         Value::Object(fields) => parse_constraint(vars, defaults, fields),
-        Value::Variable(name) => match vars.get(name).or_else(|| defaults.get(name)) {
+        Value::Variable(name) => match vars
+            .get(name.as_ref())
+            .or_else(|| defaults.get(name.as_ref()))
+        {
             None => Ok(BlockConstraint::Unconstrained),
             Some(Value::Object(fields)) => parse_constraint(vars, defaults, fields),
             _ => Err(anyhow!("malformed block constraint")),
@@ -354,41 +388,13 @@ fn parse_number<'c, T: Text<'c>>(
         .ok_or_else(|| anyhow!("block number out of range"))
 }
 
-fn probe<'c>() -> Selection<'c, String> {
-    let selection_set = |items| SelectionSet {
-        span: Default::default(),
-        items,
-    };
-    let field = |name: &str, alias, selection_set| {
-        Selection::Field(Field {
-            position: Default::default(),
-            alias,
-            name: name.to_string(),
-            arguments: vec![],
-            directives: vec![],
-            selection_set,
-        })
-    };
-    field(
-        "_meta",
-        Some("_gateway_probe_".into()),
-        selection_set(vec![field(
-            "block",
-            None,
-            selection_set(vec![
-                field("number", None, selection_set(vec![])),
-                field("hash", None, selection_set(vec![])),
-                field("timestamp", None, selection_set(vec![])),
-            ]),
-        )]),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use std::iter::FromIterator;
 
+    use alloy_primitives::{hex, Address};
     use gateway_common::utils::testing::bytes_from_id;
+    use gateway_framework::blocks::Block;
 
     use super::*;
 
@@ -452,5 +458,50 @@ mod tests {
         let query = "{ __schema { queryType { name } } }";
         let context = Context::new(query, "").unwrap();
         assert!(super::contains_introspection(&context));
+    }
+
+    #[test]
+    fn query_rewrite() {
+        let mut chain = Chain::default();
+        let now = unix_timestamp() / 1_000;
+        chain.insert(
+            Block {
+                hash: hex!("0000000000000000000000000000000000000000000000000000000000000000")
+                    .into(),
+                number: 123,
+                timestamp: now - 1,
+            },
+            Address::default(),
+        );
+        chain.insert(
+            Block {
+                hash: hex!("0000000000000000000000000000000000000000000000000000000000000001")
+                    .into(),
+                number: 124,
+                timestamp: now,
+            },
+            Address::default(),
+        );
+
+        let client_query = r#"{
+            bundle0: bundle(id:"1" block:{number:123}) { ethPriceUSD }
+            bundle1: bundle(id:"1") { ethPriceUSD }
+        }"#;
+
+        let context = Context::new(client_query, "").unwrap();
+        let requirements = BlockRequirements {
+            latest: true,
+            number_gte: None,
+            range: Some((123, 123)),
+        };
+
+        let indexer_request = rewrite_query(&chain, &context, &requirements, 0).unwrap();
+        let doc = serde_json::from_str::<serde_json::Value>(&indexer_request).unwrap();
+        let doc = doc
+            .as_object()
+            .and_then(|o| o.get("query")?.as_str())
+            .unwrap();
+        println!("{}", doc);
+        assert_eq!(indexer_request, "{\"query\":\"{\\n  bundle0: bundle(block: { hash: \\\"0x0000000000000000000000000000000000000000000000000000000000000000\\\" }, id: \\\"1\\\") {\\n    ethPriceUSD\\n  }\\n  bundle1: bundle(block: { hash: \\\"0x0000000000000000000000000000000000000000000000000000000000000001\\\" }, id: \\\"1\\\") {\\n    ethPriceUSD\\n  }\\n  _gateway_probe_: _meta { block { hash number timestamp } }\\n}\\n\",\"variables\":{}}");
     }
 }
