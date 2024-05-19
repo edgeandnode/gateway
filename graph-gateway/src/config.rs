@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
 };
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, BlockNumber, U256};
 use custom_debug::CustomDebug;
 use gateway_framework::{
     auth::methods::api_keys::APIKey,
@@ -16,9 +16,8 @@ use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
+use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 use url::Url;
-
-use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 #[serde_as]
 #[derive(CustomDebug, Deserialize)]
@@ -202,4 +201,17 @@ pub struct Subscriptions {
 pub struct SubscriptionsDomain {
     pub chain_id: u64,
     pub contract: Address,
+}
+
+/// Proof of indexing info for the POI blocklist.
+///
+/// See [`Config`]'s [`poi_blocklist`](struct.Config.html#structfield.poi_blocklist).
+#[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Deserialize)]
+pub struct ProofOfIndexingInfo {
+    /// Proof of indexing (POI).
+    pub proof_of_indexing: ProofOfIndexing,
+    /// POI deployment ID (the IPFS Hash in the Graph Network Subgraph).
+    pub deployment_id: DeploymentId,
+    /// POI block number.
+    pub block_number: BlockNumber,
 }

@@ -21,6 +21,7 @@ use axum::{
     response::Response,
     routing, Router,
 };
+use config::{ApiKeys, Config, ExchangeRateProvider, Subscriptions};
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_common::types::Indexing;
 use gateway_framework::{
@@ -47,8 +48,8 @@ use gateway_framework::{
 };
 use graph_gateway::{
     client_query::{self, context::Context},
-    config::{ApiKeys, Config, ExchangeRateProvider, Subscriptions},
     indexer_client::IndexerClient,
+    indexers,
     indexers::indexing,
     indexings_blocklist::{self, indexings_blocklist},
     reports::{report_client_query, report_indexer_query},
@@ -66,6 +67,8 @@ use thegraph_core::{
 use tokio::{net::TcpListener, signal::unix::SignalKind, spawn, sync::watch};
 use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
+
+mod config;
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
@@ -150,7 +153,7 @@ async fn main() {
     // Periodically check the defective POIs list against the network indexers and update the
     // indexers blocklist accordingly.
     let indexings_blocklist = if !config.poi_blocklist.is_empty() {
-        let pois = config.poi_blocklist.clone();
+        let pois = config.poi_blocklist.into_iter().map(Into::into).collect();
         let update_interval = config
             .poi_blocklist_update_interval
             .map_or(indexings_blocklist::DEFAULT_UPDATE_INTERVAL, |min| {
@@ -507,4 +510,15 @@ async fn init_auth_service(
             .map(|d| (d.chain_id, d.contract))
             .collect(),
     )
+}
+
+// Mapping between config and internal types
+impl From<config::ProofOfIndexingInfo> for indexers::public_poi::ProofOfIndexingInfo {
+    fn from(value: config::ProofOfIndexingInfo) -> Self {
+        indexers::public_poi::ProofOfIndexingInfo {
+            proof_of_indexing: value.proof_of_indexing,
+            deployment_id: value.deployment_id,
+            block_number: value.block_number,
+        }
+    }
 }
