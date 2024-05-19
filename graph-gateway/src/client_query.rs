@@ -411,9 +411,29 @@ async fn handle_client_query_inner(
         return Err(Error::BadIndexers(indexer_errors));
     }
 
+    let mut indexer_requests: ArrayVec<String, SELECTION_LIMIT> = Default::default();
+    {
+        let chain_view = chain.read().await;
+        for (i, selection) in selections.iter().enumerate() {
+            if let Some(i) = selections[..i]
+                .iter()
+                .position(|s| s.blocks_behind == selection.blocks_behind)
+            {
+                indexer_requests.push(indexer_requests[i].clone());
+            } else {
+                indexer_requests.push(rewrite_query(
+                    &chain_view,
+                    &context,
+                    &block_requirements,
+                    selection.blocks_behind,
+                )?);
+            }
+        }
+    }
+
     let mut total_indexer_fees_grt: u128 = 0;
     let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
-    for selection in selections {
+    for (selection, indexer_request) in selections.into_iter().zip(indexer_requests) {
         let deployment = deployments
             .iter()
             .find(|deployment| deployment.id == selection.indexing.deployment)
@@ -427,16 +447,6 @@ async fn handle_client_query_inner(
             indexing_perf: ctx.indexing_perf.clone(),
             deployment,
             response_time: Duration::default(),
-        };
-
-        let indexer_request = {
-            let chain = chain.read().await;
-            rewrite_query(
-                &chain,
-                &context,
-                &block_requirements,
-                selection.blocks_behind,
-            )?
         };
 
         total_indexer_fees_grt += selection.receipt.grt_value();
