@@ -191,7 +191,7 @@ pub fn rewrite_query<'q>(
                                 Some(Block { hash, .. }) => {
                                     write!(buf, "{{ hash: \"{hash}\" }}").unwrap()
                                 }
-                                None => write!(buf, "{{ number: \"{number}\" }}").unwrap(),
+                                None => write!(buf, "{{ number: {number} }}").unwrap(),
                             }
                         }
                         BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
@@ -259,7 +259,7 @@ pub fn rewrite_query<'q>(
                             buf.push(')');
                         }
                         debug_assert!(query.directives.is_empty());
-                        buf.push_str(" {");
+                        buf.push(' ');
                         let defaults = query
                             .variable_definitions
                             .iter()
@@ -269,7 +269,6 @@ pub fn rewrite_query<'q>(
                             })
                             .collect::<BTreeMap<String, StaticValue>>();
                         serialize_selection_set(buf, &query.selection_set, &defaults);
-                        buf.push_str(" }\n");
                     }
                     OperationDefinition::Mutation(_) | OperationDefinition::Subscription(_) => (),
                 };
@@ -483,25 +482,56 @@ mod tests {
             Address::default(),
         );
 
-        let client_query = r#"{
-            bundle0: bundle(id:"1" block:{number:123}) { ethPriceUSD }
-            bundle1: bundle(id:"1") { ethPriceUSD }
-        }"#;
+        let tests = [
+            (
+                r#"{
+                    bundle0: bundle(id:"1" block:{number:123}) { ethPriceUSD }
+                    bundle1: bundle(id:"1") { ethPriceUSD }
+                }"#,
+                BlockRequirements {
+                    latest: true,
+                    number_gte: None,
+                    range: Some((123, 123)),
+                },
+                "{\n  bundle0: bundle(block: { hash: \"0x0000000000000000000000000000000000000000000000000000000000000000\" }, id: \"1\") {\n    ethPriceUSD\n  }\n  bundle1: bundle(block: { hash: \"0x0000000000000000000000000000000000000000000000000000000000000001\" }, id: \"1\") {\n    ethPriceUSD\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
+            ),
+            (
+                r#"{
+                    bundle0: bundle(id:"1" block:{number:125}) { ethPriceUSD }
+                }"#,
+                BlockRequirements {
+                    latest: true,
+                    number_gte: None,
+                    range: Some((125, 125)),
+                },
+                "{\n  bundle0: bundle(block: { number: 125 }, id: \"1\") {\n    ethPriceUSD\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
+            ),
+            (
+                r#"query GetTopSales {
+                    events(where: { type: "Sale" }, first: 1, orderBy: value, orderDirection: desc) {
+                        type
+                    }
+                }"#,
+                BlockRequirements {
+                    latest: true,
+                    number_gte: None,
+                    range: None,
+                },
+                "query GetTopSales {\n  events(block: { hash: \"0x0000000000000000000000000000000000000000000000000000000000000001\" }, where: {type: \"Sale\"}, first: 1, orderBy: value, orderDirection: desc) {\n    type\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
+            )
+        ];
 
-        let context = Context::new(client_query, "").unwrap();
-        let requirements = BlockRequirements {
-            latest: true,
-            number_gte: None,
-            range: Some((123, 123)),
-        };
-
-        let indexer_request = rewrite_query(&chain, &context, &requirements, 0).unwrap();
-        let doc = serde_json::from_str::<serde_json::Value>(&indexer_request).unwrap();
-        let doc = doc
-            .as_object()
-            .and_then(|o| o.get("query")?.as_str())
-            .unwrap();
-        println!("{}", doc);
-        assert_eq!(indexer_request, "{\"query\":\"{\\n  bundle0: bundle(block: { hash: \\\"0x0000000000000000000000000000000000000000000000000000000000000000\\\" }, id: \\\"1\\\") {\\n    ethPriceUSD\\n  }\\n  bundle1: bundle(block: { hash: \\\"0x0000000000000000000000000000000000000000000000000000000000000001\\\" }, id: \\\"1\\\") {\\n    ethPriceUSD\\n  }\\n  _gateway_probe_: _meta { block { hash number timestamp } }\\n}\\n\",\"variables\":{}}");
+        for (client_query, requirements, expected_indexer_query) in tests {
+            let context = Context::new(client_query, "").unwrap();
+            let indexer_request = rewrite_query(&chain, &context, &requirements, 0).unwrap();
+            let doc = serde_json::from_str::<serde_json::Value>(&indexer_request).unwrap();
+            let doc = doc
+                .as_object()
+                .and_then(|o| o.get("query")?.as_str())
+                .unwrap();
+            println!("{}", doc);
+            assert!(Context::new(&doc, "").is_ok());
+            assert_eq!(doc, expected_indexer_query);
+        }
     }
 }
