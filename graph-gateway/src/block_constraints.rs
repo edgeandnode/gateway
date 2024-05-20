@@ -206,7 +206,7 @@ pub fn rewrite_query<'q>(
                 } else if let Some(block) = &latest_block {
                     write!(buf, "{{ hash: \"{}\" }}", block.hash).unwrap();
                 } else {
-                    buf.push_str("{}");
+                    buf.push_str("null");
                 }
                 for (name, value) in &field.arguments {
                     if *name != "block" {
