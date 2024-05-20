@@ -284,9 +284,8 @@ async fn handle_client_query_inner(
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_default();
-    let mut context = AgoraContext::new(&payload.query, &variables)
+    let context = AgoraContext::new(&payload.query, &variables)
         .map_err(|err| Error::BadQuery(anyhow!("{err}")))?;
-
     validate_query(&context, SqlFieldBehavior::RejectSql)?;
 
     tracing::info!(
@@ -346,7 +345,7 @@ async fn handle_client_query_inner(
                 &indexing_statuses,
                 &perf,
                 &versions_behind,
-                &mut context,
+                &context,
                 &block_requirements,
                 chain_head,
                 blocks_per_minute,
@@ -412,9 +411,29 @@ async fn handle_client_query_inner(
         return Err(Error::BadIndexers(indexer_errors));
     }
 
+    let mut indexer_requests: ArrayVec<String, SELECTION_LIMIT> = Default::default();
+    {
+        let chain_view = chain.read().await;
+        for (i, selection) in selections.iter().enumerate() {
+            if let Some(i) = selections[..i]
+                .iter()
+                .position(|s| s.blocks_behind == selection.blocks_behind)
+            {
+                indexer_requests.push(indexer_requests[i].clone());
+            } else {
+                indexer_requests.push(rewrite_query(
+                    &chain_view,
+                    &context,
+                    &block_requirements,
+                    selection.blocks_behind,
+                )?);
+            }
+        }
+    }
+
     let mut total_indexer_fees_grt: u128 = 0;
     let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
-    for selection in selections {
+    for (selection, indexer_request) in selections.into_iter().zip(indexer_requests) {
         let deployment = deployments
             .iter()
             .find(|deployment| deployment.id == selection.indexing.deployment)
@@ -428,27 +447,6 @@ async fn handle_client_query_inner(
             indexing_perf: ctx.indexing_perf.clone(),
             deployment,
             response_time: Duration::default(),
-        };
-
-        // The Agora context must be cloned to preserve the state of the original client query.
-        // This to avoid the following scenario:
-        // 1. A client query has no block requirements set for some top-level operation
-        // 2. The first indexer is selected, with some indexing status at block number `n`
-        // 3. The query is made deterministic by setting the block requirement to the hash of
-        //    block `n`
-        // 4. Some condition requires us to retry this query on another indexer with an indexing
-        //    status at a block less than `n`
-        // 5. The same context is re-used, including the block requirement set to the hash of
-        //    block `n`
-        // 6. The indexer is seen as being behind and is unnecessarily penalized
-        let indexer_request = {
-            let chain = chain.read().await;
-            rewrite_query(
-                &chain,
-                context.clone(),
-                &block_requirements,
-                selection.blocks_behind,
-            )?
         };
 
         total_indexer_fees_grt += selection.receipt.grt_value();
@@ -516,7 +514,7 @@ fn prepare_candidate(
     statuses: &HashMap<Indexing, Status>,
     perf_snapshots: &HashMap<Indexing, Snapshot>,
     versions_behind: &BTreeMap<DeploymentId, u8>,
-    context: &mut AgoraContext<String>,
+    context: &AgoraContext,
     block_requirements: &BlockRequirements,
     chain_head: BlockNumber,
     blocks_per_minute: u64,
@@ -765,7 +763,7 @@ async fn handle_indexer_query_inner(
 
 pub fn indexer_fee(
     cost_model: &Option<Ptr<CostModel>>,
-    context: &mut AgoraContext<'_, String>,
+    context: &AgoraContext,
 ) -> Result<u128, IndexerError> {
     match cost_model
         .as_ref()

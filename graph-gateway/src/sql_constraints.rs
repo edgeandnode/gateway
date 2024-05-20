@@ -9,7 +9,7 @@ pub enum SqlFieldBehavior {
     AcceptSqlOnly,
 }
 
-pub fn validate_query(ctx: &Context<String>, behavior: SqlFieldBehavior) -> Result<(), Error> {
+pub fn validate_query(ctx: &Context, behavior: SqlFieldBehavior) -> Result<(), Error> {
     for operation in &ctx.operations {
         match operation {
             OperationDefinition::SelectionSet(selection_set)
@@ -26,7 +26,7 @@ pub fn validate_query(ctx: &Context<String>, behavior: SqlFieldBehavior) -> Resu
                                     if let graphql::graphql_parser::query::Selection::Field(field) =
                                         selection
                                     {
-                                        return Some(&field.name[..]);
+                                        return Some(field.name);
                                     }
                                     None
                                 })
@@ -45,8 +45,8 @@ pub fn validate_query(ctx: &Context<String>, behavior: SqlFieldBehavior) -> Resu
     Ok(())
 }
 
-fn selection_set_is_valid(
-    selection_set: &SelectionSet<String>,
+fn selection_set_is_valid<'q>(
+    selection_set: &SelectionSet<'q, &'q str>,
     behavior: SqlFieldBehavior,
 ) -> bool {
     let field_is_valid = |field_name: &str| match behavior {
@@ -55,7 +55,7 @@ fn selection_set_is_valid(
     };
 
     selection_set.items.iter().all(|selection| {
-        matches!(selection, graphql::graphql_parser::query::Selection::Field(field) if field_is_valid(&field.name))
+        matches!(selection, graphql::graphql_parser::query::Selection::Field(field) if field_is_valid(field.name))
     })
 }
 
@@ -71,7 +71,7 @@ mod tests {
         SqlFieldBehavior::AcceptSqlOnly
     }
 
-    fn create_context(query: &str) -> Context<String> {
+    fn create_context(query: &str) -> Context {
         let variables = r#"{}"#;
         Context::new(query, variables).unwrap()
     }
