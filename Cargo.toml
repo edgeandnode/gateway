@@ -18,7 +18,7 @@ axum = { git = "https://github.com/tokio-rs/axum", rev = "50c035c", default-feat
     "tokio",
     "original-uri",
 ] }
-cost-model = { git = "https://github.com/graphprotocol/agora", rev = "50bb942" }
+cost-model = { git = "https://github.com/graphprotocol/agora", rev = "deacb09" }
 futures = "0.3"
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
 headers = "0.4.0"

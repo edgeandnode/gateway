@@ -826,7 +826,7 @@ checksum = "06ea2b9bc92be3c2baa9334a323ebca2d6f074ff852cd1d7b11064035cd3868f"
 [[package]]
 name = "cost-model"
 version = "0.1.0"
-source = "git+https://github.com/graphprotocol/agora?rev=50bb942#50bb94235b10cb8eb13e3f09a324e90724396d57"
+source = "git+https://github.com/graphprotocol/agora?rev=deacb09#deacb0907e660a430009fed16c128a8a79d26233"
 dependencies = [
  "firestorm",
  "fraction",
