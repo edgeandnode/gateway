@@ -1,11 +1,14 @@
 //! Resolves the IP address of a URL host.
 //!
 //! This module provides a resolver for URL hosts. The resolver caches the results of host
-//! resolution to avoid repeated DNS lookupsblock.
-use std::{borrow::Borrow, collections::HashMap, net::IpAddr};
+//! resolution to avoid repeated DNS lookups.
+use std::{borrow::Borrow, collections::HashMap, net::IpAddr, time::Duration};
 
 use hickory_resolver::{error::ResolveError, TokioAsyncResolver as DnsResolver};
 use url::{Host, Url};
+
+/// The default timeout for the indexer host resolution.
+pub const DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(1_500);
 
 /// Error that can occur during URL host resolution.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -23,17 +26,16 @@ pub enum ResolutionError {
     /// This is a wrapper around [`ResolveError`].
     #[error("failed to resolve host: {0}")]
     DnsResolveError(#[from] ResolveError),
+
+    /// Resolution timed out.
+    #[error("failed to resolve host: timeout")]
+    Timeout,
 }
 
 impl ResolutionError {
     /// Create a new [`ResolutionError::InvalidUrl`] error from an invalid URL error.
     pub fn invalid_url<E: ToString>(reason: E) -> Self {
         Self::InvalidUrl(reason.to_string())
-    }
-
-    /// Create a new [`ResolutionError::DnsResolveError`] from a [`ResolveError`].
-    pub fn resolve_error(error: ResolveError) -> Self {
-        Self::DnsResolveError(error)
     }
 }
 
@@ -43,6 +45,7 @@ impl ResolutionError {
 pub struct HostResolver {
     inner: DnsResolver,
     cache: HashMap<String, Result<Vec<IpAddr>, ResolutionError>>,
+    timeout: Duration,
 }
 
 impl HostResolver {
@@ -53,15 +56,28 @@ impl HostResolver {
         Ok(Self {
             inner: DnsResolver::tokio_from_system_conf()?,
             cache: Default::default(),
+            timeout: DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT,
         })
     }
 
-    /// Resolve the IP address of the given domain.
-    async fn resolve_domain(&mut self, domain: &str) -> Result<Vec<IpAddr>, ResolveError> {
-        self.inner
-            .lookup_ip(domain)
+    /// Create a new [`HostResolver`] with a custom timeout.
+    ///
+    /// If a DNS resolver based on system configuration cannot be created, an error is returned.
+    pub fn with_timeout(timeout: Duration) -> anyhow::Result<Self> {
+        Ok(Self {
+            inner: DnsResolver::tokio_from_system_conf()?,
+            cache: Default::default(),
+            timeout,
+        })
+    }
+
+    /// Resolve the IP address of the given domain with a timeout.
+    async fn resolve_domain(&mut self, domain: &str) -> Result<Vec<IpAddr>, ResolutionError> {
+        tokio::time::timeout(self.timeout, self.inner.lookup_ip(domain))
             .await
-            .map(|lookup| lookup.into_iter().collect())
+            .map_err(|_| ResolutionError::Timeout)?
+            .map_err(Into::into)
+            .map(|ips| ips.into_iter().collect())
     }
 
     /// Resolve the IP address of the given URL.
@@ -88,7 +104,7 @@ impl HostResolver {
                 let resolution = match host {
                     Host::Ipv4(ip) => Ok(vec![IpAddr::V4(ip)]),
                     Host::Ipv6(ip) => Ok(vec![IpAddr::V6(ip)]),
-                    Host::Domain(domain) => Ok(self.resolve_domain(domain).await?),
+                    Host::Domain(domain) => self.resolve_domain(domain).await,
                 };
 
                 // Cache the result

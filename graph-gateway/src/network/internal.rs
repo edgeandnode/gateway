@@ -18,28 +18,15 @@ use super::{
     indexer_host_resolver::HostResolver, indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist, indexer_indexing_poi_resolver::PoiResolver,
-    indexer_indexing_progress_resolver::IndexingStatusResolver,
+    indexer_indexing_progress_resolver::IndexingProgressResolver,
     indexer_version_resolver::VersionResolver, snapshot, snapshot::NetworkTopologySnapshot,
     subgraph, subgraph::Client as SubgraphClient,
 };
-use crate::indexers;
 
 /// The network topology fetch timeout.
 ///
 /// This timeout is applied independently to the indexers and subgraphs information fetches.
 const NETWORK_TOPOLOGY_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
-
-/// The timeout for the indexer's host resolution.
-const INDEXER_HOST_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(2_000);
-
-/// The timeout for the indexer's POI resolution.
-const INDEXER_POI_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(5_000);
-
-/// The timeout for the indexer's indexing status resolution.
-const INDEXER_INDEXING_STATUS_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(5_000);
-
-/// The timeout for the indexer's cost model resolution.
-const INDEXER_COST_MODEL_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(5_000);
 
 /// Internal types.
 pub mod types {
@@ -148,9 +135,9 @@ pub struct InternalState {
     pub indexer_host_resolver: Mutex<HostResolver>,
     pub indexer_host_blocklist: Option<HostBlocklist>,
     pub indexer_version_resolver: VersionResolver,
-    pub indexer_pois_blocklist: Option<(PoiBlocklist, Mutex<PoiResolver>)>,
-    pub indexer_indexing_status_resolver: IndexingStatusResolver,
-    pub indexer_cost_model_resolver: (CostModelResolver, Mutex<CostModelCompiler>),
+    pub indexer_indexing_pois_blocklist: Option<(PoiBlocklist, Mutex<PoiResolver>)>,
+    pub indexer_indexing_status_resolver: IndexingProgressResolver,
+    pub indexer_indexing_cost_model_resolver: (CostModelResolver, Mutex<CostModelCompiler>),
 }
 
 /// Fetch the network topology information from the graph network subgraph.
@@ -546,7 +533,7 @@ pub async fn process_indexers_info(
                 // Update the indexer's deployments list to only include the deployments that are
                 // not blocked by POI. If the indexer has no deployments left, it must be ignored.
                 if let Err(err) = resolve_and_check_indexer_blocked_by_poi(
-                    &state.indexer_pois_blocklist,
+                    &state.indexer_indexing_pois_blocklist,
                     &mut indexer,
                 )
                 .await
@@ -572,7 +559,7 @@ pub async fn process_indexers_info(
                 // NOTE: At this point, the indexer's deployments list should contain only the
                 //       deployment IDs that were not blocked by any blocklist.
                 if let Err(err) = resolve_indexer_indexing_cost_models(
-                    &state.indexer_cost_model_resolver,
+                    &state.indexer_indexing_cost_model_resolver,
                     &mut indexer,
                 )
                 .await
@@ -602,10 +589,10 @@ pub async fn process_indexers_info(
 /// - If the address blocklist was not configured: the indexer is ALLOWED.
 /// - If the address is in the blocklist: the indexer is BLOCKED.
 fn check_indexer_blocked_by_addr_blocklist(
-    addr_blocklist: &Option<AddrBlocklist>,
+    blocklist: &Option<AddrBlocklist>,
     indexer: &IndexerInfo,
 ) -> anyhow::Result<()> {
-    let blocklist = match addr_blocklist {
+    let blocklist = match blocklist {
         Some(blocklist) => blocklist,
         None => return Ok(()),
     };
@@ -624,33 +611,22 @@ fn check_indexer_blocked_by_addr_blocklist(
 /// - If the host blocklist was not configured: the indexer is ALLOWED.
 /// - If the indexer's host is in the blocklist: the indexer is BLOCKED.
 async fn resolve_and_check_indexer_blocked_by_host_blocklist(
-    host_resolver: &Mutex<HostResolver>,
-    host_blocklist: &Option<HostBlocklist>,
+    resolver: &Mutex<HostResolver>,
+    blocklist: &Option<HostBlocklist>,
     indexer: &IndexerInfo,
 ) -> anyhow::Result<()> {
     // Resolve the indexer's URL, if it fails (or times out), the indexer must be BLOCKED
-    let mut host_resolver = host_resolver.lock().await;
-    let resolution_result = match tokio::time::timeout(
-        INDEXER_HOST_RESOLUTION_TIMEOUT,
-        host_resolver.resolve_url(&indexer.url),
-    )
-    .await
-    {
-        // If the resolution timed out, the indexer must be BLOCKED
-        Err(_) => {
-            return Err(anyhow!("indexer URL resolution timed out"));
+    let mut host_resolver = resolver.lock().await;
+    let resolution_result = match host_resolver.resolve_url(&indexer.url).await {
+        // If the resolution failed, the indexer must be BLOCKED
+        Err(err) => {
+            return Err(anyhow!("failed to resolve indexer URL: {err}"));
         }
-        Ok(res) => match res {
-            // If the resolution failed, the indexer must be BLOCKED
-            Err(err) => {
-                return Err(anyhow!("failed to resolve indexer URL: {err}"));
-            }
-            Ok(result) => result,
-        },
+        Ok(result) => result,
     };
 
     // If the host blocklist was not configured, the indexer must be ALLOWED
-    let host_blocklist = match host_blocklist {
+    let host_blocklist = match blocklist {
         Some(blocklist) => blocklist,
         _ => return Ok(()),
     };
@@ -727,11 +703,11 @@ async fn resolve_and_check_indexer_blocked_by_version(
 /// - If not indexing any of the affected deployments: the indexer must be ALLOWED.
 /// - If there are no healthy indexings, i.e., all indexings are blocked: the indexer must be BLOCKED.
 async fn resolve_and_check_indexer_blocked_by_poi(
-    pois_blocklist: &Option<(PoiBlocklist, Mutex<PoiResolver>)>,
+    blocklist: &Option<(PoiBlocklist, Mutex<PoiResolver>)>,
     indexer: &mut IndexerInfo,
 ) -> anyhow::Result<()> {
     // If the POI blocklist was not configured, the indexer must be ALLOWED
-    let (pois_blocklist, pois_resolver) = match pois_blocklist {
+    let (pois_blocklist, pois_resolver) = match blocklist {
         Some((blocklist, resolver)) => (blocklist, resolver),
         _ => return Ok(()),
     };
@@ -744,18 +720,11 @@ async fn resolve_and_check_indexer_blocked_by_poi(
     }
 
     // Resolve the indexer public POIs for the affected deployments
-    let indexer_status_url = indexers::status_url(&indexer.url);
-    let mut pois_resolver = pois_resolver.lock().await;
-    let poi_result = match tokio::time::timeout(
-        INDEXER_POI_RESOLUTION_TIMEOUT,
-        pois_resolver.resolve_indexer_public_pois(indexer_status_url, indexer_affected_pois),
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => {
-            return Err(anyhow!("indexer POI resolution timed out"));
-        }
+    let poi_result = {
+        let mut pois_resolver = pois_resolver.lock().await;
+        pois_resolver
+            .resolve_indexer_public_pois(&indexer.url, indexer_affected_pois)
+            .await?
     };
 
     // Check if any of the reported POIs are in the blocklist. and filter out the indexings
@@ -779,36 +748,23 @@ async fn resolve_and_check_indexer_blocked_by_poi(
 
 /// Resolve the indexer's indexing progress status.
 async fn resolve_indexer_indexing_progress_statuses(
-    indexing_status_resolver: &IndexingStatusResolver,
+    resolver: &IndexingProgressResolver,
     indexer: &mut IndexerInfo,
 ) -> anyhow::Result<()> {
-    // Resolve the indexer's indexing status
-    let indexer_status_url = indexers::status_url(&indexer.url);
-    let indexings_status = match tokio::time::timeout(
-        INDEXER_INDEXING_STATUS_RESOLUTION_TIMEOUT,
-        indexing_status_resolver.resolve(indexer_status_url, &indexer.deployments),
-    )
-    .await
-    {
-        // If the resolution timed out, the indexer must be BLOCKED
-        Err(_) => {
-            return Err(anyhow!("indexing progress status resolution timed out"));
+    let progress_status = match resolver.resolve(&indexer.url, &indexer.deployments).await {
+        // If the resolution failed, the indexer must be BLOCKED
+        Err(err) => {
+            return Err(anyhow!("indexing progress status resolution failed: {err}"));
         }
-        Ok(status) => match status {
-            // If the resolution failed, the indexer must be BLOCKED
-            Err(err) => {
-                return Err(anyhow!("indexing progress status resolution failed: {err}"));
-            }
-            Ok(result) => result,
-        },
+        Ok(result) => result,
     };
     tracing::trace!(
         indexings = %indexer.deployments.len(),
-        indexing_status = %indexings_status.len(),
+        indexing_status = %progress_status.len(),
         "indexing progress status resolved"
     );
 
-    let indexings_status = indexings_status
+    let indexing_progress = progress_status
         .into_iter()
         .map(|(deployment_id, res)| {
             (
@@ -822,7 +778,7 @@ async fn resolve_indexer_indexing_progress_statuses(
         .collect();
 
     // Set the indexer's indexing progress status
-    indexer.indexings_progress = indexings_status;
+    indexer.indexings_progress = indexing_progress;
 
     Ok(())
 }
@@ -833,24 +789,22 @@ async fn resolve_indexer_indexing_cost_models(
     indexer: &mut IndexerInfo,
 ) -> anyhow::Result<()> {
     // Resolve the indexer's cost model sources
-    let indexer_cost_url = indexers::cost_url(&indexer.url);
-    let indexings_cost_models = match tokio::time::timeout(
-        INDEXER_COST_MODEL_RESOLUTION_TIMEOUT,
-        resolver.resolve(indexer_cost_url, &indexer.deployments),
-    )
-    .await
-    {
-        Err(_) => {
-            tracing::debug!("cost model resolution timed out");
+    let indexings_cost_models = match resolver.resolve(&indexer.url, &indexer.deployments).await {
+        Err(err) => {
+            // If the resolution failed, return early
+            tracing::debug!("cost model resolution failed: {err}");
+            return Ok(());
+        }
+        Ok(result) if result.is_empty() => {
+            // If the resolution is empty, return early
             return Ok(());
         }
         Ok(result) => result,
     };
 
     // Compile the cost model sources into cost models
-    let indexings_cost_models = if !indexings_cost_models.is_empty() {
+    let indexings_cost_models = {
         let mut compiler = compiler.lock().await;
-
         indexings_cost_models
             .into_iter()
             .filter_map(|(deployment, source)| match compiler.compile(source) {
@@ -861,11 +815,9 @@ async fn resolve_indexer_indexing_cost_models(
                 Ok(cost_model) => Some((deployment, cost_model)),
             })
             .collect()
-    } else {
-        HashMap::new()
     };
 
-    // Set the indexer's indexing status cost models
+    // Set the indexer's indexing cost models
     indexer.indexings_cost_model = indexings_cost_models;
 
     Ok(())

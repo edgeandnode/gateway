@@ -9,7 +9,7 @@ use graph_gateway::network::{
     indexer_host_resolver::HostResolver,
     indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,
-    indexer_indexing_progress_resolver::IndexingStatusResolver,
+    indexer_indexing_progress_resolver::IndexingProgressResolver,
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{
         fetch_and_pre_process_indexers_info as internal_fetch_and_pre_process_indexers_info,
@@ -80,7 +80,7 @@ fn test_service_state(
         DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1500 ms
     );
     let indexers_indexing_status_resolver =
-        IndexingStatusResolver::new(indexers_http_client.clone());
+        IndexingProgressResolver::new(indexers_http_client.clone());
     let indexers_cost_model_resolver = (
         CostModelResolver::new(indexers_http_client.clone()),
         Mutex::new(CostModelCompiler::default()),
@@ -94,9 +94,9 @@ fn test_service_state(
         indexer_host_resolver: indexers_host_resolver,
         indexer_host_blocklist: None,
         indexer_version_resolver: indexers_version_resolver,
-        indexer_pois_blocklist: None,
+        indexer_indexing_pois_blocklist: None,
         indexer_indexing_status_resolver: indexers_indexing_status_resolver,
-        indexer_cost_model_resolver: indexers_cost_model_resolver,
+        indexer_indexing_cost_model_resolver: indexers_cost_model_resolver,
     };
 
     if !addr_blocklist.is_empty() {
