@@ -19,9 +19,9 @@ pub enum ResolutionError {
     FetchError(String),
 }
 
-/// The indexing status of a deployment on a chain.
+/// The indexing progress information of a deployment on a chain.
 #[derive(Debug)]
-pub struct IndexingStatusInfo {
+pub struct IndexingProgressInfo {
     /// The chain the deployment is associated with.
     pub chain: String,
     /// The latest block number indexed by the indexer.
@@ -50,9 +50,9 @@ impl IndexingStatusResolver {
         &self,
         indexer_status_url: Url,
         indexer_deployments: &[DeploymentId],
-    ) -> Result<HashMap<DeploymentId, IndexingStatusInfo>, ResolutionError> {
+    ) -> Result<HashMap<DeploymentId, IndexingProgressInfo>, ResolutionError> {
         // TODO: Handle the different errors once the indexers client module reports them
-        let statuses = indexers::indexing_statuses::query(
+        let indexing_progress = indexers::indexing_statuses::query(
             &self.client,
             indexer_status_url,
             indexer_deployments,
@@ -60,7 +60,7 @@ impl IndexingStatusResolver {
         .await
         .map_err(|e| ResolutionError::FetchError(e.to_string()))?;
 
-        let statuses = statuses
+        let indexing_progress = indexing_progress
             .into_iter()
             .filter_map(|status| {
                 // Only consider the first chain status, if has no chains
@@ -73,7 +73,7 @@ impl IndexingStatusResolver {
 
                 Some((
                     status.subgraph,
-                    IndexingStatusInfo {
+                    IndexingProgressInfo {
                         chain: status_chain,
                         latest_block: status_latest_block,
                         min_block: status_min_block,
@@ -82,6 +82,6 @@ impl IndexingStatusResolver {
             })
             .collect::<HashMap<_, _>>();
 
-        Ok(statuses)
+        Ok(indexing_progress)
     }
 }

@@ -9,15 +9,20 @@ use tracing::Instrument;
 use url::Url;
 use vec1::Vec1;
 
-use super::{
-    indexers_addr_blocklist::AddrBlocklist, indexers_cost_model_compiler::CostModelCompiler,
-    indexers_cost_model_resolver::CostModelResolver, indexers_host_blocklist::HostBlocklist,
-    indexers_host_resolver::HostResolver,
-    indexers_indexing_status_resolver::IndexingStatusResolver,
-    indexers_poi_blocklist::PoiBlocklist, indexers_poi_resolver::PoiResolver, snapshot,
-    snapshot::NetworkTopologySnapshot, subgraph, subgraph::Client as SubgraphClient,
+use self::types::{
+    AllocationInfo, DeploymentInfo, IndexerIndexingProgressInfo, IndexerInfo, SubgraphInfo,
+    SubgraphVersionInfo,
 };
-use crate::{indexers, network::indexers_version_resolver::VersionResolver};
+use super::{
+    indexer_addr_blocklist::AddrBlocklist, indexer_host_blocklist::HostBlocklist,
+    indexer_host_resolver::HostResolver, indexer_indexing_cost_model_compiler::CostModelCompiler,
+    indexer_indexing_cost_model_resolver::CostModelResolver,
+    indexer_indexing_poi_blocklist::PoiBlocklist, indexer_indexing_poi_resolver::PoiResolver,
+    indexer_indexing_progress_resolver::IndexingStatusResolver,
+    indexer_version_resolver::VersionResolver, snapshot, snapshot::NetworkTopologySnapshot,
+    subgraph, subgraph::Client as SubgraphClient,
+};
+use crate::indexers;
 
 /// The network topology fetch timeout.
 ///
@@ -118,15 +123,15 @@ pub mod types {
         /// The total amount of tokens allocated by the indexer per indexing.
         pub total_allocated_tokens: HashMap<DeploymentId, u128>,
 
-        /// The indexer's indexing status.
-        pub indexings_status: HashMap<DeploymentId, IndexerIndexingStatusInfo>,
+        /// The indexer's indexing progress information.
+        pub indexings_progress: HashMap<DeploymentId, IndexerIndexingProgressInfo>,
         /// The indexer's indexings cost models.
-        pub indexings_cost_models: HashMap<DeploymentId, Ptr<CostModel>>,
+        pub indexings_cost_model: HashMap<DeploymentId, Ptr<CostModel>>,
     }
 
-    /// Internal representation of the fetched indexer indexing status information and cost models.
+    /// Internal representation of the fetched indexer's indexing progress information.
     #[derive(Clone, Debug)]
-    pub struct IndexerIndexingStatusInfo {
+    pub struct IndexerIndexingProgressInfo {
         /// The latest block the indexer has indexed for the deployment.
         pub latest_block: BlockNumber,
         /// The minimum block the indexer has indexed for the deployment.
@@ -136,16 +141,16 @@ pub mod types {
 
 /// Internal type holding the network service state.
 pub struct InternalState {
-    pub indexers_http_client: reqwest::Client,
-    pub indexers_min_agent_version: Version,
-    pub indexers_min_graph_node_version: Version,
-    pub indexers_addr_blocklist: Option<AddrBlocklist>,
-    pub indexers_host_resolver: Mutex<HostResolver>,
-    pub indexers_host_blocklist: Option<HostBlocklist>,
-    pub indexers_version_resolver: VersionResolver,
-    pub indexers_pois_blocklist: Option<(PoiBlocklist, Mutex<PoiResolver>)>,
-    pub indexers_indexing_status_resolver: IndexingStatusResolver,
-    pub indexers_cost_model_resolver: (CostModelResolver, Mutex<CostModelCompiler>),
+    pub indexer_http_client: reqwest::Client,
+    pub indexer_min_agent_version: Version,
+    pub indexer_min_graph_node_version: Version,
+    pub indexer_addr_blocklist: Option<AddrBlocklist>,
+    pub indexer_host_resolver: Mutex<HostResolver>,
+    pub indexer_host_blocklist: Option<HostBlocklist>,
+    pub indexer_version_resolver: VersionResolver,
+    pub indexer_pois_blocklist: Option<(PoiBlocklist, Mutex<PoiResolver>)>,
+    pub indexer_indexing_status_resolver: IndexingStatusResolver,
+    pub indexer_cost_model_resolver: (CostModelResolver, Mutex<CostModelCompiler>),
 }
 
 /// Fetch the network topology information from the graph network subgraph.
@@ -212,7 +217,7 @@ pub async fn fetch_update(
 /// indexers are found, an error is returned.
 pub async fn fetch_and_pre_process_indexers_info(
     client: &mut SubgraphClient,
-) -> anyhow::Result<Vec1<types::IndexerInfo>> {
+) -> anyhow::Result<Vec1<IndexerInfo>> {
     // Fetch the indexers information from the graph network subgraph
     let indexers = client
         .fetch_indexers()
@@ -261,7 +266,7 @@ pub async fn fetch_and_pre_process_indexers_info(
 /// subgraphs are found, an error is returned.
 pub async fn fetch_and_pre_process_subgraphs_info(
     client: &mut SubgraphClient,
-) -> anyhow::Result<Vec1<types::SubgraphInfo>> {
+) -> anyhow::Result<Vec1<SubgraphInfo>> {
     // Fetch the subgraphs information from the graph network subgraph
     let subgraphs = client
         .fetch_subgraphs()
@@ -301,7 +306,7 @@ pub async fn fetch_and_pre_process_subgraphs_info(
 /// If the indexer is invalid, e.g., has no URL or no allocations, an error is returned.
 fn try_into_internal_indexer_info(
     indexer: subgraph::types::fetch_indexers::Indexer,
-) -> anyhow::Result<types::IndexerInfo> {
+) -> anyhow::Result<IndexerInfo> {
     // Check if the indexer is present
     let indexer_url = indexer.url.ok_or_else(|| anyhow!("missing URL"))?;
 
@@ -372,7 +377,7 @@ fn try_into_internal_indexer_info(
         })
         .collect::<HashMap<_, _>>();
 
-    Ok(types::IndexerInfo {
+    Ok(IndexerInfo {
         id: indexer.id,
         url: indexer_url,
         staked_tokens: indexer.staked_tokens,
@@ -381,8 +386,8 @@ fn try_into_internal_indexer_info(
         total_allocated_tokens: indexer_indexing_total_allocated_tokens,
         indexer_agent_version: Version::new(0, 0, 0), // Placeholder
         graph_node_version: Version::new(0, 0, 0),    // Placeholder
-        indexings_status: HashMap::new(),             // Placeholder
-        indexings_cost_models: HashMap::new(),        // Placeholder
+        indexings_progress: HashMap::new(),           // Placeholder
+        indexings_cost_model: HashMap::new(),         // Placeholder
     })
 }
 
@@ -394,7 +399,7 @@ fn try_into_internal_indexer_info(
 /// If the subgraph is invalid, e.g., no valid deployments found, an error is returned.
 fn try_into_internal_subgraph_info(
     subgraph: subgraph::types::fetch_subgraphs::Subgraph,
-) -> anyhow::Result<types::SubgraphInfo> {
+) -> anyhow::Result<SubgraphInfo> {
     let versions = subgraph
         .versions
         .into_iter()
@@ -429,7 +434,7 @@ fn try_into_internal_subgraph_info(
             let deployment_allocations = deployment
                 .allocations
                 .into_iter()
-                .map(|allocation| types::AllocationInfo {
+                .map(|allocation| AllocationInfo {
                     id: allocation.id,
                     indexer: allocation.indexer.id,
                 })
@@ -448,7 +453,7 @@ fn try_into_internal_subgraph_info(
             let deployment_transferred_to_l2 = deployment.transferred_to_l2;
 
             let version_number = version.version;
-            let version_deployment = types::DeploymentInfo {
+            let version_deployment = DeploymentInfo {
                 id: deployment_id,
                 allocations: deployment_allocations,
                 manifest_network: deployment_manifest_network,
@@ -456,7 +461,7 @@ fn try_into_internal_subgraph_info(
                 transferred_to_l2: deployment_transferred_to_l2,
             };
 
-            Some(types::SubgraphVersionInfo {
+            Some(SubgraphVersionInfo {
                 version: version_number,
                 deployment: version_deployment,
             })
@@ -465,7 +470,7 @@ fn try_into_internal_subgraph_info(
         .try_into()
         .map_err(|_| anyhow!("no valid versions found"))?;
 
-    Ok(types::SubgraphInfo {
+    Ok(SubgraphInfo {
         id: subgraph.id,
         id_on_l2: subgraph.id_on_l2,
         versions,
@@ -475,8 +480,8 @@ fn try_into_internal_subgraph_info(
 /// Process the fetched network topology information.
 pub async fn process_indexers_info(
     state: &InternalState,
-    indexers: Vec1<types::IndexerInfo>,
-) -> anyhow::Result<Vec1<types::IndexerInfo>> {
+    indexers: Vec1<IndexerInfo>,
+) -> anyhow::Result<Vec1<IndexerInfo>> {
     // Process the fetched indexers information
     let indexers_info = {
         let indexers_iter_fut = indexers.into_iter().map(move |indexer| {
@@ -494,18 +499,17 @@ pub async fn process_indexers_info(
                 let mut indexer = indexer;
 
                 // Check if the indexer's address is in the address blocklist
-                if let Err(err) = check_indexer_blocked_by_addr_blocklist(
-                    &state.indexers_addr_blocklist,
-                    &indexer,
-                ) {
+                if let Err(err) =
+                    check_indexer_blocked_by_addr_blocklist(&state.indexer_addr_blocklist, &indexer)
+                {
                     tracing::debug!("filtering-out indexer: {err}");
                     return None;
                 }
 
                 // Check if the indexer's host is in the host blocklist
                 if let Err(err) = resolve_and_check_indexer_blocked_by_host_blocklist(
-                    &state.indexers_host_resolver,
-                    &state.indexers_host_blocklist,
+                    &state.indexer_host_resolver,
+                    &state.indexer_host_blocklist,
                     &indexer,
                 )
                 .await
@@ -516,9 +520,9 @@ pub async fn process_indexers_info(
 
                 // Check if the indexer's reported versions are supported
                 if let Err(err) = resolve_and_check_indexer_blocked_by_version(
-                    &state.indexers_version_resolver,
-                    &state.indexers_min_agent_version,
-                    &state.indexers_min_graph_node_version,
+                    &state.indexer_version_resolver,
+                    &state.indexer_min_agent_version,
+                    &state.indexer_min_graph_node_version,
                     &mut indexer,
                 )
                 .await
@@ -542,7 +546,7 @@ pub async fn process_indexers_info(
                 // Update the indexer's deployments list to only include the deployments that are
                 // not blocked by POI. If the indexer has no deployments left, it must be ignored.
                 if let Err(err) = resolve_and_check_indexer_blocked_by_poi(
-                    &state.indexers_pois_blocklist,
+                    &state.indexer_pois_blocklist,
                     &mut indexer,
                 )
                 .await
@@ -555,7 +559,7 @@ pub async fn process_indexers_info(
                 // NOTE: At this point, the indexer's deployments list should contain only the
                 //       deployment IDs that were not blocked by any blocklist.
                 if let Err(err) = resolve_indexer_indexing_progress_statuses(
-                    &state.indexers_indexing_status_resolver,
+                    &state.indexer_indexing_status_resolver,
                     &mut indexer,
                 )
                 .await
@@ -568,7 +572,7 @@ pub async fn process_indexers_info(
                 // NOTE: At this point, the indexer's deployments list should contain only the
                 //       deployment IDs that were not blocked by any blocklist.
                 if let Err(err) = resolve_indexer_indexing_cost_models(
-                    &state.indexers_cost_model_resolver,
+                    &state.indexer_cost_model_resolver,
                     &mut indexer,
                 )
                 .await
@@ -599,7 +603,7 @@ pub async fn process_indexers_info(
 /// - If the address is in the blocklist: the indexer is BLOCKED.
 fn check_indexer_blocked_by_addr_blocklist(
     addr_blocklist: &Option<AddrBlocklist>,
-    indexer: &types::IndexerInfo,
+    indexer: &IndexerInfo,
 ) -> anyhow::Result<()> {
     let blocklist = match addr_blocklist {
         Some(blocklist) => blocklist,
@@ -622,7 +626,7 @@ fn check_indexer_blocked_by_addr_blocklist(
 async fn resolve_and_check_indexer_blocked_by_host_blocklist(
     host_resolver: &Mutex<HostResolver>,
     host_blocklist: &Option<HostBlocklist>,
-    indexer: &types::IndexerInfo,
+    indexer: &IndexerInfo,
 ) -> anyhow::Result<()> {
     // Resolve the indexer's URL, if it fails (or times out), the indexer must be BLOCKED
     let mut host_resolver = host_resolver.lock().await;
@@ -668,7 +672,7 @@ async fn resolve_and_check_indexer_blocked_by_version(
     resolver: &VersionResolver,
     min_agent_version: &Version,
     min_graph_node_version: &Version,
-    indexer: &mut types::IndexerInfo,
+    indexer: &mut IndexerInfo,
 ) -> anyhow::Result<()> {
     // Resolve the indexer's agent version
     let agent_version = match resolver.resolve_agent_version(&indexer.url).await {
@@ -724,7 +728,7 @@ async fn resolve_and_check_indexer_blocked_by_version(
 /// - If there are no healthy indexings, i.e., all indexings are blocked: the indexer must be BLOCKED.
 async fn resolve_and_check_indexer_blocked_by_poi(
     pois_blocklist: &Option<(PoiBlocklist, Mutex<PoiResolver>)>,
-    indexer: &mut types::IndexerInfo,
+    indexer: &mut IndexerInfo,
 ) -> anyhow::Result<()> {
     // If the POI blocklist was not configured, the indexer must be ALLOWED
     let (pois_blocklist, pois_resolver) = match pois_blocklist {
@@ -776,7 +780,7 @@ async fn resolve_and_check_indexer_blocked_by_poi(
 /// Resolve the indexer's indexing progress status.
 async fn resolve_indexer_indexing_progress_statuses(
     indexing_status_resolver: &IndexingStatusResolver,
-    indexer: &mut types::IndexerInfo,
+    indexer: &mut IndexerInfo,
 ) -> anyhow::Result<()> {
     // Resolve the indexer's indexing status
     let indexer_status_url = indexers::status_url(&indexer.url);
@@ -809,7 +813,7 @@ async fn resolve_indexer_indexing_progress_statuses(
         .map(|(deployment_id, res)| {
             (
                 deployment_id,
-                types::IndexerIndexingStatusInfo {
+                IndexerIndexingProgressInfo {
                     latest_block: res.latest_block,
                     min_block: res.min_block,
                 },
@@ -818,7 +822,7 @@ async fn resolve_indexer_indexing_progress_statuses(
         .collect();
 
     // Set the indexer's indexing progress status
-    indexer.indexings_status = indexings_status;
+    indexer.indexings_progress = indexings_status;
 
     Ok(())
 }
@@ -826,7 +830,7 @@ async fn resolve_indexer_indexing_progress_statuses(
 /// Resolve the indexer's indexing cost models.
 async fn resolve_indexer_indexing_cost_models(
     (resolver, compiler): &(CostModelResolver, Mutex<CostModelCompiler>),
-    indexer: &mut types::IndexerInfo,
+    indexer: &mut IndexerInfo,
 ) -> anyhow::Result<()> {
     // Resolve the indexer's cost model sources
     let indexer_cost_url = indexers::cost_url(&indexer.url);
@@ -862,7 +866,7 @@ async fn resolve_indexer_indexing_cost_models(
     };
 
     // Set the indexer's indexing status cost models
-    indexer.indexings_cost_models = indexings_cost_models;
+    indexer.indexings_cost_model = indexings_cost_models;
 
     Ok(())
 }

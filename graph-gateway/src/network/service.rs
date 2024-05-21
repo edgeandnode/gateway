@@ -16,15 +16,15 @@ use tokio::sync::Mutex;
 use vec1::{vec1, Vec1};
 
 use super::{
-    indexers_addr_blocklist::AddrBlocklist,
-    indexers_cost_model_compiler::CostModelCompiler,
-    indexers_cost_model_resolver::CostModelResolver,
-    indexers_host_blocklist::HostBlocklist,
-    indexers_host_resolver::HostResolver,
-    indexers_indexing_status_resolver::IndexingStatusResolver,
-    indexers_poi_blocklist::PoiBlocklist,
-    indexers_poi_resolver::PoiResolver,
-    indexers_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
+    indexer_addr_blocklist::AddrBlocklist,
+    indexer_host_blocklist::HostBlocklist,
+    indexer_host_resolver::HostResolver,
+    indexer_indexing_cost_model_compiler::CostModelCompiler,
+    indexer_indexing_cost_model_resolver::CostModelResolver,
+    indexer_indexing_poi_blocklist::PoiBlocklist,
+    indexer_indexing_poi_resolver::PoiResolver,
+    indexer_indexing_progress_resolver::IndexingStatusResolver,
+    indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{fetch_update, InternalState},
     snapshot::{
         Address, BlockNumber, DeploymentId, Indexing, IndexingId, NetworkTopologySnapshot,
@@ -295,18 +295,18 @@ impl NetworkServiceBuilder {
     /// To spawn the [`NetworkService`] instance, call the [`NetworkServicePending::spawn`] method.
     pub fn build(self) -> NetworkServicePending {
         let internal_state = InternalState {
-            indexers_http_client: self.indexer_client,
-            indexers_min_agent_version: self.indexer_min_agent_version,
-            indexers_min_graph_node_version: self.indexer_min_graph_node_version,
-            indexers_addr_blocklist: self.indexer_addr_blocklist,
-            indexers_host_resolver: Mutex::new(self.indexer_host_resolver),
-            indexers_host_blocklist: self.indexer_host_blocklist,
-            indexers_version_resolver: self.indexer_version_resolver,
-            indexers_pois_blocklist: self
+            indexer_http_client: self.indexer_client,
+            indexer_min_agent_version: self.indexer_min_agent_version,
+            indexer_min_graph_node_version: self.indexer_min_graph_node_version,
+            indexer_addr_blocklist: self.indexer_addr_blocklist,
+            indexer_host_resolver: Mutex::new(self.indexer_host_resolver),
+            indexer_host_blocklist: self.indexer_host_blocklist,
+            indexer_version_resolver: self.indexer_version_resolver,
+            indexer_pois_blocklist: self
                 .indexer_pois_blocklist
                 .map(|(bl, res)| (bl, Mutex::new(res))),
-            indexers_indexing_status_resolver: self.indexer_indexing_status_resolver,
-            indexers_cost_model_resolver: (
+            indexer_indexing_status_resolver: self.indexer_indexing_status_resolver,
+            indexer_cost_model_resolver: (
                 self.indexer_cost_model_resolver,
                 Mutex::new(self.indexer_cost_model_compiler),
             ),

@@ -4,13 +4,13 @@ use alloy_primitives::Address;
 use anyhow::anyhow;
 use assert_matches::assert_matches;
 use graph_gateway::network::{
-    indexers_addr_blocklist::AddrBlocklist,
-    indexers_cost_model_compiler::CostModelCompiler,
-    indexers_cost_model_resolver::CostModelResolver,
-    indexers_host_blocklist::HostBlocklist,
-    indexers_host_resolver::HostResolver,
-    indexers_indexing_status_resolver::IndexingStatusResolver,
-    indexers_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
+    indexer_addr_blocklist::AddrBlocklist,
+    indexer_host_blocklist::HostBlocklist,
+    indexer_host_resolver::HostResolver,
+    indexer_indexing_cost_model_compiler::CostModelCompiler,
+    indexer_indexing_cost_model_resolver::CostModelResolver,
+    indexer_indexing_progress_resolver::IndexingStatusResolver,
+    indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{
         fetch_and_pre_process_indexers_info as internal_fetch_and_pre_process_indexers_info,
         fetch_update as internal_fetch_update, process_indexers_info, types as internal_types,
@@ -87,31 +87,31 @@ fn test_service_state(
     );
 
     let mut state = InternalState {
-        indexers_http_client: indexers_http_client.clone(),
-        indexers_min_agent_version: Version::new(0, 0, 0),
-        indexers_min_graph_node_version: Version::new(0, 0, 0),
-        indexers_addr_blocklist: None,
-        indexers_host_resolver,
-        indexers_host_blocklist: None,
-        indexers_version_resolver,
-        indexers_pois_blocklist: None,
-        indexers_indexing_status_resolver,
-        indexers_cost_model_resolver,
+        indexer_http_client: indexers_http_client.clone(),
+        indexer_min_agent_version: Version::new(0, 0, 0),
+        indexer_min_graph_node_version: Version::new(0, 0, 0),
+        indexer_addr_blocklist: None,
+        indexer_host_resolver: indexers_host_resolver,
+        indexer_host_blocklist: None,
+        indexer_version_resolver: indexers_version_resolver,
+        indexer_pois_blocklist: None,
+        indexer_indexing_status_resolver: indexers_indexing_status_resolver,
+        indexer_cost_model_resolver: indexers_cost_model_resolver,
     };
 
     if !addr_blocklist.is_empty() {
         let indexers_addr_blocklist = AddrBlocklist::new(addr_blocklist);
-        state.indexers_addr_blocklist = Some(indexers_addr_blocklist);
+        state.indexer_addr_blocklist = Some(indexers_addr_blocklist);
     }
 
     if !host_blocklist.is_empty() {
         let indexers_host_blocklist = HostBlocklist::new(host_blocklist);
-        state.indexers_host_blocklist = Some(indexers_host_blocklist);
+        state.indexer_host_blocklist = Some(indexers_host_blocklist);
     }
 
     if let Some((min_agent_version, min_graph_node_version)) = min_versions {
-        state.indexers_min_agent_version = min_agent_version;
-        state.indexers_min_graph_node_version = min_graph_node_version;
+        state.indexer_min_agent_version = min_agent_version;
+        state.indexer_min_graph_node_version = min_graph_node_version;
     }
 
     Arc::new(state)
