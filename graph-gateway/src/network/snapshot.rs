@@ -4,7 +4,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     ops::Deref,
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 pub use alloy_primitives::{Address, BlockNumber};
@@ -17,6 +17,12 @@ use url::Url;
 use vec1::Vec1;
 
 use super::internal::types::{IndexerInfo, SubgraphInfo};
+
+/// The minimum indexer agent version required to support Scalar TAP.
+fn min_required_indexer_agent_version_scalar_tap_support() -> &'static Version {
+    static VERSION: OnceLock<Version> = OnceLock::new();
+    VERSION.get_or_init(|| "1.0.0-alpha".parse().expect("valid version"))
+}
 
 /// The [`IndexingId`] struct represents the unique identifier of an indexing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -84,8 +90,8 @@ pub struct Indexer {
     /// The indexer's "graph node" version.
     pub graph_node_version: Version,
 
-    /// Whether the indexer uses the legacy scalar.
-    pub legacy_scalar: bool,
+    /// Whether the indexer supports using Scalar TAP.
+    pub scalar_tap_support: bool,
 
     /// The indexer's indexings set.
     ///
@@ -230,6 +236,11 @@ pub fn new_from(
     let indexings_indexers_table = indexers_info_table
         .iter()
         .map(|(indexer_id, indexer)| {
+            // The indexer agent version must be greater than or equal to the minimum required
+            // version to support Scalar TAP.
+            let indexer_scalar_tap_support = indexer.indexer_agent_version
+                >= *min_required_indexer_agent_version_scalar_tap_support();
+
             (
                 indexer_id,
                 Arc::new(Indexer {
@@ -237,7 +248,7 @@ pub fn new_from(
                     url: indexer.url.clone(),
                     indexer_agent_version: indexer.indexer_agent_version.clone(),
                     graph_node_version: indexer.graph_node_version.clone(),
-                    legacy_scalar: indexer.legacy_scalar,
+                    scalar_tap_support: indexer_scalar_tap_support,
                     indexings: indexer.deployments.iter().copied().collect(),
                     staked_tokens: indexer.staked_tokens,
                 }),

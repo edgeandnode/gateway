@@ -17,10 +17,7 @@ use super::{
     indexers_poi_blocklist::PoiBlocklist, indexers_poi_resolver::PoiResolver, snapshot,
     snapshot::NetworkTopologySnapshot, subgraph, subgraph::Client as SubgraphClient,
 };
-use crate::indexers;
-
-/// An artificial version representing the legacy scalar_tap version.
-const LEGACY_SCALAR_TAP_VERSION: Version = Version::new(0, 0, 0);
+use crate::{indexers, network::indexers_version_resolver::VersionResolver};
 
 /// The network topology fetch timeout.
 ///
@@ -29,11 +26,6 @@ const NETWORK_TOPOLOGY_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The timeout for the indexer's host resolution.
 const INDEXER_HOST_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(2_000);
-
-/// The timeout for the indexer's version resolution.
-///
-/// This timeout is applied independently for the agent and graph node versions fetches.
-const INDEXER_VERSION_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(1_500);
 
 /// The timeout for the indexer's POI resolution.
 const INDEXER_POI_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(5_000);
@@ -115,15 +107,11 @@ pub mod types {
         /// The deployments are ordered from highest to lowest associated token allocation.
         //  See ref: d260724b-a445-4842-964e-fb95062c119d
         pub deployments: Vec1<DeploymentId>,
+
         /// The indexer's "indexer service" version.
         pub indexer_agent_version: Version,
-        /// The indexer's "scalar_tap" version.
-        pub scalar_tap_version: Version,
         /// The indexer's "graph node" version.
         pub graph_node_version: Version,
-
-        /// A flag indicating if the indexer is using the legacy scalar.
-        pub legacy_scalar: bool,
 
         /// The largest allocation per indexing.
         pub largest_allocation: HashMap<DeploymentId, Address>,
@@ -150,11 +138,11 @@ pub mod types {
 pub struct InternalState {
     pub indexers_http_client: reqwest::Client,
     pub indexers_min_agent_version: Version,
-    pub indexers_min_scalar_tap_version: Version,
     pub indexers_min_graph_node_version: Version,
     pub indexers_addr_blocklist: Option<AddrBlocklist>,
     pub indexers_host_resolver: Mutex<HostResolver>,
     pub indexers_host_blocklist: Option<HostBlocklist>,
+    pub indexers_version_resolver: VersionResolver,
     pub indexers_pois_blocklist: Option<(PoiBlocklist, Mutex<PoiResolver>)>,
     pub indexers_indexing_status_resolver: IndexingStatusResolver,
     pub indexers_cost_model_resolver: (CostModelResolver, Mutex<CostModelCompiler>),
@@ -392,9 +380,7 @@ fn try_into_internal_indexer_info(
         largest_allocation: indexer_indexing_largest_allocations,
         total_allocated_tokens: indexer_indexing_total_allocated_tokens,
         indexer_agent_version: Version::new(0, 0, 0), // Placeholder
-        scalar_tap_version: Version::new(0, 0, 0),    // Placeholder
         graph_node_version: Version::new(0, 0, 0),    // Placeholder
-        legacy_scalar: false,                         // Placeholder
         indexings_status: HashMap::new(),             // Placeholder
         indexings_cost_models: HashMap::new(),        // Placeholder
     })
@@ -501,7 +487,6 @@ pub async fn process_indexers_info(
                 indexer.url = %indexer.url,
                 indexer.agent_version = tracing::field::Empty,
                 indexer.graph_node_version = tracing::field::Empty,
-                indexer.scalar_tap_version = tracing::field::Empty,
             );
             tracing::trace!(parent: &indexer_span, "processing");
 
@@ -518,7 +503,7 @@ pub async fn process_indexers_info(
                 }
 
                 // Check if the indexer's host is in the host blocklist
-                if let Err(err) = check_indexer_blocked_by_host_blocklist(
+                if let Err(err) = resolve_and_check_indexer_blocked_by_host_blocklist(
                     &state.indexers_host_resolver,
                     &state.indexers_host_blocklist,
                     &indexer,
@@ -530,11 +515,10 @@ pub async fn process_indexers_info(
                 }
 
                 // Check if the indexer's reported versions are supported
-                if let Err(err) = check_indexer_blocked_by_version(
-                    &state.indexers_http_client,
+                if let Err(err) = resolve_and_check_indexer_blocked_by_version(
+                    &state.indexers_version_resolver,
                     &state.indexers_min_agent_version,
                     &state.indexers_min_graph_node_version,
-                    &state.indexers_min_scalar_tap_version,
                     &mut indexer,
                 )
                 .await
@@ -552,17 +536,29 @@ pub async fn process_indexers_info(
                     .record(
                         "indexer.graph_node_version",
                         tracing::field::display(&indexer.graph_node_version),
-                    )
-                    .record(
-                        "indexer.scalar_tap_version",
-                        tracing::field::display(&indexer.scalar_tap_version),
                     );
 
                 // Check if the indexer's deployments should be blocked by POI
                 // Update the indexer's deployments list to only include the deployments that are
                 // not blocked by POI. If the indexer has no deployments left, it must be ignored.
-                if let Err(err) =
-                    check_indexer_blocked_by_poi(&state.indexers_pois_blocklist, &mut indexer).await
+                if let Err(err) = resolve_and_check_indexer_blocked_by_poi(
+                    &state.indexers_pois_blocklist,
+                    &mut indexer,
+                )
+                .await
+                {
+                    tracing::debug!("filtering-out indexer: {err}");
+                    return None;
+                }
+
+                // Fetch the indexer's indexing progress statuses
+                // NOTE: At this point, the indexer's deployments list should contain only the
+                //       deployment IDs that were not blocked by any blocklist.
+                if let Err(err) = resolve_indexer_indexing_progress_statuses(
+                    &state.indexers_indexing_status_resolver,
+                    &mut indexer,
+                )
+                .await
                 {
                     tracing::debug!("filtering-out indexer: {err}");
                     return None;
@@ -571,8 +567,7 @@ pub async fn process_indexers_info(
                 // Fetch the indexer's indexing statuses and cost models
                 // NOTE: At this point, the indexer's deployments list should contain only the
                 //       deployment IDs that were not blocked by any blocklist.
-                if let Err(err) = resolve_indexer_indexing_status_and_cost_models(
-                    &state.indexers_indexing_status_resolver,
+                if let Err(err) = resolve_indexer_indexing_cost_models(
                     &state.indexers_cost_model_resolver,
                     &mut indexer,
                 )
@@ -624,7 +619,7 @@ fn check_indexer_blocked_by_addr_blocklist(
 /// - If the indexer's host is not resolvable: the indexer is BLOCKED.
 /// - If the host blocklist was not configured: the indexer is ALLOWED.
 /// - If the indexer's host is in the blocklist: the indexer is BLOCKED.
-async fn check_indexer_blocked_by_host_blocklist(
+async fn resolve_and_check_indexer_blocked_by_host_blocklist(
     host_resolver: &Mutex<HostResolver>,
     host_blocklist: &Option<HostBlocklist>,
     indexer: &types::IndexerInfo,
@@ -669,32 +664,19 @@ async fn check_indexer_blocked_by_host_blocklist(
 /// - If the agent version is below the minimum required: the indexer must be BLOCKED.
 /// - If the graph node version is not resolvable: the indexer must be BLOCKED.
 /// - If the graph node version is below the minimum required: the indexer must be BLOCKED.
-async fn check_indexer_blocked_by_version(
-    http_client: &reqwest::Client,
+async fn resolve_and_check_indexer_blocked_by_version(
+    resolver: &VersionResolver,
     min_agent_version: &Version,
     min_graph_node_version: &Version,
-    min_scalar_tap_version: &Version,
     indexer: &mut types::IndexerInfo,
 ) -> anyhow::Result<()> {
     // Resolve the indexer's agent version
-    let indexer_agent_version_url = indexers::version_url(&indexer.url);
-    let agent_version = match tokio::time::timeout(
-        INDEXER_VERSION_RESOLUTION_TIMEOUT,
-        indexers::version::query_indexer_service_version(http_client, indexer_agent_version_url),
-    )
-    .await
-    {
-        // If the resolution timed out, the indexer must be BLOCKED
-        Err(_) => {
-            return Err(anyhow!("agent version resolution timed out"));
+    let agent_version = match resolver.resolve_agent_version(&indexer.url).await {
+        // If the resolution failed, the indexer must be BLOCKED
+        Err(err) => {
+            return Err(anyhow!("agent version resolution failed: {err}"));
         }
-        Ok(res) => match res {
-            // If the resolution failed, the indexer must be BLOCKED
-            Err(err) => {
-                return Err(anyhow!("agent version resolution failed: {err}"));
-            }
-            Ok(result) => result,
-        },
+        Ok(result) => result,
     };
 
     // Check if the indexer's agent version is supported
@@ -706,39 +688,17 @@ async fn check_indexer_blocked_by_version(
         ));
     }
 
-    // Resolve the indexer's scalar_tap version
-    // TODO: Resolve the indexers scalar_tap version
-    //  For now, set the scalar_tap version to the agent version if it is above the minimum required
-    //  version, otherwise, set it to the legacy scalar_tap version.
-    let scalar_tap_version = if agent_version > *min_scalar_tap_version {
-        agent_version.clone()
-    } else {
-        LEGACY_SCALAR_TAP_VERSION.clone()
-    };
-
     // Resolve the indexer's graph node version, with a timeout
-    let indexer_graph_node_version_url = indexers::status_url(&indexer.url);
-    let graph_node_version = match tokio::time::timeout(
-        INDEXER_VERSION_RESOLUTION_TIMEOUT,
-        indexers::version::query_graph_node_version(http_client, indexer_graph_node_version_url),
-    )
-    .await
-    {
-        // If the resolution timed out, the indexer must be BLOCKED
-        Err(_) => {
-            return Err(anyhow!("graph-node version resolution timed out"));
+    let graph_node_version = match resolver.resolve_graph_node_version(&indexer.url).await {
+        // If the resolution failed, the indexer must be BLOCKED
+        Err(err) => {
+            // TODO: After more graph nodes support reporting their version,
+            //  we should assume they are on the minimum version if we can't
+            //  get the version.
+            tracing::trace!("graph-node version resolution failed: {err}");
+            min_graph_node_version.clone()
         }
-        Ok(result) => match result {
-            // If the resolution failed, the indexer must be BLOCKED
-            Err(err) => {
-                // TODO: After more graph nodes support reporting their version,
-                //  we should assume they are on the minimum version if we can't
-                //  get the version.
-                tracing::trace!("graph-node version resolution failed: {err}");
-                min_graph_node_version.clone()
-            }
-            Ok(result) => result,
-        },
+        Ok(result) => result,
     };
 
     // Check if the indexer's graph node version is supported
@@ -752,10 +712,7 @@ async fn check_indexer_blocked_by_version(
 
     // Set the indexer's versions
     indexer.indexer_agent_version = agent_version;
-    indexer.scalar_tap_version = scalar_tap_version;
     indexer.graph_node_version = graph_node_version;
-
-    indexer.legacy_scalar = indexer.scalar_tap_version == LEGACY_SCALAR_TAP_VERSION;
 
     Ok(())
 }
@@ -765,7 +722,7 @@ async fn check_indexer_blocked_by_version(
 /// - If the POI blocklist was not configured: the indexer must be ALLOWED.
 /// - If not indexing any of the affected deployments: the indexer must be ALLOWED.
 /// - If there are no healthy indexings, i.e., all indexings are blocked: the indexer must be BLOCKED.
-async fn check_indexer_blocked_by_poi(
+async fn resolve_and_check_indexer_blocked_by_poi(
     pois_blocklist: &Option<(PoiBlocklist, Mutex<PoiResolver>)>,
     indexer: &mut types::IndexerInfo,
 ) -> anyhow::Result<()> {
@@ -816,10 +773,9 @@ async fn check_indexer_blocked_by_poi(
     Ok(())
 }
 
-/// Resolve the indexer's indexing status and cost models.
-async fn resolve_indexer_indexing_status_and_cost_models(
+/// Resolve the indexer's indexing progress status.
+async fn resolve_indexer_indexing_progress_statuses(
     indexing_status_resolver: &IndexingStatusResolver,
-    (resolver, compiler): &(CostModelResolver, Mutex<CostModelCompiler>),
     indexer: &mut types::IndexerInfo,
 ) -> anyhow::Result<()> {
     // Resolve the indexer's indexing status
@@ -832,12 +788,12 @@ async fn resolve_indexer_indexing_status_and_cost_models(
     {
         // If the resolution timed out, the indexer must be BLOCKED
         Err(_) => {
-            return Err(anyhow!("indexing status resolution timed out"));
+            return Err(anyhow!("indexing progress status resolution timed out"));
         }
         Ok(status) => match status {
             // If the resolution failed, the indexer must be BLOCKED
             Err(err) => {
-                return Err(anyhow!("indexing status resolution failed: {err}"));
+                return Err(anyhow!("indexing progress status resolution failed: {err}"));
             }
             Ok(result) => result,
         },
@@ -845,9 +801,33 @@ async fn resolve_indexer_indexing_status_and_cost_models(
     tracing::trace!(
         indexings = %indexer.deployments.len(),
         indexing_status = %indexings_status.len(),
-        "indexing status resolved"
+        "indexing progress status resolved"
     );
 
+    let indexings_status = indexings_status
+        .into_iter()
+        .map(|(deployment_id, res)| {
+            (
+                deployment_id,
+                types::IndexerIndexingStatusInfo {
+                    latest_block: res.latest_block,
+                    min_block: res.min_block,
+                },
+            )
+        })
+        .collect();
+
+    // Set the indexer's indexing progress status
+    indexer.indexings_status = indexings_status;
+
+    Ok(())
+}
+
+/// Resolve the indexer's indexing cost models.
+async fn resolve_indexer_indexing_cost_models(
+    (resolver, compiler): &(CostModelResolver, Mutex<CostModelCompiler>),
+    indexer: &mut types::IndexerInfo,
+) -> anyhow::Result<()> {
     // Resolve the indexer's cost model sources
     let indexer_cost_url = indexers::cost_url(&indexer.url);
     let indexings_cost_models = match tokio::time::timeout(
@@ -856,9 +836,9 @@ async fn resolve_indexer_indexing_status_and_cost_models(
     )
     .await
     {
-        // If the resolution timed out, the indexer must be BLOCKED
         Err(_) => {
-            return Err(anyhow!("cost model resolution timed out"));
+            tracing::debug!("cost model resolution timed out");
+            return Ok(());
         }
         Ok(result) => result,
     };
@@ -881,22 +861,7 @@ async fn resolve_indexer_indexing_status_and_cost_models(
         HashMap::new()
     };
 
-    // Construct the indexings table with the resolved status and cost models
-    let indexings_status = indexings_status
-        .into_iter()
-        .map(|(deployment_id, res)| {
-            (
-                deployment_id,
-                types::IndexerIndexingStatusInfo {
-                    latest_block: res.latest_block,
-                    min_block: res.min_block,
-                },
-            )
-        })
-        .collect();
-
-    // Set the indexer's indexing status and cost models
-    indexer.indexings_status = indexings_status;
+    // Set the indexer's indexing status cost models
     indexer.indexings_cost_models = indexings_cost_models;
 
     Ok(())

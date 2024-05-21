@@ -24,6 +24,7 @@ use super::{
     indexers_indexing_status_resolver::IndexingStatusResolver,
     indexers_poi_blocklist::PoiBlocklist,
     indexers_poi_resolver::PoiResolver,
+    indexers_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{fetch_update, InternalState},
     snapshot::{
         Address, BlockNumber, DeploymentId, Indexing, IndexingId, NetworkTopologySnapshot,
@@ -205,11 +206,11 @@ pub struct NetworkServiceBuilder {
     subgraph_client: SubgraphClient,
     indexer_client: reqwest::Client,
     indexer_min_agent_version: Version,
-    indexer_min_scalar_tap_version: Version,
     indexer_min_graph_node_version: Version,
     indexer_addr_blocklist: Option<AddrBlocklist>,
     indexer_host_resolver: HostResolver,
     indexer_host_blocklist: Option<HostBlocklist>,
+    indexer_version_resolver: VersionResolver,
     indexer_pois_blocklist: Option<(PoiBlocklist, PoiResolver)>,
     indexer_indexing_status_resolver: IndexingStatusResolver,
     indexer_cost_model_resolver: CostModelResolver,
@@ -221,6 +222,10 @@ impl NetworkServiceBuilder {
     /// Creates a new [`NetworkServiceBuilder`] instance.
     pub fn new(subgraph_client: SubgraphClient, indexer_client: reqwest::Client) -> Self {
         let indexer_host_resolver = HostResolver::new().expect("failed to create host resolver");
+        let indexer_version_resolver = VersionResolver::with_timeout(
+            indexer_client.clone(),
+            DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1500ms
+        );
         let indexer_indexing_status_resolver = IndexingStatusResolver::new(indexer_client.clone());
         let indexer_cost_model_resolver = CostModelResolver::new(indexer_client.clone());
         let indexer_cost_model_compiler = CostModelCompiler::default();
@@ -229,11 +234,11 @@ impl NetworkServiceBuilder {
             subgraph_client,
             indexer_client,
             indexer_min_agent_version: Version::new(0, 0, 0),
-            indexer_min_scalar_tap_version: Version::new(0, 0, 0),
             indexer_min_graph_node_version: Version::new(0, 0, 0),
             indexer_addr_blocklist: None,
             indexer_host_resolver,
             indexer_host_blocklist: None,
+            indexer_version_resolver,
             indexer_pois_blocklist: None,
             indexer_indexing_status_resolver,
             indexer_cost_model_resolver,
@@ -251,12 +256,6 @@ impl NetworkServiceBuilder {
     /// Sets the minimum agent version for indexers.
     pub fn with_indexer_min_agent_version(mut self, version: Version) -> Self {
         self.indexer_min_agent_version = version;
-        self
-    }
-
-    /// Sets the minimum scalar tap version for indexers.
-    pub fn with_indexer_min_scalar_tap_version(mut self, version: Version) -> Self {
-        self.indexer_min_scalar_tap_version = version;
         self
     }
 
@@ -298,11 +297,11 @@ impl NetworkServiceBuilder {
         let internal_state = InternalState {
             indexers_http_client: self.indexer_client,
             indexers_min_agent_version: self.indexer_min_agent_version,
-            indexers_min_scalar_tap_version: self.indexer_min_scalar_tap_version,
             indexers_min_graph_node_version: self.indexer_min_graph_node_version,
             indexers_addr_blocklist: self.indexer_addr_blocklist,
             indexers_host_resolver: Mutex::new(self.indexer_host_resolver),
             indexers_host_blocklist: self.indexer_host_blocklist,
+            indexers_version_resolver: self.indexer_version_resolver,
             indexers_pois_blocklist: self
                 .indexer_pois_blocklist
                 .map(|(bl, res)| (bl, Mutex::new(res))),
