@@ -16,9 +16,6 @@ use tokio::sync::Mutex;
 use vec1::{vec1, Vec1};
 
 use super::{
-    entities::{
-        Address, BlockNumber, DeploymentId, GraphNetwork, Indexing, IndexingId, SubgraphId,
-    },
     indexers_addr_blocklist::AddrBlocklist,
     indexers_cost_model_compiler::CostModelCompiler,
     indexers_cost_model_resolver::CostModelResolver,
@@ -28,6 +25,10 @@ use super::{
     indexers_poi_blocklist::PoiBlocklist,
     indexers_poi_resolver::PoiResolver,
     internal::{fetch_update, InternalState},
+    snapshot::{
+        Address, BlockNumber, DeploymentId, Indexing, IndexingId, NetworkTopologySnapshot,
+        SubgraphId,
+    },
     subgraph::Client as SubgraphClient,
 };
 use crate::indexers::public_poi::ProofOfIndexingInfo;
@@ -81,7 +82,7 @@ impl ResolvedSubgraphInfo {
 /// To create a new [`NetworkService`] instance, use the [`NetworkServiceBuilder`].
 #[derive(Clone)]
 pub struct NetworkService {
-    network: Eventual<Ptr<GraphNetwork>>,
+    network: Eventual<Ptr<NetworkTopologySnapshot>>,
 }
 
 impl NetworkService {
@@ -350,7 +351,7 @@ fn spawn_updater_task(
     subgraph_client: SubgraphClient,
     state: InternalState,
     update_interval: Duration,
-) -> Eventual<Ptr<GraphNetwork>> {
+) -> Eventual<Ptr<NetworkTopologySnapshot>> {
     let (mut eventual_writer, eventual) = Eventual::new();
 
     tokio::spawn(async move {
