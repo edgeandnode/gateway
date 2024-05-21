@@ -330,7 +330,7 @@ pub fn new_from(
                                 .get(&deployment_id)?;
 
                             let indexing_status = indexing_indexer_info
-                                .indexings_status
+                                .indexings_progress
                                 .get(&deployment_id)
                                 .map(|status| IndexingStatus {
                                     latest_block: status.latest_block,
@@ -338,7 +338,7 @@ pub fn new_from(
                                 });
 
                             let indexing_cost_model = indexing_indexer_info
-                                .indexings_cost_models
+                                .indexings_cost_model
                                 .get(&deployment_id)
                                 .cloned();
 
@@ -422,7 +422,7 @@ pub fn new_from(
                         .get(&deployment_id)?;
 
                     let indexing_status = indexing_indexer_info
-                        .indexings_status
+                        .indexings_progress
                         .get(&deployment_id)
                         .map(|status| IndexingStatus {
                             latest_block: status.latest_block,
@@ -430,7 +430,7 @@ pub fn new_from(
                         });
 
                     let indexing_cost_model = indexing_indexer_info
-                        .indexings_cost_models
+                        .indexings_cost_model
                         .get(&deployment_id)
                         .cloned();
 

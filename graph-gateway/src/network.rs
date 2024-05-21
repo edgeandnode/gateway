@@ -10,15 +10,15 @@ pub use snapshot::{
     NetworkTopologySnapshot, SubgraphId,
 };
 
-pub mod indexers_addr_blocklist;
-pub mod indexers_cost_model_compiler;
-pub mod indexers_cost_model_resolver;
-pub mod indexers_host_blocklist;
-pub mod indexers_host_resolver;
-pub mod indexers_indexing_status_resolver;
-pub mod indexers_poi_blocklist;
-pub mod indexers_poi_resolver;
-pub mod indexers_version_resolver;
+pub mod indexer_addr_blocklist;
+pub mod indexer_host_blocklist;
+pub mod indexer_host_resolver;
+pub mod indexer_indexing_cost_model_compiler;
+pub mod indexer_indexing_cost_model_resolver;
+pub mod indexer_indexing_poi_blocklist;
+pub mod indexer_indexing_poi_resolver;
+pub mod indexer_indexing_progress_resolver;
+pub mod indexer_version_resolver;
 pub mod internal;
 mod service;
 mod snapshot;
