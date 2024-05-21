@@ -217,11 +217,17 @@ pub fn rewrite_query<'q>(
                 if !field.selection_set.items.is_empty() {
                     buf.push_str(" {\n");
                     for selection in &field.selection_set.items {
-                        let field = match selection {
-                            Selection::Field(field) => field,
-                            Selection::InlineFragment(_) | Selection::FragmentSpread(_) => continue,
+                        match selection {
+                            Selection::Field(field) => {
+                                write!(buf, "    {}", field).unwrap();
+                            }
+                            Selection::FragmentSpread(spread) => {
+                                write!(buf, "    {}", spread).unwrap();
+                            }
+                            Selection::InlineFragment(fragment) => {
+                                write!(buf, "    {}", fragment).unwrap();
+                            }
                         };
-                        write!(buf, "    {}", field).unwrap();
                     }
                     buf.push_str("  }");
                 }
@@ -235,7 +241,12 @@ pub fn rewrite_query<'q>(
                 for selection in &selection_set.items {
                     match selection {
                         Selection::Field(field) => serialize_field(buf, field, defaults),
-                        Selection::FragmentSpread(_) | Selection::InlineFragment(_) => (),
+                        Selection::FragmentSpread(spread) => {
+                            write!(buf, "  {}", spread).unwrap();
+                        }
+                        Selection::InlineFragment(fragment) => {
+                            write!(buf, "  {}", fragment).unwrap()
+                        }
                     };
                 }
                 buf.push_str("  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n");
@@ -518,7 +529,26 @@ mod tests {
                     range: None,
                 },
                 "query GetTopSales {\n  events(block: { hash: \"0x0000000000000000000000000000000000000000000000000000000000000001\" }, where: {type: \"Sale\"}, first: 1, orderBy: value, orderDirection: desc) {\n    type\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
-            )
+            ),
+            (
+                r#"
+                fragment Foo on Delegation {
+                    id
+                }
+                {
+                  delegations(first: 1) {
+                    delegator
+                    ...Foo
+                  }
+                }
+                "#,
+                BlockRequirements {
+                    latest: true,
+                    number_gte: None,
+                    range: None,
+                },
+                "fragment Foo on Delegation {\n  id\n}\n{\n  delegations(block: { hash: \"0x0000000000000000000000000000000000000000000000000000000000000001\" }, first: 1) {\n    delegator\n    ...Foo\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
+            ),
         ];
 
         for (client_query, requirements, expected_indexer_query) in tests {
@@ -530,7 +560,7 @@ mod tests {
                 .and_then(|o| o.get("query")?.as_str())
                 .unwrap();
             println!("{}", doc);
-            assert!(Context::new(&doc, "").is_ok());
+            assert!(Context::new(doc, "").is_ok());
             assert_eq!(doc, expected_indexer_query);
         }
     }
