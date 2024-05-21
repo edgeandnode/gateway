@@ -1,15 +1,18 @@
 //! A resolver that fetches the indexing statuses of deployments from an indexer's status URL.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::BlockNumber;
 use thegraph_core::types::DeploymentId;
 use url::Url;
 
-use crate::indexers;
+use crate::{indexers, indexers::indexing_statuses::IndexingStatusResponse};
+
+/// The timeout for the indexer's indexing progress resolution.
+pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// An error that occurred while resolving the indexing statuses of deployments.
-// TODO: Differentiate deserialization errors from network errors.
+// TODO: Differentiate deserialization errors from resolver errors
 #[derive(Debug, thiserror::Error)]
 pub enum ResolutionError {
     /// An error occurred while querying the indexer status.
@@ -17,6 +20,10 @@ pub enum ResolutionError {
     /// This includes network errors, timeouts, and deserialization errors.
     #[error("failed to query the indexer status: {0}")]
     FetchError(String),
+
+    /// The resolution timed out.
+    #[error("resolution timed out")]
+    Timeout,
 }
 
 /// The indexing progress information of a deployment on a chain.
@@ -31,14 +38,40 @@ pub struct IndexingProgressInfo {
 }
 
 /// A resolver that fetches the indexing statuses of deployments from an indexer's status URL.
-pub struct IndexingStatusResolver {
+pub struct IndexingProgressResolver {
     client: reqwest::Client,
+    timeout: Duration,
 }
 
-impl IndexingStatusResolver {
-    /// Creates a new [`IndexingStatusResolver`].
+impl IndexingProgressResolver {
+    /// Creates a new [`IndexingProgressResolver`].
     pub fn new(client: reqwest::Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            timeout: DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
+        }
+    }
+
+    /// Creates a new [`IndexingProgressResolver`] with the given timeout.
+    pub fn with_timeout(client: reqwest::Client, timeout: Duration) -> Self {
+        Self { client, timeout }
+    }
+
+    /// Resolves the indexer indexing progress for the given deployments
+    async fn resolve_indexing_progress(
+        &self,
+        url: &Url,
+        indexings: &[DeploymentId],
+    ) -> Result<Vec<IndexingStatusResponse>, ResolutionError> {
+        let indexer_status_url = indexers::status_url(url);
+        tokio::time::timeout(
+            self.timeout,
+            // TODO: Handle the different errors once the indexers client module reports them
+            indexers::indexing_statuses::query(&self.client, indexer_status_url, indexings),
+        )
+        .await
+        .map_err(|_| ResolutionError::Timeout)?
+        .map_err(|err| ResolutionError::FetchError(err.to_string()))
     }
 
     /// Resolves the indexing statuses of the given deployments.
@@ -48,19 +81,14 @@ impl IndexingStatusResolver {
     /// Returns a map of deployment IDs to their indexing statuses.
     pub async fn resolve(
         &self,
-        indexer_status_url: Url,
+        url: &Url,
         indexer_deployments: &[DeploymentId],
     ) -> Result<HashMap<DeploymentId, IndexingProgressInfo>, ResolutionError> {
-        // TODO: Handle the different errors once the indexers client module reports them
-        let indexing_progress = indexers::indexing_statuses::query(
-            &self.client,
-            indexer_status_url,
-            indexer_deployments,
-        )
-        .await
-        .map_err(|e| ResolutionError::FetchError(e.to_string()))?;
+        let progress = self
+            .resolve_indexing_progress(url, indexer_deployments)
+            .await?;
 
-        let indexing_progress = indexing_progress
+        let progress = progress
             .into_iter()
             .filter_map(|status| {
                 // Only consider the first chain status, if has no chains
@@ -82,6 +110,6 @@ impl IndexingStatusResolver {
             })
             .collect::<HashMap<_, _>>();
 
-        Ok(indexing_progress)
+        Ok(progress)
     }
 }

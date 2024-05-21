@@ -23,7 +23,7 @@ use super::{
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist,
     indexer_indexing_poi_resolver::PoiResolver,
-    indexer_indexing_progress_resolver::IndexingStatusResolver,
+    indexer_indexing_progress_resolver::IndexingProgressResolver,
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{fetch_update, InternalState},
     snapshot::{
@@ -32,7 +32,15 @@ use super::{
     },
     subgraph::Client as SubgraphClient,
 };
-use crate::indexers::public_poi::ProofOfIndexingInfo;
+use crate::{
+    indexers::public_poi::ProofOfIndexingInfo,
+    network::{
+        indexer_host_resolver::DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT,
+        indexer_indexing_cost_model_resolver::DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
+        indexer_indexing_poi_resolver::DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT,
+        indexer_indexing_progress_resolver::DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
+    },
+};
 
 /// Default update interval for the network topology information.
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(30);
@@ -211,24 +219,33 @@ pub struct NetworkServiceBuilder {
     indexer_host_resolver: HostResolver,
     indexer_host_blocklist: Option<HostBlocklist>,
     indexer_version_resolver: VersionResolver,
-    indexer_pois_blocklist: Option<(PoiBlocklist, PoiResolver)>,
-    indexer_indexing_status_resolver: IndexingStatusResolver,
-    indexer_cost_model_resolver: CostModelResolver,
-    indexer_cost_model_compiler: CostModelCompiler,
+    indexer_indexing_pois_blocklist: Option<(PoiBlocklist, PoiResolver)>,
+    indexer_indexing_status_resolver: IndexingProgressResolver,
+    indexer_indexing_cost_model_resolver: CostModelResolver,
+    indexer_indexing_cost_model_compiler: CostModelCompiler,
     update_interval: Duration,
 }
 
 impl NetworkServiceBuilder {
     /// Creates a new [`NetworkServiceBuilder`] instance.
     pub fn new(subgraph_client: SubgraphClient, indexer_client: reqwest::Client) -> Self {
-        let indexer_host_resolver = HostResolver::new().expect("failed to create host resolver");
+        let indexer_host_resolver = HostResolver::with_timeout(
+            DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT, // 1500ms
+        )
+        .expect("failed to create host resolver");
         let indexer_version_resolver = VersionResolver::with_timeout(
             indexer_client.clone(),
             DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1500ms
         );
-        let indexer_indexing_status_resolver = IndexingStatusResolver::new(indexer_client.clone());
-        let indexer_cost_model_resolver = CostModelResolver::new(indexer_client.clone());
-        let indexer_cost_model_compiler = CostModelCompiler::default();
+        let indexer_indexing_status_resolver = IndexingProgressResolver::with_timeout(
+            indexer_client.clone(),
+            DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 5s
+        );
+        let indexer_indexing_cost_model_resolver = CostModelResolver::with_timeout(
+            indexer_client.clone(),
+            DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT, // 5s
+        );
+        let indexer_indexing_cost_model_compiler = CostModelCompiler::default();
 
         Self {
             subgraph_client,
@@ -239,10 +256,10 @@ impl NetworkServiceBuilder {
             indexer_host_resolver,
             indexer_host_blocklist: None,
             indexer_version_resolver,
-            indexer_pois_blocklist: None,
+            indexer_indexing_pois_blocklist: None,
             indexer_indexing_status_resolver,
-            indexer_cost_model_resolver,
-            indexer_cost_model_compiler,
+            indexer_indexing_cost_model_resolver,
+            indexer_indexing_cost_model_compiler,
             update_interval: DEFAULT_UPDATE_INTERVAL,
         }
     }
@@ -283,10 +300,13 @@ impl NetworkServiceBuilder {
 
     /// Sets the indexer POIs blocklist.
     pub fn with_indexer_pois_blocklist(mut self, blocklist: HashSet<ProofOfIndexingInfo>) -> Self {
-        let resolver = PoiResolver::new(self.indexer_client.clone());
+        let resolver = PoiResolver::with_timeout(
+            self.indexer_client.clone(),
+            DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT, // 5s
+        );
         let blocklist = PoiBlocklist::new(blocklist);
 
-        self.indexer_pois_blocklist = Some((blocklist, resolver));
+        self.indexer_indexing_pois_blocklist = Some((blocklist, resolver));
         self
     }
 
@@ -302,13 +322,13 @@ impl NetworkServiceBuilder {
             indexer_host_resolver: Mutex::new(self.indexer_host_resolver),
             indexer_host_blocklist: self.indexer_host_blocklist,
             indexer_version_resolver: self.indexer_version_resolver,
-            indexer_pois_blocklist: self
-                .indexer_pois_blocklist
+            indexer_indexing_pois_blocklist: self
+                .indexer_indexing_pois_blocklist
                 .map(|(bl, res)| (bl, Mutex::new(res))),
             indexer_indexing_status_resolver: self.indexer_indexing_status_resolver,
-            indexer_cost_model_resolver: (
-                self.indexer_cost_model_resolver,
-                Mutex::new(self.indexer_cost_model_compiler),
+            indexer_indexing_cost_model_resolver: (
+                self.indexer_indexing_cost_model_resolver,
+                Mutex::new(self.indexer_indexing_cost_model_compiler),
             ),
         };
 

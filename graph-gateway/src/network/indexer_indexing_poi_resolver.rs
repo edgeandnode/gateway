@@ -18,6 +18,9 @@ use crate::indexers;
 /// The default TTL for cache entries is 20 minutes. Entries are considered expired after this time.
 pub const DEFAULT_CACHE_TLL: Duration = Duration::from_secs(20 * 60); // 20 minutes
 
+/// The timeout for the indexer indexings' POI resolution.
+pub const DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// The number of Public POIs to query in a single request.
 const POIS_QUERY_BATCH_SIZE: usize = 10;
 
@@ -25,6 +28,7 @@ const POIS_QUERY_BATCH_SIZE: usize = 10;
 pub struct PoiResolver {
     client: reqwest::Client,
     cache: TtlHashMap<Url, HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>>,
+    timeout: Duration,
 }
 
 impl PoiResolver {
@@ -39,6 +43,16 @@ impl PoiResolver {
         Self {
             client,
             cache: TtlHashMap::with_ttl(DEFAULT_CACHE_TLL),
+            timeout: DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT,
+        }
+    }
+
+    /// Create a new [`PoiResolver`] with the given client and timeout.
+    pub fn with_timeout(client: reqwest::Client, timeout: Duration) -> Self {
+        Self {
+            client,
+            cache: TtlHashMap::with_ttl(DEFAULT_CACHE_TLL),
+            timeout,
         }
     }
 
@@ -47,22 +61,24 @@ impl PoiResolver {
     /// If the public POIs of the indexer are already in the cache, the resolver returns them.
     pub async fn resolve_indexer_public_pois(
         &mut self,
-        indexer_status_url: Url,
+        url: &Url,
         pois_meta: Vec<(DeploymentId, BlockNumber)>,
-    ) -> HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> {
+    ) -> anyhow::Result<HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>> {
+        let indexer_status_url = indexers::status_url(url);
+
         // Check if the indexer public POIs are already in the cache
         match self.cache.get(&indexer_status_url) {
-            Some(pois) => pois.clone(),
+            Some(pois) => Ok(pois.clone()),
             None => {
                 // Fetch the public POIs of the indexer
                 let pois = self
                     .fetch_indexer_public_pois(indexer_status_url.clone(), pois_meta)
-                    .await;
+                    .await?;
 
                 // Insert the public POIs into the cache
                 self.cache.insert(indexer_status_url, pois.clone());
 
-                pois
+                Ok(pois)
             }
         }
     }
@@ -72,14 +88,21 @@ impl PoiResolver {
         &self,
         indexer_status_url: Url,
         pois_meta: Vec<(DeploymentId, BlockNumber)>,
-    ) -> HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> {
+    ) -> anyhow::Result<HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>> {
         // TODO: Handle the different errors once the indexers client module reports them
-        indexers::public_poi::merge_queries(
-            self.client.clone(),
-            indexer_status_url,
-            pois_meta,
-            POIS_QUERY_BATCH_SIZE,
+        match tokio::time::timeout(
+            self.timeout,
+            indexers::public_poi::merge_queries(
+                self.client.clone(),
+                indexer_status_url,
+                pois_meta,
+                POIS_QUERY_BATCH_SIZE,
+            ),
         )
         .await
+        {
+            Ok(pois) => Ok(pois),
+            Err(_) => Err(anyhow::anyhow!("time out")),
+        }
     }
 }

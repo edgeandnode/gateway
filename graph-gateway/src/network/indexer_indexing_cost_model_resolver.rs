@@ -2,22 +2,49 @@
 //!
 //! The cost models are fetched from the indexer's cost URL.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use thegraph_core::types::DeploymentId;
 use url::Url;
 
 use crate::{indexers, indexers::cost_models::CostModelSource};
 
+/// The default timeout for the indexer indexings' cost model resolution.
+pub const DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Resolve the indexers' cost models sources and compile them into cost models.
 pub struct CostModelResolver {
     client: reqwest::Client,
+    timeout: Duration,
 }
 
 impl CostModelResolver {
     /// Creates a new [`CostModelResolver`] with the given HTTP client.
     pub fn new(client: reqwest::Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            timeout: DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
+        }
+    }
+
+    /// Creates a new [`CostModelResolver`] with the given HTTP client and timeout.
+    pub fn with_timeout(client: reqwest::Client, timeout: Duration) -> Self {
+        Self { client, timeout }
+    }
+
+    async fn resolve_cost_model(
+        &self,
+        url: &Url,
+        indexings: &[DeploymentId],
+    ) -> anyhow::Result<Vec<CostModelSource>> {
+        let indexer_cost_url = indexers::cost_url(url);
+        tokio::time::timeout(
+            self.timeout,
+            // TODO: Handle the different errors once the indexers client module reports them
+            indexers::cost_models::query(&self.client, indexer_cost_url, indexings),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("timeout"))?
     }
 
     /// Fetches the cost model sources for the given deployments from the indexer.
@@ -26,27 +53,19 @@ impl CostModelResolver {
     /// ID's cost model fetch fails, the corresponding value in the map is `None`.
     pub async fn resolve(
         &self,
-        indexer_cost_url: Url,
-        indexer_deployments: &[DeploymentId],
-    ) -> HashMap<DeploymentId, CostModelSource> {
-        // TODO: Handle the different errors once the indexers client module reports them
-        let sources =
-            match indexers::cost_models::query(&self.client, indexer_cost_url, indexer_deployments)
-                .await
-            {
-                Ok(sources) => sources,
-                Err(err) => {
-                    tracing::debug!("Failed to resolve cost models: {err}");
-                    return HashMap::new();
-                }
-            };
-
-        sources
+        url: &Url,
+        indexings: &[DeploymentId],
+    ) -> anyhow::Result<HashMap<DeploymentId, CostModelSource>> {
+        let sources = self
+            .resolve_cost_model(url, indexings)
+            .await?
             .into_iter()
             .map(|model| {
                 let deployment_id = model.deployment;
                 (deployment_id, model)
             })
-            .collect::<HashMap<_, _>>()
+            .collect::<HashMap<_, _>>();
+
+        Ok(sources)
     }
 }
