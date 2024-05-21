@@ -65,9 +65,9 @@ pub mod types {
     #[derive(Clone, Debug)]
     pub struct DeploymentInfo {
         pub id: DeploymentId,
-        pub allocations: Vec1<AllocationInfo>,
-        pub manifest_network: String,
-        pub manifest_start_block: BlockNumber,
+        pub allocations: Vec<AllocationInfo>,
+        pub manifest_network: Option<String>,
+        pub manifest_start_block: Option<BlockNumber>,
         pub transferred_to_l2: bool,
     }
 
@@ -297,7 +297,7 @@ pub async fn fetch_and_pre_process_subgraphs_info(
 
 /// Convert from the fetched indexer information into the internal representation.
 ///
-/// If the indexer is invalid, e.g., has no URL or no allocations, an error is returned.
+/// If the indexer is invalid, e.g., has no URL, an error is returned.
 fn try_into_internal_indexer_info(
     indexer: subgraph::types::fetch_indexers::Indexer,
 ) -> anyhow::Result<IndexerInfo> {
@@ -387,44 +387,25 @@ fn try_into_internal_indexer_info(
 
 /// Convert from the fetched subgraph information into the internal representation.
 ///
-/// The subgraph must have at least one valid deployment to be considered valid. And each
-/// deployment must have a valid manifest and at least one allocation to be considered valid.
-///
-/// If the subgraph is invalid, e.g., no valid deployments found, an error is returned.
+/// If the subgraph is invalid, e.g., has no versions, an error is returned.
 fn try_into_internal_subgraph_info(
     subgraph: subgraph::types::fetch_subgraphs::Subgraph,
 ) -> anyhow::Result<SubgraphInfo> {
     let versions = subgraph
         .versions
         .into_iter()
-        .filter_map(|version| {
+        .map(|version| {
             let deployment = version.subgraph_deployment;
 
-            let _span = tracing::trace_span!(
-                "subgraph-versions",
-                subgraph = %subgraph.id,
-                version.number = %version.version,
-                version.deployment = %deployment.id,
-            )
-            .entered();
-
-            // Deployment must have a valid manifest to be considered valid.
-            let (deployment_manifest_network, deployment_manifest_start_block) = match deployment
+            let deployment_manifest_network = deployment
                 .manifest
-            {
-                // Deployment must have a valid manifest to be considered valid.
-                None => {
-                    tracing::trace!("filtering-out version-deployment: no manifest");
-                    return None;
-                }
-                Some(manifest) if manifest.network.is_none() => {
-                    tracing::trace!("filtering-out version-deployment: no manifest network info");
-                    return None;
-                }
-                Some(manifest) => (manifest.network?, manifest.start_block.unwrap_or(0)),
-            };
+                .as_ref()
+                .and_then(|manifest| manifest.network.clone());
+            let deployment_manifest_start_block = deployment
+                .manifest
+                .as_ref()
+                .and_then(|manifest| manifest.start_block);
 
-            // Deployment must have at least one allocation to be considered valid.
             let deployment_allocations = deployment
                 .allocations
                 .into_iter()
@@ -432,16 +413,7 @@ fn try_into_internal_subgraph_info(
                     id: allocation.id,
                     indexer: allocation.indexer.id,
                 })
-                .collect::<Vec<_>>()
-                .try_into()
-                .map_err(|_| anyhow!("no allocations"));
-            let deployment_allocations = match deployment_allocations {
-                Ok(allocations) => allocations,
-                Err(err) => {
-                    tracing::trace!("filtering-out version-deployment: {err}");
-                    return None;
-                }
-            };
+                .collect::<Vec<_>>();
 
             let deployment_id = deployment.id;
             let deployment_transferred_to_l2 = deployment.transferred_to_l2;
@@ -455,10 +427,10 @@ fn try_into_internal_subgraph_info(
                 transferred_to_l2: deployment_transferred_to_l2,
             };
 
-            Some(SubgraphVersionInfo {
+            SubgraphVersionInfo {
                 version: version_number,
                 deployment: version_deployment,
-            })
+            }
         })
         .collect::<Vec<_>>()
         .try_into()
