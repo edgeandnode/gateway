@@ -10,6 +10,7 @@ use graph_gateway::network::{
     indexers_host_blocklist::HostBlocklist,
     indexers_host_resolver::HostResolver,
     indexers_indexing_status_resolver::IndexingStatusResolver,
+    indexers_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{
         fetch_and_pre_process_indexers_info as internal_fetch_and_pre_process_indexers_info,
         fetch_update as internal_fetch_update, process_indexers_info, types as internal_types,
@@ -69,11 +70,15 @@ fn test_address(addr: impl AsRef<str>) -> Address {
 fn test_service_state(
     addr_blocklist: HashSet<Address>,
     host_blocklist: HashSet<IpNetwork>,
-    min_versions: Option<(Version, Version, Version)>,
+    min_versions: Option<(Version, Version)>,
 ) -> Arc<InternalState> {
+    let indexers_http_client = reqwest::Client::new();
     let indexers_host_resolver =
         Mutex::new(HostResolver::new().expect("Failed to create host resolver"));
-    let indexers_http_client = reqwest::Client::new();
+    let indexers_version_resolver = VersionResolver::with_timeout(
+        indexers_http_client.clone(),
+        DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1500 ms
+    );
     let indexers_indexing_status_resolver =
         IndexingStatusResolver::new(indexers_http_client.clone());
     let indexers_cost_model_resolver = (
@@ -84,11 +89,11 @@ fn test_service_state(
     let mut state = InternalState {
         indexers_http_client: indexers_http_client.clone(),
         indexers_min_agent_version: Version::new(0, 0, 0),
-        indexers_min_scalar_tap_version: Version::new(0, 0, 0),
         indexers_min_graph_node_version: Version::new(0, 0, 0),
         indexers_addr_blocklist: None,
         indexers_host_resolver,
         indexers_host_blocklist: None,
+        indexers_version_resolver,
         indexers_pois_blocklist: None,
         indexers_indexing_status_resolver,
         indexers_cost_model_resolver,
@@ -104,10 +109,8 @@ fn test_service_state(
         state.indexers_host_blocklist = Some(indexers_host_blocklist);
     }
 
-    if let Some((min_agent_version, min_scalar_tap_version, min_graph_node_version)) = min_versions
-    {
+    if let Some((min_agent_version, min_graph_node_version)) = min_versions {
         state.indexers_min_agent_version = min_agent_version;
-        state.indexers_min_scalar_tap_version = min_scalar_tap_version;
         state.indexers_min_graph_node_version = min_graph_node_version;
     }
 
@@ -179,7 +182,6 @@ async fn fetch_a_network_topology_update() {
         // Minimum versions, different from the default values to assert the versions are set.
         Some((
             Version::new(0, 0, 1), // Indexer agent version
-            Version::new(0, 0, 1), // Scalar tap version
             Version::new(0, 0, 1), // Graph node version
         )),
     );
@@ -485,7 +487,6 @@ async fn fetch_indexers_info_and_block_all_indexers_by_agent_version() {
     // Set the minimum indexer agent version to block all indexers
     let min_versions = Some((
         Version::new(999, 999, 9999), // Indexer agent version
-        Version::new(0, 0, 0),        // Scalar tap version
         Version::new(0, 0, 0),        // Graph node version
     ));
 
