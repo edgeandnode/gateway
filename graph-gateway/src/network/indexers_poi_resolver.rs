@@ -9,10 +9,10 @@
 use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::BlockNumber;
+use gateway_common::ttl_hash_map::TtlHashMap;
 use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 use url::Url;
 
-use super::ttl_hash_map::TtlHashMap;
 use crate::indexers;
 
 /// The default TTL for cache entries is 20 minutes. Entries are considered expired after this time.

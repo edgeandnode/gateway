@@ -10,8 +10,9 @@ use std::time::Duration;
 
 use cost_model::{CompileError, CostModel};
 use eventuals::Ptr;
+use gateway_common::ttl_hash_map::TtlHashMap;
 
-use crate::{indexers::cost_models::CostModelSource, network::ttl_hash_map::TtlHashMap};
+use crate::indexers::cost_models::CostModelSource;
 
 /// Default time-to-live for the cost model compilation cache entries: 12 hours.
 const DEFAULT_COMPILATION_CACHE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
