@@ -16,7 +16,7 @@ use graph_gateway::network::{
         InternalState,
     },
     subgraph::Client,
-    GraphNetwork,
+    NetworkTopologySnapshot,
 };
 use ipnetwork::IpNetwork;
 use semver::Version;
@@ -152,7 +152,7 @@ async fn fetch_and_pre_process_indexers_info() -> Vec1<internal_types::IndexerIn
 }
 
 /// Test helper to fetch, process and construct the network topology snapshot.
-async fn fetch_update(service: &InternalState) -> anyhow::Result<GraphNetwork> {
+async fn fetch_update(service: &InternalState) -> anyhow::Result<NetworkTopologySnapshot> {
     let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
     let auth_token = test_auth_token();
 
