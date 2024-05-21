@@ -90,7 +90,7 @@ impl GraphNetwork {
         let ip_blocker: &'static Mutex<IpBlocker> = Box::leak(Box::new(ip_blocker.into()));
 
         // Create a lookup table for subgraphs, keyed by their ID.
-        // Invalid URL indexers are filtered out. See: 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
+        // Invalid URL indexers are filtered out. See ref: 7f2f89aa-24c9-460b-ab1e-fc94697c4f4
         let subgraphs = subgraphs.map(move |subgraphs| async move {
             Ptr::new(Self::subgraphs(&subgraphs, ip_blocker).await)
         });
