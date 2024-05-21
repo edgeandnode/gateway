@@ -8,9 +8,8 @@
 use std::{collections::HashSet, fs, net::IpAddr, path::Path};
 
 use anyhow::Context as _;
+use gateway_common::blocklist::{Blocklist, Result as BlocklistResult};
 use ipnetwork::IpNetwork;
-
-use super::blocklists::BlocklistResult;
 
 /// Load the IP blocklist from a CSV file.
 ///
@@ -41,12 +40,16 @@ impl HostBlocklist {
         tracing::debug!(blocked_networks = conf.len());
         Self { conf }
     }
+}
+
+impl Blocklist for HostBlocklist {
+    type Resource<'a> = &'a [IpAddr];
 
     /// Check if any of the resolved IP addresses are blocked.
     ///
     /// If any of the resolved IP addresses are blocked, the function will return
-    /// [`BlocklistResult::Blocked`], otherwise it will return [`BlocklistResult::Allowed`].
-    pub fn check(&self, addrs: &[IpAddr]) -> BlocklistResult {
+    /// [`Result::Blocked`], otherwise it will return [`Result::Allowed`].
+    fn check(&self, addrs: &[IpAddr]) -> BlocklistResult {
         // Check if any of the IP addresses are contained in any of the blocked networks
         if addrs
             .iter()

@@ -5,8 +5,7 @@
 use std::collections::HashSet;
 
 use alloy_primitives::Address;
-
-use super::blocklists::BlocklistResult;
+use gateway_common::blocklist::{Blocklist, Result as BlocklistResult};
 
 /// A blocklist for indexer addresses.
 #[derive(Debug, Clone, Default)]
@@ -19,12 +18,16 @@ impl AddrBlocklist {
     pub fn new(conf: HashSet<Address>) -> Self {
         Self { blocklist: conf }
     }
+}
+
+impl Blocklist for AddrBlocklist {
+    type Resource<'a> = &'a Address;
 
     /// Check if an indexer's address is in the blocklist.
     ///
-    /// If the address is in the blocklist, return [`BlocklistResult::Blocked`], otherwise return
-    /// [`BlocklistResult::Allowed`].
-    pub fn check(&self, addr: &Address) -> BlocklistResult {
+    /// If the address is in the blocklist, return [`Result::Blocked`], otherwise return
+    /// [`Result::Allowed`].
+    fn check(&self, addr: &Address) -> BlocklistResult {
         if self.blocklist.contains(addr) {
             BlocklistResult::Blocked
         } else {

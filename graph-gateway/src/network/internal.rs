@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use gateway_common::blocklist::Blocklist as _;
 use itertools::Itertools;
 use semver::Version;
 use tokio::sync::Mutex;

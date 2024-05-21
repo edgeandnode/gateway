@@ -10,10 +10,11 @@
 use std::collections::{HashMap, HashSet};
 
 use alloy_primitives::BlockNumber;
+use gateway_common::blocklist::Result as BlocklistResult;
 use itertools::Itertools;
 use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 
-use crate::{indexers::public_poi::ProofOfIndexingInfo, network::blocklists::BlocklistResult};
+use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 /// A blocklist based on the Proof of Indexing (POI) of indexers.
 pub struct PoiBlocklist {
@@ -59,6 +60,7 @@ impl PoiBlocklist {
     }
 
     /// Check if any of the reported POIs are in the blocklist.
+    // TODO: Implement `Blocklist` trait
     pub fn check(
         &self,
         pois: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>,

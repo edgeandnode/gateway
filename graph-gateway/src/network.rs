@@ -5,7 +5,6 @@
 pub use entities::*;
 pub use service::*;
 
-pub mod blocklists;
 mod entities;
 pub mod indexers_addr_blocklist;
 pub mod indexers_cost_model_compiler;
@@ -18,4 +17,3 @@ pub mod indexers_poi_resolver;
 pub mod internal;
 mod service;
 pub mod subgraph;
-pub mod ttl_hash_map;
