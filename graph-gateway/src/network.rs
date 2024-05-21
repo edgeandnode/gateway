@@ -18,6 +18,7 @@ pub mod indexers_host_resolver;
 pub mod indexers_indexing_status_resolver;
 pub mod indexers_poi_blocklist;
 pub mod indexers_poi_resolver;
+pub mod indexers_version_resolver;
 pub mod internal;
 mod service;
 mod snapshot;
