@@ -2,8 +2,13 @@
 //! provides information about the subgraphs (and subgraph deployments) registered in the network
 //! smart contract, as well as the indexers that are indexing them.
 
-pub use entities::*;
-pub use service::*;
+pub use entities::{
+    BlockNumber, DeploymentId, GraphNetwork, Indexer, Indexing, IndexingId, IndexingStatus,
+    SubgraphId,
+};
+pub use service::{
+    NetworkService, NetworkServiceBuilder, NetworkServicePending, ResolvedSubgraphInfo,
+};
 
 mod entities;
 pub mod indexers_addr_blocklist;

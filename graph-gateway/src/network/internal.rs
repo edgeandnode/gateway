@@ -13,18 +13,20 @@ use tracing::Instrument;
 use url::Url;
 use vec1::Vec1;
 
-use crate::{
-    indexers,
-    network::{
-        indexers_addr_blocklist::AddrBlocklist, indexers_cost_model_compiler::CostModelCompiler,
-        indexers_cost_model_resolver::CostModelResolver, indexers_host_blocklist::HostBlocklist,
-        indexers_host_resolver::HostResolver,
-        indexers_indexing_status_resolver::IndexingStatusResolver,
-        indexers_poi_blocklist::PoiBlocklist, indexers_poi_resolver::PoiResolver, subgraph,
-        subgraph::Client as SubgraphClient, Deployment, GraphNetwork, Indexer, Indexing,
-        IndexingId, IndexingStatus, Subgraph,
-    },
+use super::{
+    entities::{Deployment, GraphNetwork, Indexer, Indexing, IndexingId, IndexingStatus, Subgraph},
+    indexers_addr_blocklist::AddrBlocklist,
+    indexers_cost_model_compiler::CostModelCompiler,
+    indexers_cost_model_resolver::CostModelResolver,
+    indexers_host_blocklist::HostBlocklist,
+    indexers_host_resolver::HostResolver,
+    indexers_indexing_status_resolver::IndexingStatusResolver,
+    indexers_poi_blocklist::PoiBlocklist,
+    indexers_poi_resolver::PoiResolver,
+    subgraph,
+    subgraph::Client as SubgraphClient,
 };
+use crate::indexers;
 
 /// An artificial version representing the legacy scalar_tap version.
 const LEGACY_SCALAR_TAP_VERSION: Version = Version::new(0, 0, 0);
