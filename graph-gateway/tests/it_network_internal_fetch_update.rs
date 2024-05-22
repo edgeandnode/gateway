@@ -1,4 +1,8 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use alloy_primitives::Address;
 use anyhow::anyhow;
@@ -25,7 +29,6 @@ use thegraph_core::client::Client as SubgraphClient;
 use tokio::sync::{Mutex, OnceCell};
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
-use vec1::Vec1;
 
 // Test method to initialize the tests tracing subscriber.
 fn init_test_tracing() {
@@ -119,7 +122,8 @@ fn test_service_state(
 
 /// Test suite internal state to store the fetched network topology to avoid fetching it multiple
 /// times during the tests.
-static FETCHED_NETWORK_INFO: OnceCell<Vec1<internal_types::IndexerInfo>> = OnceCell::const_new();
+static FETCHED_NETWORK_INFO: OnceCell<HashMap<Address, internal_types::IndexerInfo>> =
+    OnceCell::const_new();
 
 /// Test helper to fetch the network topology information.
 ///
@@ -127,7 +131,7 @@ static FETCHED_NETWORK_INFO: OnceCell<Vec1<internal_types::IndexerInfo>> = OnceC
 /// result is cached to avoid fetching it multiple times during the tests.
 ///
 /// This is a wrapper around the `service_internal::fetch_network_topology_info` method.
-async fn fetch_and_pre_process_indexers_info() -> Vec1<internal_types::IndexerInfo> {
+async fn fetch_and_pre_process_indexers_info() -> HashMap<Address, internal_types::IndexerInfo> {
     FETCHED_NETWORK_INFO
         .get_or_try_init(move || async move {
             let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
@@ -401,7 +405,7 @@ async fn fetch_indexers_info_and_block_an_indexer_by_address() {
 
     // Require the pre-processed info to contain the "test indexer"
     assert!(
-        indexers_info.iter().any(|info| info.id == address),
+        indexers_info.keys().any(|addr| *addr == address),
         "Test indexer not found in the indexers info"
     );
 
@@ -418,9 +422,7 @@ async fn fetch_indexers_info_and_block_an_indexer_by_address() {
 
     // Assert that the blocked indexer is not present in the indexers processed info
     assert!(
-        indexers_processed_info
-            .iter()
-            .all(|info| info.id != address),
+        indexers_processed_info.keys().all(|addr| *addr != address),
         "Blocked indexer is present in the indexers processed info"
     );
 }
@@ -454,7 +456,7 @@ async fn fetch_indexers_info_and_block_an_indexer_by_host() {
 
     // Require the pre-processed info to contain the "test indexer"
     assert!(
-        indexers_info.iter().any(|info| info.id == address),
+        indexers_info.keys().any(|addr| *addr == address),
         "Test indexer not found in the indexers info"
     );
 
@@ -471,9 +473,7 @@ async fn fetch_indexers_info_and_block_an_indexer_by_host() {
 
     // Assert that the blocked indexer is not present in the indexers processed info
     assert!(
-        indexers_processed_info
-            .iter()
-            .all(|info| info.id != address),
+        indexers_processed_info.keys().all(|addr| *addr != address),
         "Blocked indexer is present in the indexers processed info"
     );
 }

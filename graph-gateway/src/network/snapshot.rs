@@ -14,7 +14,6 @@ use eventuals::Ptr;
 use semver::Version;
 pub use thegraph_core::types::{DeploymentId, SubgraphId};
 use url::Url;
-use vec1::Vec1;
 
 use super::internal::types::{IndexerInfo, SubgraphInfo};
 
@@ -206,18 +205,12 @@ impl NetworkTopologySnapshot {
 
 /// Construct the [`NetworkTopologySnapshot`] from the indexers and subgraphs information.
 pub fn new_from(
-    indexers: Vec1<IndexerInfo>,
-    subgraphs: Vec1<SubgraphInfo>,
+    indexers_info: HashMap<Address, IndexerInfo>,
+    subgraphs_info: HashMap<SubgraphId, SubgraphInfo>,
 ) -> NetworkTopologySnapshot {
-    // Construct the indexers info table
-    let indexers_info_table = indexers
-        .into_iter()
-        .map(|indexer| (indexer.id, indexer))
-        .collect::<HashMap<_, _>>();
-
     // Construct the deployments info table
-    let deployments_info_table = subgraphs
-        .iter()
+    let deployments_info_table = subgraphs_info
+        .values()
         .flat_map(|subgraph| {
             subgraph
                 .versions
@@ -226,14 +219,8 @@ pub fn new_from(
         })
         .collect::<HashMap<_, _>>();
 
-    // Construct the subgraphs info table
-    let subgraphs_info_table = subgraphs
-        .into_iter()
-        .map(|subgraph| (subgraph.id, subgraph))
-        .collect::<HashMap<_, _>>();
-
     // Construct the indexers table
-    let indexers = indexers_info_table
+    let indexers = indexers_info
         .iter()
         .map(|(indexer_id, indexer)| {
             // The indexer agent version must be greater than or equal to the minimum required
@@ -257,7 +244,7 @@ pub fn new_from(
         .collect::<HashMap<_, _>>();
 
     // Construct the topology subgraphs table
-    let subgraphs = subgraphs_info_table
+    let subgraphs = subgraphs_info
         .into_iter()
         .filter_map(|(subgraph_id, subgraph)| {
             let highest_version = subgraph.versions.first();
@@ -306,8 +293,7 @@ pub fn new_from(
                             // If the indexer is not in the indexers table, exclude it. It might
                             // have been filtered out due to different reasons, e.g., invalid info.
                             let indexing_indexer_id = alloc.indexer;
-                            let indexing_indexer_info =
-                                indexers_info_table.get(&indexing_indexer_id)?;
+                            let indexing_indexer_info = indexers_info.get(&indexing_indexer_id)?;
 
                             // The indexer deployments list contains the healthy deployments. It
                             // must contain the deployment ID, otherwise, that means it was filtered
@@ -401,7 +387,7 @@ pub fn new_from(
                     // If the indexer is not in the indexers table, exclude it. It might
                     // have been filtered out due to different reasons, e.g., invalid info.
                     let indexing_indexer_id = alloc.indexer;
-                    let indexing_indexer_info = indexers_info_table.get(&indexing_indexer_id)?;
+                    let indexing_indexer_info = indexers_info.get(&indexing_indexer_id)?;
 
                     // The indexer deployments list contains the healthy deployments. It must
                     // contain the deployment ID, otherwise, that means it was filtered out,
