@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::anyhow;
-use eventuals::{Eventual, EventualExt, Ptr};
+use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_framework::errors::Error;
 use ipnetwork::IpNetwork;
 use semver::Version;
@@ -45,6 +45,15 @@ use crate::{
 /// Default update interval for the network topology information.
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(30);
 
+pub enum SubgraphResolution {
+    /// The subgraph has been transferred to L2.
+    TransferredToL2 { id_on_l2: Option<SubgraphId> },
+    /// The subgraph not found.
+    NotFound,
+    /// The subgraph was resolved successfully.
+    Resolved(ResolvedSubgraphInfo),
+}
+
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
     /// Subgraph chain name.
@@ -53,13 +62,6 @@ pub struct ResolvedSubgraphInfo {
     pub chain: String,
     /// Subgraph start block number.
     pub start_block: BlockNumber,
-
-    /// The [`SubgraphId`] on L2.
-    // NOTE: Required only for L1-to-L2 gateway query redirection
-    pub id_on_l2: Option<SubgraphId>,
-    /// Whether the subgraph has been transferred to L2.
-    // NOTE: Required only for L1-to-L2 gateway query redirection
-    pub transferred_to_l2: bool,
 
     /// The [`SubgraphId`]s associated with the query selector.
     pub subgraphs: Vec1<SubgraphId>,
@@ -124,24 +126,27 @@ impl NetworkService {
     /// Given a [`SubgraphId`], resolve the deployments associated with the subgraph.
     ///
     /// If the subgraph is not found, returns `Ok(None)`.
-    pub fn resolve_with_subgraph_id(
-        &self,
-        id: &SubgraphId,
-    ) -> anyhow::Result<Option<ResolvedSubgraphInfo>> {
+    pub fn resolve_with_subgraph_id(&self, id: &SubgraphId) -> anyhow::Result<SubgraphResolution> {
         let network = self
             .network
             .value_immediate()
             .ok_or(Error::Internal(anyhow!("network topology not available")))?;
 
+        // Check if the subgraph is transferred to L2
+        if let Some(id_on_l2) = network.transferred_subgraphs().get(id) {
+            return Ok(SubgraphResolution::TransferredToL2 {
+                id_on_l2: Some(*id_on_l2),
+            });
+        }
+
+        // Resolve the subgraph information
         let subgraph = match network.get_subgraph_by_id(id) {
             Some(subgraph) => subgraph,
-            None => return Ok(None),
+            None => return Ok(SubgraphResolution::NotFound),
         };
 
         let subgraph_chain = subgraph.chain.clone();
         let subgraph_start_block = subgraph.start_block;
-        let subgraph_id_on_l2 = subgraph.l2_id;
-        let subgraph_transferred_to_l2 = subgraph.transferred_to_l2;
 
         let subgraphs = vec1![subgraph.id];
         let deployments = subgraph
@@ -154,11 +159,9 @@ impl NetworkService {
 
         let indexings = subgraph.indexings.clone();
 
-        Ok(Some(ResolvedSubgraphInfo {
+        Ok(SubgraphResolution::Resolved(ResolvedSubgraphInfo {
             chain: subgraph_chain,
             start_block: subgraph_start_block,
-            id_on_l2: subgraph_id_on_l2,
-            transferred_to_l2: subgraph_transferred_to_l2,
             subgraphs,
             deployments,
             indexings,
@@ -171,20 +174,25 @@ impl NetworkService {
     pub fn resolve_with_deployment_id(
         &self,
         id: &DeploymentId,
-    ) -> anyhow::Result<Option<ResolvedSubgraphInfo>> {
+    ) -> anyhow::Result<SubgraphResolution> {
         let network = self
             .network
             .value_immediate()
             .ok_or(Error::Internal(anyhow!("network topology not available")))?;
 
+        // Check if the deployment is transferred to L2
+        if network.transferred_deployments().contains(id) {
+            return Ok(SubgraphResolution::TransferredToL2 { id_on_l2: None });
+        }
+
+        // Resolve the deployment information
         let deployment = match network.get_deployment_by_id(id) {
             Some(deployment) => deployment,
-            None => return Ok(None),
+            None => return Ok(SubgraphResolution::NotFound),
         };
 
         let deployment_chain = deployment.chain.clone();
         let deployment_start_block = deployment.start_block;
-        let deployment_transferred_to_l2 = deployment.transferred_to_l2;
 
         let subgraphs = deployment
             .subgraphs
@@ -197,11 +205,9 @@ impl NetworkService {
 
         let indexings = deployment.indexings.clone();
 
-        Ok(Some(ResolvedSubgraphInfo {
+        Ok(SubgraphResolution::Resolved(ResolvedSubgraphInfo {
             chain: deployment_chain,
             start_block: deployment_start_block,
-            id_on_l2: None,
-            transferred_to_l2: deployment_transferred_to_l2,
             subgraphs,
             deployments,
             indexings,
