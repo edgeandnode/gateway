@@ -25,6 +25,7 @@ pub enum ResolutionError {
 }
 
 /// Resolve the indexers' cost models sources and compile them into cost models.
+// TODO: Cache the resolution result with TTL in case the resolution fails.
 pub struct CostModelResolver {
     client: reqwest::Client,
     timeout: Duration,

@@ -173,7 +173,7 @@ async fn main() {
     };
 
     let bad_indexers: &'static HashSet<Address> =
-        Box::leak(Box::new(config.bad_indexers.into_iter().collect()));
+        Box::leak(Box::new(FromIterator::from_iter(config.bad_indexers)));
 
     let indexing_statuses = indexing::statuses(
         network.deployments.clone(),
