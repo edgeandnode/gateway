@@ -12,6 +12,18 @@ use crate::{indexers, indexers::cost_models::CostModelSource};
 /// The default timeout for the indexer indexings' cost model resolution.
 pub const DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Error that can occur during cost model resolution.
+#[derive(Debug, thiserror::Error)]
+pub enum ResolutionError {
+    /// Cost model fetch failed.
+    #[error("fetch error: {0}")]
+    FetchError(anyhow::Error),
+
+    /// Resolution timed out.
+    #[error("timeout")]
+    Timeout,
+}
+
 /// Resolve the indexers' cost models sources and compile them into cost models.
 pub struct CostModelResolver {
     client: reqwest::Client,
@@ -36,7 +48,7 @@ impl CostModelResolver {
         &self,
         url: &Url,
         indexings: &[DeploymentId],
-    ) -> anyhow::Result<Vec<CostModelSource>> {
+    ) -> Result<Vec<CostModelSource>, ResolutionError> {
         let indexer_cost_url = indexers::cost_url(url);
         tokio::time::timeout(
             self.timeout,
@@ -44,7 +56,8 @@ impl CostModelResolver {
             indexers::cost_models::query(&self.client, indexer_cost_url, indexings),
         )
         .await
-        .map_err(|_| anyhow::anyhow!("timeout"))?
+        .map_err(|_| ResolutionError::Timeout)?
+        .map_err(ResolutionError::FetchError)
     }
 
     /// Fetches the cost model sources for the given deployments from the indexer.

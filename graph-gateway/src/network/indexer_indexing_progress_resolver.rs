@@ -18,11 +18,11 @@ pub enum ResolutionError {
     /// An error occurred while querying the indexer status.
     ///
     /// This includes network errors, timeouts, and deserialization errors.
-    #[error("failed to query the indexer status: {0}")]
-    FetchError(String),
+    #[error("fetch error: {0}")]
+    FetchError(anyhow::Error),
 
     /// The resolution timed out.
-    #[error("resolution timed out")]
+    #[error("timeout")]
     Timeout,
 }
 
@@ -71,7 +71,7 @@ impl IndexingProgressResolver {
         )
         .await
         .map_err(|_| ResolutionError::Timeout)?
-        .map_err(|err| ResolutionError::FetchError(err.to_string()))
+        .map_err(ResolutionError::FetchError)
     }
 
     /// Resolves the indexing statuses of the given deployments.

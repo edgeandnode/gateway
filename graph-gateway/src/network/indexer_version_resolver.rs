@@ -9,7 +9,6 @@
 
 use std::time::Duration;
 
-use anyhow::anyhow;
 use semver::Version;
 use url::Url;
 
@@ -19,6 +18,18 @@ use crate::indexers;
 ///
 /// This timeout is applied \*independently\* for the agent and graph node versions fetches.
 pub const DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(1_500);
+
+/// The error that can occur while resolving the indexer versions.
+#[derive(Debug, thiserror::Error)]
+pub enum ResolutionError {
+    /// An error occurred while querying the indexer version.
+    #[error("fetch error: {0}")]
+    FetchError(anyhow::Error),
+
+    /// The resolution timed out.
+    #[error("timeout")]
+    Timeout,
+}
 
 /// The indexer versions resolver.
 ///
@@ -66,9 +77,10 @@ impl VersionResolver {
     /// Resolves the indexer agent version.
     ///
     /// The version resolution time is upper-bounded by the configured timeout.
-    pub async fn resolve_agent_version(&self, url: &Url) -> anyhow::Result<Version> {
+    pub async fn resolve_agent_version(&self, url: &Url) -> Result<Version, ResolutionError> {
         let indexer_agent_version_url = indexers::version_url(url);
-        let agent_version = match tokio::time::timeout(
+
+        tokio::time::timeout(
             self.agent_version_resolution_timeout,
             indexers::version::query_indexer_service_version(
                 &self.client,
@@ -76,23 +88,16 @@ impl VersionResolver {
             ),
         )
         .await
-        {
-            // If the resolution timed out, the indexer must be BLOCKED
-            Err(_) => {
-                return Err(anyhow!("time out"));
-            }
-            Ok(res) => res?,
-        };
-
-        Ok(agent_version)
+        .map_err(|_| ResolutionError::Timeout)?
+        .map_err(ResolutionError::FetchError)
     }
 
     /// Resolves the indexer graph-node version.
     ///
     /// The version resolution time is upper-bounded by the configured timeout.
-    pub async fn resolve_graph_node_version(&self, url: &Url) -> anyhow::Result<Version> {
+    pub async fn resolve_graph_node_version(&self, url: &Url) -> Result<Version, ResolutionError> {
         let indexer_graph_node_version_url = indexers::status_url(url);
-        let graph_node_version = match tokio::time::timeout(
+        tokio::time::timeout(
             self.graph_node_version_resolution_timeout,
             indexers::version::query_graph_node_version(
                 &self.client,
@@ -100,14 +105,7 @@ impl VersionResolver {
             ),
         )
         .await
-        {
-            // If the resolution timed out, the indexer must be BLOCKED
-            Err(_) => {
-                return Err(anyhow!("time out"));
-            }
-            Ok(res) => res?,
-        };
-
-        Ok(graph_node_version)
+        .map_err(|_| ResolutionError::Timeout)?
+        .map_err(ResolutionError::FetchError)
     }
 }

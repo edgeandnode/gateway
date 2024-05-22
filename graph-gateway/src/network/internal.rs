@@ -733,7 +733,7 @@ async fn resolve_and_check_indexer_blocked_by_poi(
     let poi_result = {
         let mut pois_resolver = pois_resolver.lock().await;
         pois_resolver
-            .resolve_indexer_public_pois(&indexer.url, indexer_affected_pois)
+            .resolve(&indexer.url, &indexer_affected_pois)
             .await?
     };
 

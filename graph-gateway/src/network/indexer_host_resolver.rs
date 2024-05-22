@@ -24,11 +24,11 @@ pub enum ResolutionError {
     /// This error occurs when the host could not be resolved to an IP address.
     ///
     /// This is a wrapper around [`ResolveError`].
-    #[error("failed to resolve host: {0}")]
-    DnsResolveError(#[from] ResolveError),
+    #[error("dns resolution error: {0}")]
+    DnsResolutionError(#[from] ResolveError),
 
     /// Resolution timed out.
-    #[error("failed to resolve host: timeout")]
+    #[error("timout")]
     Timeout,
 }
 

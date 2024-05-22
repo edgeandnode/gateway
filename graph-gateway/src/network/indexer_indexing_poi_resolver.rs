@@ -24,6 +24,14 @@ pub const DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT: Duration = Duration:
 /// The number of Public POIs to query in a single request.
 const POIS_QUERY_BATCH_SIZE: usize = 10;
 
+/// Error that can occur during POI resolution.
+#[derive(Debug, thiserror::Error)]
+pub enum ResolutionError {
+    /// Resolution timed out.
+    #[error("timeout")]
+    Timeout,
+}
+
 /// A resolver for the Proof of Indexing (POI) of indexers.
 pub struct PoiResolver {
     client: reqwest::Client,
@@ -56,14 +64,34 @@ impl PoiResolver {
         }
     }
 
+    /// Fetch the public POIs of the indexer based on the given POIs metadata.
+    async fn fetch_indexer_public_pois(
+        &self,
+        indexer_status_url: Url,
+        pois: &[(DeploymentId, BlockNumber)],
+    ) -> Result<HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>, ResolutionError> {
+        // TODO: Handle the different errors once the indexers client module reports them
+        tokio::time::timeout(
+            self.timeout,
+            indexers::public_poi::merge_queries(
+                self.client.clone(),
+                indexer_status_url,
+                pois,
+                POIS_QUERY_BATCH_SIZE,
+            ),
+        )
+        .await
+        .map_err(|_| ResolutionError::Timeout)
+    }
+
     /// Resolve the public POIs of the indexer based on the given POIs metadata.
     ///
     /// If the public POIs of the indexer are already in the cache, the resolver returns them.
-    pub async fn resolve_indexer_public_pois(
+    pub async fn resolve(
         &mut self,
         url: &Url,
-        pois_meta: Vec<(DeploymentId, BlockNumber)>,
-    ) -> anyhow::Result<HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>> {
+        pois: &[(DeploymentId, BlockNumber)],
+    ) -> Result<HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>, ResolutionError> {
         let indexer_status_url = indexers::status_url(url);
 
         // Check if the indexer public POIs are already in the cache
@@ -72,7 +100,7 @@ impl PoiResolver {
             None => {
                 // Fetch the public POIs of the indexer
                 let pois = self
-                    .fetch_indexer_public_pois(indexer_status_url.clone(), pois_meta)
+                    .fetch_indexer_public_pois(indexer_status_url.clone(), pois)
                     .await?;
 
                 // Insert the public POIs into the cache
@@ -80,29 +108,6 @@ impl PoiResolver {
 
                 Ok(pois)
             }
-        }
-    }
-
-    /// Fetch the public POIs of the indexer based on the given POIs metadata.
-    async fn fetch_indexer_public_pois(
-        &self,
-        indexer_status_url: Url,
-        pois_meta: Vec<(DeploymentId, BlockNumber)>,
-    ) -> anyhow::Result<HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>> {
-        // TODO: Handle the different errors once the indexers client module reports them
-        match tokio::time::timeout(
-            self.timeout,
-            indexers::public_poi::merge_queries(
-                self.client.clone(),
-                indexer_status_url,
-                pois_meta,
-                POIS_QUERY_BATCH_SIZE,
-            ),
-        )
-        .await
-        {
-            Ok(pois) => Ok(pois),
-            Err(_) => Err(anyhow::anyhow!("time out")),
         }
     }
 }

@@ -110,7 +110,7 @@ async fn send_batched_queries_and_merge_results() {
 
     //* When
     let request =
-        public_poi::merge_queries(client, status_url, pois_to_query, MAX_REQUESTS_PER_QUERY);
+        public_poi::merge_queries(client, status_url, &pois_to_query, MAX_REQUESTS_PER_QUERY);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");

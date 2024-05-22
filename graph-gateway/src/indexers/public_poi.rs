@@ -54,15 +54,15 @@ pub async fn query(
 pub async fn merge_queries(
     client: reqwest::Client,
     status_url: Url,
-    requests: impl IntoIterator<Item = (DeploymentId, BlockNumber)>,
+    requests: &[(DeploymentId, BlockNumber)],
     batch_size: usize,
 ) -> HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> {
     // Build the query batches and create the futures
     let queries = requests
-        .into_iter()
+        .iter()
         .map(|(deployment, block_number)| PublicProofOfIndexingRequest {
-            deployment,
-            block_number,
+            deployment: *deployment,
+            block_number: *block_number,
         })
         .chunks(batch_size)
         .into_iter()

@@ -88,8 +88,8 @@ pub async fn check_indexer_pois(
     batch_size: usize,
 ) -> (Address, Vec<ProofOfIndexingInfo>) {
     // Send the public POIs queries and merge the results into a table
-    let requests = pois_info.iter().map(|info| info.meta());
-    let response_map = public_poi::merge_queries(client, indexer_url, requests, batch_size).await;
+    let requests = pois_info.iter().map(|info| info.meta()).collect::<Vec<_>>();
+    let response_map = public_poi::merge_queries(client, indexer_url, &requests, batch_size).await;
 
     // Check the POIs against the indexer's POIs response map and generate
     // a list of matching POI
