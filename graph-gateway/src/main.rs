@@ -183,14 +183,6 @@ async fn main() {
     )
     .await;
 
-    let legacy_indexers = indexing_statuses.clone().map(|statuses| async move {
-        let legacy_indexers: HashSet<Address> = statuses
-            .iter()
-            .filter(|(_, status)| status.legacy_scalar)
-            .map(|(indexing, _)| indexing.indexer)
-            .collect();
-        Ptr::new(legacy_indexers)
-    });
     let legacy_signer: &'static SecretKey = Box::leak(Box::new(
         config
             .scalar
@@ -204,7 +196,6 @@ async fn main() {
             config.scalar.chain_id,
             config.scalar.verifier,
             legacy_signer,
-            legacy_indexers,
         )
         .await,
     ));

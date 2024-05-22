@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -336,10 +336,24 @@ async fn handle_client_query_inner(
     });
     tracing::debug!(chain_head, blocks_per_minute, ?block_requirements);
 
+    // List holding the indexers that support Scalar TAP.
+    //
+    // This is a temporary solution determine which indexers support Scalar TAP. This will be
+    // removed once the network service is integrated.
+    let mut candidates_with_scalar_tap_support = HashSet::new();
+
     let mut candidates = Vec::new();
     {
         let perf = ctx.indexing_perf.latest();
         for indexing in available_indexers {
+            if let Some(status) = indexing_statuses.get(&indexing) {
+                // If the indexer status indicates it supports Scalar TAP, add it to the set of
+                // indexers with Scalar TAP support.
+                if !status.legacy_scalar {
+                    candidates_with_scalar_tap_support.insert(indexing.indexer);
+                }
+            }
+
             match prepare_candidate(
                 &ctx.network,
                 &indexing_statuses,
@@ -388,7 +402,13 @@ async fn handle_client_query_inner(
         let indexer_fee = candidate.fee.as_f64() * budget as f64;
         let fee = indexer_fee.max(min_fee) as u128;
 
-        let receipt = match ctx.receipt_signer.create_receipt(&indexing, fee).await {
+        let receipt = match if candidates_with_scalar_tap_support.contains(&indexing.indexer) {
+            ctx.receipt_signer.create_receipt(&indexing, fee).await
+        } else {
+            ctx.receipt_signer
+                .create_legacy_receipt(&indexing, fee)
+                .await
+        } {
             Some(receipt) => receipt,
             None => {
                 tracing::error!(?indexing, "failed to create receipt");
