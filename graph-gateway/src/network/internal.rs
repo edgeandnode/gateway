@@ -1,9 +1,11 @@
 use std::{collections::HashMap, time::Duration};
 
+use alloy_primitives::Address;
 use anyhow::anyhow;
 use gateway_common::blocklist::Blocklist as _;
 use itertools::Itertools;
 use semver::Version;
+use thegraph_core::types::SubgraphId;
 use tokio::sync::Mutex;
 use tracing::Instrument;
 use url::Url;
@@ -146,7 +148,7 @@ pub async fn fetch_update(
     state: &InternalState,
 ) -> anyhow::Result<NetworkTopologySnapshot> {
     // Fetch and pre-process the network topology information
-    let (indexers, subgraphs) = futures::future::try_join(
+    let (indexers_info, subgraphs_info) = futures::future::try_join(
         async {
             let indexers = {
                 let mut subgraph_client = client.lock().await;
@@ -189,7 +191,7 @@ pub async fn fetch_update(
     )
     .await?;
 
-    Ok(snapshot::new_from(indexers, subgraphs))
+    Ok(snapshot::new_from(indexers_info, subgraphs_info))
 }
 
 /// Fetch the indexers information from the graph network subgraph and performs pre-processing
@@ -204,7 +206,7 @@ pub async fn fetch_update(
 /// indexers are found, an error is returned.
 pub async fn fetch_and_pre_process_indexers_info(
     client: &mut SubgraphClient,
-) -> anyhow::Result<Vec1<IndexerInfo>> {
+) -> anyhow::Result<HashMap<Address, IndexerInfo>> {
     // Fetch the indexers information from the graph network subgraph
     let indexers = client
         .fetch_indexers()
@@ -227,18 +229,21 @@ pub async fn fetch_and_pre_process_indexers_info(
             );
 
             match try_into_internal_indexer_info(indexer) {
-                Ok(indexer) => Some(indexer),
+                Ok(indexer) => Some((indexer.id, indexer)),
                 Err(err) => {
                     tracing::debug!("filtering-out indexer: {err}");
                     None
                 }
             }
         })
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| anyhow!("no valid indexers found"))?;
+        .collect::<HashMap<_, _>>();
 
-    Ok(indexers)
+    // If no valid indexers are found, return an error
+    if indexers.is_empty() {
+        Err(anyhow!("no valid indexers found"))
+    } else {
+        Ok(indexers)
+    }
 }
 
 /// Fetch the subgraphs information from the graph network subgraph and performs pre-processing
@@ -253,7 +258,7 @@ pub async fn fetch_and_pre_process_indexers_info(
 /// subgraphs are found, an error is returned.
 pub async fn fetch_and_pre_process_subgraphs_info(
     client: &mut SubgraphClient,
-) -> anyhow::Result<Vec1<SubgraphInfo>> {
+) -> anyhow::Result<HashMap<SubgraphId, SubgraphInfo>> {
     // Fetch the subgraphs information from the graph network subgraph
     let subgraphs = client
         .fetch_subgraphs()
@@ -274,18 +279,20 @@ pub async fn fetch_and_pre_process_subgraphs_info(
             )
             .entered();
             match try_into_internal_subgraph_info(subgraph) {
-                Ok(subgraph) => Some(subgraph),
+                Ok(subgraph) => Some((subgraph.id, subgraph)),
                 Err(err) => {
                     tracing::debug!("filtering-out subgraph: {err}");
                     None
                 }
             }
         })
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| anyhow!("no valid subgraphs found"))?;
+        .collect::<HashMap<_, _>>();
 
-    Ok(subgraphs)
+    if subgraphs.is_empty() {
+        Err(anyhow!("no valid subgraphs found"))
+    } else {
+        Ok(subgraphs)
+    }
 }
 
 /// Convert from the fetched indexer information into the internal representation.
@@ -467,11 +474,11 @@ fn try_into_internal_subgraph_info(
 /// Process the fetched network topology information.
 pub async fn process_indexers_info(
     state: &InternalState,
-    indexers: Vec1<IndexerInfo>,
-) -> anyhow::Result<Vec1<IndexerInfo>> {
+    indexers: HashMap<Address, IndexerInfo>,
+) -> anyhow::Result<HashMap<Address, IndexerInfo>> {
     // Process the fetched indexers information
     let indexers_info = {
-        let indexers_iter_fut = indexers.into_iter().map(move |indexer| {
+        let indexers_iter_fut = indexers.into_iter().map(move |(indexer_id, indexer)| {
             // Instrument the indexer processing span
             let indexer_span = tracing::debug_span!(
                 "indexer processing",
@@ -568,20 +575,23 @@ pub async fn process_indexers_info(
                     return None;
                 }
 
-                Some(indexer)
+                Some((indexer_id, indexer))
             }
             .instrument(indexer_span)
         });
 
         // Wait for all the indexers to be processed
         futures::future::join_all(indexers_iter_fut).await
-    };
-    indexers_info
-        .into_iter()
-        .flatten() // Filter out the `None` values
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| anyhow!("no valid indexers found"))
+    }
+    .into_iter()
+    .flatten() // Filter out the `None` values
+    .collect::<HashMap<_, _>>();
+
+    if indexers_info.is_empty() {
+        Err(anyhow!("no valid indexers found"))
+    } else {
+        Ok(indexers_info)
+    }
 }
 
 /// Check if the indexer's address is in the address blocklist.
