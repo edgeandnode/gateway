@@ -77,8 +77,11 @@ pub async fn merge_queries(
 
     let response_map: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> = responses
         .into_iter()
-        // TODO: Handle errors (e.g., log them with trace level).
-        .filter_map(|response| response.ok())
+        .filter_map(|response| {
+            response
+                .map_err(|e| tracing::trace!("Error querying public proof of indexing: {}", e))
+                .ok()
+        })
         .flat_map(|response| response.public_proofs_of_indexing)
         .filter_map(|response| {
             // If the response is missing the POI field, skip it.
