@@ -182,25 +182,28 @@ pub fn rewrite_query<'q>(
                     .find(|(n, _)| *n == "block")
                     .and_then(|(_, field)| field_constraint(&ctx.variables, defaults, field).ok())
                 {
-                    match constraint {
-                        BlockConstraint::Hash(hash) => {
-                            write!(buf, "{{ hash: \"{hash}\" }}").unwrap()
+                    match (constraint, &latest_block) {
+                        (BlockConstraint::Hash(hash), _) => {
+                            write!(buf, "{{ hash: \"{hash}\" }}").unwrap();
                         }
-                        BlockConstraint::Number(number) => {
+                        (BlockConstraint::Number(number), _) => {
                             match chain.find(&UnresolvedBlock::WithNumber(number)) {
                                 Some(Block { hash, .. }) => {
-                                    write!(buf, "{{ hash: \"{hash}\" }}").unwrap()
+                                    write!(buf, "{{ hash: \"{hash}\" }}").unwrap();
                                 }
-                                None => write!(buf, "{{ number: {number} }}").unwrap(),
+                                None => {
+                                    write!(buf, "{{ number: {number} }}").unwrap();
+                                }
                             }
                         }
-                        BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => {
-                            match &latest_block {
-                                Some(Block { hash, .. }) => {
-                                    write!(buf, "{{ hash: \"{hash}\" }}").unwrap()
-                                }
-                                None => write!(buf, "{{}}").unwrap(),
-                            }
+                        (_, Some(Block { hash, .. })) => {
+                            write!(buf, "{{ hash: \"{hash}\" }}",).unwrap();
+                        }
+                        (BlockConstraint::NumberGTE(number), None) => {
+                            write!(buf, "{{ number_gte: {number} }}").unwrap();
+                        }
+                        (BlockConstraint::Unconstrained, None) => {
+                            write!(buf, "null").unwrap();
                         }
                     };
                 } else if let Some(block) = &latest_block {
@@ -516,6 +519,15 @@ mod tests {
                     range: Some((125, 125)),
                 },
                 "{\n  bundle0: bundle(block: { number: 125 }, id: \"1\") {\n    ethPriceUSD\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
+            ),
+            (
+                r#"{ bundle(block:{number_gte:125}) { ethPriceUSD } }"#,
+                BlockRequirements {
+                    latest: true,
+                    number_gte: Some(125),
+                    range: None,
+                },
+                "{\n  bundle(block: { number_gte: 125 }) {\n    ethPriceUSD\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
             ),
             (
                 r#"query GetTopSales {
