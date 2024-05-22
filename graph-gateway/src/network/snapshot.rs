@@ -174,37 +174,37 @@ pub struct Deployment {
 
 /// A snapshot of the network topology.
 pub struct NetworkTopologySnapshot {
-    pub(super) subgraphs: HashMap<SubgraphId, Arc<Subgraph>>,
-    pub(super) deployments: HashMap<DeploymentId, Arc<Deployment>>,
+    subgraphs: HashMap<SubgraphId, Subgraph>,
+    deployments: HashMap<DeploymentId, Deployment>,
 }
 
 impl NetworkTopologySnapshot {
     /// Get the [`Subgraph`] by [`SubgraphId`].
     ///
     /// If the subgraph is not found, it returns `None`.
-    pub fn get_subgraph_by_id(&self, id: &SubgraphId) -> Option<Arc<Subgraph>> {
-        self.subgraphs.get(id).cloned()
+    pub fn get_subgraph_by_id(&self, id: &SubgraphId) -> Option<&Subgraph> {
+        self.subgraphs.get(id)
     }
 
     /// Get the [`Deployment`] by [`DeploymentId`].
     ///
     /// If the deployment is not found, it returns `None`.
-    pub fn get_deployment_by_id(&self, id: &DeploymentId) -> Option<Arc<Deployment>> {
-        self.deployments.get(id).cloned()
+    pub fn get_deployment_by_id(&self, id: &DeploymentId) -> Option<&Deployment> {
+        self.deployments.get(id)
     }
 
     /// Get the snapshot subgraphs.
-    pub fn subgraphs(&self) -> impl Deref<Target = HashMap<SubgraphId, Arc<Subgraph>>> + '_ {
+    pub fn subgraphs(&self) -> impl Deref<Target = HashMap<SubgraphId, Subgraph>> + '_ {
         &self.subgraphs
     }
 
     /// Get the snapshot deployments.
-    pub fn deployments(&self) -> impl Deref<Target = HashMap<DeploymentId, Arc<Deployment>>> + '_ {
+    pub fn deployments(&self) -> impl Deref<Target = HashMap<DeploymentId, Deployment>> + '_ {
         &self.deployments
     }
 }
 
-/// Construct the [`NetworkTopologySnapshot`] from the indexers and subgraphs informaton.
+/// Construct the [`NetworkTopologySnapshot`] from the indexers and subgraphs information.
 pub fn new_from(
     indexers: Vec1<IndexerInfo>,
     subgraphs: Vec1<SubgraphInfo>,
@@ -232,8 +232,8 @@ pub fn new_from(
         .map(|subgraph| (subgraph.id, subgraph))
         .collect::<HashMap<_, _>>();
 
-    // Construct the indexings indexers table
-    let indexings_indexers_table = indexers_info_table
+    // Construct the indexers table
+    let indexers = indexers_info_table
         .iter()
         .map(|(indexer_id, indexer)| {
             // The indexer agent version must be greater than or equal to the minimum required
@@ -316,8 +316,7 @@ pub fn new_from(
                                 return None;
                             }
 
-                            let indexing_indexer =
-                                indexings_indexers_table.get(&indexing_indexer_id)?;
+                            let indexing_indexer = indexers.get(&indexing_indexer_id)?;
 
                             // If the indexing has no allocations, exclude it
                             let indexing_largest_allocation_addr = indexing_indexer_info
@@ -374,7 +373,7 @@ pub fn new_from(
 
             Some((
                 subgraph_id,
-                Arc::new(Subgraph {
+                Subgraph {
                     id: subgraph.id,
                     l2_id: subgraph_id_on_l2,
                     transferred_to_l2: subgraph_transferred_to_l2,
@@ -382,7 +381,7 @@ pub fn new_from(
                     start_block: highest_version_deployment_manifest_start_block,
                     deployments: subgraph_deployments,
                     indexings: subgraph_indexings,
-                }),
+                },
             ))
         })
         .collect::<HashMap<_, _>>();
@@ -411,7 +410,7 @@ pub fn new_from(
                         return None;
                     }
 
-                    let indexing_indexer = indexings_indexers_table.get(&indexing_indexer_id)?;
+                    let indexing_indexer = indexers.get(&indexing_indexer_id)?;
 
                     let indexing_largest_allocation_addr = indexing_indexer_info
                         .largest_allocation
@@ -470,14 +469,14 @@ pub fn new_from(
 
             Some((
                 deployment_id,
-                Arc::new(Deployment {
+                Deployment {
                     id: deployment_id,
                     transferred_to_l2: deployment.transferred_to_l2,
                     chain: deployment_manifest_chain,
                     start_block: deployment_manifest_start_block,
                     subgraphs: deployment_subgraphs,
                     indexings: deployment_indexings,
-                }),
+                },
             ))
         })
         .collect();

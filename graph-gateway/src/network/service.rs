@@ -112,7 +112,7 @@ impl NetworkService {
     pub fn indexings(&self) -> Eventual<Ptr<HashMap<IndexingId, Indexing>>> {
         self.network.clone().map(|network| async move {
             let indexings = network
-                .subgraphs
+                .subgraphs()
                 .values()
                 .flat_map(|subgraph| subgraph.indexings.clone())
                 .collect();
@@ -128,12 +128,12 @@ impl NetworkService {
         &self,
         id: &SubgraphId,
     ) -> anyhow::Result<Option<ResolvedSubgraphInfo>> {
-        let subgraph = match self
+        let network = self
             .network
             .value_immediate()
-            .ok_or(anyhow!("network topology not available"))?
-            .get_subgraph_by_id(id)
-        {
+            .ok_or(Error::Internal(anyhow!("network topology not available")))?;
+
+        let subgraph = match network.get_subgraph_by_id(id) {
             Some(subgraph) => subgraph,
             None => return Ok(None),
         };
@@ -172,12 +172,12 @@ impl NetworkService {
         &self,
         id: &DeploymentId,
     ) -> anyhow::Result<Option<ResolvedSubgraphInfo>> {
-        let deployment = match self
+        let network = self
             .network
             .value_immediate()
-            .ok_or(Error::Internal(anyhow!("network topology not available")))?
-            .get_deployment_by_id(id)
-        {
+            .ok_or(Error::Internal(anyhow!("network topology not available")))?;
+
+        let deployment = match network.get_deployment_by_id(id) {
             Some(deployment) => deployment,
             None => return Ok(None),
         };
