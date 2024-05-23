@@ -91,7 +91,7 @@ async fn main() {
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    let config_repr = format!("{config:#?}");
+    let config_repr = format!("{config:?}");
 
     // Instantiate the Kafka client
     let kafka_client: &'static KafkaClient = match KafkaClient::new(&config.kafka.into()) {
