@@ -386,143 +386,153 @@ async fn handle_client_query_inner(
         return Err(Error::BadIndexers(indexer_errors));
     }
 
-    let selected_candidates: ArrayVec<&Candidate, SELECTION_LIMIT> =
-        indexer_selection::select(&candidates);
-    let selections_len = selected_candidates.len();
-    let mut selections: Vec<Selection> = Default::default();
-    for candidate in selected_candidates {
-        let indexing = Indexing {
-            indexer: candidate.indexer,
-            deployment: candidate.deployment,
-        };
-
-        // over-pay indexers to hit target
-        let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
-        let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections_len as f64;
-        let indexer_fee = candidate.fee.as_f64() * budget as f64;
-        let fee = indexer_fee.max(min_fee) as u128;
-
-        let receipt = match if candidates_with_scalar_tap_support.contains(&indexing.indexer) {
-            ctx.receipt_signer.create_receipt(&indexing, fee).await
-        } else {
-            ctx.receipt_signer
-                .create_legacy_receipt(&indexing, fee)
-                .await
-        } {
-            Some(receipt) => receipt,
-            None => {
-                tracing::error!(?indexing, "failed to create receipt");
-                continue;
-            }
-        };
-        debug_assert!(fee == receipt.grt_value());
-
-        let blocks_behind = (candidate.seconds_behind as f64 / 60.0) * blocks_per_minute as f64;
-        selections.push(Selection {
-            indexing,
-            url: candidate.url.clone(),
-            receipt,
-            blocks_behind: blocks_behind as u64,
-        });
-    }
-    if selections.is_empty() {
-        // Candidates that would never be selected should be filtered out for improved errors.
-        tracing::error!("no candidates selected");
-        return Err(Error::BadIndexers(indexer_errors));
-    }
-
-    let mut indexer_requests: ArrayVec<String, SELECTION_LIMIT> = Default::default();
+    let mut total_indexer_fees_grt: u128 = 0;
+    let start_time = Instant::now();
+    while !candidates.is_empty()
+        && (Instant::now().duration_since(start_time) < Duration::from_secs(60))
     {
-        let chain_view = chain.read().await;
-        for (i, selection) in selections.iter().enumerate() {
-            if let Some(i) = selections[..i]
-                .iter()
-                .position(|s| s.blocks_behind == selection.blocks_behind)
-            {
-                indexer_requests.push(indexer_requests[i].clone());
+        let selected_candidates: ArrayVec<&Candidate, SELECTION_LIMIT> =
+            indexer_selection::select(&candidates);
+        let selections_len = selected_candidates.len();
+        let selected_indexers: ArrayVec<Address, SELECTION_LIMIT> =
+            selected_candidates.iter().map(|c| c.indexer).collect();
+        let mut selections: Vec<Selection> = Default::default();
+        for candidate in selected_candidates {
+            let indexing = Indexing {
+                indexer: candidate.indexer,
+                deployment: candidate.deployment,
+            };
+
+            // over-pay indexers to hit target
+            let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
+            let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections_len as f64;
+            let indexer_fee = candidate.fee.as_f64() * budget as f64;
+            let fee = indexer_fee.max(min_fee) as u128;
+
+            let receipt = match if candidates_with_scalar_tap_support.contains(&indexing.indexer) {
+                ctx.receipt_signer.create_receipt(&indexing, fee).await
             } else {
-                indexer_requests.push(rewrite_query(
-                    &chain_view,
-                    &context,
-                    &block_requirements,
-                    selection.blocks_behind,
-                )?);
+                ctx.receipt_signer
+                    .create_legacy_receipt(&indexing, fee)
+                    .await
+            } {
+                Some(receipt) => receipt,
+                None => {
+                    tracing::error!(?indexing, "failed to create receipt");
+                    continue;
+                }
+            };
+            debug_assert!(fee == receipt.grt_value());
+
+            let blocks_behind = (candidate.seconds_behind as f64 / 60.0) * blocks_per_minute as f64;
+            selections.push(Selection {
+                indexing,
+                url: candidate.url.clone(),
+                receipt,
+                blocks_behind: blocks_behind as u64,
+            });
+        }
+        if selections.is_empty() {
+            // Candidates that would never be selected should be filtered out for improved errors.
+            tracing::error!("no candidates selected");
+            return Err(Error::BadIndexers(indexer_errors));
+        }
+
+        let mut indexer_requests: ArrayVec<String, SELECTION_LIMIT> = Default::default();
+        {
+            let chain_view = chain.read().await;
+            for (i, selection) in selections.iter().enumerate() {
+                if let Some(i) = selections[..i]
+                    .iter()
+                    .position(|s| s.blocks_behind == selection.blocks_behind)
+                {
+                    indexer_requests.push(indexer_requests[i].clone());
+                } else {
+                    indexer_requests.push(rewrite_query(
+                        &chain_view,
+                        &context,
+                        &block_requirements,
+                        selection.blocks_behind,
+                    )?);
+                }
             }
         }
-    }
 
-    let mut total_indexer_fees_grt: u128 = 0;
-    let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
-    for (selection, indexer_request) in selections.into_iter().zip(indexer_requests) {
-        let deployment = deployments
-            .iter()
-            .find(|deployment| deployment.id == selection.indexing.deployment)
-            .unwrap()
-            .clone();
-        let indexer_query_context = IndexerQueryContext {
-            indexer_client: ctx.indexer_client.clone(),
-            kafka_client: ctx.kafka_client,
-            chain: chain.clone(),
-            attestation_domain: ctx.attestation_domain,
-            indexing_perf: ctx.indexing_perf.clone(),
-            deployment,
-            response_time: Duration::default(),
-        };
+        let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
+        for (selection, indexer_request) in selections.into_iter().zip(indexer_requests) {
+            let deployment = deployments
+                .iter()
+                .find(|deployment| deployment.id == selection.indexing.deployment)
+                .unwrap()
+                .clone();
+            let indexer_query_context = IndexerQueryContext {
+                indexer_client: ctx.indexer_client.clone(),
+                kafka_client: ctx.kafka_client,
+                chain: chain.clone(),
+                attestation_domain: ctx.attestation_domain,
+                indexing_perf: ctx.indexing_perf.clone(),
+                deployment,
+                response_time: Duration::default(),
+            };
 
-        total_indexer_fees_grt += selection.receipt.grt_value();
+            total_indexer_fees_grt += selection.receipt.grt_value();
 
-        let indexer_query_context = indexer_query_context.clone();
-        let outcome_tx = outcome_tx.clone();
-        // We must manually construct this span before the spawned task, since otherwise
-        // there's a race between creating this span and another indexer responding which will
-        // close the outer client_query span.
-        let span = tracing::info_span!(
-            target: INDEXER_REQUEST_TARGET,
-            "indexer_request",
-            indexer = ?selection.indexing.indexer,
+            let indexer_query_context = indexer_query_context.clone();
+            let outcome_tx = outcome_tx.clone();
+            // We must manually construct this span before the spawned task, since otherwise
+            // there's a race between creating this span and another indexer responding which will
+            // close the outer client_query span.
+            let span = tracing::info_span!(
+                target: INDEXER_REQUEST_TARGET,
+                "indexer_request",
+                indexer = ?selection.indexing.indexer,
+            );
+            let receipt_signer = ctx.receipt_signer;
+            tokio::spawn(
+                async move {
+                    let response =
+                        handle_indexer_query(indexer_query_context, &selection, indexer_request)
+                            .await;
+                    let receipt_status = match &response {
+                        Ok(_) => ReceiptStatus::Success,
+                        Err(IndexerError::Timeout) => ReceiptStatus::Unknown,
+                        Err(_) => ReceiptStatus::Failure,
+                    };
+                    receipt_signer
+                        .record_receipt(&selection.indexing, &selection.receipt, receipt_status)
+                        .await;
+
+                    let _ = outcome_tx.send((selection, response)).await;
+                }
+                .instrument(span),
+            );
+        }
+        // This must be dropped to ensure the `outcome_rx.recv()` loop below can eventyually stop.
+        drop(outcome_tx);
+
+        let total_indexer_fees_usd =
+            USD(NotNan::new(total_indexer_fees_grt as f64 * 1e-18).unwrap() / grt_per_usd);
+        tracing::info!(
+            target: CLIENT_REQUEST_TARGET,
+            indexer_fees_grt = (total_indexer_fees_grt as f64 * 1e-18) as f32,
+            indexer_fees_usd = *total_indexer_fees_usd.0 as f32,
         );
-        let receipt_signer = ctx.receipt_signer;
-        tokio::spawn(
-            async move {
-                let response =
-                    handle_indexer_query(indexer_query_context, &selection, indexer_request).await;
-                let receipt_status = match &response {
-                    Ok(_) => ReceiptStatus::Success,
-                    Err(IndexerError::Timeout) => ReceiptStatus::Unknown,
-                    Err(_) => ReceiptStatus::Failure,
-                };
-                receipt_signer
-                    .record_receipt(&selection.indexing, &selection.receipt, receipt_status)
-                    .await;
 
-                let _ = outcome_tx.send((selection, response)).await;
-            }
-            .instrument(span),
-        );
-    }
-    // This must be dropped to ensure the `outcome_rx.recv()` loop below can eventyually stop.
-    drop(outcome_tx);
+        while let Some((selection, result)) = outcome_rx.recv().await {
+            match result {
+                Err(err) => {
+                    indexer_errors.insert(selection.indexing.indexer, err);
+                }
+                Ok(outcome) => {
+                    let _ = ctx.budgeter.feedback.send(total_indexer_fees_usd);
 
-    let total_indexer_fees_usd =
-        USD(NotNan::new(total_indexer_fees_grt as f64 * 1e-18).unwrap() / grt_per_usd);
-    tracing::info!(
-        target: CLIENT_REQUEST_TARGET,
-        indexer_fees_grt = (total_indexer_fees_grt as f64 * 1e-18) as f32,
-        indexer_fees_usd = *total_indexer_fees_usd.0 as f32,
-    );
+                    tracing::debug!(?indexer_errors);
+                    return Ok((selection, outcome));
+                }
+            };
+        }
 
-    while let Some((selection, result)) = outcome_rx.recv().await {
-        match result {
-            Err(err) => {
-                indexer_errors.insert(selection.indexing.indexer, err);
-            }
-            Ok(outcome) => {
-                let _ = ctx.budgeter.feedback.send(total_indexer_fees_usd);
-
-                tracing::debug!(?indexer_errors);
-                return Ok((selection, outcome));
-            }
-        };
+        candidates.retain(|c| !selected_indexers.contains(&c.indexer));
     }
 
     Err(Error::BadIndexers(indexer_errors))
