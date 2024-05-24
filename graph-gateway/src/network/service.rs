@@ -27,8 +27,8 @@ use super::{
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{fetch_update, InternalState},
     snapshot::{
-        Address, BlockNumber, DeploymentId, Indexing, IndexingId, NetworkTopologySnapshot,
-        SubgraphId,
+        Address, BlockNumber, DeploymentId, Indexing, IndexingError, IndexingId,
+        NetworkTopologySnapshot, SubgraphId,
     },
     subgraph::Client as SubgraphClient,
 };
@@ -69,7 +69,7 @@ pub struct ResolvedSubgraphInfo {
     pub deployments: Vec1<DeploymentId>,
 
     /// A list of [`Indexing`]s for the resolved subgraph versions.
-    pub indexings: HashMap<IndexingId, Indexing>,
+    pub indexings: HashMap<IndexingId, Result<Indexing, IndexingError>>,
 }
 
 impl ResolvedSubgraphInfo {
@@ -80,8 +80,8 @@ impl ResolvedSubgraphInfo {
     pub fn latest_indexed_block(&self) -> BlockNumber {
         self.indexings
             .values()
-            .filter_map(|indexing| indexing.status.as_ref())
-            .map(|status| status.latest_block)
+            .filter_map(|indexing| indexing.as_ref().ok())
+            .map(|indexing| indexing.progress.latest_block)
             .max()
             .unwrap_or(self.start_block)
     }
@@ -117,6 +117,7 @@ impl NetworkService {
                 .subgraphs()
                 .values()
                 .flat_map(|subgraph| subgraph.indexings.clone())
+                .filter_map(|(id, indexing)| indexing.map(|indexing| (id, indexing)).ok())
                 .collect();
 
             Ptr::new(indexings)

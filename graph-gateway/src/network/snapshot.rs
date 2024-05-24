@@ -15,7 +15,11 @@ use semver::Version;
 pub use thegraph_core::types::{DeploymentId, SubgraphId};
 use url::Url;
 
-use super::internal::types::{DeploymentInfo, IndexerInfo, SubgraphInfo};
+use super::internal::{
+    types::{DeploymentInfo, IndexerInfo, SubgraphInfo},
+    IndexerError as InternalIndexerError, IndexerError,
+    IndexerIndexingError as InternalIndexerIndexingError, IndexerIndexingError,
+};
 
 /// The minimum indexer agent version required to support Scalar TAP.
 fn min_required_indexer_agent_version_scalar_tap_support() -> &'static Version {
@@ -53,15 +57,17 @@ pub struct Indexing {
     /// The indexer
     pub indexer: Arc<Indexer>,
 
-    /// The indexer's indexing status
-    pub status: Option<IndexingStatus>,
+    /// The indexing indexation progress.
+    ///
+    /// See [`IndexationProgress`] for more information.
+    pub progress: IndexationProgress,
     /// The indexer's indexing cost model
     pub cost_model: Option<Ptr<CostModel>>,
 }
 
-/// The [`IndexingStatus`] struct represents the indexer's indexing status.
+/// The [`IndexationProgress`] struct represents the indexation progress of an indexing.
 #[derive(Debug, Clone)]
-pub struct IndexingStatus {
+pub struct IndexationProgress {
     /// The latest block the indexer has indexed for the deployment.
     pub latest_block: BlockNumber,
     /// The minimum block the indexer has indexed for the deployment.
@@ -124,8 +130,8 @@ pub struct Subgraph {
 
     /// The subgraph's indexings.
     ///
-    /// A table holding all the known healthy indexings for the subgraph.
-    pub indexings: HashMap<IndexingId, Indexing>,
+    /// A table holding all the known indexings for the subgraph.
+    pub indexings: HashMap<IndexingId, Result<Indexing, IndexingError>>,
 }
 
 #[derive(Clone)]
@@ -149,8 +155,91 @@ pub struct Deployment {
 
     /// The deployment's indexings.
     ///
-    /// A table holding all the known healthy indexings for the deployment.
-    pub indexings: HashMap<IndexingId, Indexing>,
+    /// A table holding all the known indexings for the deployment.
+    pub indexings: HashMap<IndexingId, Result<Indexing, IndexingError>>,
+}
+
+// TODO: Review these errors when the network module gets integrated
+//  Copied from gateway-framework/src/errors.rs
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum IndexingError {
+    /// Errors that should only occur in exceptional conditions.
+    #[error("internal error: {0}")]
+    Internal(String),
+    /// The indexer is considered unavailable.
+    #[error("Unavailable({0})")]
+    Unavailable(UnavailableReason),
+}
+
+impl From<InternalIndexerError> for IndexingError {
+    fn from(err: InternalIndexerError) -> Self {
+        IndexingError::Unavailable(match err {
+            IndexerError::BlockedByAddrBlocklist => UnavailableReason::BlockedByAddrBlocklist,
+            IndexerError::HostResolutionFailed(_) => UnavailableReason::NoStatus(err.to_string()),
+            IndexerError::BlockedByHostBlocklist => UnavailableReason::BlockedByHostBlocklist,
+            IndexerError::AgentVersionResolutionFailed(_) => {
+                UnavailableReason::NoStatus(err.to_string())
+            }
+            IndexerError::AgentVersionBelowMin(cur, min) => {
+                UnavailableReason::AgentVersionBelowMin(cur, min)
+            }
+            IndexerError::GraphNodeVersionResolutionFailed(_) => {
+                UnavailableReason::NoStatus(err.to_string())
+            }
+            IndexerError::GraphNodeVersionBelowMin(cur, min) => {
+                UnavailableReason::GraphNodeVersionBelowMin(cur, min)
+            }
+            IndexerError::IndexingPoisResolutionFailed(_) => {
+                UnavailableReason::NoStatus(err.to_string())
+            }
+            IndexerError::AllIndexingsBlockedByPoiBlocklist => {
+                UnavailableReason::IndexingBlockedByPoiBlocklist
+            }
+            IndexerError::IndexingProgressResolutionFailed(_) => {
+                UnavailableReason::NoStatus(err.to_string())
+            }
+            IndexerError::NoIndexingProgressInfoFound => {
+                UnavailableReason::NoStatus(err.to_string())
+            }
+        })
+    }
+}
+
+impl From<InternalIndexerIndexingError> for IndexingError {
+    fn from(err: InternalIndexerIndexingError) -> Self {
+        IndexingError::Unavailable(match err {
+            IndexerIndexingError::BlockedByPoiBlocklist => {
+                UnavailableReason::IndexingBlockedByPoiBlocklist
+            }
+            IndexerIndexingError::IndexationProgressNotFound => {
+                UnavailableReason::NoStatus(err.to_string())
+            }
+        })
+    }
+}
+
+// TODO: Review these errors when the network module gets integrated
+//  Copied from gateway-framework/src/errors.rs
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum UnavailableReason {
+    /// Blocked by address blocklist.
+    #[error("blocked by address blocklist")]
+    BlockedByAddrBlocklist,
+    /// Blocked by host blocklist.
+    #[error("blocked by host blocklist")]
+    BlockedByHostBlocklist,
+    /// Indexer agent version is below the minimum required version.
+    #[error("indexer agent version below the minimum required version")]
+    AgentVersionBelowMin(Version, Version),
+    /// Graph node version is below the minimum required version.
+    #[error("graph node version below the minimum required version")]
+    GraphNodeVersionBelowMin(Version, Version),
+    /// All indexings are blocked by the POI blocklist.
+    #[error("indexing blocked by POI blocklist")]
+    IndexingBlockedByPoiBlocklist,
+    /// Failed to resolve indexer information
+    #[error("no status")]
+    NoStatus(String),
 }
 
 /// A snapshot of the network topology.
@@ -206,9 +295,37 @@ impl NetworkTopologySnapshot {
 
 /// Construct the [`NetworkTopologySnapshot`] from the indexers and subgraphs information.
 pub fn new_from(
-    indexers_info: HashMap<Address, IndexerInfo>,
+    indexers_info: HashMap<Address, Result<IndexerInfo, InternalIndexerError>>,
     subgraphs_info: HashMap<SubgraphId, SubgraphInfo>,
 ) -> NetworkTopologySnapshot {
+    // Construct the indexers table
+    let indexers = indexers_info
+        .into_iter()
+        .map(|(indexer_id, indexer)| {
+            (
+                indexer_id,
+                indexer.map(|info| {
+                    // The indexer agent version must be greater than or equal to the minimum
+                    // required version to support Scalar TAP.
+                    let indexer_scalar_tap_support = &info.indexer_agent_version
+                        >= min_required_indexer_agent_version_scalar_tap_support();
+
+                    let indexer = Indexer {
+                        id: info.id,
+                        url: info.url.clone(),
+                        indexer_agent_version: info.indexer_agent_version.clone(),
+                        graph_node_version: info.graph_node_version.clone(),
+                        scalar_tap_support: indexer_scalar_tap_support,
+                        indexings: info.indexings.keys().copied().collect(),
+                        staked_tokens: info.staked_tokens,
+                    };
+
+                    (info, Arc::new(indexer))
+                }),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
     // Construct the deployments table
     let deployments_info = subgraphs_info
         .values()
@@ -220,30 +337,6 @@ pub fn new_from(
         })
         .collect::<HashMap<_, _>>();
 
-    // Construct the indexers table
-    let indexers = indexers_info
-        .iter()
-        .map(|(indexer_id, indexer)| {
-            // The indexer agent version must be greater than or equal to the minimum required
-            // version to support Scalar TAP.
-            let indexer_scalar_tap_support = indexer.indexer_agent_version
-                >= *min_required_indexer_agent_version_scalar_tap_support();
-
-            (
-                indexer_id,
-                Arc::new(Indexer {
-                    id: indexer.id,
-                    url: indexer.url.clone(),
-                    indexer_agent_version: indexer.indexer_agent_version.clone(),
-                    graph_node_version: indexer.graph_node_version.clone(),
-                    scalar_tap_support: indexer_scalar_tap_support,
-                    indexings: indexer.deployments.iter().copied().collect(),
-                    staked_tokens: indexer.staked_tokens,
-                }),
-            )
-        })
-        .collect::<HashMap<_, _>>();
-
     // Construct the transferred subgraphs and deployments tables
     let transferred_subgraphs = construct_transferred_subgraphs_table(&subgraphs_info);
     let transferred_deployments = construct_transferred_deployments_table(&deployments_info);
@@ -251,244 +344,46 @@ pub fn new_from(
     // Construct the subgraphs table
     let subgraphs = subgraphs_info
         .into_iter()
-        .filter_map(|(subgraph_id, subgraph)| {
-            // If the subgraph is transferred to L2, exclude it
-            if transferred_subgraphs.contains_key(&subgraph_id) {
-                return None;
+        .filter(|(id, _)| {
+            let transferred_to_l2 = transferred_subgraphs.contains_key(id);
+            if transferred_to_l2 {
+                tracing::debug!("filtering subgraphs table row: transferred to L2");
             }
 
-            // Filter-out the subgraphs' invalid versions-deployments.
-            let versions = subgraph
-                .versions
-                .into_iter()
-                .filter(|version| {
-                    // Valid version must have a deployment with:
-                    // - Valid manifest info (i.e., network).
-                    // - Not marked as transferred to L2.
-                    version.deployment.manifest_network.is_some()
-                        && !transferred_deployments.contains(&version.deployment.id)
-                })
-                .collect::<Vec<_>>();
-
-            // If all the subgraph's versions are invalid, exclude the subgraph.
-            if versions.is_empty() {
-                return None;
-            }
-
-            // As versions are ordered in descending order, the first version is the highest
-            let highest_version = versions.first()?;
-
-            let highest_version_number = highest_version.version;
-            let highest_version_deployment_manifest_chain = highest_version
-                .deployment
-                .manifest_network
-                .as_ref()?
-                .clone();
-            let highest_version_deployment_manifest_start_block =
-                highest_version.deployment.manifest_start_block.unwrap_or(0);
-
-            let versions_behind_table = versions
-                .iter()
-                .map(|version| {
-                    let deployment_id = version.deployment.id;
-                    let deployment_versions_behind = highest_version_number
-                        .saturating_sub(version.version)
-                        .try_into()
-                        .unwrap_or(u8::MAX);
-                    (deployment_id, deployment_versions_behind)
-                })
-                .collect::<HashMap<_, _>>();
-
-            let subgraph_indexings = versions
-                .into_iter()
-                .flat_map(|version| {
-                    let deployment_id = version.deployment.id;
-                    let indexing_deployment_versions_behind = versions_behind_table
-                        .get(&deployment_id)
-                        .copied()
-                        .unwrap_or(u8::MAX);
-
-                    version
-                        .deployment
-                        .allocations
-                        .into_iter()
-                        .filter_map(|alloc| {
-                            // If the indexer is not in the indexers table, exclude it. It might
-                            // have been filtered out due to different reasons, e.g., invalid info.
-                            let indexing_indexer_id = alloc.indexer;
-                            let indexing_indexer_info = indexers_info.get(&indexing_indexer_id)?;
-
-                            // The indexer deployments list contains the healthy deployments. It
-                            // must contain the deployment ID, otherwise, that means it was filtered
-                            // out, e.g., invalid POI blocklist, etc.
-                            if !indexing_indexer_info.deployments.contains(&deployment_id) {
-                                return None;
-                            }
-
-                            let indexing_indexer = indexers.get(&indexing_indexer_id)?;
-
-                            // If the indexing has no allocations, exclude it
-                            let indexing_largest_allocation_addr = indexing_indexer_info
-                                .largest_allocation
-                                .get(&deployment_id)?;
-
-                            // If the indexing has no total allocated tokens, exclude it
-                            let indexing_total_allocated_tokens = indexing_indexer_info
-                                .total_allocated_tokens
-                                .get(&deployment_id)?;
-
-                            let indexing_status = indexing_indexer_info
-                                .indexings_progress
-                                .get(&deployment_id)
-                                .map(|status| IndexingStatus {
-                                    latest_block: status.latest_block,
-                                    min_block: status.min_block,
-                                });
-
-                            let indexing_cost_model = indexing_indexer_info
-                                .indexings_cost_model
-                                .get(&deployment_id)
-                                .cloned();
-
-                            let indexing_id = IndexingId {
-                                indexer: indexing_indexer_id,
-                                deployment: deployment_id,
-                            };
-                            let indexing = Indexing {
-                                id: indexing_id,
-                                versions_behind: indexing_deployment_versions_behind,
-                                largest_allocation: *indexing_largest_allocation_addr,
-                                total_allocated_tokens: *indexing_total_allocated_tokens,
-                                indexer: indexing_indexer.clone(),
-                                status: indexing_status,
-                                cost_model: indexing_cost_model,
-                            };
-                            Some((indexing_id, indexing))
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect::<HashMap<_, _>>();
-            if subgraph_indexings.is_empty() {
-                return None;
-            }
-
-            let subgraph_deployments = subgraph_indexings
-                .keys()
-                .map(|indexing_id| indexing_id.deployment)
-                .collect::<HashSet<_>>();
-            if subgraph_deployments.is_empty() {
-                return None;
-            }
-
-            Some((
-                subgraph_id,
-                Subgraph {
-                    id: subgraph.id,
-                    chain: highest_version_deployment_manifest_chain,
-                    start_block: highest_version_deployment_manifest_start_block,
-                    deployments: subgraph_deployments,
-                    indexings: subgraph_indexings,
-                },
-            ))
+            // Keep the subgraph if it is not transferred to L2
+            !transferred_to_l2
         })
-        .collect::<HashMap<_, _>>();
+        .filter_map(|entry| {
+            match try_construct_subgraphs_table_row(entry, &indexers, &transferred_deployments) {
+                Ok(row) => Some(row),
+                Err(err) => {
+                    tracing::debug!("filtering subgraphs table row: {err}");
+                    None
+                }
+            }
+        })
+        .collect();
 
     // Construct the deployments table
     let deployments = deployments_info
         .into_iter()
-        .filter_map(|(deployment_id, deployment)| {
-            // If the deployment is transferred to L2, exclude it
-            if transferred_deployments.contains(&deployment_id) {
-                return None;
+        .filter(|(deployment_id, _)| {
+            let transferred_to_l2 = transferred_deployments.contains(deployment_id);
+            if transferred_to_l2 {
+                tracing::debug!("filtering deployments table row: transferred to L2");
             }
 
-            let deployment_versions_behind = 0;
-            let deployment_manifest_chain = deployment.manifest_network?.clone();
-            let deployment_manifest_start_block = deployment.manifest_start_block?;
-
-            let deployment_indexings = deployment
-                .allocations
-                .into_iter()
-                .filter_map(|alloc| {
-                    // If the indexer is not in the indexers table, exclude it. It might
-                    // have been filtered out due to different reasons, e.g., invalid info.
-                    let indexing_indexer_id = alloc.indexer;
-                    let indexing_indexer_info = indexers_info.get(&indexing_indexer_id)?;
-
-                    // The indexer deployments list contains the healthy deployments. It must
-                    // contain the deployment ID, otherwise, that means it was filtered out,
-                    // e.g., invalid POI blocklist, etc.
-                    if !indexing_indexer_info.deployments.contains(&deployment_id) {
-                        return None;
-                    }
-
-                    let indexing_indexer = indexers.get(&indexing_indexer_id)?;
-
-                    let indexing_largest_allocation_addr = indexing_indexer_info
-                        .largest_allocation
-                        .get(&deployment_id)?;
-
-                    let indexing_total_allocated_tokens = indexing_indexer_info
-                        .total_allocated_tokens
-                        .get(&deployment_id)?;
-
-                    let indexing_status = indexing_indexer_info
-                        .indexings_progress
-                        .get(&deployment_id)
-                        .map(|status| IndexingStatus {
-                            latest_block: status.latest_block,
-                            min_block: status.min_block,
-                        });
-
-                    let indexing_cost_model = indexing_indexer_info
-                        .indexings_cost_model
-                        .get(&deployment_id)
-                        .cloned();
-
-                    let indexing_id = IndexingId {
-                        indexer: indexing_indexer_id,
-                        deployment: deployment_id,
-                    };
-                    let indexing = Indexing {
-                        id: indexing_id,
-                        versions_behind: deployment_versions_behind,
-                        largest_allocation: *indexing_largest_allocation_addr,
-                        total_allocated_tokens: *indexing_total_allocated_tokens,
-                        indexer: indexing_indexer.clone(),
-                        status: indexing_status,
-                        cost_model: indexing_cost_model,
-                    };
-                    Some((indexing_id, indexing))
-                })
-                .collect::<HashMap<_, _>>();
-            if deployment_indexings.is_empty() {
-                return None;
+            // Keep the deployment if it is not transferred to L2
+            !transferred_to_l2
+        })
+        .filter_map(|entry| {
+            match try_construct_deployments_table_row(entry, &indexers, &subgraphs) {
+                Ok(row) => Some(row),
+                Err(err) => {
+                    tracing::debug!("filtering deployments table row: {err}");
+                    None
+                }
             }
-
-            let deployment_subgraphs = subgraphs
-                .iter()
-                .filter_map(|(subgraph_id, subgraph)| {
-                    if subgraph.deployments.contains(&deployment_id) {
-                        Some(*subgraph_id)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<HashSet<_>>();
-            if deployment_subgraphs.is_empty() {
-                return None;
-            }
-
-            Some((
-                deployment_id,
-                Deployment {
-                    id: deployment_id,
-                    chain: deployment_manifest_chain,
-                    start_block: deployment_manifest_start_block,
-                    subgraphs: deployment_subgraphs,
-                    indexings: deployment_indexings,
-                },
-            ))
         })
         .collect();
 
@@ -542,4 +437,209 @@ fn construct_transferred_deployments_table(
             }
         })
         .collect::<HashSet<_>>()
+}
+
+fn try_construct_subgraphs_table_row(
+    (subgraph_id, subgraph_info): (SubgraphId, SubgraphInfo),
+    indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
+    transferred_deployments: &HashSet<DeploymentId>,
+) -> anyhow::Result<(SubgraphId, Subgraph)> {
+    // Filter-out the subgraphs' invalid versions-deployments.
+    let versions = subgraph_info
+        .versions
+        .into_iter()
+        .filter(|version| {
+            // Valid version must have a deployment with:
+            // - Valid manifest info (i.e., network).
+            // - Not marked as transferred to L2.
+            version.deployment.manifest_network.is_some()
+                && !transferred_deployments.contains(&version.deployment.id)
+        })
+        .collect::<Vec<_>>();
+
+    // As versions are ordered in descending order, the first version is the highest
+    // If all the subgraph's versions are invalid, exclude the subgraph.
+    let highest_version = versions
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("no valid versions"))?;
+
+    let highest_version_number = highest_version.version;
+    let highest_version_deployment_manifest_chain = highest_version
+        .deployment
+        .manifest_network
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("no deployment manifest network"))?
+        .clone();
+    let highest_version_deployment_manifest_start_block =
+        highest_version.deployment.manifest_start_block.unwrap_or(0);
+
+    let versions_behind_table = versions
+        .iter()
+        .map(|version| {
+            let deployment_id = version.deployment.id;
+            let deployment_versions_behind = highest_version_number
+                .saturating_sub(version.version)
+                .try_into()
+                .unwrap_or(u8::MAX);
+            (deployment_id, deployment_versions_behind)
+        })
+        .collect::<HashMap<_, _>>();
+
+    let subgraph_indexings = versions
+        .into_iter()
+        .flat_map(|version| {
+            let deployment_id = version.deployment.id;
+            let indexing_deployment_versions_behind = versions_behind_table
+                .get(&deployment_id)
+                .copied()
+                .unwrap_or(u8::MAX);
+
+            version
+                .deployment
+                .allocations
+                .into_iter()
+                .map(|alloc| {
+                    let indexing_id = IndexingId {
+                        indexer: alloc.indexer,
+                        deployment: deployment_id,
+                    };
+
+                    try_construct_indexings_table_row(
+                        indexing_id,
+                        indexing_deployment_versions_behind,
+                        indexers,
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<HashMap<_, _>>();
+    if subgraph_indexings.is_empty() {
+        return Err(anyhow::anyhow!("no indexings"));
+    }
+
+    let subgraph_deployments = subgraph_indexings
+        .keys()
+        .map(|indexing_id| indexing_id.deployment)
+        .collect::<HashSet<_>>();
+    if subgraph_deployments.is_empty() {
+        return Err(anyhow::anyhow!("no deployments"));
+    }
+
+    Ok((
+        subgraph_id,
+        Subgraph {
+            id: subgraph_info.id,
+            chain: highest_version_deployment_manifest_chain,
+            start_block: highest_version_deployment_manifest_start_block,
+            deployments: subgraph_deployments,
+            indexings: subgraph_indexings,
+        },
+    ))
+}
+
+fn try_construct_deployments_table_row(
+    (deployment_id, deployment_info): (DeploymentId, DeploymentInfo),
+    indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
+    subgraphs: &HashMap<SubgraphId, Subgraph>,
+) -> anyhow::Result<(DeploymentId, Deployment)> {
+    let deployment_versions_behind = 0;
+    let deployment_manifest_chain = deployment_info
+        .manifest_network
+        .ok_or_else(|| anyhow::anyhow!("no deployment manifest network"))?
+        .clone();
+    let deployment_manifest_start_block = deployment_info.manifest_start_block.unwrap_or(0);
+
+    let deployment_indexings = deployment_info
+        .allocations
+        .into_iter()
+        .map(|alloc| {
+            let indexing_id = IndexingId {
+                indexer: alloc.indexer,
+                deployment: deployment_id,
+            };
+
+            try_construct_indexings_table_row(indexing_id, deployment_versions_behind, indexers)
+        })
+        .collect::<HashMap<_, _>>();
+    if deployment_indexings.is_empty() {
+        return Err(anyhow::anyhow!("no indexings"));
+    }
+
+    let deployment_subgraphs = subgraphs
+        .iter()
+        .filter_map(|(subgraph_id, subgraph)| {
+            if subgraph.deployments.contains(&deployment_id) {
+                Some(*subgraph_id)
+            } else {
+                None
+            }
+        })
+        .collect::<HashSet<_>>();
+    if deployment_subgraphs.is_empty() {
+        return Err(anyhow::anyhow!("no subgraphs"));
+    }
+
+    Ok((
+        deployment_id,
+        Deployment {
+            id: deployment_id,
+            chain: deployment_manifest_chain,
+            start_block: deployment_manifest_start_block,
+            subgraphs: deployment_subgraphs,
+            indexings: deployment_indexings,
+        },
+    ))
+}
+
+fn try_construct_indexings_table_row(
+    indexing_id: IndexingId,
+    indexing_deployment_versions_behind: u8,
+    indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
+) -> (IndexingId, Result<Indexing, IndexingError>) {
+    // If the indexer reported an error, bail out.
+    let (indexer_info, indexer) = match indexers.get(&indexing_id.indexer).as_ref() {
+        Some(Ok(indexer)) => indexer,
+        Some(Err(err)) => return (indexing_id, Err(err.clone().into())),
+        None => {
+            return (
+                indexing_id,
+                Err(IndexingError::Internal("indexer not found".to_string())),
+            )
+        }
+    };
+
+    // If the indexer's indexing info is not found or failed to resolve, bail out.
+    let indexing_info = match indexer_info.indexings.get(&indexing_id.deployment) {
+        Some(Ok(info)) => info,
+        Some(Err(err)) => return (indexing_id, Err(err.clone().into())),
+        None => {
+            return (
+                indexing_id,
+                Err(IndexingError::Internal(
+                    "indexing info not found".to_string(),
+                )),
+            )
+        }
+    };
+
+    // Construct the indexing table row
+    let indexing_largest_allocation_addr = indexing_info.largest_allocation;
+    let indexing_total_allocated_tokens = indexing_info.total_allocated_tokens;
+    let indexation_progress = indexing_info.indexation_progress.to_owned();
+    let indexing_cost_model = indexing_info.cost_model.to_owned();
+
+    let indexing = Indexing {
+        id: indexing_id,
+        versions_behind: indexing_deployment_versions_behind,
+        largest_allocation: indexing_largest_allocation_addr,
+        total_allocated_tokens: indexing_total_allocated_tokens,
+        indexer: Arc::clone(indexer),
+        progress: IndexationProgress {
+            latest_block: indexation_progress.latest_block,
+            min_block: indexation_progress.min_block,
+        },
+        cost_model: indexing_cost_model,
+    };
+
+    (indexing_id, Ok(indexing))
 }

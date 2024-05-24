@@ -6,7 +6,7 @@ pub use service::{
     NetworkService, NetworkServiceBuilder, NetworkServicePending, ResolvedSubgraphInfo,
 };
 pub use snapshot::{
-    BlockNumber, DeploymentId, Indexer, Indexing, IndexingId, IndexingStatus,
+    BlockNumber, DeploymentId, IndexationProgress, Indexer, Indexing, IndexingId,
     NetworkTopologySnapshot, SubgraphId,
 };
 

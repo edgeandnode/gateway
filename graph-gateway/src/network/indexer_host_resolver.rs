@@ -28,7 +28,7 @@ pub enum ResolutionError {
     DnsResolutionError(#[from] ResolveError),
 
     /// Resolution timed out.
-    #[error("timout")]
+    #[error("timeout")]
     Timeout,
 }
 
@@ -77,7 +77,7 @@ impl HostResolver {
             .await
             .map_err(|_| ResolutionError::Timeout)?
             .map_err(Into::into)
-            .map(|ips| ips.into_iter().collect())
+            .map(FromIterator::from_iter)
     }
 
     /// Resolve the IP address of the given URL.
