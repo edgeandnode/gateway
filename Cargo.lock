@@ -3021,7 +3021,7 @@ version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "681030a937600a36906c185595136d26abfebb4aa9c65701cefcaf8578bb982b"
 dependencies = [
- "proc-macro-crate 3.1.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.65",
@@ -4788,9 +4788,9 @@ dependencies = [
 
 [[package]]
 name = "thegraph-core"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cff46d3b5fbf4a774c59ef9fdc1010faff8e721d0422be39126f6acd5cefbe5d"
+checksum = "fe715032b02cf22c91682b3d04d52d61dfc06148389ea3da89b8a16683c044c8"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
