@@ -36,7 +36,7 @@ impl Metrics {
             indexer_query: ResponseMetricVecs::new(
                 "gw_indexer_query",
                 "indexer query",
-                &["deployment"],
+                &["deployment", "indexer"],
             ),
             collect_receipts: ResponseMetrics::new(
                 "gw_collect_receipts",
