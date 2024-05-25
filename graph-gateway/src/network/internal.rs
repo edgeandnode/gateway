@@ -190,7 +190,6 @@ pub mod types {
 
 /// Internal type holding the network service state.
 pub struct InternalState {
-    pub indexer_http_client: reqwest::Client,
     pub indexer_min_agent_version: Version,
     pub indexer_min_graph_node_version: Version,
     pub indexer_addr_blocklist: Option<AddrBlocklist>,
@@ -198,23 +197,22 @@ pub struct InternalState {
     pub indexer_host_blocklist: Option<HostBlocklist>,
     pub indexer_version_resolver: VersionResolver,
     pub indexer_indexing_pois_blocklist: Option<(PoiBlocklist, Mutex<PoiResolver>)>,
-    pub indexer_indexing_status_resolver: IndexingProgressResolver,
+    pub indexer_indexing_progress_resolver: IndexingProgressResolver,
     pub indexer_indexing_cost_model_resolver: (CostModelResolver, Mutex<CostModelCompiler>),
 }
 
 /// Fetch the network topology information from the graph network subgraph.
 pub async fn fetch_update(
-    client: &Mutex<SubgraphClient>,
+    client: &SubgraphClient,
     state: &InternalState,
 ) -> anyhow::Result<NetworkTopologySnapshot> {
     // Fetch and process the network topology information
     let (indexers_info, subgraphs_info) = futures::future::try_join(
         async {
             let indexers = {
-                let mut subgraph_client = client.lock().await;
                 match tokio::time::timeout(
                     NETWORK_TOPOLOGY_FETCH_TIMEOUT,
-                    fetch_and_pre_process_indexers_info(&mut subgraph_client),
+                    fetch_and_pre_process_indexers_info(client),
                 )
                 .await
                 {
@@ -232,10 +230,9 @@ pub async fn fetch_update(
             Ok(process_indexers_info(state, indexers).await)
         },
         async {
-            let mut subgraph_client = client.lock().await;
             match tokio::time::timeout(
                 NETWORK_TOPOLOGY_FETCH_TIMEOUT,
-                fetch_and_pre_process_subgraphs_info(&mut subgraph_client),
+                fetch_and_pre_process_subgraphs_info(client),
             )
             .await
             {
@@ -265,7 +262,7 @@ pub async fn fetch_update(
 /// Invalid info is filtered out before converting into the internal representation. If no valid
 /// indexers are found, an error is returned.
 pub async fn fetch_and_pre_process_indexers_info(
-    client: &mut SubgraphClient,
+    client: &SubgraphClient,
 ) -> anyhow::Result<HashMap<Address, IndexerRawInfo>> {
     // Fetch the indexers information from the graph network subgraph
     let indexers = client
@@ -317,7 +314,7 @@ pub async fn fetch_and_pre_process_indexers_info(
 /// Invalid info is filtered out before converting into the internal representation. If no valid
 /// subgraphs are found, an error is returned.
 pub async fn fetch_and_pre_process_subgraphs_info(
-    client: &mut SubgraphClient,
+    client: &SubgraphClient,
 ) -> anyhow::Result<HashMap<SubgraphId, SubgraphInfo>> {
     // Fetch the subgraphs information from the graph network subgraph
     let subgraphs = client
@@ -676,7 +673,7 @@ pub async fn process_indexers_info(
                 // NOTE: At this point, the indexer's deployments list should contain only the
                 //       deployment IDs that were not blocked by any blocklist.
                 let mut indexings_progress = match resolve_indexer_indexation_progress_statuses(
-                    &state.indexer_indexing_status_resolver,
+                    &state.indexer_indexing_progress_resolver,
                     &indexer_indexings,
                     &indexer,
                 )

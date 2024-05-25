@@ -135,9 +135,7 @@ impl Client {
     /// > `version` in ascending order, and all its `indexerAllocations` ordered by
     /// > `allocatedTokens` in descending order; laying the largest allocation first.
     #[allow(clippy::obfuscated_if_else)]
-    pub async fn fetch_subgraphs(
-        &mut self,
-    ) -> anyhow::Result<Vec<types::fetch_subgraphs::Subgraph>> {
+    pub async fn fetch_subgraphs(&self) -> anyhow::Result<Vec<types::fetch_subgraphs::Subgraph>> {
         // The following query's response must fulfill the following assumptions:
         // - Perform a paginated query based on the subgraph's ID. All subgraphs are ordered by ID.
         //   The next query must start from the last subgraph ID fetched in the previous query.
@@ -205,7 +203,7 @@ impl Client {
     ///
     /// > Get all indexers with at least one active allocation, with all its active allocations
     /// > ordered by `allocatedTokens` in descending order; laying the largest allocation first.
-    pub async fn fetch_indexers(&mut self) -> anyhow::Result<Vec<types::fetch_indexers::Indexer>> {
+    pub async fn fetch_indexers(&self) -> anyhow::Result<Vec<types::fetch_indexers::Indexer>> {
         // The following query response must fulfill the following assumptions:
         // - Perform a paginated query based on the indexer's ID. All indexers are ordered by ID.
         //   The next query must start from the last indexer ID fetched in the previous query.

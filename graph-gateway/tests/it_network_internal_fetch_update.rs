@@ -61,30 +61,29 @@ fn test_service_state(
     min_versions: Option<(Version, Version)>,
 ) -> Arc<InternalState> {
     let indexers_http_client = reqwest::Client::new();
-    let indexers_host_resolver =
+    let indexer_host_resolver =
         Mutex::new(HostResolver::new().expect("Failed to create host resolver"));
-    let indexers_version_resolver = VersionResolver::with_timeout(
+    let indexer_version_resolver = VersionResolver::with_timeout(
         indexers_http_client.clone(),
         DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1500 ms
     );
-    let indexers_indexing_status_resolver =
+    let indexer_indexing_progress_resolver =
         IndexingProgressResolver::new(indexers_http_client.clone());
-    let indexers_cost_model_resolver = (
+    let indexer_indexing_cost_model_resolver = (
         CostModelResolver::new(indexers_http_client.clone()),
         Mutex::new(CostModelCompiler::default()),
     );
 
     let mut state = InternalState {
-        indexer_http_client: indexers_http_client.clone(),
         indexer_min_agent_version: Version::new(0, 0, 0),
         indexer_min_graph_node_version: Version::new(0, 0, 0),
         indexer_addr_blocklist: None,
-        indexer_host_resolver: indexers_host_resolver,
+        indexer_host_resolver,
         indexer_host_blocklist: None,
-        indexer_version_resolver: indexers_version_resolver,
+        indexer_version_resolver,
         indexer_indexing_pois_blocklist: None,
-        indexer_indexing_status_resolver: indexers_indexing_status_resolver,
-        indexer_indexing_cost_model_resolver: indexers_cost_model_resolver,
+        indexer_indexing_progress_resolver,
+        indexer_indexing_cost_model_resolver,
     };
 
     if !addr_blocklist.is_empty() {
@@ -115,7 +114,7 @@ async fn fetch_update(service: &InternalState) -> anyhow::Result<NetworkTopology
         let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
             .with_auth_token(Some(auth_token))
             .build();
-        Mutex::new(Client::new(subgraph_client, true))
+        Client::new(subgraph_client, true)
     };
 
     internal_fetch_update(&client, service).await

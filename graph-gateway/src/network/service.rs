@@ -227,7 +227,7 @@ pub struct NetworkServiceBuilder {
     indexer_host_blocklist: Option<HostBlocklist>,
     indexer_version_resolver: VersionResolver,
     indexer_indexing_pois_blocklist: Option<(PoiBlocklist, PoiResolver)>,
-    indexer_indexing_status_resolver: IndexingProgressResolver,
+    indexer_indexing_progress_resolver: IndexingProgressResolver,
     indexer_indexing_cost_model_resolver: CostModelResolver,
     indexer_indexing_cost_model_compiler: CostModelCompiler,
     update_interval: Duration,
@@ -244,7 +244,7 @@ impl NetworkServiceBuilder {
             indexer_client.clone(),
             DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1500ms
         );
-        let indexer_indexing_status_resolver = IndexingProgressResolver::with_timeout(
+        let indexer_indexing_progress_resolver = IndexingProgressResolver::with_timeout(
             indexer_client.clone(),
             DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 5s
         );
@@ -264,7 +264,7 @@ impl NetworkServiceBuilder {
             indexer_host_blocklist: None,
             indexer_version_resolver,
             indexer_indexing_pois_blocklist: None,
-            indexer_indexing_status_resolver,
+            indexer_indexing_progress_resolver,
             indexer_indexing_cost_model_resolver,
             indexer_indexing_cost_model_compiler,
             update_interval: DEFAULT_UPDATE_INTERVAL,
@@ -322,7 +322,6 @@ impl NetworkServiceBuilder {
     /// To spawn the [`NetworkService`] instance, call the [`NetworkServicePending::spawn`] method.
     pub fn build(self) -> NetworkServicePending {
         let internal_state = InternalState {
-            indexer_http_client: self.indexer_client,
             indexer_min_agent_version: self.indexer_min_agent_version,
             indexer_min_graph_node_version: self.indexer_min_graph_node_version,
             indexer_addr_blocklist: self.indexer_addr_blocklist,
@@ -332,7 +331,7 @@ impl NetworkServiceBuilder {
             indexer_indexing_pois_blocklist: self
                 .indexer_indexing_pois_blocklist
                 .map(|(bl, res)| (bl, Mutex::new(res))),
-            indexer_indexing_status_resolver: self.indexer_indexing_status_resolver,
+            indexer_indexing_progress_resolver: self.indexer_indexing_progress_resolver,
             indexer_indexing_cost_model_resolver: (
                 self.indexer_indexing_cost_model_resolver,
                 Mutex::new(self.indexer_indexing_cost_model_compiler),
@@ -381,7 +380,6 @@ fn spawn_updater_task(
     let (mut eventual_writer, eventual) = Eventual::new();
 
     tokio::spawn(async move {
-        let subgraph_client = Mutex::new(subgraph_client);
         loop {
             // Fetch the network topology information every `update_interval` duration
             // If the fetch fails or takes too long, log a warning and skip the update
