@@ -37,7 +37,7 @@ async fn fetch_indexers_and_deserialize() {
     let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
     let auth_token = test_auth_token();
 
-    let mut network_subgraph_client = {
+    let network_subgraph_client = {
         let http_client = reqwest::Client::new();
         let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
             .with_auth_token(Some(auth_token))
@@ -66,7 +66,7 @@ async fn fetch_subgraphs_and_deserialize() {
     let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
     let auth_token = test_auth_token();
 
-    let mut network_subgraph_client = {
+    let network_subgraph_client = {
         let http_client = reqwest::Client::new();
         let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
             .with_auth_token(Some(auth_token))
@@ -95,7 +95,7 @@ async fn fetch_subgraph_no_l2_transfer_support_and_deserialize() {
     let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
     let auth_token = test_auth_token();
 
-    let mut network_subgraph_client = {
+    let network_subgraph_client = {
         let http_client = reqwest::Client::new();
         let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
             .with_auth_token(Some(auth_token))
