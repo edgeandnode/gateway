@@ -1,4 +1,4 @@
-//! A resolver that fetches the indexing statuses of deployments from an indexer's status URL.
+//! A resolver that fetches the indexing progress of deployments from an indexer's status URL.
 
 use std::{collections::HashMap, time::Duration};
 
@@ -11,11 +11,11 @@ use crate::{indexers, indexers::indexing_statuses::IndexingStatusResponse};
 /// The timeout for the indexer's indexing progress resolution.
 pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// An error that occurred while resolving the indexing statuses of deployments.
+/// An error that occurred while resolving the indexer's progress.
 // TODO: Differentiate deserialization errors from resolver errors
 #[derive(Debug, thiserror::Error)]
 pub enum ResolutionError {
-    /// An error occurred while querying the indexer status.
+    /// An error occurred while fetching the indexer progress.
     ///
     /// This includes network errors, timeouts, and deserialization errors.
     #[error("fetch error: {0}")]
@@ -37,7 +37,7 @@ pub struct IndexingProgressInfo {
     pub min_block: Option<BlockNumber>,
 }
 
-/// A resolver that fetches the indexing statuses of deployments from an indexer's status URL.
+/// A resolver that fetches the indexing progress of deployments from an indexer's status URL.
 pub struct IndexingProgressResolver {
     client: reqwest::Client,
     timeout: Duration,
@@ -74,11 +74,9 @@ impl IndexingProgressResolver {
         .map_err(ResolutionError::FetchError)
     }
 
-    /// Resolves the indexing statuses of the given deployments.
+    /// Resolves the indexing progress of the given deployments.
     ///
-    /// The resolver fetches the indexing statuses from the indexer status URL.
-    ///
-    /// Returns a map of deployment IDs to their indexing statuses.
+    /// Returns a map of deployment IDs to their indexing progress information.
     pub async fn resolve(
         &self,
         url: &Url,
@@ -90,21 +88,22 @@ impl IndexingProgressResolver {
 
         let progress = progress
             .into_iter()
-            .filter_map(|status| {
+            .filter_map(|resp| {
+                // TODO: Review this
                 // Only consider the first chain status, if has no chains
-                let chain = status.chains.into_iter().next()?;
+                let chain = resp.chains.into_iter().next()?;
 
                 // If the status has no chains or no latest block, skip it
-                let status_chain = chain.network;
-                let status_latest_block = chain.latest_block.map(|block| block.number)?;
-                let status_min_block = chain.earliest_block.as_ref().map(|block| block.number);
+                let info_chain = chain.network;
+                let info_latest_block = chain.latest_block.map(|block| block.number)?;
+                let info_min_block = chain.earliest_block.as_ref().map(|block| block.number);
 
                 Some((
-                    status.subgraph,
+                    resp.subgraph,
                     IndexingProgressInfo {
-                        chain: status_chain,
-                        latest_block: status_latest_block,
-                        min_block: status_min_block,
+                        chain: info_chain,
+                        latest_block: info_latest_block,
+                        min_block: info_min_block,
                     },
                 ))
             })

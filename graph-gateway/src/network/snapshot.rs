@@ -57,7 +57,7 @@ pub struct Indexing {
     /// The indexer
     pub indexer: Arc<Indexer>,
 
-    /// The indexing indexation progress.
+    /// The indexing progress.
     ///
     /// See [`IndexationProgress`] for more information.
     pub progress: IndexationProgress,
@@ -65,7 +65,7 @@ pub struct Indexing {
     pub cost_model: Option<Ptr<CostModel>>,
 }
 
-/// The [`IndexationProgress`] struct represents the indexation progress of an indexing.
+/// The [`IndexationProgress`] struct represents the progress of an indexing.
 #[derive(Debug, Clone)]
 pub struct IndexationProgress {
     /// The latest block the indexer has indexed for the deployment.
@@ -198,7 +198,7 @@ impl From<InternalIndexerError> for IndexingError {
             IndexerError::IndexingProgressResolutionFailed(_) => {
                 UnavailableReason::NoStatus(err.to_string())
             }
-            IndexerError::NoIndexingProgressInfoFound => {
+            IndexerError::IndexingProgressUnavailable => {
                 UnavailableReason::NoStatus(err.to_string())
             }
         })
@@ -211,9 +211,7 @@ impl From<InternalIndexerIndexingError> for IndexingError {
             IndexerIndexingError::BlockedByPoiBlocklist => {
                 UnavailableReason::IndexingBlockedByPoiBlocklist
             }
-            IndexerIndexingError::IndexationProgressNotFound => {
-                UnavailableReason::NoStatus(err.to_string())
-            }
+            IndexerIndexingError::ProgressNotFound => UnavailableReason::NoStatus(err.to_string()),
         })
     }
 }
@@ -439,6 +437,7 @@ fn construct_transferred_deployments_table(
         .collect::<HashSet<_>>()
 }
 
+/// Construct the subgraphs table row.
 fn try_construct_subgraphs_table_row(
     (subgraph_id, subgraph_info): (SubgraphId, SubgraphInfo),
     indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
@@ -504,7 +503,7 @@ fn try_construct_subgraphs_table_row(
                         deployment: deployment_id,
                     };
 
-                    try_construct_indexings_table_row(
+                    construct_indexings_table_row(
                         indexing_id,
                         indexing_deployment_versions_behind,
                         indexers,
@@ -521,9 +520,6 @@ fn try_construct_subgraphs_table_row(
         .keys()
         .map(|indexing_id| indexing_id.deployment)
         .collect::<HashSet<_>>();
-    if subgraph_deployments.is_empty() {
-        return Err(anyhow::anyhow!("no deployments"));
-    }
 
     Ok((
         subgraph_id,
@@ -537,6 +533,7 @@ fn try_construct_subgraphs_table_row(
     ))
 }
 
+/// Construct the subgraphs table row.
 fn try_construct_deployments_table_row(
     (deployment_id, deployment_info): (DeploymentId, DeploymentInfo),
     indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
@@ -558,7 +555,7 @@ fn try_construct_deployments_table_row(
                 deployment: deployment_id,
             };
 
-            try_construct_indexings_table_row(indexing_id, deployment_versions_behind, indexers)
+            construct_indexings_table_row(indexing_id, deployment_versions_behind, indexers)
         })
         .collect::<HashMap<_, _>>();
     if deployment_indexings.is_empty() {
@@ -591,7 +588,10 @@ fn try_construct_deployments_table_row(
     ))
 }
 
-fn try_construct_indexings_table_row(
+/// Construct the indexing table row.
+///
+/// If the indexer reported an error for the indexing, the row is constructed with the error.
+fn construct_indexings_table_row(
     indexing_id: IndexingId,
     indexing_deployment_versions_behind: u8,
     indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
@@ -625,7 +625,7 @@ fn try_construct_indexings_table_row(
     // Construct the indexing table row
     let indexing_largest_allocation_addr = indexing_info.largest_allocation;
     let indexing_total_allocated_tokens = indexing_info.total_allocated_tokens;
-    let indexation_progress = indexing_info.indexation_progress.to_owned();
+    let indexing_progress = indexing_info.progress.to_owned();
     let indexing_cost_model = indexing_info.cost_model.to_owned();
 
     let indexing = Indexing {
@@ -635,8 +635,8 @@ fn try_construct_indexings_table_row(
         total_allocated_tokens: indexing_total_allocated_tokens,
         indexer: Arc::clone(indexer),
         progress: IndexationProgress {
-            latest_block: indexation_progress.latest_block,
-            min_block: indexation_progress.min_block,
+            latest_block: indexing_progress.latest_block,
+            min_block: indexing_progress.min_block,
         },
         cost_model: indexing_cost_model,
     };
