@@ -18,7 +18,7 @@ use url::Url;
 
 use self::types::{
     AllocationInfo, DeploymentInfo, IndexerIndexingInfo, IndexerIndexingRawInfo, IndexerInfo,
-    IndexerRawInfo, IndexingIndexationProgressInfo, SubgraphInfo, SubgraphVersionInfo,
+    IndexerRawInfo, IndexingProgressInfo, SubgraphInfo, SubgraphVersionInfo,
 };
 use super::{
     indexer_addr_blocklist::AddrBlocklist,
@@ -171,16 +171,16 @@ pub mod types {
 
         /// The indexing progress information
         ///
-        /// See [`IndexingIndexationProgressInfo`] for more information.
-        pub indexation_progress: IndexingIndexationProgressInfo,
+        /// See [`IndexingProgressInfo`] for more information.
+        pub progress: IndexingProgressInfo,
 
         /// The cost model for this indexing.
         pub cost_model: Option<Ptr<CostModel>>,
     }
 
-    /// Internal representation of the indexing's indexation progress information.
+    /// Internal representation of the indexing's progress information.
     #[derive(Clone, Debug)]
-    pub struct IndexingIndexationProgressInfo {
+    pub struct IndexingProgressInfo {
         /// The latest indexed block.
         pub latest_block: BlockNumber,
         /// The minimum indexed block.
@@ -345,6 +345,7 @@ pub async fn fetch_and_pre_process_subgraphs_info(
         })
         .collect::<HashMap<_, _>>();
 
+    // If no valid subgraphs are found, return an error
     if subgraphs.is_empty() {
         Err(anyhow!("no valid subgraphs found"))
     } else {
@@ -533,7 +534,7 @@ pub enum IndexerError {
     IndexingProgressResolutionFailed(String),
     /// No indexing progress information was found for the indexer's deployments.
     #[error("no indexing progress information found")]
-    NoIndexingProgressInfoFound,
+    IndexingProgressUnavailable,
 }
 
 impl From<HostResolutionError> for IndexerError {
@@ -561,8 +562,8 @@ pub enum IndexerIndexingError {
     BlockedByPoiBlocklist,
 
     /// The indexing progress information was not found.
-    #[error("indexation progress information not found")]
-    IndexationProgressNotFound,
+    #[error("progress information not found")]
+    ProgressNotFound,
 }
 
 /// Process the fetched network topology information.
@@ -658,11 +659,9 @@ pub async fn process_indexers_info(
                     };
 
                 // Update the indexer indexings list to only include the deployments that
-                // are not blocked by POI
+                // are not blocked by POI. If all the indexer's indexings are blocked by POI,
+                // mark the indexer as unhealthy.
                 indexer_indexings.retain(|id| !blocked_indexings_by_poi.contains(id));
-
-                // If all the indexer's indexings are blocked, the indexer must be marked as
-                // unhealthy.
                 if indexer_indexings.is_empty() {
                     return (
                         indexer_id,
@@ -670,26 +669,17 @@ pub async fn process_indexers_info(
                     );
                 }
 
+                // Resolve the indexer's indexing progress information
                 // NOTE: At this point, the indexer's deployments list should contain only the
                 //       deployment IDs that were not blocked by any blocklist.
-                let mut indexings_progress = match resolve_indexer_indexation_progress_statuses(
+                let mut indexer_progress = match resolve_indexer_progress(
                     &state.indexer_indexing_progress_resolver,
                     &indexer_indexings,
                     &indexer,
                 )
                 .await
                 {
-                    Ok(mut progress) => indexer_indexings
-                        .iter()
-                        .map(|id| {
-                            (
-                                *id,
-                                progress
-                                    .remove(id)
-                                    .ok_or(IndexerIndexingError::IndexationProgressNotFound),
-                            )
-                        })
-                        .collect::<HashMap<_, _>>(),
+                    Ok(progress) => progress,
                     Err(err) => {
                         tracing::debug!(%err);
                         return (indexer_id, Err(err));
@@ -697,17 +687,15 @@ pub async fn process_indexers_info(
                 };
 
                 // Update the indexer indexings list to only keep the indexings that have reported
-                // successfully the indexation progress information
-                indexer_indexings.retain(|id| matches!(indexings_progress.get(id), Some(Ok(_))));
-
-                // If no indexing progress information was found for any of the indexer's
-                // deployments, mark the indexer as unhealthy
+                // successfully the progress information. If no progress information was found for
+                // any of the indexer's deployments, mark the indexer as unhealthy.
+                indexer_indexings.retain(|id| matches!(indexer_progress.get(id), Some(Ok(_))));
                 if indexer_indexings.is_empty() {
-                    return (indexer_id, Err(IndexerError::NoIndexingProgressInfoFound));
+                    return (indexer_id, Err(IndexerError::IndexingProgressUnavailable));
                 }
 
-                // Fetch the indexer's indexing statuses and cost models
-                let mut cost_models = match resolve_indexer_cost_models(
+                // Resolve the indexer's indexing cost models
+                let mut indexer_cost_models = match resolve_indexer_cost_models(
                     &state.indexer_indexing_cost_model_resolver,
                     &indexer_indexings,
                     &indexer,
@@ -718,7 +706,7 @@ pub async fn process_indexers_info(
                     Err(_) => unreachable!(),
                 };
 
-                // Construct the indexer's information with the resolved data
+                // Construct the indexer's information with the resolved information
                 let info = IndexerInfo {
                     id: indexer.id,
                     url: indexer.url,
@@ -735,8 +723,8 @@ pub async fn process_indexers_info(
                                 return (id, Err(IndexerIndexingError::BlockedByPoiBlocklist));
                             }
 
-                            // Get the indexation progress status
-                            let indexation_progress = match indexings_progress
+                            // Get the progress information
+                            let progress = match indexer_progress
                                 .remove(&id)
                                 .expect("indexing progress not found")
                             {
@@ -745,14 +733,14 @@ pub async fn process_indexers_info(
                             };
 
                             // Get the cost model
-                            let cost_model = cost_models.remove(&id);
+                            let cost_model = indexer_cost_models.remove(&id);
 
                             (
                                 id,
                                 Ok(IndexerIndexingInfo {
                                     largest_allocation: info.largest_allocation,
                                     total_allocated_tokens: info.total_allocated_tokens,
-                                    indexation_progress,
+                                    progress,
                                     cost_model,
                                 }),
                             )
@@ -903,33 +891,37 @@ async fn resolve_and_check_indexer_indexings_blocked_by_poi(
     Ok(blocked_indexings)
 }
 
-/// Resolve the indexer's indexation progress statuses.
-async fn resolve_indexer_indexation_progress_statuses(
+/// Resolve the indexer's progress information.
+async fn resolve_indexer_progress(
     resolver: &IndexingProgressResolver,
     indexings: &[DeploymentId],
     indexer: &IndexerRawInfo,
-) -> Result<HashMap<DeploymentId, IndexingIndexationProgressInfo>, IndexerError> {
-    let progress_status = resolver.resolve(&indexer.url, indexings).await?;
+) -> Result<HashMap<DeploymentId, Result<IndexingProgressInfo, IndexerIndexingError>>, IndexerError>
+{
+    let mut progress_info = resolver.resolve(&indexer.url, indexings).await?;
     tracing::trace!(
-        indexings = %indexer.deployments.len(),
-        indexing_status = %progress_status.len(),
-        "indexation progress status resolved"
+        indexings_requested = %indexer.deployments.len(),
+        indexings_resolved = %progress_info.len(),
+        "progress resolved"
     );
 
-    let indexation_progress = progress_status
-        .into_iter()
-        .map(|(deployment_id, res)| {
+    let progress = indexings
+        .iter()
+        .map(|id| {
             (
-                deployment_id,
-                IndexingIndexationProgressInfo {
-                    latest_block: res.latest_block,
-                    min_block: res.min_block,
-                },
+                *id,
+                progress_info
+                    .remove(id)
+                    .map(|res| IndexingProgressInfo {
+                        latest_block: res.latest_block,
+                        min_block: res.min_block,
+                    })
+                    .ok_or(IndexerIndexingError::ProgressNotFound),
             )
         })
         .collect();
 
-    Ok(indexation_progress)
+    Ok(progress)
 }
 
 /// Resolve the indexer's cost models.
@@ -939,7 +931,7 @@ async fn resolve_indexer_cost_models(
     indexer: &IndexerRawInfo,
 ) -> Result<HashMap<DeploymentId, Ptr<CostModel>>, Infallible> {
     // Resolve the indexer's cost model sources
-    let indexings_cost_models = match resolver.resolve(&indexer.url, indexings).await {
+    let cost_model_sources = match resolver.resolve(&indexer.url, indexings).await {
         Err(err) => {
             // If the resolution failed, return early
             tracing::trace!("cost model resolution failed: {err}");
@@ -953,9 +945,9 @@ async fn resolve_indexer_cost_models(
     };
 
     // Compile the cost model sources into cost models
-    let indexings_cost_models = {
+    let cost_models = {
         let mut compiler = compiler.lock().await;
-        indexings_cost_models
+        cost_model_sources
             .into_iter()
             .filter_map(|(deployment, source)| match compiler.compile(source) {
                 Err(err) => {
@@ -967,5 +959,5 @@ async fn resolve_indexer_cost_models(
             .collect()
     };
 
-    Ok(indexings_cost_models)
+    Ok(cost_models)
 }
