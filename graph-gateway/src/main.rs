@@ -21,15 +21,14 @@ use axum::{
     response::Response,
     routing, Router,
 };
-use config::{ApiKeys, Config, ExchangeRateProvider, Subscriptions};
+use config::{ApiKeys, Config, ExchangeRateProvider};
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
     chains::Chains,
     http::middleware::{
-        legacy_auth_adapter, AddRateLimiterLayer, RequestTracingLayer, RequireAuthorizationLayer,
-        SetRequestIdLayer,
+        legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
     indexing::Indexing,
     ip_blocker::IpBlocker,
@@ -43,7 +42,6 @@ use gateway_framework::{
         INDEXER_REQUEST_TARGET,
     },
     scalar::{self, ReceiptSigner},
-    subscriptions::subgraph as subscriptions_subgraph,
     topology::network::{Deployment, GraphNetwork},
 };
 use graph_gateway::{
@@ -64,7 +62,13 @@ use thegraph_core::{
     client as subgraph_client,
     types::{attestation, DeploymentId},
 };
-use tokio::{net::TcpListener, signal::unix::SignalKind, spawn, sync::watch};
+use tokio::{
+    net::TcpListener,
+    signal::unix::SignalKind,
+    spawn,
+    sync::watch,
+    time::{interval, MissedTickBehavior},
+};
 use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
@@ -207,11 +211,9 @@ async fn main() {
         .forever();
 
     let auth_service = init_auth_service(
-        config.payment_required,
         http_client.clone(),
         config.api_keys,
-        http_client.clone(),
-        config.subscriptions,
+        config.payment_required,
     )
     .await;
 
@@ -261,9 +263,14 @@ async fn main() {
             rate_limiter_slots * config.ip_rate_limit as usize,
             rate_limiter_slots,
         )));
-    eventuals::timer(Duration::from_secs(1))
-        .pipe(|_| rate_limiter.rotate_slots())
-        .forever();
+    tokio::spawn(async move {
+        let mut interval = interval(Duration::from_secs(1));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        loop {
+            interval.tick().await;
+            rate_limiter.rotate_slots();
+        }
+    });
 
     let api = Router::new()
         .route(
@@ -300,9 +307,7 @@ async fn main() {
                 // Handle legacy in-path auth, and convert it into a header
                 .layer(middleware::from_fn(legacy_auth_adapter))
                 // Require the query to be authorized
-                .layer(RequireAuthorizationLayer::new(auth_service))
-                // Check the query rate limit with a 60s reset interval
-                .layer(AddRateLimiterLayer::default()),
+                .layer(RequireAuthorizationLayer::new(auth_service)),
         );
 
     let router = Router::new()
@@ -441,66 +446,31 @@ fn graphql_error_response<S: ToString>(message: S) -> json::JsonResponse {
 ///
 /// This functions awaits the completion of the initial API keys and subscriptions fetches.
 async fn init_auth_service(
+    http: reqwest::Client,
+    config: Option<ApiKeys>,
     payment_required: bool,
-    api_keys_http_client: reqwest::Client,
-    api_keys: Option<ApiKeys>,
-    subscriptions_http_client: reqwest::Client,
-    subscriptions: Option<Subscriptions>,
 ) -> AuthContext {
-    let special_api_keys = match &api_keys {
-        Some(ApiKeys::Endpoint { special, .. }) => HashSet::from_iter(special.clone()),
+    let special_api_keys = match &config {
+        Some(ApiKeys::Endpoint { special, .. }) => Arc::new(HashSet::from_iter(special.clone())),
         _ => Default::default(),
     };
 
-    let api_keys_ev = match api_keys {
+    let api_keys = match config {
         Some(ApiKeys::Endpoint { url, auth, .. }) => {
-            subgraph_studio::api_keys(api_keys_http_client, url, auth.0).await
+            subgraph_studio::api_keys(http, url, auth.0).await
         }
         Some(ApiKeys::Fixed(api_keys)) => {
-            let api_keys = api_keys
-                .into_iter()
-                .map(|k| (k.key.clone(), k.into()))
-                .collect();
+            let api_keys = api_keys.into_iter().map(|k| (k.key.clone(), k)).collect();
             watch::channel(api_keys).1
         }
         None => watch::channel(Default::default()).1,
     };
 
-    let subscriptions_ev = match &subscriptions {
-        None => watch::channel(Default::default()).1,
-        Some(subscriptions) => {
-            subscriptions_subgraph::Client::create(
-                subgraph_client::Client::builder(
-                    subscriptions_http_client,
-                    subscriptions.subgraph.clone(),
-                )
-                .with_auth_token(subscriptions.ticket.clone())
-                .build(),
-                subscriptions.allow_empty,
-            )
-            .await
-        }
-    };
-
-    AuthContext::create(
+    AuthContext {
         payment_required,
-        api_keys_ev,
+        api_keys,
         special_api_keys,
-        subscriptions_ev,
-        subscriptions
-            .iter()
-            .flat_map(|s| s.special_signers.clone())
-            .collect(),
-        subscriptions
-            .as_ref()
-            .map(|s| s.rate_per_query)
-            .unwrap_or(0),
-        subscriptions
-            .iter()
-            .flat_map(|s| &s.domains)
-            .map(|d| (d.chain_id, d.contract))
-            .collect(),
-    )
+    }
 }
 
 // Mapping between config and internal types

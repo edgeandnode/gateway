@@ -17,7 +17,7 @@ use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
 use gateway_common::utils::{http_ext::HttpBuilderExt, timestamp::unix_timestamp};
 use gateway_framework::{
-    auth::AuthToken,
+    auth::AuthSettings,
     blocks::Block,
     budgets::USD,
     chains::ChainReader,
@@ -80,7 +80,7 @@ pub struct Selection {
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_query(
     State(ctx): State<Context>,
-    Extension(auth): Extension<AuthToken>,
+    Extension(auth): Extension<AuthSettings>,
     query_settings: Option<Extension<QuerySettings>>,
     OriginalUri(original_uri): OriginalUri,
     selector: QuerySelector,
@@ -853,7 +853,7 @@ fn rewrite_response(
 #[cfg(test)]
 mod tests {
     mod require_req_auth {
-        use std::{collections::HashMap, sync::Arc};
+        use std::collections::HashMap;
 
         use assert_matches::assert_matches;
         use axum::{
@@ -864,7 +864,7 @@ mod tests {
             Extension, Router,
         };
         use gateway_framework::{
-            auth::{methods::api_keys::APIKey, AuthContext, AuthToken},
+            auth::{api_keys::APIKey, AuthContext, AuthSettings},
             http::middleware::{legacy_auth_adapter, RequireAuthorizationLayer},
         };
         use headers::{Authorization, ContentType, HeaderMapExt};
@@ -878,18 +878,14 @@ mod tests {
                 payment_required: false,
                 api_keys: watch::channel(Default::default()).1,
                 special_api_keys: Default::default(),
-                special_query_key_signers: Default::default(),
-                subscriptions: watch::channel(Default::default()).1,
-                subscription_rate_per_query: 0,
-                subscription_domains: Default::default(),
             };
             if let Some(key) = key {
                 ctx.api_keys = watch::channel(HashMap::from([(
                     key.into(),
-                    Arc::new(APIKey {
+                    APIKey {
                         key: key.into(),
                         ..Default::default()
-                    }),
+                    },
                 )]))
                 .1;
             }
@@ -931,11 +927,8 @@ mod tests {
         /// Create a test router that requires authorization and also supports legacy authorization-in-path
         /// scheme.
         fn test_router(auth_ctx: AuthContext) -> Router {
-            async fn handler(Extension(auth): Extension<AuthToken>) -> String {
-                match auth {
-                    AuthToken::ApiKey(auth_token) => auth_token.key().to_string(),
-                    _ => unreachable!(),
-                }
+            async fn handler(Extension(auth): Extension<AuthSettings>) -> String {
+                auth.key
             }
 
             Router::new()
@@ -1009,7 +1002,7 @@ mod tests {
             );
             assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body.errors.len(), 1);
-                assert_eq!(res_body.errors[0].message, "auth error: invalid bearer token: invalid auth token");
+                assert_eq!(res_body.errors[0].message, "auth error: API key not found");
             });
         }
 
