@@ -158,6 +158,7 @@ async fn fetch_a_network_topology_update() {
         network
             .subgraphs()
             .values()
+            .filter_map(|value| value.as_ref().ok())
             .all(|subgraph| !subgraph.indexings.is_empty()),
         "Subgraph has no indexings associated"
     );
@@ -167,65 +168,86 @@ async fn fetch_a_network_topology_update() {
         network
             .subgraphs()
             .values()
+            .filter_map(|value| value.as_ref().ok())
             .all(|subgraph| !subgraph.deployments.is_empty()),
         "Subgraph has no deployments associated"
     );
 
     //- Assert that all the indexings' deployments are contained in its deployments list.
     assert!(
-        network.subgraphs().values().all(|subgraph| {
-            subgraph
-                .indexings
-                .iter()
-                .filter_map(|(id, indexing)| indexing.as_ref().ok().map(|indexing| (id, indexing)))
-                .all(|(indexing_id, indexing)| {
-                    indexing.id.deployment == indexing_id.deployment
-                        && subgraph.deployments.contains(&indexing_id.deployment)
-                })
-        }),
+        network
+            .subgraphs()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|subgraph| {
+                subgraph
+                    .indexings
+                    .iter()
+                    .filter_map(|(id, indexing)| {
+                        indexing.as_ref().ok().map(|indexing| (id, indexing))
+                    })
+                    .all(|(indexing_id, indexing)| {
+                        indexing.id.deployment == indexing_id.deployment
+                            && subgraph.deployments.contains(&indexing_id.deployment)
+                    })
+            }),
         "Subgraph indexings deployments are not contained in the subgraph's deployments list"
     );
 
     //- Assert that all the associated indexings' indexers contain the indexing deployment ID in
     //  their indexings list.
     assert!(
-        network.subgraphs().values().all(|subgraph| {
-            subgraph
-                .indexings
-                .iter()
-                .filter_map(|(id, indexing)| indexing.as_ref().ok().map(|indexing| (id, indexing)))
-                .all(|(indexing_id, indexing)| {
-                    indexing.id.deployment == indexing_id.deployment
-                        && indexing.indexer.indexings.contains(&indexing_id.deployment)
-                })
-        }),
+        network
+            .subgraphs()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|subgraph| {
+                subgraph
+                    .indexings
+                    .iter()
+                    .filter_map(|(id, indexing)| {
+                        indexing.as_ref().ok().map(|indexing| (id, indexing))
+                    })
+                    .all(|(indexing_id, indexing)| {
+                        indexing.id.deployment == indexing_id.deployment
+                            && indexing.indexer.indexings.contains(&indexing_id.deployment)
+                    })
+            }),
         "Subgraph indexings deployment ID not found in the indexer's indexings list"
     );
 
     //- Assert that all the associated indexings' indexers versions are set.
     assert!(
-        network.subgraphs().values().all(|subgraph| {
-            subgraph
-                .indexings
-                .values()
-                .filter_map(|indexing| indexing.as_ref().ok())
-                .all(|indexing| {
-                    indexing.indexer.indexer_agent_version >= Version::new(0, 0, 1)
-                        && indexing.indexer.graph_node_version >= Version::new(0, 0, 1)
-                })
-        }),
+        network
+            .subgraphs()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|subgraph| {
+                subgraph
+                    .indexings
+                    .values()
+                    .filter_map(|indexing| indexing.as_ref().ok())
+                    .all(|indexing| {
+                        indexing.indexer.indexer_agent_version >= Version::new(0, 0, 1)
+                            && indexing.indexer.graph_node_version >= Version::new(0, 0, 1)
+                    })
+            }),
         "Subgraph indexings indexer versions are not set"
     );
 
     //- Assert that some of the associated indexings' have reported a valid cost model.
     assert!(
-        network.subgraphs().values().any(|subgraph| {
-            subgraph
-                .indexings
-                .values()
-                .filter_map(|indexing| indexing.as_ref().ok())
-                .any(|indexing| indexing.cost_model.is_some())
-        }),
+        network
+            .subgraphs()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .any(|subgraph| {
+                subgraph
+                    .indexings
+                    .values()
+                    .filter_map(|indexing| indexing.as_ref().ok())
+                    .any(|indexing| indexing.cost_model.is_some())
+            }),
         "No subgraph indexings have a cost model"
     );
 
@@ -235,65 +257,86 @@ async fn fetch_a_network_topology_update() {
         network
             .deployments()
             .values()
+            .filter_map(|value| value.as_ref().ok())
             .all(|deployment| !deployment.indexings.is_empty()),
         "Deployment has no indexings associated"
     );
 
     //- Assert that all the indexings' are correctly associated with the deployment.
     assert!(
-        network.deployments().values().all(|deployment| {
-            deployment
-                .indexings
-                .iter()
-                .filter_map(|(id, indexing)| indexing.as_ref().ok().map(|indexing| (id, indexing)))
-                .all(|(indexing_id, indexing)| {
-                    indexing_id.deployment == deployment.id
-                        && indexing.id.deployment == deployment.id
-                })
-        }),
+        network
+            .deployments()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|deployment| {
+                deployment
+                    .indexings
+                    .iter()
+                    .filter_map(|(id, indexing)| {
+                        indexing.as_ref().ok().map(|indexing| (id, indexing))
+                    })
+                    .all(|(indexing_id, indexing)| {
+                        indexing_id.deployment == deployment.id
+                            && indexing.id.deployment == deployment.id
+                    })
+            }),
         "Incorrect indexing associated with the deployment"
     );
 
     //- Assert that all the associated indexings' indexers contain the indexing deployment ID in
     //  their indexings list.
     assert!(
-        network.deployments().values().all(|deployment| {
-            deployment
-                .indexings
-                .iter()
-                .filter_map(|(id, indexing)| indexing.as_ref().ok().map(|indexing| (id, indexing)))
-                .all(|(indexing_id, indexing)| {
-                    indexing.indexer.indexings.contains(&indexing_id.deployment)
-                        && indexing.indexer.indexings.contains(&indexing.id.deployment)
-                })
-        }),
+        network
+            .deployments()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|deployment| {
+                deployment
+                    .indexings
+                    .iter()
+                    .filter_map(|(id, indexing)| {
+                        indexing.as_ref().ok().map(|indexing| (id, indexing))
+                    })
+                    .all(|(indexing_id, indexing)| {
+                        indexing.indexer.indexings.contains(&indexing_id.deployment)
+                            && indexing.indexer.indexings.contains(&indexing.id.deployment)
+                    })
+            }),
         "Deployment indexings deployment ID not found in the indexer's indexings list"
     );
 
     //- Assert that all the associated indexings' indexers versions are set.
     assert!(
-        network.subgraphs().values().all(|subgraph| {
-            subgraph
-                .indexings
-                .values()
-                .filter_map(|indexing| indexing.as_ref().ok())
-                .all(|indexing| {
-                    indexing.indexer.indexer_agent_version >= Version::new(0, 0, 1)
-                        && indexing.indexer.graph_node_version >= Version::new(0, 0, 1)
-                })
-        }),
+        network
+            .subgraphs()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|subgraph| {
+                subgraph
+                    .indexings
+                    .values()
+                    .filter_map(|indexing| indexing.as_ref().ok())
+                    .all(|indexing| {
+                        indexing.indexer.indexer_agent_version >= Version::new(0, 0, 1)
+                            && indexing.indexer.graph_node_version >= Version::new(0, 0, 1)
+                    })
+            }),
         "Subgraph indexings indexer versions are not set"
     );
 
     //- Assert that some of the associated indexings' have reported a valid cost model.
     assert!(
-        network.deployments().values().any(|deployment| {
-            deployment
-                .indexings
-                .values()
-                .filter_map(|indexing| indexing.as_ref().ok())
-                .any(|indexing| indexing.cost_model.is_some())
-        }),
+        network
+            .deployments()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .any(|deployment| {
+                deployment
+                    .indexings
+                    .values()
+                    .filter_map(|indexing| indexing.as_ref().ok())
+                    .any(|indexing| indexing.cost_model.is_some())
+            }),
         "No deployment indexings have a cost model"
     );
 
@@ -301,32 +344,46 @@ async fn fetch_a_network_topology_update() {
     //- Assert that given a subgraph, all the associated deployments contain the subgraph ID in
     //  their subgraphs list.
     assert!(
-        network.subgraphs().values().all(|subgraph| {
-            subgraph.deployments.iter().all(|deployment_id| {
-                network
-                    .deployments()
-                    .get(deployment_id)
-                    .expect("Deployment not found")
-                    .subgraphs
-                    .contains(&subgraph.id)
-            })
-        }),
+        network
+            .subgraphs()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|subgraph| {
+                subgraph.deployments.iter().all(|deployment_id| {
+                    network
+                        .deployments()
+                        .get(deployment_id)
+                        .as_ref()
+                        .expect("Deployment not found")
+                        .as_ref()
+                        .expect("Invalid deployment")
+                        .subgraphs
+                        .contains(&subgraph.id)
+                })
+            }),
         "Subgraph associated deployment not found in the network deployments list"
     );
 
     //- Assert that given a deployment, all the associated subgraphs contain the deployment ID in
     //  their deployments list.
     assert!(
-        network.deployments().values().all(|deployment| {
-            deployment.subgraphs.iter().all(|subgraph_id| {
-                network
-                    .subgraphs()
-                    .get(subgraph_id)
-                    .expect("Subgraph not found")
-                    .deployments
-                    .contains(&deployment.id)
-            })
-        }),
+        network
+            .deployments()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|deployment| {
+                deployment.subgraphs.iter().all(|subgraph_id| {
+                    network
+                        .subgraphs()
+                        .get(subgraph_id)
+                        .as_ref()
+                        .expect("Subgraph not found")
+                        .as_ref()
+                        .expect("Invalid subgraph")
+                        .deployments
+                        .contains(&deployment.id)
+                })
+            }),
         "Deployment associated subgraph not found in the network subgraphs list"
     );
 }

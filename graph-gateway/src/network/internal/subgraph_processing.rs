@@ -105,23 +105,22 @@ pub(super) fn process_info(
     HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>>,
 ) {
     // Construct the deployments' information table
-    let deployments_info =
-        subgraphs
-            .iter()
-            .fold(HashMap::new(), |mut acc, (subgraph_id, subgraph)| {
-                for deployment in &subgraph.versions {
-                    let deployment = acc
-                        .entry(deployment.deployment.id)
-                        .or_insert_with(|| process_deployment_info(&deployment.deployment));
+    let deployments_info = subgraphs
+        .values()
+        .fold(HashMap::new(), |mut acc, subgraph| {
+            for deployment in &subgraph.versions {
+                let deployment = acc
+                    .entry(deployment.deployment.id)
+                    .or_insert_with(|| process_deployment_info(&deployment.deployment));
 
-                    // Add the subgraph to the subgraphs' set
-                    if let Ok(deployment) = deployment {
-                        deployment.subgraphs.insert(*subgraph_id);
-                    }
+                // Add the subgraph to the subgraphs' set
+                if let Ok(deployment) = deployment {
+                    deployment.subgraphs.insert(subgraph.id);
                 }
+            }
 
-                acc
-            });
+            acc
+        });
 
     // Construct the subgraphs' information table
     let subgraphs_info = subgraphs

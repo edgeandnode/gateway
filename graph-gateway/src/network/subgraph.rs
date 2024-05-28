@@ -23,7 +23,7 @@ pub mod types {
         use serde_with::serde_as;
         use thegraph_core::types::{DeploymentId, SubgraphId};
 
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Clone, Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct Subgraph {
             pub id: SubgraphId,
@@ -31,7 +31,7 @@ pub mod types {
             pub versions: Vec<SubgraphVersion>,
         }
 
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Clone, Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct SubgraphVersion {
             pub version: u32,
@@ -39,28 +39,28 @@ pub mod types {
         }
 
         #[serde_as]
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Clone, Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct Manifest {
-            pub network: Option<String>,
-            #[serde_as(as = "Option<serde_with::DisplayFromStr>")]
-            pub start_block: Option<BlockNumber>,
+            pub network: String,
+            #[serde_as(as = "serde_with::DisplayFromStr")]
+            pub start_block: BlockNumber,
         }
 
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Clone, Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct SubgraphDeployment {
             #[serde(rename = "ipfsHash")]
             pub id: DeploymentId,
             #[serde(rename = "indexerAllocations")]
             pub allocations: Vec<Allocation>,
-            pub manifest: Option<Manifest>,
+            pub manifest: Manifest,
             #[serde(default)]
             pub transferred_to_l2: bool,
         }
 
         #[serde_as]
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Clone, Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct Allocation {
             pub id: Address,
@@ -68,7 +68,7 @@ pub mod types {
         }
 
         #[serde_as]
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Clone, Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct Indexer {
             pub id: Address,
@@ -83,7 +83,7 @@ pub mod types {
         use thegraph_core::types::DeploymentId;
 
         #[serde_as]
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Clone, Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct Indexer {
             pub id: Address,
@@ -94,7 +94,7 @@ pub mod types {
         }
 
         #[serde_as]
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Clone, Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct Allocation {
             pub id: Address,
@@ -104,7 +104,7 @@ pub mod types {
         }
 
         #[serde_as]
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Clone, Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct SubgraphDeployment {
             #[serde(rename = "ipfsHash")]
@@ -131,14 +131,16 @@ impl Client {
     /// Fetch the list of subgraphs (and deployments) from the network subgraph.
     ///
     /// Performs a paginated query to fetch the latest state of the network subgraph:
-    /// > Get all subgraphs ordered by `id` in ascending order, with all its `versions` ordered by
-    /// > `version` in ascending order, and all its `indexerAllocations` ordered by
-    /// > `allocatedTokens` in descending order; laying the largest allocation first.
+    /// > Get all subgraphs ordered by `id` in ascending order, filtering out subgraphs with no
+    /// > versions and with all its `versions` ordered by `version` in ascending order, and all
+    /// > its `indexerAllocations` ordered by `allocatedTokens` in descending order; laying the
+    /// > largest allocation first.
     #[allow(clippy::obfuscated_if_else)]
     pub async fn fetch_subgraphs(&self) -> anyhow::Result<Vec<types::fetch_subgraphs::Subgraph>> {
         // The following query's response must fulfill the following assumptions:
         // - Perform a paginated query based on the subgraph's ID. All subgraphs are ordered by ID.
         //   The next query must start from the last subgraph ID fetched in the previous query.
+        // - Get all subgraphs with at least one version.
         // - All the subgraph's versions are ordered by `version` in descending order. We assume
         //   that the newest deployment version is the one with the highest version number.
         // - All the subgraph's `indexerAllocations` are ordered by `allocatedTokens` in descending
@@ -154,6 +156,7 @@ impl Client {
                 where: {{
                     id_gt: $last
                     entityVersion: 2
+                    versionCount_gt: 0
                     {}
                 }}
             ) {{
@@ -204,7 +207,7 @@ impl Client {
     /// > Get all indexers with at least one active allocation, with all its active allocations
     /// > ordered by `allocatedTokens` in descending order; laying the largest allocation first.
     pub async fn fetch_indexers(&self) -> anyhow::Result<Vec<types::fetch_indexers::Indexer>> {
-        // The following query response must fulfill the following assumptions:
+        // The following query's response must fulfill the following assumptions:
         // - Perform a paginated query based on the indexer's ID. All indexers are ordered by ID.
         //   The next query must start from the last indexer ID fetched in the previous query.
         // - Get all indexers with at least one active allocation.
