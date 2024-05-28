@@ -29,7 +29,8 @@ use gateway_framework::{
     budgets::{Budgeter, USD},
     chains::Chains,
     http::middleware::{
-        legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
+        legacy_auth_adapter, AddRateLimiterLayer, RequestTracingLayer, RequireAuthorizationLayer,
+        SetRequestIdLayer,
     },
     ip_blocker::IpBlocker,
     json,
@@ -62,13 +63,7 @@ use thegraph_core::{
     client as subgraph_client,
     types::{attestation, DeploymentId},
 };
-use tokio::{
-    net::TcpListener,
-    signal::unix::SignalKind,
-    spawn,
-    sync::watch,
-    time::{interval, MissedTickBehavior},
-};
+use tokio::{net::TcpListener, signal::unix::SignalKind, spawn, sync::watch};
 use tower_http::cors::{self, CorsLayer};
 use uuid::Uuid;
 
@@ -263,14 +258,9 @@ async fn main() {
             rate_limiter_slots * config.ip_rate_limit as usize,
             rate_limiter_slots,
         )));
-    tokio::spawn(async move {
-        let mut interval = interval(Duration::from_secs(1));
-        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        loop {
-            interval.tick().await;
-            rate_limiter.rotate_slots();
-        }
-    });
+    eventuals::timer(Duration::from_secs(1))
+        .pipe(|_| rate_limiter.rotate_slots())
+        .forever();
 
     let api = Router::new()
         .route(
@@ -307,7 +297,9 @@ async fn main() {
                 // Handle legacy in-path auth, and convert it into a header
                 .layer(middleware::from_fn(legacy_auth_adapter))
                 // Require the query to be authorized
-                .layer(RequireAuthorizationLayer::new(auth_service)),
+                .layer(RequireAuthorizationLayer::new(auth_service))
+                // Check the query rate limit with a 60s reset interval
+                .layer(AddRateLimiterLayer::default()),
         );
 
     let router = Router::new()
