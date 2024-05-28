@@ -1922,7 +1922,7 @@ dependencies = [
 
 [[package]]
 name = "graph-gateway"
-version = "20.1.4"
+version = "21.0.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
