@@ -635,9 +635,12 @@ async fn handle_indexer_query(
 ) -> Result<ResponsePayload, IndexerError> {
     let indexing = selection.indexing;
     let deployment = indexing.deployment.to_string();
+    let indexer = format!("{:?}", indexing.indexer);
 
     let result = handle_indexer_query_inner(&mut ctx, selection, indexer_request).await;
-    METRICS.indexer_query.check(&[&deployment], &result);
+    METRICS
+        .indexer_query
+        .check(&[&deployment, &indexer], &result);
 
     let (result, latest_block) = match result {
         Ok((result, block)) => (Ok(result), block.map(|b| b.number)),
