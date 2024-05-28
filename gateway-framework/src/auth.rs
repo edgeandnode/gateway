@@ -1,64 +1,55 @@
+pub mod api_keys;
+mod common;
+
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
+use anyhow::ensure;
 use ordered_float::NotNan;
-use thegraph_core::types::SubgraphId;
+use thegraph_core::types::{alloy_primitives::Address, SubgraphId};
+use tokio::sync::watch;
 
-pub use self::context::AuthContext;
-use self::methods::{api_keys, subscriptions};
+use self::api_keys::APIKey;
 
-pub mod context;
-pub mod methods;
-
-/// User query settings typically associated with an auth token.
 #[derive(Clone, Debug, Default)]
-pub struct QuerySettings {
+pub struct AuthSettings {
+    /// TODO: remove this field (should not be included in reporting)
+    pub key: String,
+    pub user: Address,
+    pub authorized_subgraphs: Vec<SubgraphId>,
     pub budget_usd: Option<NotNan<f64>>,
 }
 
-#[derive(Clone, Debug)]
-pub enum AuthToken {
-    /// API key from the Subgraph Studio Database.
-    ApiKey(Box<api_keys::AuthToken>),
-    /// Auth token associated with a subscription.
-    SubscriptionsAuthToken(Box<subscriptions::AuthToken>),
-}
-
-impl AuthToken {
-    /// Check if the given subgraph is authorized for this auth token.
+impl AuthSettings {
     pub fn is_subgraph_authorized(&self, subgraph: &SubgraphId) -> bool {
-        match self {
-            AuthToken::ApiKey(auth) => auth.is_subgraph_authorized(subgraph),
-            AuthToken::SubscriptionsAuthToken(auth) => auth.is_subgraph_authorized(subgraph),
-        }
+        common::is_subgraph_authorized(&self.authorized_subgraphs, subgraph)
     }
 
-    /// Check if ANY of the given deployment subgraphs are authorized for this auth token.
     pub fn is_any_deployment_subgraph_authorized(&self, subgraphs: &[&SubgraphId]) -> bool {
-        match self {
-            AuthToken::ApiKey(auth) => subgraphs
-                .iter()
-                .any(|subgraph| auth.is_subgraph_authorized(subgraph)),
-            AuthToken::SubscriptionsAuthToken(auth) => subgraphs
-                .iter()
-                .any(|subgraph| auth.is_subgraph_authorized(subgraph)),
-        }
-    }
-
-    /// Check if the given origin domain is authorized for this auth token.
-    pub fn is_domain_authorized(&self, domain: &str) -> bool {
-        match self {
-            AuthToken::ApiKey(auth) => auth.is_domain_authorized(domain),
-            AuthToken::SubscriptionsAuthToken(auth) => auth.is_domain_authorized(domain),
-        }
+        subgraphs
+            .iter()
+            .any(|subgraph| self.is_subgraph_authorized(subgraph))
     }
 }
 
-impl From<api_keys::AuthToken> for AuthToken {
-    fn from(auth: api_keys::AuthToken) -> Self {
-        AuthToken::ApiKey(Box::new(auth))
-    }
+#[derive(Clone)]
+pub struct AuthContext {
+    /// This is used to disable the payment requirement on testnets. If `true`, all queries will be
+    /// checked for the `query_status` of their API key.
+    pub payment_required: bool,
+    pub api_keys: watch::Receiver<HashMap<String, APIKey>>,
+    pub special_api_keys: Arc<HashSet<String>>,
 }
 
-impl From<subscriptions::AuthToken> for AuthToken {
-    fn from(auth: subscriptions::AuthToken) -> Self {
-        AuthToken::SubscriptionsAuthToken(Box::new(auth))
+impl AuthContext {
+    /// Parse an authorization token into its corresponding settings, and check that the query
+    /// should be handled.
+    pub fn check(&self, token: &str, domain: &str) -> anyhow::Result<AuthSettings> {
+        ensure!(!token.is_empty(), "missing bearer token");
+
+        // For now, the only option is an API key.
+        api_keys::check(self, token, domain)
     }
 }

@@ -9,7 +9,7 @@ use std::{
 use alloy_primitives::{Address, BlockNumber, U256};
 use custom_debug::CustomDebug;
 use gateway_framework::{
-    auth::methods::api_keys::APIKey,
+    auth::api_keys::APIKey,
     config::{Hidden, HiddenSecretKey},
 };
 use secp256k1::SecretKey;
@@ -80,8 +80,6 @@ pub struct Config {
     pub query_fees_target: f64,
     /// Scalar TAP config (receipt signing)
     pub scalar: Scalar,
-    /// Subscriptions configuration
-    pub subscriptions: Option<Subscriptions>,
 }
 
 fn fmt_optional_url(url: &Option<Url>, f: &mut fmt::Formatter) -> fmt::Result {
@@ -105,7 +103,7 @@ pub enum ApiKeys {
         #[serde(default)]
         special: Vec<String>,
     },
-    /// Fixed conversion rate of GRT/USD
+    /// Fixed set of API keys
     Fixed(Vec<APIKey>),
 }
 
@@ -172,35 +170,6 @@ pub struct Scalar {
     pub signer: Hidden<SecretKey>,
     /// Scalar TAP verifier contract address
     pub verifier: Address,
-}
-
-#[serde_as]
-#[derive(Debug, Deserialize)]
-pub struct Subscriptions {
-    /// Subscriptions contract domains
-    pub domains: Vec<SubscriptionsDomain>,
-    /// Query key signers that don't require payment
-    #[serde(default)]
-    pub special_signers: Vec<Address>,
-    /// Subscriptions subgraph URL
-    #[serde_as(as = "DisplayFromStr")]
-    pub subgraph: Url,
-    /// Subscriptions ticket for internal queries
-    pub ticket: Option<String>,
-    /// Subscription rate required per query per minute.
-    /// e.g. If 0.01 USDC (6 decimals) is required per query per minute, then this should be set to
-    /// 10000.
-    pub rate_per_query: u128,
-    /// Allow startup with no active subscriptions.
-    #[serde(default)]
-    pub allow_empty: bool,
-}
-
-#[serde_as]
-#[derive(Debug, Deserialize)]
-pub struct SubscriptionsDomain {
-    pub chain_id: u64,
-    pub contract: Address,
 }
 
 /// Proof of indexing info for the POI blocklist.

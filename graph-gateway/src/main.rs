@@ -21,7 +21,7 @@ use axum::{
     response::Response,
     routing, Router,
 };
-use config::{ApiKeys, Config, ExchangeRateProvider, Subscriptions};
+use config::{ApiKeys, Config, ExchangeRateProvider};
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_common::types::Indexing;
 use gateway_framework::{
@@ -43,7 +43,6 @@ use gateway_framework::{
         INDEXER_REQUEST_TARGET,
     },
     scalar::{self, ReceiptSigner},
-    subscriptions::subgraph as subscriptions_subgraph,
     topology::network::{Deployment, GraphNetwork},
 };
 use graph_gateway::{
@@ -207,11 +206,9 @@ async fn main() {
         .forever();
 
     let auth_service = init_auth_service(
-        config.payment_required,
         http_client.clone(),
         config.api_keys,
-        http_client.clone(),
-        config.subscriptions,
+        config.payment_required,
     )
     .await;
 
@@ -441,66 +438,31 @@ fn graphql_error_response<S: ToString>(message: S) -> json::JsonResponse {
 ///
 /// This functions awaits the completion of the initial API keys and subscriptions fetches.
 async fn init_auth_service(
+    http: reqwest::Client,
+    config: Option<ApiKeys>,
     payment_required: bool,
-    api_keys_http_client: reqwest::Client,
-    api_keys: Option<ApiKeys>,
-    subscriptions_http_client: reqwest::Client,
-    subscriptions: Option<Subscriptions>,
 ) -> AuthContext {
-    let special_api_keys = match &api_keys {
-        Some(ApiKeys::Endpoint { special, .. }) => HashSet::from_iter(special.clone()),
+    let special_api_keys = match &config {
+        Some(ApiKeys::Endpoint { special, .. }) => Arc::new(HashSet::from_iter(special.clone())),
         _ => Default::default(),
     };
 
-    let api_keys_ev = match api_keys {
+    let api_keys = match config {
         Some(ApiKeys::Endpoint { url, auth, .. }) => {
-            subgraph_studio::api_keys(api_keys_http_client, url, auth.0).await
+            subgraph_studio::api_keys(http, url, auth.0).await
         }
         Some(ApiKeys::Fixed(api_keys)) => {
-            let api_keys = api_keys
-                .into_iter()
-                .map(|k| (k.key.clone(), k.into()))
-                .collect();
+            let api_keys = api_keys.into_iter().map(|k| (k.key.clone(), k)).collect();
             watch::channel(api_keys).1
         }
         None => watch::channel(Default::default()).1,
     };
 
-    let subscriptions_ev = match &subscriptions {
-        None => watch::channel(Default::default()).1,
-        Some(subscriptions) => {
-            subscriptions_subgraph::Client::create(
-                subgraph_client::Client::builder(
-                    subscriptions_http_client,
-                    subscriptions.subgraph.clone(),
-                )
-                .with_auth_token(subscriptions.ticket.clone())
-                .build(),
-                subscriptions.allow_empty,
-            )
-            .await
-        }
-    };
-
-    AuthContext::create(
+    AuthContext {
         payment_required,
-        api_keys_ev,
+        api_keys,
         special_api_keys,
-        subscriptions_ev,
-        subscriptions
-            .iter()
-            .flat_map(|s| s.special_signers.clone())
-            .collect(),
-        subscriptions
-            .as_ref()
-            .map(|s| s.rate_per_query)
-            .unwrap_or(0),
-        subscriptions
-            .iter()
-            .flat_map(|s| &s.domains)
-            .map(|d| (d.chain_id, d.contract))
-            .collect(),
-    )
+    }
 }
 
 // Mapping between config and internal types

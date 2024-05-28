@@ -11,7 +11,7 @@ use headers::{authorization::Bearer, Authorization, HeaderMapExt, Origin};
 use tower::Service;
 
 use crate::{
-    auth::{AuthContext, AuthToken},
+    auth::{AuthContext, AuthSettings},
     errors::Error,
     graphql,
     reporting::CLIENT_REQUEST_TARGET,
@@ -76,22 +76,15 @@ impl<F, R> ResponseFuture<F, R> {
 /// The request is not authorized if the `Authorization` header is not present or the bearer
 /// token is invalid, in this the middleware returns a GraphQL error response.
 ///
-/// Otherwise, the middleware forwards the request to the inner service inserting an `AuthToken`
+/// Otherwise, the middleware forwards the request to the inner service inserting an `AuthSettings`
 /// extension into the request.
 ///
-/// If the `AuthToken` extension is already present, the middleware passes the request to the inner
-/// service without doing anything.
+/// If the `AuthSettings` extension is already present, the middleware passes the request to the
+/// inner service without doing anything.
 #[derive(Clone)]
 pub struct RequireAuthorization<S> {
     inner: S,
     ctx: AuthContext,
-}
-
-impl<S> RequireAuthorization<S> {
-    /// Create a new [`RequireAuthorization`] middleware.
-    pub fn new(inner: S, ctx: AuthContext) -> Self {
-        Self { inner, ctx }
-    }
 }
 
 impl<S, ReqBody> Service<Request<ReqBody>> for RequireAuthorization<S>
@@ -109,7 +102,7 @@ where
 
     fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
         // If extension is already present, do nothing
-        if req.extensions().get::<AuthToken>().is_some() {
+        if req.extensions().get::<AuthSettings>().is_some() {
             return ResponseFuture::from_service(self.inner.call(req));
         }
 
@@ -128,61 +121,24 @@ where
                 )));
             }
         };
-
-        // Parse the bearer token into an `AuthToken`
-        let (auth_token, query_settings, rate_limit_settings) =
-            match self.ctx.parse_auth_token(bearer.token()) {
-                Ok(token) => token,
-                Err(err) => {
-                    // If the bearer token is invalid, return an error response
-                    return ResponseFuture::error(graphql::error_response(Error::Auth(
-                        anyhow::anyhow!("invalid bearer token: {err}"),
-                    )));
-                }
-            };
-
-        match &auth_token {
-            AuthToken::ApiKey(auth) => tracing::info!(
-                target: CLIENT_REQUEST_TARGET,
-                user_address = ?auth.user(),
-                api_key = %auth.key(),
-            ),
-            AuthToken::SubscriptionsAuthToken(auth) => tracing::info!(
-                target: CLIENT_REQUEST_TARGET,
-                user_address = ?auth.user(),
-            ),
-        };
-
-        // Check if the request origin domain is authorized
         let origin = req.headers().typed_get::<Origin>().unwrap_or(Origin::NULL);
         tracing::debug!(domain = %origin.hostname());
 
-        if !auth_token.is_domain_authorized(origin.hostname()) {
-            // If the request origin domain is not allowed, return an error response
-            return ResponseFuture::error(graphql::error_response(Error::Auth(anyhow::anyhow!(
-                "domain not authorized by user"
-            ))));
-        }
-
-        // If payment is required, check the auth schema specific requirements
-        if self.ctx.payment_required {
-            if let Err(err) = self.ctx.check_auth_requirements(&auth_token) {
+        let auth = match self.ctx.check(bearer.token(), origin.hostname()) {
+            Ok(token) => token,
+            Err(err) => {
+                // If the bearer token is invalid, return an error response
                 return ResponseFuture::error(graphql::error_response(Error::Auth(err)));
             }
-        }
+        };
+        tracing::info!(
+            target: CLIENT_REQUEST_TARGET,
+            user_address = ?auth.user,
+            api_key = %auth.key,
+        );
 
-        // Insert the `AuthToken` extension into the request
-        req.extensions_mut().insert(auth_token);
-
-        // Insert the `RateLimitSettings` extension into the request
-        if let Some(rate_limit_settings) = rate_limit_settings {
-            req.extensions_mut().insert(rate_limit_settings);
-        }
-
-        // Insert the `QuerySettings` extension into the request
-        if let Some(query_settings) = query_settings {
-            req.extensions_mut().insert(query_settings);
-        }
+        // Insert the `AuthSettings` extension into the request
+        req.extensions_mut().insert(auth);
 
         ResponseFuture::from_service(self.inner.call(req))
     }
@@ -207,13 +163,16 @@ impl<S> tower::layer::Layer<S> for RequireAuthorizationLayer {
     type Service = RequireAuthorization<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        RequireAuthorization::new(inner, self.ctx.clone())
+        RequireAuthorization {
+            inner,
+            ctx: self.ctx.clone(),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::collections::HashMap;
 
     use assert_matches::assert_matches;
     use axum::body::Body;
@@ -224,27 +183,24 @@ mod tests {
     use tokio::sync::watch;
     use tokio_test::assert_ready_ok;
 
-    use super::{AuthContext, AuthToken, RequireAuthorizationLayer};
-    use crate::auth::{methods::api_keys, QuerySettings};
+    use crate::auth::{api_keys::APIKey, AuthSettings};
+
+    use super::{AuthContext, RequireAuthorizationLayer};
 
     fn test_auth_ctx(key: Option<&str>) -> AuthContext {
         let mut ctx = AuthContext {
             payment_required: false,
             api_keys: watch::channel(Default::default()).1,
             special_api_keys: Default::default(),
-            special_query_key_signers: Default::default(),
-            subscriptions: watch::channel(Default::default()).1,
-            subscription_rate_per_query: 0,
-            subscription_domains: Default::default(),
         };
         if let Some(key) = key {
             ctx.api_keys = watch::channel(HashMap::from([(
                 key.into(),
-                Arc::new(api_keys::APIKey {
+                APIKey {
                     key: key.into(),
                     max_budget_usd: Some(NotNan::new(1e3).unwrap()),
                     ..Default::default()
-                }),
+                },
             )]))
             .1;
         }
@@ -284,11 +240,11 @@ mod tests {
     fn test_req_with_auth_token_extension(auth: &str) -> http::Request<()> {
         let mut req = http::Request::builder().body(()).unwrap();
 
-        let auth_token = AuthToken::from(api_keys::AuthToken::new(Arc::new(api_keys::APIKey {
+        let auth = AuthSettings {
             key: auth.into(),
             ..Default::default()
-        })));
-        req.extensions_mut().insert(auth_token);
+        };
+        req.extensions_mut().insert(auth);
 
         req
     }
@@ -392,7 +348,7 @@ mod tests {
             assert_eq!(res.headers().typed_get(), Some(ContentType::json()));
             assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body.errors.len(), 1);
-                assert_eq!(res_body.errors[0].message, "auth error: invalid bearer token: not found");
+                assert_eq!(res_body.errors[0].message, "auth error: missing bearer token");
             });
         });
     }
@@ -424,7 +380,7 @@ mod tests {
             assert_eq!(res.headers().typed_get::<ContentType>(), Some(ContentType::json()));
             assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body.errors.len(), 1);
-                assert_eq!(res_body.errors[0].message, "auth error: invalid bearer token: invalid auth token");
+                assert_eq!(res_body.errors[0].message, "auth error: malformed API key");
             });
         });
     }
@@ -456,8 +412,8 @@ mod tests {
             .expect("service received a request");
 
         //* Then
-        assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::ApiKey(api_key)) => {
-            assert_eq!(api_key.key(), "0123456789abcdef0123456789abcdef");
+        assert_matches!(r.extensions().get::<AuthSettings>(), Some(auth) => {
+            assert_eq!(auth.key, "0123456789abcdef0123456789abcdef");
         });
     }
 
@@ -487,8 +443,8 @@ mod tests {
             .expect("service received a request");
 
         //* Then
-        assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::ApiKey(api_key)) => {
-            assert_eq!(api_key.key(), "test-api-key");
+        assert_matches!(r.extensions().get::<AuthSettings>(), Some(auth) => {
+            assert_eq!(auth.key, "test-api-key");
         });
     }
 
@@ -520,9 +476,8 @@ mod tests {
             .expect("service received a request");
 
         //* Then
-        assert_matches!(r.extensions().get::<AuthToken>(), Some(AuthToken::ApiKey(api_key)) => {
-            assert_eq!(api_key.key(), "0123456789abcdef0123456789abcdef");
+        assert_matches!(r.extensions().get::<AuthSettings>(), Some(auth) => {
+            assert_eq!(auth.key, "0123456789abcdef0123456789abcdef");
         });
-        assert_matches!(r.extensions().get::<QuerySettings>(), Some(_));
     }
 }

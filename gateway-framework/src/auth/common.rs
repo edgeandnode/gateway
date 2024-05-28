@@ -1,26 +1,4 @@
-use thegraph_core::types::{DeploymentId, SubgraphId};
-
-/// Check if the given deployment is authorized.
-///
-/// It checks if the given deployment is contained in the authorized set. If the authorized set is
-/// empty, any deployment is considered authorized.
-pub fn is_deployment_authorized(authorized: &[DeploymentId], deployment: &DeploymentId) -> bool {
-    authorized.is_empty() || authorized.contains(deployment)
-}
-
-/// Check if ALL the deployments are authorized.
-///
-/// It checks if all deployments are contained in the authorized set. If the authorized set is
-/// empty, any deployment is considered authorized.
-pub fn are_deployments_authorized(
-    authorized: &[DeploymentId],
-    deployments: &[DeploymentId],
-) -> bool {
-    authorized.is_empty()
-        || deployments
-            .iter()
-            .all(|deployment| authorized.contains(deployment))
-}
+use thegraph_core::types::SubgraphId;
 
 /// Check if the given subgraph is authorized.
 ///
@@ -30,17 +8,6 @@ pub fn is_subgraph_authorized(authorized: &[SubgraphId], subgraph: &SubgraphId) 
     authorized.is_empty() || authorized.contains(subgraph)
 }
 
-/// Check if ALL the subgraphs are authorized.
-///
-/// It checks if all subgraphs are contained in the authorized set. If the authorized set is empty,
-/// any subgraph is considered authorized.
-pub fn are_subgraphs_authorized(authorized: &[SubgraphId], subgraphs: &[SubgraphId]) -> bool {
-    authorized.is_empty()
-        || subgraphs
-            .iter()
-            .all(|subgraph| authorized.contains(subgraph))
-}
-
 /// Check if the query origin domain is authorized.
 ///
 /// If the authorized domain starts with a `*`, it is considered a wildcard
@@ -48,7 +15,7 @@ pub fn are_subgraphs_authorized(authorized: &[SubgraphId], subgraphs: &[Subgraph
 /// domain is considered authorized.
 ///
 /// If the authorized domains set is empty, all domains are considered authorized.
-pub fn is_domain_authorized(authorized: &[&str], origin: &str) -> bool {
+pub fn is_domain_authorized<S: AsRef<str>>(authorized: &[S], origin: &str) -> bool {
     fn match_domain(pattern: &str, origin: &str) -> bool {
         if pattern.starts_with('*') {
             origin.ends_with(pattern.trim_start_matches('*'))
@@ -60,7 +27,7 @@ pub fn is_domain_authorized(authorized: &[&str], origin: &str) -> bool {
     authorized.is_empty()
         || authorized
             .iter()
-            .any(|pattern| match_domain(pattern, origin))
+            .any(|pattern| match_domain(pattern.as_ref(), origin))
 }
 
 #[cfg(test)]
@@ -109,7 +76,7 @@ mod tests {
 
     #[test]
     fn empty_authorized_domains_set() {
-        let authorized_domains = [];
+        let authorized_domains: [&'static str; 0] = [];
 
         let sub_cases = [
             ("", true),
