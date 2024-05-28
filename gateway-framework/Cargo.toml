@@ -10,7 +10,6 @@ anyhow.workspace = true
 axum.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cost-model.workspace = true
-dashmap = "5.5.3"
 ethers = "2.0.14"
 eventuals = "0.6.7"
 faster-hex = "0.9.0"
