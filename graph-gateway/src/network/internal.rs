@@ -21,6 +21,7 @@ use super::{
 
 mod indexer_processing;
 mod state;
+mod subgraph_processing;
 
 /// The network topology fetch timeout.
 ///
@@ -369,4 +370,5 @@ fn try_into_internal_subgraph_info(
 #[cfg(test)]
 mod tests {
     mod it_indexer_processing;
+    mod it_subgraph_processing;
 }
