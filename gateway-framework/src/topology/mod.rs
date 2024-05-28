@@ -2,11 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use alloy_primitives::Address;
 use eventuals::{Eventual, EventualExt, Ptr};
-use gateway_common::types::Indexing;
 use thegraph_core::types::DeploymentId;
 
 use self::network::Deployment;
-use crate::{network::discovery::Status, scalar::ReceiptSigner};
+use crate::{indexing::Indexing, network::discovery::Status, scalar::ReceiptSigner};
 
 pub mod network;
 

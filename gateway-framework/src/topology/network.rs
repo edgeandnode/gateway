@@ -6,13 +6,12 @@ use std::{
 use alloy_primitives::Address;
 use eventuals::{Eventual, EventualExt, Ptr};
 use futures::future::join_all;
-use gateway_common::types::Indexing;
 use itertools::Itertools;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::sync::Mutex;
 use url::Url;
 
-use crate::{ip_blocker::IpBlocker, network::network_subgraph};
+use crate::{indexing::Indexing, ip_blocker::IpBlocker, network::network_subgraph};
 
 /// Deployment manifest information needed for the gateway to work.
 pub struct Manifest {

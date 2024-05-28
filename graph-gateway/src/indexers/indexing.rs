@@ -5,8 +5,9 @@ use anyhow::{anyhow, ensure};
 use cost_model::CostModel;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
-use gateway_common::types::Indexing;
-use gateway_framework::{network::discovery::Status, topology::network::Deployment};
+use gateway_framework::{
+    indexing::Indexing, network::discovery::Status, topology::network::Deployment,
+};
 use semver::Version;
 use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;

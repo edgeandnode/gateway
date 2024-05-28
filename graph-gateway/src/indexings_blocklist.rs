@@ -6,8 +6,10 @@ use std::{
 
 use alloy_primitives::Address;
 use eventuals::{Eventual, EventualExt, Ptr};
-use gateway_common::types::Indexing;
-use gateway_framework::topology::network::{Deployment, Indexer};
+use gateway_framework::{
+    indexing::Indexing,
+    topology::network::{Deployment, Indexer},
+};
 use itertools::Itertools as _;
 use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;

@@ -2,14 +2,13 @@ use std::{collections::HashMap, ops::Deref, time::Duration};
 
 use alloy_primitives::BlockNumber;
 use eventuals::{Closed, Eventual, Ptr};
-use gateway_common::types::Indexing;
 use tokio::{
     select,
     sync::{mpsc, oneshot, RwLock},
     time::{self, MissedTickBehavior},
 };
 
-use crate::network::discovery::Status;
+use crate::{indexing::Indexing, network::discovery::Status};
 
 #[derive(Default)]
 pub struct Snapshot {
