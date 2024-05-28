@@ -5,9 +5,8 @@ use serde::Deserialize;
 use serde_with::serde_as;
 use thegraph_core::types::SubgraphId;
 
-use crate::auth::{AuthContext, AuthSettings};
-
 use super::common::is_domain_authorized;
+use crate::auth::{AuthContext, AuthSettings};
 
 #[serde_as]
 #[derive(Clone, Debug, Default, Deserialize)]
