@@ -2,7 +2,6 @@ use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::Address;
 use anyhow::anyhow;
-use indexer_processing::{IndexerIndexingRawInfo, IndexerRawInfo};
 use itertools::Itertools;
 use thegraph_core::types::SubgraphId;
 use url::Url;
@@ -13,7 +12,14 @@ pub use self::{
         VersionRequirements,
     },
     state::InternalState,
-    types::{AllocationInfo, DeploymentInfo, SubgraphInfo, SubgraphVersionInfo},
+    subgraph_processing::{
+        AllocationInfo, DeploymentError, DeploymentInfo, SubgraphError, SubgraphInfo,
+        SubgraphVersionInfo,
+    },
+};
+use self::{
+    indexer_processing::{IndexerIndexingRawInfo, IndexerRawInfo},
+    subgraph_processing::{DeploymentRawInfo, SubgraphRawInfo, SubgraphVersionRawInfo},
 };
 use super::{
     snapshot, snapshot::NetworkTopologySnapshot, subgraph, subgraph::Client as SubgraphClient,
@@ -28,81 +34,34 @@ mod subgraph_processing;
 /// This timeout is applied independently to the indexers and subgraphs information fetches.
 const NETWORK_TOPOLOGY_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// Internal types.
-mod types {
-    use alloy_primitives::{Address, BlockNumber};
-    use thegraph_core::types::{DeploymentId, SubgraphId};
-
-    /// Internal representation of the fetched subgraph information.
-    ///
-    /// This is not the final representation of the subgraph.
-    #[derive(Debug)]
-    pub struct SubgraphInfo {
-        pub id: SubgraphId,
-        pub id_on_l2: Option<SubgraphId>,
-        pub versions: Vec<SubgraphVersionInfo>,
-    }
-
-    #[derive(Debug)]
-    pub struct SubgraphVersionInfo {
-        pub version: u32,
-        pub deployment: DeploymentInfo,
-    }
-
-    /// Internal representation of the fetched deployment information.
-    ///
-    /// This is not the final representation of the deployment.
-    #[derive(Clone, Debug)]
-    pub struct DeploymentInfo {
-        pub id: DeploymentId,
-        pub allocations: Vec<AllocationInfo>,
-        pub manifest_network: Option<String>,
-        pub manifest_start_block: Option<BlockNumber>,
-        pub transferred_to_l2: bool,
-    }
-
-    /// Internal representation of the fetched allocation information.
-    ///
-    /// This is not the final representation of the allocation.
-    #[derive(Clone, Debug)]
-    pub struct AllocationInfo {
-        // The allocation ID.
-        pub id: Address,
-        // The indexer ID.
-        pub indexer: Address,
-    }
-}
-
 /// Fetch the network topology information from the graph network subgraph.
 pub async fn fetch_update(
     client: &SubgraphClient,
     state: &InternalState,
 ) -> anyhow::Result<NetworkTopologySnapshot> {
     // Fetch and process the network topology information
-    let (indexers_info, subgraphs_info) = futures::future::try_join(
+    let (indexers_info, (subgraphs_info, deployments_info)) = futures::future::try_join(
         async {
-            let indexers = {
-                match tokio::time::timeout(
-                    NETWORK_TOPOLOGY_FETCH_TIMEOUT,
-                    fetch_and_pre_process_indexers_info(client),
-                )
-                .await
-                {
-                    // If the fetch timed out, return an error
-                    Err(_) => Err(anyhow!("indexers info fetch timed out")),
-                    Ok(resp) => match resp {
-                        // If the fetch failed, return an error
-                        Err(err) => Err(anyhow!("indexers info fetch failed: {err}")),
-                        Ok(resp) => Ok(resp),
-                    },
-                }
+            let info = match tokio::time::timeout(
+                NETWORK_TOPOLOGY_FETCH_TIMEOUT,
+                fetch_and_pre_process_indexers_info(client),
+            )
+            .await
+            {
+                // If the fetch timed out, return an error
+                Err(_) => Err(anyhow!("indexers info fetch timed out")),
+                Ok(resp) => match resp {
+                    // If the fetch failed, return an error
+                    Err(err) => Err(anyhow!("indexers info fetch failed: {err}")),
+                    Ok(resp) => Ok(resp),
+                },
             }?;
 
             // Process the fetched network topology information
-            Ok(indexer_processing::process_info(state, indexers).await)
+            Ok::<_, anyhow::Error>(indexer_processing::process_info(state, info).await)
         },
         async {
-            match tokio::time::timeout(
+            let info = match tokio::time::timeout(
                 NETWORK_TOPOLOGY_FETCH_TIMEOUT,
                 fetch_and_pre_process_subgraphs_info(client),
             )
@@ -115,12 +74,19 @@ pub async fn fetch_update(
                     Err(err) => Err(anyhow!("subgraphs info fetch failed: {err}")),
                     Ok(resp) => Ok(resp),
                 },
-            }
+            }?;
+
+            // Process the fetched network topology information
+            Ok::<_, anyhow::Error>(subgraph_processing::process_info(info))
         },
     )
     .await?;
 
-    Ok(snapshot::new_from(indexers_info, subgraphs_info))
+    Ok(snapshot::new_from(
+        indexers_info,
+        subgraphs_info,
+        deployments_info,
+    ))
 }
 
 /// Fetch the indexers information from the graph network subgraph and performs pre-processing
@@ -187,7 +153,7 @@ async fn fetch_and_pre_process_indexers_info(
 /// subgraphs are found, an error is returned.
 async fn fetch_and_pre_process_subgraphs_info(
     client: &SubgraphClient,
-) -> anyhow::Result<HashMap<SubgraphId, SubgraphInfo>> {
+) -> anyhow::Result<HashMap<SubgraphId, SubgraphRawInfo>> {
     // Fetch the subgraphs information from the graph network subgraph
     let subgraphs = client
         .fetch_subgraphs()
@@ -198,30 +164,56 @@ async fn fetch_and_pre_process_subgraphs_info(
     }
 
     // Map the fetched subgraphs info into the internal representation
-    // If no valid subgraphs are found, an error is returned.
     let subgraphs = subgraphs
         .into_iter()
-        .filter_map(|subgraph| {
-            let _span = tracing::debug_span!(
-                "subgraph pre-processing",
-                subgraph.id = %subgraph.id,
-            )
-            .entered();
-            match try_into_internal_subgraph_info(subgraph) {
-                Ok(subgraph) => Some((subgraph.id, subgraph)),
-                Err(err) => {
-                    tracing::debug!("filtering-out subgraph: {err}");
-                    None
-                }
+        .map(|subgraph| (subgraph.id, into_internal_subgraph_raw_info(subgraph)))
+        .collect();
+
+    Ok(subgraphs)
+}
+
+/// Convert from the fetched subgraph information into the internal representation.
+fn into_internal_subgraph_raw_info(
+    subgraph: subgraph::types::fetch_subgraphs::Subgraph,
+) -> SubgraphRawInfo {
+    let versions = subgraph
+        .versions
+        .into_iter()
+        .map(|version| {
+            let deployment = version.subgraph_deployment;
+
+            let deployment_allocations = deployment
+                .allocations
+                .into_iter()
+                .map(|allocation| AllocationInfo {
+                    id: allocation.id,
+                    indexer: allocation.indexer.id,
+                })
+                .collect::<Vec<_>>();
+
+            let deployment_id = deployment.id;
+            let deployment_transferred_to_l2 = deployment.transferred_to_l2;
+
+            let version_number = version.version;
+            let version_deployment = DeploymentRawInfo {
+                id: deployment_id,
+                allocations: deployment_allocations,
+                manifest_network: deployment.manifest.network,
+                manifest_start_block: deployment.manifest.start_block,
+                transferred_to_l2: deployment_transferred_to_l2,
+            };
+
+            SubgraphVersionRawInfo {
+                version: version_number,
+                deployment: version_deployment,
             }
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<Vec<_>>();
 
-    // If no valid subgraphs are found, return an error
-    if subgraphs.is_empty() {
-        Err(anyhow!("no valid subgraphs found"))
-    } else {
-        Ok(subgraphs)
+    SubgraphRawInfo {
+        id: subgraph.id,
+        id_on_l2: subgraph.id_on_l2,
+        versions,
     }
 }
 
@@ -304,66 +296,6 @@ fn try_into_internal_indexer_info(
         staked_tokens: indexer.staked_tokens,
         deployments: indexer_deployment_ids,
         indexings: indexer_indexings_info,
-    })
-}
-
-/// Convert from the fetched subgraph information into the internal representation.
-///
-/// If the subgraph is invalid, e.g., has no versions, an error is returned.
-fn try_into_internal_subgraph_info(
-    subgraph: subgraph::types::fetch_subgraphs::Subgraph,
-) -> anyhow::Result<SubgraphInfo> {
-    let versions = subgraph
-        .versions
-        .into_iter()
-        .map(|version| {
-            let deployment = version.subgraph_deployment;
-
-            let deployment_manifest_network = deployment
-                .manifest
-                .as_ref()
-                .and_then(|manifest| manifest.network.clone());
-            let deployment_manifest_start_block = deployment
-                .manifest
-                .as_ref()
-                .and_then(|manifest| manifest.start_block);
-
-            let deployment_allocations = deployment
-                .allocations
-                .into_iter()
-                .map(|allocation| AllocationInfo {
-                    id: allocation.id,
-                    indexer: allocation.indexer.id,
-                })
-                .collect::<Vec<_>>();
-
-            let deployment_id = deployment.id;
-            let deployment_transferred_to_l2 = deployment.transferred_to_l2;
-
-            let version_number = version.version;
-            let version_deployment = DeploymentInfo {
-                id: deployment_id,
-                allocations: deployment_allocations,
-                manifest_network: deployment_manifest_network,
-                manifest_start_block: deployment_manifest_start_block,
-                transferred_to_l2: deployment_transferred_to_l2,
-            };
-
-            SubgraphVersionInfo {
-                version: version_number,
-                deployment: version_deployment,
-            }
-        })
-        .collect::<Vec<_>>();
-
-    if versions.is_empty() {
-        return Err(anyhow!("no versions"));
-    }
-
-    Ok(SubgraphInfo {
-        id: subgraph.id,
-        id_on_l2: subgraph.id_on_l2,
-        versions,
     })
 }
 

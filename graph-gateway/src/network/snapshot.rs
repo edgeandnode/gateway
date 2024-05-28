@@ -2,7 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Display,
+    fmt::Debug,
     ops::Deref,
     sync::{Arc, OnceLock},
 };
@@ -15,6 +15,7 @@ use semver::Version;
 pub use thegraph_core::types::{DeploymentId, SubgraphId};
 use url::Url;
 
+pub use super::internal::{DeploymentError, SubgraphError};
 use super::internal::{
     DeploymentInfo, IndexerError as InternalIndexerError, IndexerError,
     IndexerIndexingError as InternalIndexerIndexingError, IndexerIndexingError, IndexerInfo,
@@ -36,7 +37,7 @@ pub struct IndexingId {
     pub deployment: DeploymentId,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Indexing {
     /// The indexing unique identifier.
     pub id: IndexingId,
@@ -87,7 +88,7 @@ pub struct Indexer {
     /// The indexer's URL.
     ///
     /// It is guaranteed that the URL scheme is either HTTP or HTTPS and the URL has a host.
-    #[debug(with = Display::fmt)]
+    #[debug(with = std::fmt::Display::fmt)]
     pub url: Url,
 
     /// The indexer's "indexer service" version.
@@ -107,7 +108,7 @@ pub struct Indexer {
     pub staked_tokens: u128,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Subgraph {
     /// Subgraph ID
     pub id: SubgraphId,
@@ -134,7 +135,7 @@ pub struct Subgraph {
     pub indexings: HashMap<IndexingId, Result<Indexing, IndexingError>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Deployment {
     /// Deployment ID.
     ///
@@ -161,14 +162,19 @@ pub struct Deployment {
 
 // TODO: Review these errors when the network module gets integrated
 //  Copied from gateway-framework/src/errors.rs
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum IndexingError {
-    /// Errors that should only occur in exceptional conditions.
-    #[error("internal error: {0}")]
-    Internal(String),
+    /// Deployment error
+    #[error(transparent)]
+    DeploymentError(#[from] DeploymentError),
+
     /// The indexer is considered unavailable.
     #[error("Unavailable({0})")]
     Unavailable(UnavailableReason),
+
+    /// Errors that should only occur in exceptional conditions.
+    #[error("internal error: {0}")]
+    Internal(String),
 }
 
 impl From<InternalIndexerError> for IndexingError {
@@ -218,7 +224,7 @@ impl From<InternalIndexerIndexingError> for IndexingError {
 
 // TODO: Review these errors when the network module gets integrated
 //  Copied from gateway-framework/src/errors.rs
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum UnavailableReason {
     /// Blocked by address blocklist.
     #[error("blocked by address blocklist")]
@@ -242,59 +248,52 @@ pub enum UnavailableReason {
 
 /// A snapshot of the network topology.
 pub struct NetworkTopologySnapshot {
-    /// Table holding the subgraph ID of the transferred subgraphs and the L2 subgraph ID.
-    transferred_subgraphs: HashMap<SubgraphId, SubgraphId>,
-    /// Table holding the deployment ID of the transferred deployments.
-    transferred_deployments: HashSet<DeploymentId>,
-
     /// Subgraphs network topology table.
-    subgraphs: HashMap<SubgraphId, Subgraph>,
+    subgraphs: HashMap<SubgraphId, Result<Subgraph, SubgraphError>>,
     /// Deployments network topology table.
-    deployments: HashMap<DeploymentId, Deployment>,
+    deployments: HashMap<DeploymentId, Result<Deployment, DeploymentError>>,
 }
 
 impl NetworkTopologySnapshot {
     /// Get the [`Subgraph`] by [`SubgraphId`].
     ///
     /// If the subgraph is not found, it returns `None`.
-    pub fn get_subgraph_by_id(&self, id: &SubgraphId) -> Option<&Subgraph> {
-        self.subgraphs.get(id)
+    pub fn get_subgraph_by_id(&self, id: &SubgraphId) -> Option<Result<&Subgraph, &SubgraphError>> {
+        self.subgraphs.get(id).map(|res| res.as_ref())
     }
 
     /// Get the [`Deployment`] by [`DeploymentId`].
     ///
     /// If the deployment is not found, it returns `None`.
-    pub fn get_deployment_by_id(&self, id: &DeploymentId) -> Option<&Deployment> {
-        self.deployments.get(id)
+    pub fn get_deployment_by_id(
+        &self,
+        id: &DeploymentId,
+    ) -> Option<Result<&Deployment, &DeploymentError>> {
+        self.deployments.get(id).map(|res| res.as_ref())
     }
 
     /// Get the snapshot subgraphs.
-    pub fn subgraphs(&self) -> impl Deref<Target = HashMap<SubgraphId, Subgraph>> + '_ {
+    pub fn subgraphs(
+        &self,
+    ) -> impl Deref<Target = HashMap<SubgraphId, Result<Subgraph, SubgraphError>>> + Debug + '_
+    {
         &self.subgraphs
     }
 
     /// Get the snapshot deployments.
-    pub fn deployments(&self) -> impl Deref<Target = HashMap<DeploymentId, Deployment>> + '_ {
-        &self.deployments
-    }
-
-    /// Get the snapshot transferred subgraphs.
-    pub fn transferred_subgraphs(
+    pub fn deployments(
         &self,
-    ) -> impl Deref<Target = HashMap<SubgraphId, SubgraphId>> + '_ {
-        &self.transferred_subgraphs
-    }
-
-    /// Get the snapshot transferred deployments.
-    pub fn transferred_deployments(&self) -> impl Deref<Target = HashSet<DeploymentId>> + '_ {
-        &self.transferred_deployments
+    ) -> impl Deref<Target = HashMap<DeploymentId, Result<Deployment, DeploymentError>>> + Debug + '_
+    {
+        &self.deployments
     }
 }
 
 /// Construct the [`NetworkTopologySnapshot`] from the indexers and subgraphs information.
 pub fn new_from(
     indexers_info: HashMap<Address, Result<IndexerInfo, InternalIndexerError>>,
-    subgraphs_info: HashMap<SubgraphId, SubgraphInfo>,
+    subgraphs_info: HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>>,
+    deployments_info: HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>>,
 ) -> NetworkTopologySnapshot {
     // Construct the indexers table
     let indexers = indexers_info
@@ -324,158 +323,71 @@ pub fn new_from(
         })
         .collect::<HashMap<_, _>>();
 
-    // Construct the deployments table
-    let deployments_info = subgraphs_info
-        .values()
-        .flat_map(|subgraph| {
-            subgraph
-                .versions
-                .iter()
-                .map(|version| (version.deployment.id, version.deployment.clone()))
-        })
-        .collect::<HashMap<_, _>>();
-
-    // Construct the transferred subgraphs and deployments tables
-    let transferred_subgraphs = construct_transferred_subgraphs_table(&subgraphs_info);
-    let transferred_deployments = construct_transferred_deployments_table(&deployments_info);
-
     // Construct the subgraphs table
     let subgraphs = subgraphs_info
         .into_iter()
-        .filter(|(id, _)| {
-            let transferred_to_l2 = transferred_subgraphs.contains_key(id);
-            if transferred_to_l2 {
-                tracing::debug!("filtering subgraphs table row: transferred to L2");
-            }
-
-            // Keep the subgraph if it is not transferred to L2
-            !transferred_to_l2
-        })
-        .filter_map(|entry| {
-            match try_construct_subgraphs_table_row(entry, &indexers, &transferred_deployments) {
-                Ok(row) => Some(row),
-                Err(err) => {
-                    tracing::debug!("filtering subgraphs table row: {err}");
-                    None
-                }
-            }
+        .map(|(id, info)| {
+            (
+                id,
+                info.and_then(|info| construct_subgraphs_table_row(info, &indexers)),
+            )
         })
         .collect();
 
     // Construct the deployments table
     let deployments = deployments_info
         .into_iter()
-        .filter(|(deployment_id, _)| {
-            let transferred_to_l2 = transferred_deployments.contains(deployment_id);
-            if transferred_to_l2 {
-                tracing::debug!("filtering deployments table row: transferred to L2");
-            }
-
-            // Keep the deployment if it is not transferred to L2
-            !transferred_to_l2
-        })
-        .filter_map(|entry| {
-            match try_construct_deployments_table_row(entry, &indexers, &subgraphs) {
-                Ok(row) => Some(row),
-                Err(err) => {
-                    tracing::debug!("filtering deployments table row: {err}");
-                    None
-                }
-            }
+        .map(|(id, info)| {
+            (
+                id,
+                info.and_then(|info| construct_deployments_table_row(info, &indexers)),
+            )
         })
         .collect();
 
     NetworkTopologySnapshot {
-        transferred_subgraphs,
-        transferred_deployments,
         deployments,
         subgraphs,
     }
 }
 
-/// Extracts from the subgraphs info table the subgraph IDs that:
-/// - All its versions-deployments are marked as transferred to L2.
-/// - All its versions-deployments have no allocations.
-fn construct_transferred_subgraphs_table(
-    subgraphs_info: &HashMap<SubgraphId, SubgraphInfo>,
-) -> HashMap<SubgraphId, SubgraphId> {
-    subgraphs_info
-        .iter()
-        .filter_map(|(subgraph_id, subgraph)| {
-            // A subgraph is considered to be transferred to L2 if all its versions-deployments
-            // are transferred to L2 (i.e., `transferred_to_l2` is `true`) and have no allocations.
-            let transferred_to_l2 = subgraph.versions.iter().all(|version| {
-                version.deployment.transferred_to_l2 && version.deployment.allocations.is_empty()
-            });
-
-            // If the subgraph is transferred to L2 and has an ID on L2, return the pair.
-            // Otherwise, exclude the subgraph.
-            if transferred_to_l2 && subgraph.id_on_l2.is_some() {
-                Some((*subgraph_id, subgraph.id_on_l2?))
-            } else {
-                None
-            }
-        })
-        .collect::<HashMap<_, _>>()
-}
-
-/// Extracts from the deployments info table the deployment IDs that:
-///  - Are marked as transferred to L2.
-///  - Have no associated allocations.
-fn construct_transferred_deployments_table(
-    deployments_info: &HashMap<DeploymentId, DeploymentInfo>,
-) -> HashSet<DeploymentId> {
-    deployments_info
-        .iter()
-        .filter_map(|(deployment_id, deployment)| {
-            if deployment.transferred_to_l2 && deployment.allocations.is_empty() {
-                Some(*deployment_id)
-            } else {
-                None
-            }
-        })
-        .collect::<HashSet<_>>()
-}
-
 /// Construct the subgraphs table row.
-fn try_construct_subgraphs_table_row(
-    (subgraph_id, subgraph_info): (SubgraphId, SubgraphInfo),
+fn construct_subgraphs_table_row(
+    subgraph_info: SubgraphInfo,
     indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
-    transferred_deployments: &HashSet<DeploymentId>,
-) -> anyhow::Result<(SubgraphId, Subgraph)> {
-    // Filter-out the subgraphs' invalid versions-deployments.
-    let versions = subgraph_info
-        .versions
-        .into_iter()
-        .filter(|version| {
-            // Valid version must have a deployment with:
-            // - Valid manifest info (i.e., network).
-            // - Not marked as transferred to L2.
-            version.deployment.manifest_network.is_some()
-                && !transferred_deployments.contains(&version.deployment.id)
-        })
-        .collect::<Vec<_>>();
+) -> Result<Subgraph, SubgraphError> {
+    let versions = subgraph_info.versions;
 
     // As versions are ordered in descending order, the first version is the highest
     // If all the subgraph's versions are invalid, exclude the subgraph.
     let highest_version = versions
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("no valid versions"))?;
+        .iter()
+        .find(|version| version.deployment.is_ok())
+        .expect("no valid versions found");
 
     let highest_version_number = highest_version.version;
-    let highest_version_deployment_manifest_chain = highest_version
-        .deployment
-        .manifest_network
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no deployment manifest network"))?
-        .clone();
-    let highest_version_deployment_manifest_start_block =
-        highest_version.deployment.manifest_start_block.unwrap_or(0);
 
+    let (
+        highest_version_deployment_manifest_chain,
+        highest_version_deployment_manifest_start_block,
+    ) = {
+        let deployment = highest_version
+            .deployment
+            .as_ref()
+            .expect("invalid deployment");
+
+        (
+            deployment.manifest_network.to_owned(),
+            deployment.manifest_start_block,
+        )
+    };
+
+    // Construct the versions behind table. This includes the versions behind even if the
+    // deployment is invalid.
     let versions_behind_table = versions
         .iter()
         .map(|version| {
-            let deployment_id = version.deployment.id;
+            let deployment_id = version.deployment_id;
             let deployment_versions_behind = highest_version_number
                 .saturating_sub(version.version)
                 .try_into()
@@ -484,20 +396,23 @@ fn try_construct_subgraphs_table_row(
         })
         .collect::<HashMap<_, _>>();
 
+    // Construct the subgraph's indexings table
+    // Invalid versions are excluded from the indexings table, i.e., if the version deployment is
+    // invalid, the version is filtered out and not included in the indexings table.
     let subgraph_indexings = versions
         .into_iter()
-        .flat_map(|version| {
-            let deployment_id = version.deployment.id;
-            let indexing_deployment_versions_behind = versions_behind_table
-                .get(&deployment_id)
-                .copied()
-                .unwrap_or(u8::MAX);
-
-            version
-                .deployment
+        .filter_map(|version| version.deployment.ok())
+        .flat_map(|deployment| {
+            deployment
                 .allocations
                 .into_iter()
                 .map(|alloc| {
+                    let deployment_id = deployment.id;
+                    let indexing_deployment_versions_behind = versions_behind_table
+                        .get(&deployment_id)
+                        .copied()
+                        .unwrap_or(u8::MAX);
+
                     let indexing_id = IndexingId {
                         indexer: alloc.indexer,
                         deployment: deployment_id,
@@ -512,8 +427,10 @@ fn try_construct_subgraphs_table_row(
                 .collect::<Vec<_>>()
         })
         .collect::<HashMap<_, _>>();
+
+    // If all the subgraph's versions are invalid, mark the subgraph as invalid.
     if subgraph_indexings.is_empty() {
-        return Err(anyhow::anyhow!("no indexings"));
+        return Err(SubgraphError::NoValidVersions);
     }
 
     let subgraph_deployments = subgraph_indexings
@@ -521,30 +438,24 @@ fn try_construct_subgraphs_table_row(
         .map(|indexing_id| indexing_id.deployment)
         .collect::<HashSet<_>>();
 
-    Ok((
-        subgraph_id,
-        Subgraph {
-            id: subgraph_info.id,
-            chain: highest_version_deployment_manifest_chain,
-            start_block: highest_version_deployment_manifest_start_block,
-            deployments: subgraph_deployments,
-            indexings: subgraph_indexings,
-        },
-    ))
+    Ok(Subgraph {
+        id: subgraph_info.id,
+        chain: highest_version_deployment_manifest_chain,
+        start_block: highest_version_deployment_manifest_start_block,
+        deployments: subgraph_deployments,
+        indexings: subgraph_indexings,
+    })
 }
 
 /// Construct the subgraphs table row.
-fn try_construct_deployments_table_row(
-    (deployment_id, deployment_info): (DeploymentId, DeploymentInfo),
+fn construct_deployments_table_row(
+    deployment_info: DeploymentInfo,
     indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
-    subgraphs: &HashMap<SubgraphId, Subgraph>,
-) -> anyhow::Result<(DeploymentId, Deployment)> {
+) -> Result<Deployment, DeploymentError> {
+    let deployment_id = deployment_info.id;
     let deployment_versions_behind = 0;
-    let deployment_manifest_chain = deployment_info
-        .manifest_network
-        .ok_or_else(|| anyhow::anyhow!("no deployment manifest network"))?
-        .clone();
-    let deployment_manifest_start_block = deployment_info.manifest_start_block.unwrap_or(0);
+    let deployment_manifest_chain = deployment_info.manifest_network.clone();
+    let deployment_manifest_start_block = deployment_info.manifest_start_block;
 
     let deployment_indexings = deployment_info
         .allocations
@@ -559,33 +470,18 @@ fn try_construct_deployments_table_row(
         })
         .collect::<HashMap<_, _>>();
     if deployment_indexings.is_empty() {
-        return Err(anyhow::anyhow!("no indexings"));
+        return Err(DeploymentError::NoAllocations);
     }
 
-    let deployment_subgraphs = subgraphs
-        .iter()
-        .filter_map(|(subgraph_id, subgraph)| {
-            if subgraph.deployments.contains(&deployment_id) {
-                Some(*subgraph_id)
-            } else {
-                None
-            }
-        })
-        .collect::<HashSet<_>>();
-    if deployment_subgraphs.is_empty() {
-        return Err(anyhow::anyhow!("no subgraphs"));
-    }
+    let deployment_subgraphs = deployment_info.subgraphs;
 
-    Ok((
-        deployment_id,
-        Deployment {
-            id: deployment_id,
-            chain: deployment_manifest_chain,
-            start_block: deployment_manifest_start_block,
-            subgraphs: deployment_subgraphs,
-            indexings: deployment_indexings,
-        },
-    ))
+    Ok(Deployment {
+        id: deployment_id,
+        chain: deployment_manifest_chain,
+        start_block: deployment_manifest_start_block,
+        subgraphs: deployment_subgraphs,
+        indexings: deployment_indexings,
+    })
 }
 
 /// Construct the indexing table row.
