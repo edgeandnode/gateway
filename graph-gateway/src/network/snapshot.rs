@@ -16,9 +16,9 @@ pub use thegraph_core::types::{DeploymentId, SubgraphId};
 use url::Url;
 
 use super::internal::{
-    types::{DeploymentInfo, IndexerInfo, SubgraphInfo},
-    IndexerError as InternalIndexerError, IndexerError,
-    IndexerIndexingError as InternalIndexerIndexingError, IndexerIndexingError,
+    DeploymentInfo, IndexerError as InternalIndexerError, IndexerError,
+    IndexerIndexingError as InternalIndexerIndexingError, IndexerIndexingError, IndexerInfo,
+    SubgraphInfo,
 };
 
 /// The minimum indexer agent version required to support Scalar TAP.

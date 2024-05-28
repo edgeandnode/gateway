@@ -42,17 +42,17 @@ fn test_auth_token() -> String {
     std::env::var("IT_TEST_ARBITRUM_GATEWAY_AUTH").expect("Missing IT_TEST_ARBITRUM_GATEWAY_AUTH")
 }
 
-/// Test helper to build the subgraph url with the given subgraph ID.
-fn url_with_subgraph_id(name: impl AsRef<str>) -> Url {
+/// Test helper to build the subgraph url with the given deployment ID.
+fn url_with_deployment_id(name: impl AsRef<str>) -> Url {
     test_base_url()
-        .join(&format!("api/subgraphs/id/{}", name.as_ref()))
+        .join(&format!("api/deployments/id/{}", name.as_ref()))
         .expect("Invalid URL")
 }
 
 /// The Graph Network Arbitrum in the network.
 ///
 /// https://thegraph.com/explorer/subgraphs/DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp
-const GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID: &str = "DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp";
+const GRAPH_NETWORK_ARBITRUM_DEPLOYMENT_ID: &str = "QmZtNN8NbxjJ1KD5uKBYa7Gj29CT8xypSXnAmXbrLNTQgX";
 
 /// Test helper to build the service config for the tests.
 fn test_service_state(
@@ -75,11 +75,10 @@ fn test_service_state(
     );
 
     let mut state = InternalState {
-        indexer_min_agent_version: Version::new(0, 0, 0),
-        indexer_min_graph_node_version: Version::new(0, 0, 0),
         indexer_addr_blocklist: None,
         indexer_host_resolver,
         indexer_host_blocklist: None,
+        indexer_version_requirements: Default::default(),
         indexer_version_resolver,
         indexer_indexing_pois_blocklist: None,
         indexer_indexing_progress_resolver,
@@ -97,8 +96,8 @@ fn test_service_state(
     }
 
     if let Some((min_agent_version, min_graph_node_version)) = min_versions {
-        state.indexer_min_agent_version = min_agent_version;
-        state.indexer_min_graph_node_version = min_graph_node_version;
+        state.indexer_version_requirements.min_agent_version = min_agent_version;
+        state.indexer_version_requirements.min_graph_node_version = min_graph_node_version;
     }
 
     Arc::new(state)
@@ -106,7 +105,7 @@ fn test_service_state(
 
 /// Test helper to fetch, process and construct the network topology snapshot.
 async fn fetch_update(service: &InternalState) -> anyhow::Result<NetworkTopologySnapshot> {
-    let subgraph_url = url_with_subgraph_id(GRAPH_NETWORK_ARBITRUM_SUBGRAPH_ID);
+    let subgraph_url = url_with_deployment_id(GRAPH_NETWORK_ARBITRUM_DEPLOYMENT_ID);
     let auth_token = test_auth_token();
 
     let client = {

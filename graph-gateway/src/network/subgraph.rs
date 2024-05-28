@@ -192,7 +192,7 @@ impl Client {
         );
 
         self.client
-            .paginated_query(query, 200)
+            .paginated_query(query, 1000)
             .await
             .map_err(|err| anyhow::anyhow!(err))
     }
@@ -239,7 +239,7 @@ impl Client {
         "#;
 
         self.client
-            .paginated_query(query, 200)
+            .paginated_query(query, 1000)
             .await
             .map_err(|err| anyhow::anyhow!(err))
     }

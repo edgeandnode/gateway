@@ -25,7 +25,7 @@ use super::{
     indexer_indexing_poi_resolver::PoiResolver,
     indexer_indexing_progress_resolver::IndexingProgressResolver,
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
-    internal::{fetch_update, InternalState},
+    internal::fetch_update,
     snapshot::{
         Address, BlockNumber, DeploymentId, Indexing, IndexingError, IndexingId,
         NetworkTopologySnapshot, SubgraphId,
@@ -39,6 +39,7 @@ use crate::{
         indexer_indexing_cost_model_resolver::DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
         indexer_indexing_poi_resolver::DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT,
         indexer_indexing_progress_resolver::DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
+        internal::{InternalState, VersionRequirements as IndexerVersionRequirements},
     },
 };
 
@@ -220,11 +221,10 @@ impl NetworkService {
 pub struct NetworkServiceBuilder {
     subgraph_client: SubgraphClient,
     indexer_client: reqwest::Client,
-    indexer_min_agent_version: Version,
-    indexer_min_graph_node_version: Version,
     indexer_addr_blocklist: Option<AddrBlocklist>,
     indexer_host_resolver: HostResolver,
     indexer_host_blocklist: Option<HostBlocklist>,
+    indexer_version_requirements: IndexerVersionRequirements,
     indexer_version_resolver: VersionResolver,
     indexer_indexing_pois_blocklist: Option<(PoiBlocklist, PoiResolver)>,
     indexer_indexing_progress_resolver: IndexingProgressResolver,
@@ -257,11 +257,10 @@ impl NetworkServiceBuilder {
         Self {
             subgraph_client,
             indexer_client,
-            indexer_min_agent_version: Version::new(0, 0, 0),
-            indexer_min_graph_node_version: Version::new(0, 0, 0),
             indexer_addr_blocklist: None,
             indexer_host_resolver,
             indexer_host_blocklist: None,
+            indexer_version_requirements: Default::default(),
             indexer_version_resolver,
             indexer_indexing_pois_blocklist: None,
             indexer_indexing_progress_resolver,
@@ -279,13 +278,13 @@ impl NetworkServiceBuilder {
 
     /// Sets the minimum agent version for indexers.
     pub fn with_indexer_min_agent_version(mut self, version: Version) -> Self {
-        self.indexer_min_agent_version = version;
+        self.indexer_version_requirements.min_agent_version = version;
         self
     }
 
     /// Sets the minimum graph node version for indexers.
     pub fn with_indexer_min_graph_node_version(mut self, version: Version) -> Self {
-        self.indexer_min_graph_node_version = version;
+        self.indexer_version_requirements.min_graph_node_version = version;
         self
     }
 
@@ -322,11 +321,10 @@ impl NetworkServiceBuilder {
     /// To spawn the [`NetworkService`] instance, call the [`NetworkServicePending::spawn`] method.
     pub fn build(self) -> NetworkServicePending {
         let internal_state = InternalState {
-            indexer_min_agent_version: self.indexer_min_agent_version,
-            indexer_min_graph_node_version: self.indexer_min_graph_node_version,
             indexer_addr_blocklist: self.indexer_addr_blocklist,
             indexer_host_resolver: Mutex::new(self.indexer_host_resolver),
             indexer_host_blocklist: self.indexer_host_blocklist,
+            indexer_version_requirements: self.indexer_version_requirements,
             indexer_version_resolver: self.indexer_version_resolver,
             indexer_indexing_pois_blocklist: self
                 .indexer_indexing_pois_blocklist
