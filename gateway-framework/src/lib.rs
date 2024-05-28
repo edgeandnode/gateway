@@ -7,6 +7,7 @@ pub mod config;
 pub mod errors;
 pub mod graphql;
 pub mod http;
+pub mod indexing;
 pub mod ip_blocker;
 pub mod json;
 pub mod network;

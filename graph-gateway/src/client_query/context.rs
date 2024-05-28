@@ -3,10 +3,10 @@ use std::collections::{HashMap, HashSet};
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use eventuals::{Eventual, Ptr};
-use gateway_common::types::Indexing;
 use gateway_framework::{
     budgets::Budgeter,
     chains::Chains,
+    indexing::Indexing,
     network::{discovery::Status, indexing_performance::IndexingPerformance},
     reporting::KafkaClient,
     scalar::ReceiptSigner,

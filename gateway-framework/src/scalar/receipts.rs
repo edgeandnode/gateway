@@ -3,12 +3,13 @@ use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
 use ethers::signers::Wallet;
-use gateway_common::types::Indexing;
 use rand::RngCore;
 pub use receipts::{QueryStatus as ReceiptStatus, ReceiptPool};
 use secp256k1::SecretKey;
 use tap_core::{receipt::Receipt, signed_message::EIP712SignedMessage};
 use tokio::sync::{Mutex, RwLock};
+
+use crate::indexing::Indexing;
 
 pub struct ReceiptSigner {
     signer: SecretKey,

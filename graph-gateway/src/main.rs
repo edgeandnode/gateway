@@ -23,7 +23,6 @@ use axum::{
 };
 use config::{ApiKeys, Config, ExchangeRateProvider, Subscriptions};
 use eventuals::{Eventual, EventualExt as _, Ptr};
-use gateway_common::types::Indexing;
 use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
@@ -32,6 +31,7 @@ use gateway_framework::{
         legacy_auth_adapter, AddRateLimiterLayer, RequestTracingLayer, RequireAuthorizationLayer,
         SetRequestIdLayer,
     },
+    indexing::Indexing,
     ip_blocker::IpBlocker,
     json,
     network::{

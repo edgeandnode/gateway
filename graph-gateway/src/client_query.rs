@@ -15,16 +15,14 @@ use axum::{
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
-use gateway_common::{
-    types::Indexing,
-    utils::{http_ext::HttpBuilderExt, timestamp::unix_timestamp},
-};
+use gateway_common::utils::{http_ext::HttpBuilderExt, timestamp::unix_timestamp};
 use gateway_framework::{
     auth::AuthToken,
     blocks::Block,
     budgets::USD,
     chains::ChainReader,
     errors::{Error, IndexerError, UnavailableReason},
+    indexing::Indexing,
     network::{
         discovery::Status,
         indexing_performance::{IndexingPerformance, Snapshot},
