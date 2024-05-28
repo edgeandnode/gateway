@@ -6,7 +6,7 @@ use thegraph_core::types::{DeploymentId, SubgraphId};
 /// Internal representation of the fetched subgraph information.
 ///
 /// This is not the final representation of the subgraph.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct SubgraphRawInfo {
     pub id: SubgraphId,
     pub id_on_l2: Option<SubgraphId>,
@@ -16,7 +16,7 @@ pub(super) struct SubgraphRawInfo {
 /// Internal representation of the fetched subgraph version information.
 ///
 /// This is not the final representation of the subgraph version.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct SubgraphVersionRawInfo {
     pub version: u32,
     pub deployment: DeploymentRawInfo,
@@ -25,11 +25,12 @@ pub(super) struct SubgraphVersionRawInfo {
 /// Internal representation of the fetched deployment information.
 ///
 /// This is not the final representation of the deployment.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct DeploymentRawInfo {
     pub id: DeploymentId,
     pub manifest_network: String,
     pub manifest_start_block: BlockNumber,
+    pub subgraphs: HashSet<SubgraphId>,
     pub transferred_to_l2: bool,
     pub allocations: Vec<AllocationInfo>,
 }
@@ -98,32 +99,10 @@ pub enum SubgraphError {
 /// [`SubgraphError::TransferredToL2`] error is returned.
 /// - If the subgraph has no allocations, [`SubgraphError::NoAllocations`] is returned.
 #[allow(clippy::type_complexity)]
-pub(super) fn process_info(
+pub(super) fn process_subgraph_info(
     subgraphs: HashMap<SubgraphId, SubgraphRawInfo>,
-) -> (
-    HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>>,
-    HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>>,
-) {
-    // Construct the deployments' information table
-    let deployments_info = subgraphs
-        .values()
-        .fold(HashMap::new(), |mut acc, subgraph| {
-            for deployment in &subgraph.versions {
-                let deployment = acc
-                    .entry(deployment.deployment.id)
-                    .or_insert_with(|| process_deployment_info(&deployment.deployment));
-
-                // Add the subgraph to the subgraphs' set
-                if let Ok(deployment) = deployment {
-                    deployment.subgraphs.insert(subgraph.id);
-                }
-            }
-
-            acc
-        });
-
-    // Construct the subgraphs' information table
-    let subgraphs_info = subgraphs
+) -> HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>> {
+    subgraphs
         .into_iter()
         .map(|(id, subgraph)| {
             // If the subgraph has no versions, return an error
@@ -144,29 +123,35 @@ pub(super) fn process_info(
                 return (id, Err(err));
             }
 
-            // It is guaranteed that all subgraphs have at least one version
+            // It is guaranteed that:
+            // - All subgraphs have at least one version
+            // - All versions are ordered by version number in descending order
             // See ref: 9936786a-e286-45f3-9190-8409d8389e88
-            let versions = subgraph
+            let subgraph_versions = subgraph
                 .versions
                 .into_iter()
                 .map(|version| SubgraphVersionInfo {
                     version: version.version,
                     deployment_id: version.deployment.id,
-                    deployment: deployments_info
-                        .get(&version.deployment.id)
-                        .cloned()
-                        .unwrap_or(Err(DeploymentError::UnknownDeployment)),
+                    deployment: try_into_deployment_info(&version.deployment),
                 })
                 .collect::<Vec<_>>();
-            if versions.iter().all(|version| version.deployment.is_err()) {
+            if subgraph_versions
+                .iter()
+                .all(|version| version.deployment.is_err())
+            {
                 return (id, Err(SubgraphError::NoValidVersions));
             }
 
-            (id, Ok(SubgraphInfo { id, versions }))
+            (
+                id,
+                Ok(SubgraphInfo {
+                    id: subgraph.id,
+                    versions: subgraph_versions,
+                }),
+            )
         })
-        .collect();
-
-    (subgraphs_info, deployments_info)
+        .collect()
 }
 
 /// Check if the subgraph was transferred to L2.
@@ -214,18 +199,31 @@ pub enum DeploymentError {
     /// No allocations were found for the subgraph.
     #[error("no allocations")]
     NoAllocations,
-
-    /// Unknown deployment.
-    #[error("unknown deployment")]
-    UnknownDeployment,
 }
 
-/// Process the fetched deployment information.
+/// Process the fetched deployments' information.
 ///
 /// - If the deployment was transferred to L2 and has no allocations,
 /// [`DeploymentError::TransferredToL2`] error is returned.
 /// - If the deployment has no allocations, [`DeploymentError::NoAllocations`] is returned.
-fn process_deployment_info(
+pub(super) fn process_deployments_info(
+    deployments: HashMap<DeploymentId, DeploymentRawInfo>,
+) -> HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>> {
+    deployments
+        .into_iter()
+        .map(|(id, deployment)| {
+            let deployment = try_into_deployment_info(&deployment);
+            (id, deployment)
+        })
+        .collect()
+}
+
+/// Try to convert the deployment raw information into processed deployment information.
+///
+/// - If the deployment was marked as transferred to L2 and has no allocations,
+/// [`DeploymentError::TransferredToL2`] error is returned.
+/// - If the deployment has no allocations, [`DeploymentError::NoAllocations`] is returned.
+fn try_into_deployment_info(
     deployment: &DeploymentRawInfo,
 ) -> Result<DeploymentInfo, DeploymentError> {
     // Check if the deployment was transferred to L2
@@ -243,6 +241,6 @@ fn process_deployment_info(
         allocations: deployment.allocations.clone(),
         manifest_network: deployment.manifest_network.clone(),
         manifest_start_block: deployment.manifest_start_block,
-        subgraphs: Default::default(),
+        subgraphs: deployment.subgraphs.clone(),
     })
 }

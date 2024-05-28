@@ -7,19 +7,18 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-pub use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::{Address, BlockNumber};
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
 use eventuals::Ptr;
 use semver::Version;
-pub use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{DeploymentId, SubgraphId};
 use url::Url;
 
-pub use super::internal::{DeploymentError, SubgraphError};
-use super::internal::{
-    DeploymentInfo, IndexerError as InternalIndexerError, IndexerError,
+use super::{
+    DeploymentError, DeploymentInfo, IndexerError as InternalIndexerError, IndexerError,
     IndexerIndexingError as InternalIndexerIndexingError, IndexerIndexingError, IndexerInfo,
-    SubgraphInfo,
+    SubgraphError, SubgraphInfo,
 };
 
 /// The minimum indexer agent version required to support Scalar TAP.
@@ -60,15 +59,15 @@ pub struct Indexing {
 
     /// The indexing progress.
     ///
-    /// See [`IndexationProgress`] for more information.
-    pub progress: IndexationProgress,
+    /// See [`IndexingProgress`] for more information.
+    pub progress: IndexingProgress,
     /// The indexer's indexing cost model
     pub cost_model: Option<Ptr<CostModel>>,
 }
 
-/// The [`IndexationProgress`] struct represents the progress of an indexing.
+/// The [`IndexingProgress`] struct represents the progress of an indexing.
 #[derive(Debug, Clone)]
-pub struct IndexationProgress {
+pub struct IndexingProgress {
     /// The latest block the indexer has indexed for the deployment.
     pub latest_block: BlockNumber,
     /// The minimum block the indexer has indexed for the deployment.
@@ -497,10 +496,17 @@ fn construct_indexings_table_row(
         Some(Ok(indexer)) => indexer,
         Some(Err(err)) => return (indexing_id, Err(err.clone().into())),
         None => {
+            // Log this error as it should not happen.
+            tracing::error!(
+                deployment = %indexing_id.deployment,
+                indexer = %indexing_id.indexer,
+                "indexing indexer info not found"
+            );
+
             return (
                 indexing_id,
                 Err(IndexingError::Internal("indexer not found".to_string())),
-            )
+            );
         }
     };
 
@@ -530,7 +536,7 @@ fn construct_indexings_table_row(
         largest_allocation: indexing_largest_allocation_addr,
         total_allocated_tokens: indexing_total_allocated_tokens,
         indexer: Arc::clone(indexer),
-        progress: IndexationProgress {
+        progress: IndexingProgress {
             latest_block: indexing_progress.latest_block,
             min_block: indexing_progress.min_block,
         },

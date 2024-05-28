@@ -9,9 +9,11 @@ use graph_gateway::network::{
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_progress_resolver::IndexingProgressResolver,
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
-    internal::{fetch_update as internal_fetch_update, InternalState},
-    subgraph::Client,
-    NetworkTopologySnapshot,
+    internal::{
+        fetch_update as internal_fetch_update, IndexingError, InternalState,
+        NetworkTopologySnapshot,
+    },
+    subgraph_client::Client,
 };
 use ipnetwork::IpNetwork;
 use semver::Version;
@@ -150,6 +152,21 @@ async fn fetch_a_network_topology_update() {
     assert!(
         !network.deployments().is_empty(),
         "Network deployments are empty"
+    );
+
+    // Assert no internal indexing errors are present
+    assert!(
+        network
+            .subgraphs()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|subgraph| {
+                subgraph
+                    .indexings
+                    .values()
+                    .all(|indexing| !matches!(indexing, Err(IndexingError::Internal(_))))
+            }),
+        "Internal indexing errors found"
     );
 
     // Given a SUBGRAPH

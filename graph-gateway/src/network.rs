@@ -5,10 +5,6 @@
 pub use service::{
     NetworkService, NetworkServiceBuilder, NetworkServicePending, ResolvedSubgraphInfo,
 };
-pub use snapshot::{
-    BlockNumber, DeploymentId, IndexationProgress, Indexer, Indexing, IndexingId,
-    NetworkTopologySnapshot, SubgraphId,
-};
 
 pub mod indexer_addr_blocklist;
 pub mod indexer_host_blocklist;
@@ -21,5 +17,4 @@ pub mod indexer_indexing_progress_resolver;
 pub mod indexer_version_resolver;
 pub mod internal;
 mod service;
-mod snapshot;
-pub mod subgraph;
+pub mod subgraph_client;

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use graph_gateway::network::subgraph::Client;
+use graph_gateway::network::subgraph_client::Client;
 use thegraph_core::client::Client as SubgraphClient;
 use url::Url;
 
@@ -32,35 +32,6 @@ const GRAPH_NETWORK_ARBITRUM_DEPLOYMENT_ID: &str = "QmZtNN8NbxjJ1KD5uKBYa7Gj29CT
 
 #[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]
 #[tokio::test]
-async fn fetch_indexers_and_deserialize() {
-    //* Given
-    let subgraph_url = url_with_deployment_id(GRAPH_NETWORK_ARBITRUM_DEPLOYMENT_ID);
-    let auth_token = test_auth_token();
-
-    let network_subgraph_client = {
-        let http_client = reqwest::Client::new();
-        let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
-            .with_auth_token(Some(auth_token))
-            .build();
-        Client::new(subgraph_client, true)
-    };
-
-    //* When
-    let indexers = tokio::time::timeout(
-        Duration::from_secs(10),
-        network_subgraph_client.fetch_indexers(),
-    )
-    .await
-    .expect("Fetching indexers timed out");
-
-    //* Then
-    assert_matches!(indexers, Ok(indexers) => {
-        assert!(!indexers.is_empty());
-    });
-}
-
-#[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]
-#[tokio::test]
 async fn fetch_subgraphs_and_deserialize() {
     //* Given
     let subgraph_url = url_with_deployment_id(GRAPH_NETWORK_ARBITRUM_DEPLOYMENT_ID);
@@ -75,12 +46,9 @@ async fn fetch_subgraphs_and_deserialize() {
     };
 
     //* When
-    let subgraphs = tokio::time::timeout(
-        Duration::from_secs(10),
-        network_subgraph_client.fetch_subgraphs(),
-    )
-    .await
-    .expect("Fetching subgraphs timed out");
+    let subgraphs = tokio::time::timeout(Duration::from_secs(10), network_subgraph_client.fetch())
+        .await
+        .expect("Fetching subgraphs timed out");
 
     //* Then
     assert_matches!(subgraphs, Ok(subgraphs) => {
@@ -104,12 +72,9 @@ async fn fetch_subgraph_no_l2_transfer_support_and_deserialize() {
     };
 
     //* When
-    let subgraphs = tokio::time::timeout(
-        Duration::from_secs(10),
-        network_subgraph_client.fetch_subgraphs(),
-    )
-    .await
-    .expect("Fetching subgraphs timed out");
+    let subgraphs = tokio::time::timeout(Duration::from_secs(10), network_subgraph_client.fetch())
+        .await
+        .expect("Fetching subgraphs timed out");
 
     //* Then
     assert_matches!(subgraphs, Ok(subgraphs) => {

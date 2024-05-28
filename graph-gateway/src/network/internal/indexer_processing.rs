@@ -60,12 +60,6 @@ pub(super) struct IndexerRawInfo {
     pub url: Url,
     /// The total amount of tokens staked by the indexer.
     pub staked_tokens: u128,
-    /// The list of deployments the indexer is associated with.
-    ///
-    /// The deployments are ordered from highest to lowest associated token allocation.
-    //  See ref: d260724b-a445-4842-964e-fb95062c119d
-    pub deployments: Vec<DeploymentId>,
-
     /// The indexer's indexings information.
     pub indexings: HashMap<DeploymentId, IndexerIndexingRawInfo>,
 }
@@ -73,7 +67,7 @@ pub(super) struct IndexerRawInfo {
 /// Internal representation of the indexer's indexing information.
 ///
 /// This is not the final representation of the indexer's indexing information.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct IndexerIndexingRawInfo {
     /// The largest allocation.
     pub largest_allocation: Address,
@@ -95,12 +89,6 @@ pub struct IndexerInfo {
     pub url: Url,
     /// The total amount of tokens staked by the indexer.
     pub staked_tokens: u128,
-    /// The list of deployments the indexer is associated with.
-    ///
-    /// The deployments are ordered from highest to lowest associated token allocation.
-    //  See ref: d260724b-a445-4842-964e-fb95062c119d
-    pub deployments: Vec<DeploymentId>,
-
     /// The indexer's "indexer service" version.
     pub indexer_agent_version: Version,
     /// The indexer's "graph node" version.
@@ -357,7 +345,6 @@ where
                     id: indexer.id,
                     url: indexer.url,
                     staked_tokens: indexer.staked_tokens,
-                    deployments: indexer.deployments,
                     indexer_agent_version,
                     graph_node_version,
                     indexings: indexer
@@ -510,7 +497,7 @@ async fn resolve_and_check_indexer_indexings_blocked_by_poi(
 
     // Get the list of affected POIs to resolve for the indexer's deployments
     // If none of the deployments are affected, the indexer must be ALLOWED
-    let indexer_affected_pois = pois_blocklist.affected_pois_metadata(&indexer.deployments);
+    let indexer_affected_pois = pois_blocklist.affected_pois_metadata(indexer.indexings.keys());
     if indexer_affected_pois.is_empty() {
         return Ok(HashSet::new());
     }
@@ -545,7 +532,7 @@ async fn resolve_indexer_progress(
 {
     let mut progress_info = resolver.resolve(&indexer.url, indexings).await?;
     tracing::trace!(
-        indexings_requested = %indexer.deployments.len(),
+        indexings_requested = %indexings.len(),
         indexings_resolved = %progress_info.len(),
         "progress resolved"
     );
