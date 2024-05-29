@@ -51,7 +51,7 @@ pub async fn fetch_update(
         Err(_) => Err(anyhow!("info fetch timed out")),
         Ok(resp) => match resp {
             // If the fetch failed, return an error
-            Err(err) => Err(anyhow!(" info fetch failed: {err}")),
+            Err(err) => Err(anyhow!("info fetch failed: {err}")),
             Ok(resp) => Ok(resp),
         },
     }?;

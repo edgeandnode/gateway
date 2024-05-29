@@ -122,7 +122,7 @@ impl Client {
                 where: {{
                     id_gt: $last
                     entityVersion: 2
-                    versionCount_gt: 0
+                    versionCount_gte: 1
                     {}
                 }}
             ) {{
@@ -137,7 +137,7 @@ impl Client {
                             startBlock
                         }}
                         indexerAllocations(
-                            first: 250
+                            first: 100
                             orderBy: allocatedTokens, orderDirection: desc
                             where: {{ status: Active }}
                         ) {{
