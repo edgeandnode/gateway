@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use gateway_framework::auth::api_keys::APIKey;
+use alloy_primitives::Address;
+use gateway_framework::auth::api_keys::{APIKey, QueryStatus};
 use serde::Deserialize;
 use tokio::{
     sync::watch,
@@ -44,9 +45,20 @@ struct Client {
 
 impl Client {
     async fn fetch_api_keys(&mut self) -> anyhow::Result<HashMap<String, APIKey>> {
-        #[derive(Deserialize)]
-        struct GetGatewayApiKeysResponsePayload {
-            api_keys: Vec<APIKey>,
+        #[derive(Deserialize, Debug)]
+        struct _ApiKeys {
+            api_keys: Vec<_ApiKey>,
+        }
+        #[derive(Deserialize, Debug)]
+        struct _ApiKey {
+            key: String,
+            user_address: Address,
+            query_status: QueryStatus,
+            max_budget: Option<f64>,
+            #[serde(default)]
+            subgraphs: Vec<String>,
+            #[serde(default)]
+            domains: Vec<String>,
         }
 
         let response = self
@@ -55,12 +67,26 @@ impl Client {
             .bearer_auth(&self.auth)
             .send()
             .await?
-            .json::<GetGatewayApiKeysResponsePayload>()
+            .json::<_ApiKeys>()
             .await?;
         let api_keys = response
             .api_keys
             .into_iter()
-            .map(|api_key| (api_key.key.clone(), api_key))
+            .map(|api_key| {
+                let api_key = APIKey {
+                    key: api_key.key,
+                    user_address: api_key.user_address,
+                    query_status: api_key.query_status,
+                    domains: api_key.domains,
+                    max_budget_usd: api_key.max_budget.and_then(|b| b.try_into().ok()),
+                    subgraphs: api_key
+                        .subgraphs
+                        .into_iter()
+                        .filter_map(|s| s.parse().ok())
+                        .collect(),
+                };
+                (api_key.key.clone(), api_key)
+            })
             .collect::<HashMap<String, APIKey>>();
 
         tracing::info!(api_keys = api_keys.len());
