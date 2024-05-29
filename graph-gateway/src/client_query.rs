@@ -697,9 +697,12 @@ async fn handle_indexer_query_inner(
     ctx.response_time = Instant::now() - start_time;
 
     let deployment = selection.indexing.deployment.to_string();
-    with_metric(&METRICS.indexer_query.duration, &[&deployment], |hist| {
-        hist.observe(ctx.response_time.as_millis() as f64)
-    });
+    let indexer = format!("{:?}", selection.indexing.indexer);
+    with_metric(
+        &METRICS.indexer_query.duration,
+        &[&deployment, &indexer],
+        |hist| hist.observe(ctx.response_time.as_millis() as f64),
+    );
 
     let response = result?;
     if response.status != StatusCode::OK.as_u16() {
