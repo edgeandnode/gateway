@@ -34,7 +34,9 @@ use gateway_framework::{
     ip_blocker::IpBlocker,
     json,
     network::{
-        discovery::Status, exchange_rate, indexing_performance::IndexingPerformance,
+        discovery::Status,
+        exchange_rate,
+        indexing_performance::{IndexingPerformance, Status as IndexingPerformanceStatus},
         network_subgraph,
     },
     reporting::{
@@ -65,7 +67,6 @@ use thegraph_core::{
 use tokio::{
     net::TcpListener,
     signal::unix::SignalKind,
-    spawn,
     sync::watch,
     time::{interval, MissedTickBehavior},
 };
@@ -186,6 +187,20 @@ async fn main() {
         config.min_indexer_version,
     )
     .await;
+    let latest_indexed_block_statuses = indexing_statuses.clone().map(|statuses| async move {
+        let statuses = statuses
+            .iter()
+            .map(|(id, status)| {
+                (
+                    (id.indexer, id.deployment),
+                    IndexingPerformanceStatus {
+                        latest_block: status.block,
+                    },
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        Ptr::new(statuses)
+    });
 
     let legacy_signer: &'static SecretKey = Box::leak(Box::new(
         config
@@ -232,7 +247,7 @@ async fn main() {
         chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
         grt_per_usd,
         network,
-        indexing_perf: IndexingPerformance::new(indexing_statuses.clone()),
+        indexing_perf: IndexingPerformance::new(latest_indexed_block_statuses),
         indexing_statuses,
         attestation_domain,
         bad_indexers,
@@ -241,7 +256,7 @@ async fn main() {
 
     // Host metrics on a separate server with a port that isn't open to public requests.
     let metrics_port = config.port_metrics;
-    spawn(async move {
+    tokio::spawn(async move {
         let router = Router::new().route("/metrics", routing::get(handle_metrics));
 
         let metrics_listener = TcpListener::bind(SocketAddr::new(
@@ -409,20 +424,16 @@ async fn update_allocations(
         indexing_statuses = indexing_statuses.len(),
     );
 
-    let mut allocations: HashMap<Indexing, Address> = HashMap::new();
+    let mut allocations: HashMap<(Address, DeploymentId), Address> = HashMap::new();
     for (deployment, indexer) in deployments.values().flat_map(|deployment| {
         deployment
             .indexers
             .values()
             .map(|indexer| (deployment.as_ref(), indexer.as_ref()))
     }) {
-        let indexing = Indexing {
-            indexer: indexer.id,
-            deployment: deployment.id,
-        };
-        allocations.insert(indexing, indexer.largest_allocation);
+        allocations.insert((indexer.id, deployment.id), indexer.largest_allocation);
     }
-    receipt_signer.update_allocations(allocations).await;
+    receipt_signer.update_allocations(&allocations).await;
 }
 
 async fn handle_metrics() -> impl axum::response::IntoResponse {

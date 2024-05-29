@@ -394,26 +394,27 @@ async fn handle_client_query_inner(
             selected_candidates.iter().map(|c| c.indexer).collect();
         let mut selections: Vec<Selection> = Default::default();
         for candidate in selected_candidates {
-            let indexing = Indexing {
-                indexer: candidate.indexer,
-                deployment: candidate.deployment,
-            };
-
             // over-pay indexers to hit target
             let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections_len as f64;
             let indexer_fee = candidate.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
 
-            let receipt = match if candidates_with_scalar_tap_support.contains(&indexing.indexer) {
-                ctx.receipt_signer.create_receipt(&indexing, fee).await
+            let receipt = match if candidates_with_scalar_tap_support.contains(&candidate.indexer) {
+                ctx.receipt_signer
+                    .create_receipt(candidate.indexer, candidate.deployment, fee)
+                    .await
             } else {
                 ctx.receipt_signer
-                    .create_legacy_receipt(&indexing, fee)
+                    .create_legacy_receipt(candidate.indexer, candidate.deployment, fee)
                     .await
             } {
                 Some(receipt) => receipt,
                 None => {
+                    let indexing = Indexing {
+                        indexer: candidate.indexer,
+                        deployment: candidate.deployment,
+                    };
                     tracing::error!(?indexing, "failed to create receipt");
                     continue;
                 }
@@ -422,7 +423,10 @@ async fn handle_client_query_inner(
 
             let blocks_behind = (candidate.seconds_behind as f64 / 60.0) * blocks_per_minute as f64;
             selections.push(Selection {
-                indexing,
+                indexing: Indexing {
+                    indexer: candidate.indexer,
+                    deployment: candidate.deployment,
+                },
                 url: candidate.url.clone(),
                 receipt,
                 blocks_behind: blocks_behind as u64,
@@ -495,7 +499,12 @@ async fn handle_client_query_inner(
                         Err(_) => ReceiptStatus::Failure,
                     };
                     receipt_signer
-                        .record_receipt(&selection.indexing, &selection.receipt, receipt_status)
+                        .record_receipt(
+                            selection.indexing.indexer,
+                            selection.indexing.deployment,
+                            &selection.receipt,
+                            receipt_status,
+                        )
                         .await;
 
                     let _ = outcome_tx.send((selection, response)).await;
@@ -538,7 +547,7 @@ async fn handle_client_query_inner(
 fn prepare_candidate(
     network: &GraphNetwork,
     statuses: &HashMap<Indexing, Status>,
-    perf_snapshots: &HashMap<Indexing, Snapshot>,
+    perf_snapshots: &HashMap<(Address, DeploymentId), Snapshot>,
     versions_behind: &BTreeMap<DeploymentId, u8>,
     context: &AgoraContext,
     block_requirements: &BlockRequirements,
@@ -554,7 +563,7 @@ fn prepare_candidate(
         .get(&indexing)
         .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
     let perf = perf_snapshots
-        .get(&indexing)
+        .get(&(indexing.indexer, indexing.deployment))
         .and_then(|snapshot| perf(snapshot, block_requirements, chain_head, blocks_per_minute))
         .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
 
@@ -664,8 +673,13 @@ async fn handle_indexer_query(
         status_code = reports::indexer_attempt_status_code(&result),
     );
 
-    ctx.indexing_perf
-        .feedback(indexing, result.is_ok(), latency_ms, latest_block);
+    ctx.indexing_perf.feedback(
+        indexing.indexer,
+        indexing.deployment,
+        result.is_ok(),
+        latency_ms,
+        latest_block,
+    );
 
     result
 }
