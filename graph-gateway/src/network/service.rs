@@ -7,11 +7,13 @@ use std::{
     time::Duration,
 };
 
+use alloy_primitives::{Address, BlockNumber};
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_framework::errors::Error;
 use ipnetwork::IpNetwork;
 use semver::Version;
+use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::sync::Mutex;
 use vec1::{vec1, Vec1};
 
@@ -32,14 +34,10 @@ use super::{
     },
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{
-        fetch_update, DeploymentError, InternalState, SubgraphError,
-        VersionRequirements as IndexerVersionRequirements,
+        fetch_update, DeploymentError, Indexing, IndexingError, IndexingId, InternalState,
+        NetworkTopologySnapshot, SubgraphError, VersionRequirements as IndexerVersionRequirements,
     },
-    snapshot::{
-        Address, BlockNumber, DeploymentId, Indexing, IndexingError, IndexingId,
-        NetworkTopologySnapshot, SubgraphId,
-    },
-    subgraph::Client as SubgraphClient,
+    subgraph_client::Client as SubgraphClient,
 };
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 

@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 
 use alloy_primitives::BlockNumber;
 use gateway_common::blocklist::Result as BlocklistResult;
-use itertools::Itertools;
 use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 
 use crate::indexers::public_poi::ProofOfIndexingInfo;
@@ -43,19 +42,17 @@ impl PoiBlocklist {
     ///
     /// If none of the deployments are affected, an empty list is returned. This allows to avoid
     /// querying the indexer for POIs if none of its deployments is affected.
-    pub fn affected_pois_metadata(
+    pub fn affected_pois_metadata<'a>(
         &self,
-        deployments: &[DeploymentId],
+        deployments: impl Iterator<Item = &'a DeploymentId>,
     ) -> Vec<(DeploymentId, BlockNumber)> {
         deployments
-            .iter()
             .flat_map(|deployment_id| {
                 self.blocklist
                     .get(deployment_id)
                     .into_iter()
                     .flat_map(|pois| pois.iter().map(|poi_info| poi_info.meta()))
             })
-            .unique()
             .collect()
     }
 

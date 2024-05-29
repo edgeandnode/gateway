@@ -122,7 +122,6 @@ async fn block_indexer_by_address() {
         id: indexer_addr,
         url: indexer_url,
         staked_tokens: Default::default(),
-        deployments: Default::default(),
         indexings: Default::default(),
     };
 
@@ -166,7 +165,6 @@ async fn block_indexer_if_host_resolution_fails() {
         id: indexer_addr,
         url: indexer_url,
         staked_tokens: Default::default(),
-        deployments: Default::default(),
         indexings: Default::default(),
     };
 
@@ -207,7 +205,6 @@ async fn block_indexer_by_host_ip_network() {
         id: indexer_addr,
         url: indexer_url,
         staked_tokens: Default::default(),
-        deployments: Default::default(),
         indexings: Default::default(),
     };
 
@@ -251,7 +248,6 @@ async fn block_indexer_if_agent_version_is_below_min() {
         id: indexer_addr,
         url: indexer_url,
         staked_tokens: Default::default(),
-        deployments: Default::default(),
         indexings: Default::default(),
     };
 
@@ -303,7 +299,6 @@ async fn process_indexers_info_successfully() {
         id: indexer_address,
         url: indexer_url.clone(),
         staked_tokens: 100_000_000_000_000_000_000_000,
-        deployments: vec![indexing_id],
         indexings: HashMap::from([(
             indexing_id,
             IndexerIndexingRawInfo {
@@ -339,9 +334,6 @@ async fn process_indexers_info_successfully() {
     assert_eq!(info.id, indexer_address);
     assert_eq!(info.url, indexer_url);
     assert_eq!(info.staked_tokens, 100_000_000_000_000_000_000_000);
-
-    assert_eq!(info.deployments.len(), 1);
-    assert!(info.deployments.contains(&indexing_id));
 
     assert_eq!(info.indexings.len(), 1);
     assert_matches!(info.indexings.get(&indexing_id), Some(Ok(indexing_info)) => {
