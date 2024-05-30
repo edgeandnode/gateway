@@ -10,7 +10,7 @@ use std::{
 use alloy_primitives::{Address, BlockNumber};
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
-use eventuals::Ptr;
+use gateway_common::ptr::Ptr;
 use semver::Version;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use url::Url;

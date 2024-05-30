@@ -9,8 +9,7 @@
 use std::time::Duration;
 
 use cost_model::{CompileError, CostModel};
-use eventuals::Ptr;
-use gateway_common::ttl_hash_map::TtlHashMap;
+use gateway_common::{ptr::Ptr, ttl_hash_map::TtlHashMap};
 
 use crate::indexers::cost_models::CostModelSource;
 
