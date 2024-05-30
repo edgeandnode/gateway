@@ -10,7 +10,7 @@ use std::{
 use alloy_primitives::{Address, BlockNumber};
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
-use gateway_common::ptr::Ptr;
+use gateway_common::{caching::Freshness, ptr::Ptr};
 use semver::Version;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use url::Url;
@@ -60,7 +60,7 @@ pub struct Indexing {
     /// The indexing progress.
     ///
     /// See [`IndexingProgress`] for more information.
-    pub progress: IndexingProgress,
+    pub progress: Freshness<IndexingProgress>,
     /// The indexer's indexing cost model
     pub cost_model: Option<Ptr<CostModel>>,
 }
@@ -72,6 +72,15 @@ pub struct IndexingProgress {
     pub latest_block: BlockNumber,
     /// The minimum block the indexer has indexed for the deployment.
     pub min_block: Option<BlockNumber>,
+}
+
+impl IndexingProgress {
+    /// Returns the indexed range.
+    ///
+    /// The indexed range is the range of blocks the indexer has indexed for the deployment.
+    pub fn indexed_range(&self) -> (Option<BlockNumber>, BlockNumber) {
+        (self.min_block, self.latest_block)
+    }
 }
 
 /// The [`Indexer`] struct represents an indexer in the network topology.
@@ -163,10 +172,6 @@ pub struct Deployment {
 //  Copied from gateway-framework/src/errors.rs
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum IndexingError {
-    /// Deployment error
-    #[error(transparent)]
-    DeploymentError(#[from] DeploymentError),
-
     /// The indexer is considered unavailable.
     #[error("Unavailable({0})")]
     Unavailable(UnavailableReason),
@@ -536,10 +541,10 @@ fn construct_indexings_table_row(
         largest_allocation: indexing_largest_allocation_addr,
         total_allocated_tokens: indexing_total_allocated_tokens,
         indexer: Arc::clone(indexer),
-        progress: IndexingProgress {
-            latest_block: indexing_progress.latest_block,
-            min_block: indexing_progress.min_block,
-        },
+        progress: indexing_progress.map(|data| IndexingProgress {
+            latest_block: data.latest_block,
+            min_block: data.min_block,
+        }),
         cost_model: indexing_cost_model,
     };
 

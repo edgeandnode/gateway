@@ -23,16 +23,21 @@ use super::{
     indexer_host_resolver::{HostResolver, DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT},
     indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::{
-        CostModelResolver, DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
+        CostModelResolver, DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_CACHE_TTL,
+        DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
     },
     indexer_indexing_poi_blocklist::PoiBlocklist,
     indexer_indexing_poi_resolver::{
         PoiResolver, DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT,
     },
     indexer_indexing_progress_resolver::{
-        IndexingProgressResolver, DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
+        IndexingProgressResolver, DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL,
+        DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
     },
-    indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
+    indexer_version_resolver::{
+        VersionResolver, DEFAULT_INDEXER_VERSION_CACHE_TTL,
+        DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
+    },
     internal::{
         fetch_update, DeploymentError, Indexing, IndexingError, IndexingId, InternalState,
         NetworkTopologySnapshot, SubgraphError, VersionRequirements as IndexerVersionRequirements,
@@ -55,25 +60,24 @@ pub struct ResolvedSubgraphInfo {
 
     /// The [`SubgraphId`]s associated with the query selector.
     pub subgraphs: Vec1<SubgraphId>,
-    /// The [`DeploymentId`]s associated with the query selector.
-    pub deployments: Vec1<DeploymentId>,
 
     /// A list of [`Indexing`]s for the resolved subgraph versions.
     pub indexings: HashMap<IndexingId, Result<Indexing, IndexingError>>,
 }
 
 impl ResolvedSubgraphInfo {
-    /// Get the latest indexed block number for the resolved subgraph.
+    /// Get the latest block number reported.
     ///
-    /// The latest block number is the highest block number among all the indexings associated with
-    /// the resolved subgraph.
-    pub fn latest_indexed_block(&self) -> BlockNumber {
+    /// The latest block number is the highest block number among all the reported progress of
+    /// the indexings associated with the resolved subgraph. Ignore errored or stale indexings'
+    /// progress information.
+    pub fn latest_reported_block(&self) -> Option<BlockNumber> {
         self.indexings
             .values()
             .filter_map(|indexing| indexing.as_ref().ok())
-            .map(|indexing| indexing.progress.latest_block)
+            .filter_map(|indexing| indexing.progress.as_fresh())
+            .map(|progress| progress.latest_block)
             .max()
-            .unwrap_or(self.start_block)
     }
 }
 
@@ -94,25 +98,6 @@ impl NetworkService {
             .value()
             .await
             .expect("network service not available");
-    }
-
-    /// Get the deployments table as an eventual.
-    // TODO: For backwards-compat. Review this method and consider removing it
-    //   - This method is used in the `main.rs` file to construct a map of indexings to
-    //     their largest allocation address. This is consumed by the `scalar::ReceiptSigner`.
-    //   - This is consumed by the indexing performance service/actor.
-    pub fn indexings(&self) -> Eventual<Ptr<HashMap<IndexingId, Indexing>>> {
-        self.network.clone().map(|network| async move {
-            let indexings = network
-                .subgraphs()
-                .values()
-                .filter_map(|subgraph| subgraph.as_ref().ok())
-                .flat_map(|subgraph| subgraph.indexings.clone())
-                .filter_map(|(id, indexing)| indexing.map(|indexing| (id, indexing)).ok())
-                .collect();
-
-            Ptr::new(indexings)
-        })
     }
 
     /// Given a [`SubgraphId`], resolve the deployments associated with the subgraph.
@@ -138,21 +123,12 @@ impl NetworkService {
         let subgraph_start_block = subgraph.start_block;
 
         let subgraphs = vec1![subgraph.id];
-        let deployments = subgraph
-            .deployments
-            .iter()
-            .copied()
-            .collect::<Vec<_>>()
-            .try_into()
-            .map_err(|_| anyhow!("no deployments found for subgraph {id}"))?;
-
         let indexings = subgraph.indexings.clone();
 
         Ok(Ok(Some(ResolvedSubgraphInfo {
             chain: subgraph_chain,
             start_block: subgraph_start_block,
             subgraphs,
-            deployments,
             indexings,
         })))
     }
@@ -186,17 +162,58 @@ impl NetworkService {
             .collect::<Vec<_>>()
             .try_into()
             .map_err(|_| anyhow!("no subgraphs found for deployment {id}"))?;
-        let deployments = vec1![deployment.id];
-
         let indexings = deployment.indexings.clone();
 
         Ok(Ok(Some(ResolvedSubgraphInfo {
             chain: deployment_chain,
             start_block: deployment_start_block,
             subgraphs,
-            deployments,
             indexings,
         })))
+    }
+
+    /// Get an eventual that resolves to the latest indexed block number for each indexing
+    // TODO: For backwards-compat. Review this method and consider removing it
+    //   - This is consumed by the indexing performance service/actor.
+    pub fn indexings_progress(&self) -> Eventual<Ptr<HashMap<IndexingId, BlockNumber>>> {
+        self.network.clone().map(|network| async move {
+            let progress = network
+                .deployments()
+                .values()
+                .filter_map(|deployment| deployment.as_ref().ok())
+                .flat_map(|deployment| &deployment.indexings)
+                .filter_map(|(id, indexing)| match indexing {
+                    Ok(indexing) => Some((
+                        *id,
+                        indexing.progress.as_fresh().map(|prog| prog.latest_block)?,
+                    )),
+                    Err(_) => None,
+                })
+                .collect::<HashMap<_, _>>();
+
+            Ptr::new(progress)
+        })
+    }
+
+    /// Get an eventual that resolves to the largest allocation address for each indexing
+    // TODO: For backwards-compat. Review this method and consider removing it
+    //   -  This method is used in the `main.rs` file to construct a map of indexings to
+    //      their largest allocation address. This is consumed by the `scalar::ReceiptSigner`.
+    pub fn indexings_largest_allocation(&self) -> Eventual<Ptr<HashMap<IndexingId, Address>>> {
+        self.network.clone().map(|network| async move {
+            let progress = network
+                .deployments()
+                .values()
+                .filter_map(|deployment| deployment.as_ref().ok())
+                .flat_map(|deployment| &deployment.indexings)
+                .filter_map(|(id, indexing)| match indexing {
+                    Ok(indexing) => Some((*id, indexing.largest_allocation)),
+                    Err(_) => None,
+                })
+                .collect::<HashMap<_, _>>();
+
+            Ptr::new(progress)
+        })
     }
 }
 
@@ -223,17 +240,21 @@ impl NetworkServiceBuilder {
             DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT, // 1500ms
         )
         .expect("failed to create host resolver");
-        let indexer_version_resolver = VersionResolver::with_timeout(
+        let indexer_version_resolver = VersionResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
-            DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1500ms
+            DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1.5 seconds
+            DEFAULT_INDEXER_VERSION_CACHE_TTL,          // 20 minutes
         );
-        let indexer_indexing_progress_resolver = IndexingProgressResolver::with_timeout(
+        let indexer_indexing_progress_resolver =
+            IndexingProgressResolver::with_timeout_and_cache_ttl(
+                indexer_client.clone(),
+                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 5 seconds
+                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL, // 2 minutes
+            );
+        let indexer_indexing_cost_model_resolver = CostModelResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
-            DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 5s
-        );
-        let indexer_indexing_cost_model_resolver = CostModelResolver::with_timeout(
-            indexer_client.clone(),
-            DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT, // 5s
+            DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT, // 5 seconds
+            DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_CACHE_TTL, // 5 minutes
         );
         let indexer_indexing_cost_model_compiler = CostModelCompiler::default();
 
