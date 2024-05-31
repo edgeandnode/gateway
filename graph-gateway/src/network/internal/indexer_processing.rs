@@ -6,8 +6,7 @@ use std::{
 use alloy_primitives::{Address, BlockNumber};
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
-use eventuals::Ptr;
-use gateway_common::blocklist::Blocklist as _;
+use gateway_common::{blocklist::Blocklist as _, ptr::Ptr};
 use semver::Version;
 use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;
