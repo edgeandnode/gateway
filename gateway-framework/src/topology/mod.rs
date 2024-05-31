@@ -35,18 +35,14 @@ async fn update_allocations(
         indexing_statuses = indexing_statuses.len(),
     );
 
-    let mut allocations: HashMap<Indexing, Address> = HashMap::new();
+    let mut allocations: HashMap<(Address, DeploymentId), Address> = HashMap::new();
     for (deployment, indexer) in deployments.values().flat_map(|deployment| {
         deployment
             .indexers
             .values()
             .map(|indexer| (deployment.as_ref(), indexer.as_ref()))
     }) {
-        let indexing = Indexing {
-            indexer: indexer.id,
-            deployment: deployment.id,
-        };
-        allocations.insert(indexing, indexer.largest_allocation);
+        allocations.insert((indexer.id, deployment.id), indexer.largest_allocation);
     }
-    receipt_signer.update_allocations(allocations).await;
+    receipt_signer.update_allocations(&allocations).await;
 }
