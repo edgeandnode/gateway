@@ -8,7 +8,7 @@ use graph_gateway::network::{
     indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
+    indexer_version_resolver::VersionResolver,
     internal::{
         fetch_update as internal_fetch_update, IndexingError, InternalState,
         NetworkTopologySnapshot,
@@ -65,10 +65,7 @@ fn test_service_state(
     let indexers_http_client = reqwest::Client::new();
     let indexer_host_resolver =
         Mutex::new(HostResolver::new().expect("Failed to create host resolver"));
-    let indexer_version_resolver = VersionResolver::with_timeout(
-        indexers_http_client.clone(),
-        DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1500 ms
-    );
+    let indexer_version_resolver = VersionResolver::new(indexers_http_client.clone());
     let indexer_indexing_progress_resolver =
         IndexingProgressResolver::new(indexers_http_client.clone());
     let indexer_indexing_cost_model_resolver = (

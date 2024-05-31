@@ -3,13 +3,21 @@
 use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::BlockNumber;
+use gateway_common::{caching::Freshness, ttl_hash_map::TtlHashMap};
 use thegraph_core::types::DeploymentId;
+use tokio::sync::RwLock;
 use url::Url;
 
 use crate::{indexers, indexers::indexing_statuses::IndexingStatusResponse};
 
-/// The timeout for the indexer's indexing progress resolution.
+/// The default timeout for the indexer's indexing progress resolution.
 pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The default TTL (time-to-live) for the cached indexer's indexing progress information: 2 minutes.
+///
+/// The cache TTL is the time that the indexer's indexing progress resolution is cached for.
+pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL: Duration =
+    Duration::from_secs(120);
 
 /// An error that occurred while resolving the indexer's progress.
 // TODO: Differentiate deserialization errors from resolver errors
@@ -27,7 +35,7 @@ pub enum ResolutionError {
 }
 
 /// The indexing progress information of a deployment on a chain.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IndexingProgressInfo {
     /// The chain the deployment is associated with.
     pub chain: String,
@@ -41,6 +49,7 @@ pub struct IndexingProgressInfo {
 pub struct IndexingProgressResolver {
     client: reqwest::Client,
     timeout: Duration,
+    cache: RwLock<TtlHashMap<(String, DeploymentId), IndexingProgressInfo>>,
 }
 
 impl IndexingProgressResolver {
@@ -49,16 +58,27 @@ impl IndexingProgressResolver {
         Self {
             client,
             timeout: DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
+            cache: RwLock::new(TtlHashMap::with_ttl(
+                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL,
+            )),
         }
     }
 
-    /// Creates a new [`IndexingProgressResolver`] with the given timeout.
-    pub fn with_timeout(client: reqwest::Client, timeout: Duration) -> Self {
-        Self { client, timeout }
+    /// Creates a new [`IndexingProgressResolver`] with the given timeout and cache TTL.
+    pub fn with_timeout_and_cache_ttl(
+        client: reqwest::Client,
+        timeout: Duration,
+        cache_ttl: Duration,
+    ) -> Self {
+        Self {
+            client,
+            timeout,
+            cache: RwLock::new(TtlHashMap::with_ttl(cache_ttl)),
+        }
     }
 
-    /// Resolves the indexer indexing progress for the given deployments
-    async fn resolve_indexing_progress(
+    /// Fetches the indexing progress of the given deployments from the indexer's status URL.
+    async fn fetch_indexing_progress(
         &self,
         url: &Url,
         indexings: &[DeploymentId],
@@ -74,23 +94,81 @@ impl IndexingProgressResolver {
         .map_err(ResolutionError::FetchError)
     }
 
+    /// Gets the cached progress information for the given indexings.
+    ///
+    /// This method locks the cache in read mode and returns the cached progress information for the
+    /// given indexings.
+    async fn get_from_cache(
+        &self,
+        url: &str,
+        indexings: impl IntoIterator<Item = &DeploymentId>,
+    ) -> HashMap<DeploymentId, IndexingProgressInfo> {
+        let read_cache = self.cache.read().await;
+        let mut result = HashMap::new();
+
+        for deployment in indexings {
+            match read_cache.get(&(url.to_owned(), *deployment)) {
+                Some(data) => {
+                    result.insert(*deployment, data.clone());
+                }
+                None => continue,
+            }
+        }
+
+        result
+    }
+
+    /// Updates the cache with the given progress information.
+    ///
+    /// This method locks the cache in write mode and updates the cache with the given progress
+    /// information.
+    async fn update_cache(
+        &self,
+        url: &str,
+        progress: &HashMap<DeploymentId, IndexingProgressInfo>,
+    ) {
+        let mut write_cache = self.cache.write().await;
+        for (deployment, data) in progress.iter() {
+            write_cache.insert((url.to_owned(), *deployment), data.clone());
+        }
+    }
+
     /// Resolves the indexing progress of the given deployments.
     ///
-    /// Returns a map of deployment IDs to their indexing progress information.
-    pub async fn resolve(
+    /// If the request successfully returns the data, the cached data is updated and the new data is
+    /// returned, otherwise the cached data is returned.
+    async fn resolve_with_cache(
         &self,
         url: &Url,
-        indexer_deployments: &[DeploymentId],
-    ) -> Result<HashMap<DeploymentId, IndexingProgressInfo>, ResolutionError> {
-        let progress = self
-            .resolve_indexing_progress(url, indexer_deployments)
-            .await?;
+        indexings: &[DeploymentId],
+    ) -> Result<HashMap<DeploymentId, Freshness<IndexingProgressInfo>>, ResolutionError> {
+        let url_string = url.to_string();
 
-        let progress = progress
+        let fetched = match self.fetch_indexing_progress(url, indexings).await {
+            Ok(fetched) => fetched,
+            Err(err) => {
+                tracing::debug!(error=%err, "indexing progress fetch failed");
+
+                // If the data fetch failed, return the cached data
+                // If no cached data is available, return the error
+                let cached_progress = self
+                    .get_from_cache(&url_string, indexings)
+                    .await
+                    .into_iter()
+                    .map(|(k, v)| (k, Freshness::Cached(v)))
+                    .collect::<HashMap<_, _>>();
+                return if cached_progress.is_empty() {
+                    Err(err)
+                } else {
+                    Ok(cached_progress)
+                };
+            }
+        };
+
+        let fresh_progress = fetched
             .into_iter()
             .filter_map(|resp| {
-                // TODO: Review this
-                // Only consider the first chain status, if has no chains
+                // Only consider the first chain status
                 let chain = resp.chains.into_iter().next()?;
 
                 // If the status has no chains or no latest block, skip it
@@ -109,6 +187,39 @@ impl IndexingProgressResolver {
             })
             .collect::<HashMap<_, _>>();
 
-        Ok(progress)
+        // Update the cache with the fetched data, if any
+        if !fresh_progress.is_empty() {
+            self.update_cache(&url_string, &fresh_progress).await;
+        }
+
+        // Get the cached data for the missing deployments
+        let cached_progress = {
+            // Get the list of deployments that are missing from the fetched data
+            let missing_indexings = fresh_progress
+                .keys()
+                .filter(|deployment| !indexings.contains(deployment));
+
+            // Get the cached data for the missing deployments
+            self.get_from_cache(&url_string, missing_indexings).await
+        };
+
+        // Merge the fetched and cached data
+        let fresh_progress = fresh_progress
+            .into_iter()
+            .map(|(k, v)| (k, Freshness::Fresh(v)));
+        let cached_progress = cached_progress
+            .into_iter()
+            .map(|(k, v)| (k, Freshness::Cached(v)));
+        Ok(HashMap::from_iter(cached_progress.chain(fresh_progress)))
+    }
+    /// Resolves the indexing progress of the given deployments.
+    ///
+    /// Returns a map of deployment IDs to their indexing progress information.
+    pub async fn resolve(
+        &self,
+        url: &Url,
+        indexer_deployments: &[DeploymentId],
+    ) -> Result<HashMap<DeploymentId, Freshness<IndexingProgressInfo>>, ResolutionError> {
+        self.resolve_with_cache(url, indexer_deployments).await
     }
 }

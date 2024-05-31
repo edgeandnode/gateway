@@ -6,7 +6,7 @@ use std::{
 use alloy_primitives::{Address, BlockNumber};
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
-use gateway_common::{blocklist::Blocklist as _, ptr::Ptr};
+use gateway_common::{blocklist::Blocklist as _, caching::Freshness, ptr::Ptr};
 use semver::Version;
 use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;
@@ -109,7 +109,7 @@ pub struct IndexerIndexingInfo {
     /// The indexing progress information
     ///
     /// See [`IndexingProgressInfo`] for more information.
-    pub progress: IndexingProgressInfo,
+    pub progress: Freshness<IndexingProgressInfo>,
 
     /// The cost model for this indexing.
     pub cost_model: Option<Ptr<CostModel>>,
@@ -527,8 +527,10 @@ async fn resolve_indexer_progress(
     resolver: &IndexingProgressResolver,
     indexings: &[DeploymentId],
     indexer: &IndexerRawInfo,
-) -> Result<HashMap<DeploymentId, Result<IndexingProgressInfo, IndexerIndexingError>>, IndexerError>
-{
+) -> Result<
+    HashMap<DeploymentId, Result<Freshness<IndexingProgressInfo>, IndexerIndexingError>>,
+    IndexerError,
+> {
     let mut progress_info = resolver.resolve(&indexer.url, indexings).await?;
     tracing::trace!(
         indexings_requested = %indexings.len(),
@@ -543,14 +545,16 @@ async fn resolve_indexer_progress(
                 *id,
                 progress_info
                     .remove(id)
-                    .map(|res| IndexingProgressInfo {
-                        latest_block: res.latest_block,
-                        min_block: res.min_block,
+                    .map(|res| {
+                        res.map(|data| IndexingProgressInfo {
+                            latest_block: data.latest_block,
+                            min_block: data.min_block,
+                        })
                     })
                     .ok_or(IndexerIndexingError::ProgressNotFound),
             )
         })
-        .collect();
+        .collect::<HashMap<_, _>>();
 
     Ok(progress)
 }
@@ -580,13 +584,15 @@ async fn resolve_indexer_cost_models(
         let mut compiler = compiler.lock().await;
         cost_model_sources
             .into_iter()
-            .filter_map(|(deployment, source)| match compiler.compile(source) {
-                Err(err) => {
-                    tracing::debug!("cost model compilation failed: {err}");
-                    None
-                }
-                Ok(cost_model) => Some((deployment, cost_model)),
-            })
+            .filter_map(
+                |(deployment, source)| match compiler.compile(source.as_ref()) {
+                    Err(err) => {
+                        tracing::debug!("cost model compilation failed: {err}");
+                        None
+                    }
+                    Ok(cost_model) => Some((deployment, cost_model)),
+                },
+            )
             .collect()
     };
 

@@ -15,6 +15,7 @@ pub use self::{
     },
     snapshot::{
         Indexer, Indexing, IndexingError, IndexingId, IndexingProgress, NetworkTopologySnapshot,
+        UnavailableReason,
     },
     state::InternalState,
     subgraph_processing::{

@@ -13,13 +13,16 @@ use gateway_common::{ptr::Ptr, ttl_hash_map::TtlHashMap};
 
 use crate::indexers::cost_models::CostModelSource;
 
+/// Maximum size of a cost model source.
+const MAX_COST_MODEL_SIZE: usize = 1 << 16;
+
 /// Default time-to-live for the cost model compilation cache entries: 12 hours.
 const DEFAULT_COMPILATION_CACHE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
 
 /// Internal representation of a cost model source to be used as a key in the compilation cache
 /// hashmap.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-struct CostModelSrc {
+struct CacheKey {
     model: String,
     variables: Option<String>,
 }
@@ -55,7 +58,7 @@ impl From<CompileError> for CompilationError {
 
 /// Resolve the indexers' cost models sources and compile them into cost models.
 pub struct CostModelCompiler {
-    cache: TtlHashMap<CostModelSrc, Result<Ptr<CostModel>, CompilationError>>,
+    cache: TtlHashMap<CacheKey, Result<Ptr<CostModel>, CompilationError>>,
 }
 
 impl Default for CostModelCompiler {
@@ -80,35 +83,32 @@ impl CostModelCompiler {
     ///
     /// The compilation result is cached, so if the same cost model source is compiled multiple
     /// times, the compilation result is returned from the cache.
-    pub fn compile(&mut self, src: CostModelSource) -> Result<Ptr<CostModel>, CompilationError> {
-        // Check the cost model source size
-        if src.model.len() > (1 << 16) {
+    pub fn compile(&mut self, src: &CostModelSource) -> Result<Ptr<CostModel>, CompilationError> {
+        if src.model.len() > MAX_COST_MODEL_SIZE {
             return Err(CompilationError::CostModelTooLarge(src.model.len()));
         }
 
-        // Construct the cost model source representation
-        let src = CostModelSrc {
-            model: src.model,
-            variables: src.variables,
+        // Construct the cache key
+        let sources = CacheKey {
+            model: src.model.clone(),
+            variables: src.variables.clone(),
         };
 
-        // Check the cache for the compilation result, if it exists, return it. Otherwise, compile
-        // the cost model and cache the compilation result.
-        match self.cache.get(&src) {
-            Some(compilation_result) => compilation_result.clone(),
-            None => {
-                let compilation_sources = src.clone();
-                let compilation_result =
-                    CostModel::compile(&src.model, &src.variables.unwrap_or_default())
-                        .map(Ptr::new)
-                        .map_err(Into::into);
-
-                // Cache the compilation result
-                self.cache
-                    .insert(compilation_sources, compilation_result.clone());
-
-                compilation_result
-            }
+        // Check the cache for the compilation result, if it exists, return it
+        if let Some(cached_result) = self.cache.get(&sources).cloned() {
+            return cached_result;
         }
+
+        // Compile it, and cache the result
+        let result = CostModel::compile(
+            &sources.model,
+            sources.variables.as_deref().unwrap_or_default(),
+        )
+        .map(Ptr::new)
+        .map_err(Into::into);
+
+        self.cache.insert(sources, result.clone());
+
+        result
     }
 }
