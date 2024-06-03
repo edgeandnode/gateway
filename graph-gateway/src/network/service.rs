@@ -194,27 +194,6 @@ impl NetworkService {
             Ptr::new(progress)
         })
     }
-
-    /// Get an eventual that resolves to the largest allocation address for each indexing
-    // TODO: For backwards-compat. Review this method and consider removing it
-    //   -  This method is used in the `main.rs` file to construct a map of indexings to
-    //      their largest allocation address. This is consumed by the `scalar::ReceiptSigner`.
-    pub fn indexings_largest_allocation(&self) -> Eventual<Ptr<HashMap<IndexingId, Address>>> {
-        self.network.clone().map(|network| async move {
-            let largest_allocations = network
-                .deployments()
-                .values()
-                .filter_map(|deployment| deployment.as_ref().ok())
-                .flat_map(|deployment| &deployment.indexings)
-                .filter_map(|(id, indexing)| match indexing {
-                    Ok(indexing) => Some((*id, indexing.largest_allocation)),
-                    Err(_) => None,
-                })
-                .collect::<HashMap<_, _>>();
-
-            Ptr::new(largest_allocations)
-        })
-    }
 }
 
 /// The [`NetworkService`] builder.

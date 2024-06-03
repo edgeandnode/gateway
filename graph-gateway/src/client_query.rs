@@ -339,6 +339,7 @@ async fn run_indexer_queries(
         for &selection in &selections {
             let indexer = selection.id.indexer;
             let deployment = selection.id.deployment;
+            let largest_allocation = selection.data.largest_allocation;
             let url = selection.data.indexer.url.clone();
             let seconds_behind = selection.seconds_behind;
             let legacy_scalar = !selection.data.indexer.scalar_tap_support;
@@ -350,9 +351,9 @@ async fn run_indexer_queries(
             let fee = indexer_fee.max(min_fee) as u128;
             let receipt = match if legacy_scalar {
                 ctx.receipt_signer
-                    .create_legacy_receipt(indexer, deployment, fee)
+                    .create_legacy_receipt(largest_allocation, fee)
             } else {
-                ctx.receipt_signer.create_receipt(indexer, deployment, fee)
+                ctx.receipt_signer.create_receipt(largest_allocation, fee)
             } {
                 Ok(receipt) => receipt,
                 Err(err) => {
@@ -397,6 +398,7 @@ async fn run_indexer_queries(
                 let report = reports::IndexerRequest {
                     indexer,
                     deployment,
+                    largest_allocation,
                     url: url.to_string(),
                     receipt,
                     subgraph_chain,
@@ -429,8 +431,7 @@ async fn run_indexer_queries(
                 Err(_) => ReceiptStatus::Failure,
             };
             ctx.receipt_signer.record_receipt(
-                report.indexer,
-                report.deployment,
+                &report.largest_allocation,
                 &report.receipt,
                 receipt_status,
             );
