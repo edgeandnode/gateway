@@ -1,33 +1,24 @@
-use alloy_primitives::BlockNumber;
-use gateway_framework::errors::{IndexerError, UnavailableReason::*};
-use serde::Deserialize;
-use thegraph_core::types::attestation::Attestation;
-
-use crate::client_query::Selection;
-
-pub struct IndexerResponse {
-    pub status: u16,
-    pub payload: ResponsePayload,
-}
+use alloy_primitives::{BlockHash, BlockNumber};
+use gateway_framework::{
+    blocks::Block,
+    errors::{
+        IndexerError, MissingBlockError,
+        UnavailableReason::{self, *},
+    },
+    scalar::ScalarReceipt,
+};
+use serde::{Deserialize, Serialize};
+use thegraph_core::types::{attestation::Attestation, DeploymentId};
+use thegraph_graphql_http::http::response::{Error as GQLError, ResponseBody as GQLResponseBody};
+use url::Url;
 
 #[derive(Clone, Debug)]
-pub struct ResponsePayload {
-    pub body: String,
+pub struct IndexerResponse {
+    pub original_response: String,
     pub attestation: Option<Attestation>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BlockError {
-    pub unresolved: Option<BlockNumber>,
-    pub latest_block: Option<BlockNumber>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct IndexerResponsePayload {
-    #[serde(rename = "graphQLResponse")]
-    pub graphql_response: Option<String>,
-    pub attestation: Option<Attestation>,
-    pub error: Option<String>,
+    pub client_response: String,
+    pub errors: Vec<String>,
+    pub probe_block: Option<Block>,
 }
 
 #[derive(Clone)]
@@ -38,19 +29,20 @@ pub struct IndexerClient {
 impl IndexerClient {
     pub async fn query_indexer(
         &self,
-        selection: &Selection,
+        deployment: &DeploymentId,
+        url: &Url,
+        receipt: &ScalarReceipt,
         query: String,
     ) -> Result<IndexerResponse, IndexerError> {
-        let url = selection
-            .url
-            .join(&format!("subgraphs/id/{:?}", selection.indexing.deployment))
+        let url = url
+            .join(&format!("subgraphs/id/{:?}", deployment))
             .map_err(|_| IndexerError::Unavailable(NoStatus))?;
 
         let result = self
             .client
             .post(url)
             .header("Content-Type", "application/json")
-            .header("Scalar-Receipt", &selection.receipt.serialize())
+            .header("Scalar-Receipt", receipt.serialize())
             .body(query)
             .send()
             .await
@@ -67,31 +59,88 @@ impl IndexerClient {
                 _ => return Err(IndexerError::BadResponse(err.to_string())),
             },
         };
-        let response_status = response.status();
+
+        #[derive(Debug, Deserialize)]
+        pub struct IndexerResponsePayload {
+            #[serde(rename = "graphQLResponse")]
+            pub graphql_response: Option<String>,
+            pub attestation: Option<Attestation>,
+            pub error: Option<String>,
+        }
         let payload = response
             .json::<IndexerResponsePayload>()
             .await
             .map_err(|err| IndexerError::BadResponse(err.to_string()))?;
-        let graphql_response = match payload.graphql_response {
-            Some(graphql_response) => graphql_response,
-            None => {
-                let err = payload
-                    .error
-                    .unwrap_or_else(|| "missing GraphQL response".to_string());
-                return Err(IndexerError::BadResponse(err));
-            }
-        };
+        if let Some(err) = payload.error {
+            return Err(IndexerError::BadResponse(err));
+        }
+
+        let original_response = payload
+            .graphql_response
+            .ok_or_else(|| IndexerError::BadResponse("missing response".into()))?;
+        let (client_response, errors, probe_block) = rewrite_response(&original_response)?;
+        let errors: Vec<String> = errors.into_iter().map(|err| err.message).collect();
+
+        errors
+            .iter()
+            .try_for_each(|err| check_block_error(err))
+            .map_err(|err| IndexerError::Unavailable(UnavailableReason::MissingBlock(err)))?;
+
         Ok(IndexerResponse {
-            status: response_status.as_u16(),
-            payload: ResponsePayload {
-                body: graphql_response,
-                attestation: payload.attestation,
-            },
+            original_response,
+            attestation: payload.attestation,
+            client_response,
+            errors,
+            probe_block,
         })
     }
 }
 
-pub fn check_block_error(err: &str) -> Result<(), BlockError> {
+fn rewrite_response(
+    response: &str,
+) -> Result<(String, Vec<GQLError>, Option<Block>), IndexerError> {
+    #[derive(Deserialize, Serialize)]
+    struct ProbedData {
+        #[serde(rename = "_gateway_probe_", skip_serializing)]
+        probe: Option<Meta>,
+        #[serde(flatten)]
+        data: serde_json::Value,
+    }
+    #[derive(Deserialize)]
+    struct Meta {
+        block: MaybeBlock,
+    }
+    #[derive(Deserialize)]
+    struct MaybeBlock {
+        number: BlockNumber,
+        hash: BlockHash,
+        timestamp: Option<u64>,
+    }
+    let mut payload: GQLResponseBody<ProbedData> =
+        serde_json::from_str(response).map_err(|err| IndexerError::BadResponse(err.to_string()))?;
+
+    // Avoid processing oversized errors.
+    for err in &mut payload.errors {
+        err.message.truncate(256);
+        err.message.shrink_to_fit();
+    }
+
+    let block = payload
+        .data
+        .as_mut()
+        .and_then(|data| data.probe.take())
+        .and_then(|meta| {
+            Some(Block {
+                number: meta.block.number,
+                hash: meta.block.hash,
+                timestamp: meta.block.timestamp?,
+            })
+        });
+    let client_response = serde_json::to_string(&payload).unwrap();
+    Ok((client_response, payload.errors, block))
+}
+
+fn check_block_error(err: &str) -> Result<(), MissingBlockError> {
     // TODO: indexers should *always* report their block status in a header on every query. This
     // will significantly reduce how brittle this feedback is, and also give a stronger basis for
     // prediction in the happy path.
@@ -103,27 +152,27 @@ pub fn check_block_error(err: &str) -> Result<(), BlockError> {
         let str = err.split_at(start).1.split_once(' ')?.0;
         str.parse::<u64>().ok()
     };
-    Err(BlockError {
-        unresolved: extract_block_number("and data for block number "),
-        latest_block: extract_block_number("has only indexed up to block number "),
+    Err(MissingBlockError {
+        missing: extract_block_number("and data for block number "),
+        latest: extract_block_number("has only indexed up to block number "),
     })
 }
 
 #[cfg(test)]
 mod test {
-    use crate::indexer_client::BlockError;
+    use gateway_framework::errors::MissingBlockError;
 
     #[test]
     fn check_block_error() {
         let tests = [
             ("", Ok(())),
-            ("Failed to decode `block.number` value: `subgraph QmQqLJVgZLcRduoszARzRi12qGheUTWAHFf3ixMeGm2xML has only indexed up to block number 133239690 and data for block number 133239697 is therefore not yet available", Err(BlockError {
-                unresolved: Some(133239697),
-                latest_block: Some(133239690),
+            ("Failed to decode `block.number` value: `subgraph QmQqLJVgZLcRduoszARzRi12qGheUTWAHFf3ixMeGm2xML has only indexed up to block number 133239690 and data for block number 133239697 is therefore not yet available", Err(MissingBlockError {
+                missing: Some(133239697),
+                latest: Some(133239690),
             })),
-            ("Failed to decode `block.hash` value", Err(BlockError {
-                unresolved: None,
-                latest_block: None,
+            ("Failed to decode `block.hash` value", Err(MissingBlockError {
+                missing: None,
+                latest: None,
             })),
         ];
         for (input, expected) in tests {

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, BlockNumber};
 use axum::response::{IntoResponse, Response};
 
 use crate::{blocks::UnresolvedBlock, graphql};
@@ -66,5 +66,19 @@ pub enum UnavailableReason {
     NoFee,
     /// The indexer did not have a block required by the query.
     #[error("missing block")]
-    MissingBlock,
+    MissingBlock(MissingBlockError),
 }
+
+#[derive(Clone, Debug, PartialOrd, Ord)]
+pub struct MissingBlockError {
+    pub missing: Option<BlockNumber>,
+    pub latest: Option<BlockNumber>,
+}
+
+impl PartialEq for MissingBlockError {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for MissingBlockError {}
