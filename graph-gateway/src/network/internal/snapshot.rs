@@ -75,10 +75,11 @@ pub struct IndexingProgress {
 }
 
 impl IndexingProgress {
-    /// Returns the indexed range.
+    /// Returns the reported indexed range.
     ///
-    /// The indexed range is the range of blocks the indexer has indexed for the deployment.
-    pub fn indexed_range(&self) -> (Option<BlockNumber>, BlockNumber) {
+    /// The range is a tuple of the minimum block and the latest block the indexer has reported
+    /// as indexed.
+    pub fn as_range(&self) -> (Option<BlockNumber>, BlockNumber) {
         (self.min_block, self.latest_block)
     }
 }
