@@ -148,18 +148,16 @@ pub async fn handle_query(
     .in_current_span()
     .await;
 
-    // Metrics and tracing
+    // metrics and tracing
     {
-        let deployment: Option<String> = result
-            .as_ref()
-            .map(|(selection, _)| selection.indexing.deployment.to_string())
-            .ok();
-        let metric_labels = [deployment.as_deref().unwrap_or("")];
-
-        METRICS.client_query.check(&metric_labels, &result);
-        with_metric(&METRICS.client_query.duration, &metric_labels, |h| {
-            h.observe((Instant::now() - start_time).as_secs_f64())
-        });
+        match &result {
+            Ok(_) => METRICS.client_query.ok.inc(),
+            Err(_) => METRICS.client_query.err.inc(),
+        };
+        METRICS
+            .client_query
+            .duration
+            .observe((Instant::now() - start_time).as_secs_f64());
 
         let status_message = match &result {
             Ok(_) => "200 OK".to_string(),
@@ -169,14 +167,13 @@ pub async fn handle_query(
         tracing::info!(
             target: CLIENT_REQUEST_TARGET,
             start_time_ms = timestamp,
-            deployment,
             %status_message,
             %legacy_status_message,
             legacy_status_code,
         );
     }
 
-    result.map(|(_, ResponsePayload { body, attestation })| {
+    result.map(|ResponsePayload { body, attestation }| {
         Response::builder()
             .status(StatusCode::OK)
             .header_typed(ContentType::json())
@@ -233,7 +230,7 @@ async fn handle_client_query_inner(
     query_settings: Option<QuerySettings>,
     deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
-) -> Result<(Selection, ResponsePayload), Error> {
+) -> Result<ResponsePayload, Error> {
     let subgraph_chain = deployments
         .last()
         .map(|deployment| deployment.manifest.network.clone())
@@ -532,7 +529,11 @@ async fn handle_client_query_inner(
                     let _ = ctx.budgeter.feedback.send(total_indexer_fees_usd);
 
                     tracing::debug!(?indexer_errors);
-                    return Ok((selection, outcome));
+                    tracing::info!(
+                        target: CLIENT_REQUEST_TARGET,
+                        deployment = %selection.indexing.deployment,
+                    );
+                    return Ok(outcome);
                 }
             };
         }
