@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_primitives::{Address, BlockHash, BlockNumber};
+use alloy_primitives::{Address, BlockNumber};
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use axum::{
@@ -18,10 +18,11 @@ use eventuals::Ptr;
 use gateway_common::utils::{http_ext::HttpBuilderExt, timestamp::unix_timestamp};
 use gateway_framework::{
     auth::AuthSettings,
-    blocks::Block,
     budgets::USD,
     chains::ChainReader,
-    errors::{Error, IndexerError, UnavailableReason},
+    errors::{
+        Error, IndexerError, MissingBlockError, UnavailableReason, UnavailableReason::MissingBlock,
+    },
     indexing::Indexing,
     network::{
         discovery::Status,
@@ -37,10 +38,9 @@ use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
 use prost::bytes::Buf;
 use rand::{rngs::SmallRng, Rng as _, SeedableRng as _};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::value::RawValue;
 use thegraph_core::types::{attestation, DeploymentId};
-use thegraph_graphql_http::http::response::{Error as GQLError, ResponseBody as GQLResponseBody};
 use tokio::sync::mpsc;
 use tracing::Instrument;
 use url::Url;
@@ -51,7 +51,7 @@ use self::{
 };
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
-    indexer_client::{check_block_error, IndexerClient, ResponsePayload},
+    indexer_client::{IndexerClient, IndexerResponse},
     reports::{self, serialize_attestation},
     unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
 };
@@ -173,14 +173,20 @@ pub async fn handle_query(
         );
     }
 
-    result.map(|ResponsePayload { body, attestation }| {
-        Response::builder()
-            .status(StatusCode::OK)
-            .header_typed(ContentType::json())
-            .header_typed(GraphAttestation(attestation))
-            .body(body.to_string())
-            .unwrap()
-    })
+    result.map(
+        |IndexerResponse {
+             client_response,
+             attestation,
+             ..
+         }| {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header_typed(ContentType::json())
+                .header_typed(GraphAttestation(attestation))
+                .body(client_response)
+                .unwrap()
+        },
+    )
 }
 
 /// Given a query selector, resolve the subgraph deployments for the query. If the selector is a subgraph ID, return
@@ -230,7 +236,7 @@ async fn handle_client_query_inner(
     query_settings: Option<QuerySettings>,
     deployments: Vec<Arc<Deployment>>,
     payload: Bytes,
-) -> Result<ResponsePayload, Error> {
+) -> Result<IndexerResponse, Error> {
     let subgraph_chain = deployments
         .last()
         .map(|deployment| deployment.manifest.network.clone())
@@ -579,8 +585,18 @@ fn prepare_candidate(
         let latest_block = status.block.max(perf.latest_block + blocks_per_minute);
         let range = status.min_block.unwrap_or(0)..=latest_block;
         let number_gte = block_requirements.number_gte.unwrap_or(0);
-        if !range.contains(min) || !range.contains(max) || (*range.end() < number_gte) {
-            return Err(IndexerError::Unavailable(UnavailableReason::MissingBlock));
+        let missing_block = match range {
+            range if !range.contains(min) => Some(*min),
+            range if !range.contains(max) => Some(*max),
+            range if *range.end() < number_gte => Some(number_gte),
+            _ => None,
+        };
+        if let Some(missing) = missing_block {
+            let (missing, latest) = (Some(missing), None);
+            return Err(IndexerError::Unavailable(MissingBlock(MissingBlockError {
+                missing,
+                latest,
+            })));
         }
     }
 
@@ -638,7 +654,7 @@ async fn handle_indexer_query(
     mut ctx: IndexerQueryContext,
     selection: &Selection,
     indexer_request: String,
-) -> Result<ResponsePayload, IndexerError> {
+) -> Result<IndexerResponse, IndexerError> {
     let indexing = selection.indexing;
     let deployment = indexing.deployment.to_string();
     let indexer = format!("{:?}", indexing.indexer);
@@ -648,12 +664,10 @@ async fn handle_indexer_query(
         .indexer_query
         .check(&[&deployment, &indexer], &result);
 
-    let (result, latest_block) = match result {
-        Ok((result, block)) => (Ok(result), block.map(|b| b.number)),
-        Err(ExtendedIndexerError {
-            error,
-            latest_block,
-        }) => (Err(error), latest_block),
+    let latest_block = match &result {
+        Ok(IndexerResponse { probe_block, .. }) => probe_block.as_ref().map(|b| b.number),
+        Err(IndexerError::Unavailable(MissingBlock(MissingBlockError { latest, .. }))) => *latest,
+        _ => None,
     };
 
     let latency_ms = ctx.response_time.as_millis() as u16;
@@ -685,29 +699,20 @@ async fn handle_indexer_query(
     result
 }
 
-struct ExtendedIndexerError {
-    error: IndexerError,
-    latest_block: Option<BlockNumber>,
-}
-
-impl From<IndexerError> for ExtendedIndexerError {
-    fn from(value: IndexerError) -> Self {
-        Self {
-            error: value,
-            latest_block: None,
-        }
-    }
-}
-
 async fn handle_indexer_query_inner(
     ctx: &mut IndexerQueryContext,
     selection: &Selection,
     indexer_request: String,
-) -> Result<(ResponsePayload, Option<Block>), ExtendedIndexerError> {
+) -> Result<IndexerResponse, IndexerError> {
     let start_time = Instant::now();
     let result = ctx
         .indexer_client
-        .query_indexer(selection, indexer_request.clone())
+        .query_indexer(
+            &selection.indexing.deployment,
+            &selection.url,
+            &selection.receipt,
+            indexer_request.clone(),
+        )
         .await;
     ctx.response_time = Instant::now() - start_time;
 
@@ -720,19 +725,15 @@ async fn handle_indexer_query_inner(
     );
 
     let response = result?;
-    if response.status != StatusCode::OK.as_u16() {
-        tracing::warn!(indexer_response_status = %response.status);
-    }
 
-    let (client_response, errors, block) = rewrite_response(&response.payload.body)?;
-
-    if let Some(block) = &block {
+    if let Some(block) = &response.probe_block {
         ctx.chain.notify(block.clone(), selection.indexing.indexer);
     }
 
-    let errors_repr = errors
+    let errors_repr = response
+        .errors
         .iter()
-        .map(|err| err.message.as_str())
+        .map(|err| err.as_str())
         .collect::<Vec<&str>>()
         .join("; ");
     tracing::info!(
@@ -740,50 +741,39 @@ async fn handle_indexer_query_inner(
         indexer_errors = errors_repr,
     );
 
-    errors
-        .iter()
-        .try_for_each(|err| check_block_error(&err.message))
-        .map_err(|block_error| ExtendedIndexerError {
-            error: IndexerError::Unavailable(UnavailableReason::MissingBlock),
-            latest_block: block_error.latest_block,
-        })?;
-
-    for error in &errors {
-        if miscategorized_unattestable(&error.message) {
-            let message = if !errors.is_empty() {
-                format!("unattestable response: {}", errors_repr)
-            } else {
-                "unattestable response".to_string()
-            };
-            return Err(IndexerError::BadResponse(message).into());
+    for error in &response.errors {
+        if miscategorized_unattestable(error) {
+            return Err(IndexerError::BadResponse(format!(
+                "unattestable response: {}",
+                errors_repr
+            )));
         }
     }
 
-    if response.payload.attestation.is_none() {
+    if response.attestation.is_none() {
         // TODO: This is a temporary hack to handle errors that were previously miscategorized as
         //  unattestable in graph-node.
-        for error in &errors {
-            if miscategorized_attestable(&error.message) {
-                return Ok((response.payload, block));
+        for error in &response.errors {
+            if miscategorized_attestable(error) {
+                return Ok(response);
             }
         }
-
-        let message = if !errors.is_empty() {
+        let message = if !response.errors.is_empty() {
             format!("no attestation: {errors_repr}")
         } else {
             "no attestation".to_string()
         };
-        return Err(IndexerError::BadResponse(message).into());
+        return Err(IndexerError::BadResponse(message));
     }
 
-    if let Some(attestation) = &response.payload.attestation {
+    if let Some(attestation) = &response.attestation {
         let allocation = selection.receipt.allocation();
         let verified = attestation::verify(
             ctx.attestation_domain,
             attestation,
             &allocation,
             &indexer_request,
-            &response.payload.body,
+            &response.original_response,
         );
         // We send the Kafka message directly to avoid passing the request & response payloads
         // through the normal reporting path. This is to reduce log bloat.
@@ -791,21 +781,15 @@ async fn handle_indexer_query_inner(
             attestation,
             allocation,
             indexer_request,
-            response.payload.body,
+            response.original_response.clone(),
         );
         ctx.kafka_client.send("gateway_attestations", &payload);
         if let Err(err) = verified {
-            return Err(
-                IndexerError::BadResponse(anyhow!("bad attestation: {err}").to_string()).into(),
-            );
+            return Err(IndexerError::BadResponse(format!("bad attestation: {err}")));
         }
     }
 
-    let client_response = ResponsePayload {
-        body: client_response,
-        attestation: response.payload.attestation,
-    };
-    Ok((client_response, block))
+    Ok(response)
 }
 
 pub fn indexer_fee(
@@ -822,50 +806,6 @@ pub fn indexer_fee(
             .ok_or(IndexerError::Unavailable(UnavailableReason::NoFee)),
         Some(Err(_)) => Err(IndexerError::Unavailable(UnavailableReason::NoFee)),
     }
-}
-
-fn rewrite_response(
-    response: &str,
-) -> Result<(String, Vec<GQLError>, Option<Block>), IndexerError> {
-    #[derive(Deserialize, Serialize)]
-    struct ProbedData {
-        #[serde(rename = "_gateway_probe_", skip_serializing)]
-        probe: Option<Meta>,
-        #[serde(flatten)]
-        data: serde_json::Value,
-    }
-    #[derive(Deserialize)]
-    struct Meta {
-        block: MaybeBlock,
-    }
-    #[derive(Deserialize)]
-    struct MaybeBlock {
-        number: BlockNumber,
-        hash: BlockHash,
-        timestamp: Option<u64>,
-    }
-    let mut payload: GQLResponseBody<ProbedData> =
-        serde_json::from_str(response).map_err(|err| IndexerError::BadResponse(err.to_string()))?;
-
-    // Avoid processing oversized errors.
-    for err in &mut payload.errors {
-        err.message.truncate(256);
-        err.message.shrink_to_fit();
-    }
-
-    let block = payload
-        .data
-        .as_mut()
-        .and_then(|data| data.probe.take())
-        .and_then(|meta| {
-            Some(Block {
-                number: meta.block.number,
-                hash: meta.block.hash,
-                timestamp: meta.block.timestamp?,
-            })
-        });
-    let client_response = serde_json::to_string(&payload).unwrap();
-    Ok((client_response, payload.errors, block))
 }
 
 #[cfg(test)]

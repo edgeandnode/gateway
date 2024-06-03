@@ -10,8 +10,6 @@ use serde_json::{json, Map};
 use thegraph_core::types::attestation::Attestation;
 use toolshed::concat_bytes;
 
-use crate::indexer_client::ResponsePayload;
-
 pub fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Value>) {
     #[derive(Deserialize)]
     struct Fields {
@@ -199,7 +197,7 @@ pub fn legacy_status<T>(result: &Result<T, errors::Error>) -> (String, u32) {
 
 // Like much of this file. This is maintained is a partially backward-compatible state for data
 // science, and should be deleted ASAP.
-pub fn indexer_attempt_status_code(result: &Result<ResponsePayload, IndexerError>) -> u32 {
+pub fn indexer_attempt_status_code<T>(result: &Result<T, IndexerError>) -> u32 {
     let (prefix, data) = match &result {
         Ok(_) => (0x0, 200_u32.to_be()),
         Err(IndexerError::Internal(_)) => (0x1, 0x0),
