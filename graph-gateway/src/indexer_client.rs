@@ -1,16 +1,23 @@
 use alloy_primitives::{BlockHash, BlockNumber};
+use alloy_sol_types::Eip712Domain;
 use gateway_framework::{
     blocks::Block,
     errors::{
-        IndexerError, MissingBlockError,
+        IndexerError::{self, *},
+        MissingBlockError,
         UnavailableReason::{self, *},
     },
     scalar::ScalarReceipt,
 };
 use serde::{Deserialize, Serialize};
-use thegraph_core::types::{attestation::Attestation, DeploymentId};
+use thegraph_core::types::{
+    attestation::{self, Attestation},
+    DeploymentId,
+};
 use thegraph_graphql_http::http::response::{Error as GQLError, ResponseBody as GQLResponseBody};
 use url::Url;
+
+use crate::unattestable_errors::miscategorized_unattestable;
 
 #[derive(Clone, Debug)]
 pub struct IndexerResponse {
@@ -32,31 +39,30 @@ impl IndexerClient {
         deployment: &DeploymentId,
         url: &Url,
         receipt: &ScalarReceipt,
+        attestation_domain: &Eip712Domain,
         query: String,
     ) -> Result<IndexerResponse, IndexerError> {
         let url = url
             .join(&format!("subgraphs/id/{:?}", deployment))
-            .map_err(|_| IndexerError::Unavailable(NoStatus))?;
+            .map_err(|_| Unavailable(NoStatus))?;
 
         let result = self
             .client
             .post(url)
             .header("Content-Type", "application/json")
             .header("Scalar-Receipt", receipt.serialize())
-            .body(query)
+            .body(query.clone())
             .send()
             .await
             .and_then(|response| response.error_for_status());
 
         let response = match result {
             Ok(response) => response,
-            Err(err) if err.is_timeout() => return Err(IndexerError::Timeout),
+            Err(err) if err.is_timeout() => return Err(Timeout),
             Err(err) => match err.status() {
-                Some(status) => return Err(IndexerError::BadResponse(status.as_u16().to_string())),
-                _ if err.is_connect() => {
-                    return Err(IndexerError::BadResponse("failed to connect".to_string()))
-                }
-                _ => return Err(IndexerError::BadResponse(err.to_string())),
+                Some(status) => return Err(BadResponse(status.as_u16().to_string())),
+                _ if err.is_connect() => return Err(BadResponse("failed to connect".to_string())),
+                _ => return Err(BadResponse(err.to_string())),
             },
         };
 
@@ -70,21 +76,57 @@ impl IndexerClient {
         let payload = response
             .json::<IndexerResponsePayload>()
             .await
-            .map_err(|err| IndexerError::BadResponse(err.to_string()))?;
+            .map_err(|err| BadResponse(err.to_string()))?;
         if let Some(err) = payload.error {
-            return Err(IndexerError::BadResponse(err));
+            return Err(BadResponse(err));
         }
 
         let original_response = payload
             .graphql_response
-            .ok_or_else(|| IndexerError::BadResponse("missing response".into()))?;
+            .ok_or_else(|| BadResponse("missing response".into()))?;
         let (client_response, errors, probe_block) = rewrite_response(&original_response)?;
         let errors: Vec<String> = errors.into_iter().map(|err| err.message).collect();
 
         errors
             .iter()
             .try_for_each(|err| check_block_error(err))
-            .map_err(|err| IndexerError::Unavailable(UnavailableReason::MissingBlock(err)))?;
+            .map_err(|err| Unavailable(UnavailableReason::MissingBlock(err)))?;
+        if let Some(error) = errors
+            .iter()
+            .find(|error| miscategorized_unattestable(error))
+        {
+            return Err(BadResponse(format!("unattestable response: {error}")));
+        }
+
+        match &payload.attestation {
+            Some(attestation) => {
+                let allocation = receipt.allocation();
+                if let Err(err) = attestation::verify(
+                    attestation_domain,
+                    attestation,
+                    &allocation,
+                    &query,
+                    &original_response,
+                ) {
+                    return Err(BadResponse(format!("bad attestation: {err}")));
+                }
+            }
+            None => {
+                let message = if !errors.is_empty() {
+                    format!(
+                        "no attestation: {}",
+                        errors
+                            .iter()
+                            .map(|err| err.as_str())
+                            .collect::<Vec<&str>>()
+                            .join("; ")
+                    )
+                } else {
+                    "no attestation".to_string()
+                };
+                return Err(BadResponse(message));
+            }
+        };
 
         Ok(IndexerResponse {
             original_response,
@@ -117,7 +159,7 @@ fn rewrite_response(
         timestamp: Option<u64>,
     }
     let mut payload: GQLResponseBody<ProbedData> =
-        serde_json::from_str(response).map_err(|err| IndexerError::BadResponse(err.to_string()))?;
+        serde_json::from_str(response).map_err(|err| BadResponse(err.to_string()))?;
 
     // Avoid processing oversized errors.
     for err in &mut payload.errors {

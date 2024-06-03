@@ -40,7 +40,7 @@ use prost::bytes::Buf;
 use rand::{rngs::SmallRng, Rng as _, SeedableRng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::types::{attestation, DeploymentId};
+use thegraph_core::types::DeploymentId;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 use url::Url;
@@ -53,7 +53,6 @@ use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     indexer_client::{IndexerClient, IndexerResponse},
     reports::{self, serialize_attestation},
-    unattestable_errors::miscategorized_unattestable,
 };
 
 mod attestation_header;
@@ -711,6 +710,7 @@ async fn handle_indexer_query_inner(
             &selection.indexing.deployment,
             &selection.url,
             &selection.receipt,
+            ctx.attestation_domain,
             indexer_request.clone(),
         )
         .await;
@@ -741,45 +741,16 @@ async fn handle_indexer_query_inner(
         indexer_errors = errors_repr,
     );
 
-    for error in &response.errors {
-        if miscategorized_unattestable(error) {
-            return Err(IndexerError::BadResponse(format!(
-                "unattestable response: {}",
-                errors_repr
-            )));
-        }
-    }
-
-    if response.attestation.is_none() {
-        let message = if !response.errors.is_empty() {
-            format!("no attestation: {errors_repr}")
-        } else {
-            "no attestation".to_string()
-        };
-        return Err(IndexerError::BadResponse(message));
-    }
-
     if let Some(attestation) = &response.attestation {
-        let allocation = selection.receipt.allocation();
-        let verified = attestation::verify(
-            ctx.attestation_domain,
-            attestation,
-            &allocation,
-            &indexer_request,
-            &response.original_response,
-        );
         // We send the Kafka message directly to avoid passing the request & response payloads
         // through the normal reporting path. This is to reduce log bloat.
         let payload = serialize_attestation(
             attestation,
-            allocation,
+            selection.receipt.allocation(),
             indexer_request,
             response.original_response.clone(),
         );
         ctx.kafka_client.send("gateway_attestations", &payload);
-        if let Err(err) = verified {
-            return Err(IndexerError::BadResponse(format!("bad attestation: {err}")));
-        }
     }
 
     Ok(response)
