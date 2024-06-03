@@ -455,7 +455,7 @@ async fn handle_client_query_inner(
                         &context,
                         &block_requirements,
                         selection.blocks_behind,
-                    )?);
+                    ));
                 }
             }
         }
