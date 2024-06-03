@@ -14,7 +14,7 @@ use gateway_framework::errors::Error;
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::types::{DeploymentId, SubgraphId};
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time::MissedTickBehavior};
 use vec1::{vec1, Vec1};
 
 use super::{
@@ -201,7 +201,7 @@ impl NetworkService {
     //      their largest allocation address. This is consumed by the `scalar::ReceiptSigner`.
     pub fn indexings_largest_allocation(&self) -> Eventual<Ptr<HashMap<IndexingId, Address>>> {
         self.network.clone().map(|network| async move {
-            let progress = network
+            let largest_allocations = network
                 .deployments()
                 .values()
                 .filter_map(|deployment| deployment.as_ref().ok())
@@ -212,7 +212,7 @@ impl NetworkService {
                 })
                 .collect::<HashMap<_, _>>();
 
-            Ptr::new(progress)
+            Ptr::new(largest_allocations)
         })
     }
 }
@@ -382,9 +382,14 @@ fn spawn_updater_task(
     let (mut eventual_writer, eventual) = Eventual::new();
 
     tokio::spawn(async move {
+        let mut timer = tokio::time::interval(update_interval);
+        timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        // Fetch the network topology information every `update_interval` duration
+        // If the fetch fails or takes too long, log a warning and skip the update
         loop {
-            // Fetch the network topology information every `update_interval` duration
-            // If the fetch fails or takes too long, log a warning and skip the update
+            timer.tick().await;
+
             tokio::select! { biased;
                 update = fetch_update(&subgraph_client, &state) => {
                     match update {
