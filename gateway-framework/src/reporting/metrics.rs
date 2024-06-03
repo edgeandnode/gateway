@@ -11,7 +11,7 @@ lazy_static! {
 }
 
 pub struct Metrics {
-    pub client_query: ResponseMetricVecs,
+    pub client_query: ResponseMetrics,
     pub avg_query_fees: Gauge,
     pub indexer_query: ResponseMetricVecs,
     pub collect_receipts: ResponseMetrics,
@@ -23,11 +23,7 @@ pub struct Metrics {
 impl Metrics {
     fn new() -> Self {
         Self {
-            client_query: ResponseMetricVecs::new(
-                "gw_client_query",
-                "client query",
-                &["deployment"],
-            ),
+            client_query: ResponseMetrics::new("gw_client_query", "client query"),
             avg_query_fees: register_gauge!(
                 "gw_avg_query_fees",
                 "average indexer fees per query, in USD"
