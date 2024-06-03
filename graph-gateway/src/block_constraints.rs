@@ -137,7 +137,7 @@ pub fn rewrite_query<'q>(
     ctx: &Context<'q>,
     requirements: &BlockRequirements,
     blocks_behind: u64,
-) -> Result<String, Error> {
+) -> String {
     let mut buf: String = Default::default();
     for fragment in &ctx.fragments {
         write!(&mut buf, "{}", fragment).unwrap();
@@ -292,8 +292,7 @@ pub fn rewrite_query<'q>(
         }
     }
 
-    serde_json::to_string(&json!({ "query": buf, "variables": ctx.variables }))
-        .map_err(|err| Error::Internal(anyhow!("failed to serialize query: {err}")))
+    serde_json::to_string(&json!({ "query": buf, "variables": ctx.variables })).unwrap()
 }
 
 fn contains_introspection<'q>(ctx: &Context<'q>) -> bool {
@@ -565,7 +564,7 @@ mod tests {
 
         for (client_query, requirements, expected_indexer_query) in tests {
             let context = Context::new(client_query, "").unwrap();
-            let indexer_request = rewrite_query(&chain, &context, &requirements, 0).unwrap();
+            let indexer_request = rewrite_query(&chain, &context, &requirements, 0);
             let doc = serde_json::from_str::<serde_json::Value>(&indexer_request).unwrap();
             let doc = doc
                 .as_object()
