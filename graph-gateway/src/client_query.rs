@@ -53,7 +53,7 @@ use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     indexer_client::{IndexerClient, IndexerResponse},
     reports::{self, serialize_attestation},
-    unattestable_errors::{miscategorized_attestable, miscategorized_unattestable},
+    unattestable_errors::miscategorized_unattestable,
 };
 
 mod attestation_header;
@@ -751,13 +751,6 @@ async fn handle_indexer_query_inner(
     }
 
     if response.attestation.is_none() {
-        // TODO: This is a temporary hack to handle errors that were previously miscategorized as
-        //  unattestable in graph-node.
-        for error in &response.errors {
-            if miscategorized_attestable(error) {
-                return Ok(response);
-            }
-        }
         let message = if !response.errors.is_empty() {
             format!("no attestation: {errors_repr}")
         } else {
