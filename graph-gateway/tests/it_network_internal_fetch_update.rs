@@ -187,6 +187,22 @@ async fn fetch_a_network_topology_update() {
         "Subgraph has no deployments associated"
     );
 
+    //- Assert that all the associated indexings are indexing the same chain
+    assert!(
+        network
+            .subgraphs()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|subgraph| {
+                subgraph
+                    .indexings
+                    .values()
+                    .filter_map(|indexing| indexing.as_ref().ok())
+                    .all(|indexing| indexing.chain == subgraph.chain)
+            }),
+        "Some subgraph indexings are not indexing the same chain"
+    );
+
     //- Assert that all the indexings' deployments are contained in its deployments list.
     assert!(
         network
@@ -265,6 +281,25 @@ async fn fetch_a_network_topology_update() {
         "No subgraph indexings have a cost model"
     );
 
+    //- Assert that all the associated indexings' indexers versions are set.
+    assert!(
+        network
+            .subgraphs()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|subgraph| {
+                subgraph
+                    .indexings
+                    .values()
+                    .filter_map(|indexing| indexing.as_ref().ok())
+                    .all(|indexing| {
+                        indexing.indexer.indexer_agent_version >= Version::new(0, 0, 1)
+                            && indexing.indexer.graph_node_version >= Version::new(0, 0, 1)
+                    })
+            }),
+        "Subgraph indexings indexer versions are not set"
+    );
+
     // Given a DEPLOYMENT
     //- Assert that it has at least one indexing associated.
     assert!(
@@ -297,6 +332,22 @@ async fn fetch_a_network_topology_update() {
         "Incorrect indexing associated with the deployment"
     );
 
+    //- Assert that all indexings' chain match the deployment chain.
+    assert!(
+        network
+            .deployments()
+            .values()
+            .filter_map(|value| value.as_ref().ok())
+            .all(|deployment| {
+                deployment
+                    .indexings
+                    .values()
+                    .filter_map(|indexing| indexing.as_ref().ok())
+                    .all(|indexing| indexing.chain == deployment.chain)
+            }),
+        "Some deployment indexings are not indexing the same chain"
+    );
+
     //- Assert that all the associated indexings' indexers contain the indexing deployment ID in
     //  their indexings list.
     assert!(
@@ -317,25 +368,6 @@ async fn fetch_a_network_topology_update() {
                     })
             }),
         "Deployment indexings deployment ID not found in the indexer's indexings list"
-    );
-
-    //- Assert that all the associated indexings' indexers versions are set.
-    assert!(
-        network
-            .subgraphs()
-            .values()
-            .filter_map(|value| value.as_ref().ok())
-            .all(|subgraph| {
-                subgraph
-                    .indexings
-                    .values()
-                    .filter_map(|indexing| indexing.as_ref().ok())
-                    .all(|indexing| {
-                        indexing.indexer.indexer_agent_version >= Version::new(0, 0, 1)
-                            && indexing.indexer.graph_node_version >= Version::new(0, 0, 1)
-                    })
-            }),
-        "Subgraph indexings indexer versions are not set"
     );
 
     //- Assert that some of the associated indexings' have reported a valid cost model.

@@ -43,6 +43,8 @@ pub struct Indexing {
 
     /// The versions behind the highest version of the subgraph being indexed.
     pub versions_behind: u8,
+    /// The indexing chain.
+    pub chain: String,
 
     /// The largest allocation address.
     ///
@@ -430,6 +432,7 @@ fn construct_subgraphs_table_row(
 
                     construct_indexings_table_row(
                         indexing_id,
+                        &deployment.manifest_network,
                         indexing_deployment_versions_behind,
                         indexers,
                     )
@@ -464,7 +467,7 @@ fn construct_deployments_table_row(
 ) -> Result<Deployment, DeploymentError> {
     let deployment_id = deployment_info.id;
     let deployment_versions_behind = 0;
-    let deployment_manifest_chain = deployment_info.manifest_network.clone();
+    let deployment_manifest_chain = deployment_info.manifest_network;
     let deployment_manifest_start_block = deployment_info.manifest_start_block;
 
     let deployment_indexings = deployment_info
@@ -476,7 +479,12 @@ fn construct_deployments_table_row(
                 deployment: deployment_id,
             };
 
-            construct_indexings_table_row(indexing_id, deployment_versions_behind, indexers)
+            construct_indexings_table_row(
+                indexing_id,
+                &deployment_manifest_chain,
+                deployment_versions_behind,
+                indexers,
+            )
         })
         .collect::<HashMap<_, _>>();
     if deployment_indexings.is_empty() {
@@ -499,6 +507,7 @@ fn construct_deployments_table_row(
 /// If the indexer reported an error for the indexing, the row is constructed with the error.
 fn construct_indexings_table_row(
     indexing_id: IndexingId,
+    indexing_deployment_chain: &str,
     indexing_deployment_versions_behind: u8,
     indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
 ) -> (IndexingId, Result<Indexing, IndexingError>) {
@@ -509,8 +518,8 @@ fn construct_indexings_table_row(
         None => {
             // Log this error as it should not happen.
             tracing::error!(
-                deployment = %indexing_id.deployment,
                 indexer = %indexing_id.indexer,
+                deployment = %indexing_id.deployment,
                 "indexing indexer info not found"
             );
 
@@ -526,12 +535,19 @@ fn construct_indexings_table_row(
         Some(Ok(info)) => info,
         Some(Err(err)) => return (indexing_id, Err(err.clone().into())),
         None => {
+            // Log this error as it should not happen.
+            tracing::error!(
+                indexer = %indexing_id.indexer,
+                deployment = %indexing_id.deployment,
+                "indexing info not found"
+            );
+
             return (
                 indexing_id,
                 Err(IndexingError::Internal(
                     "indexing info not found".to_string(),
                 )),
-            )
+            );
         }
     };
 
@@ -544,6 +560,7 @@ fn construct_indexings_table_row(
     let indexing = Indexing {
         id: indexing_id,
         versions_behind: indexing_deployment_versions_behind,
+        chain: indexing_deployment_chain.to_owned(),
         largest_allocation: indexing_largest_allocation_addr,
         total_allocated_tokens: indexing_total_allocated_tokens,
         indexer: Arc::clone(indexer),
