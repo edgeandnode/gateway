@@ -4,7 +4,7 @@ use std::{
     fs::read_to_string,
     io::Write as _,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -22,7 +22,7 @@ use axum::{
     routing, Router,
 };
 use config::{ApiKeys, Config, ExchangeRateProvider};
-use eventuals::{Eventual, EventualExt as _, Ptr};
+use eventuals::{EventualExt as _, Ptr};
 use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
@@ -30,29 +30,30 @@ use gateway_framework::{
     http::middleware::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
-    ip_blocker::IpBlocker,
     json, logging,
     network::{
         exchange_rate,
         indexing_performance::{IndexingPerformance, Status as IndexingPerformanceStatus},
-        network_subgraph,
     },
     scalar::{self, ReceiptSigner},
-    topology::network::GraphNetwork,
 };
 use graph_gateway::{
     client_query::{self, context::Context},
     indexer_client::IndexerClient,
-    indexers::{self, indexing},
-    indexings_blocklist::{self, indexings_blocklist},
+    indexers,
+    network::{
+        indexer_host_blocklist::load_ip_blocklist_conf,
+        subgraph_client::Client as NetworkSubgraphClient, NetworkService, NetworkServiceBuilder,
+    },
     reports, subgraph_studio,
 };
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
+use semver::Version;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
-use thegraph_core::{client as subgraph_client, types::attestation};
+use thegraph_core::{client::Client as SubgraphClient, types::attestation};
 use tokio::{
     net::TcpListener,
     signal::unix::SignalKind,
@@ -104,10 +105,7 @@ async fn main() {
     };
 
     let network_subgraph_client =
-        subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
-    let subgraphs =
-        network_subgraph::Client::create(network_subgraph_client, config.l2_gateway.is_some())
-            .await;
+        SubgraphClient::new(http_client.clone(), config.network_subgraph.clone());
 
     let attestation_domain: &'static Eip712Domain =
         Box::leak(Box::new(attestation::eip712_domain(
@@ -116,56 +114,24 @@ async fn main() {
             config.attestations.dispute_manager,
         )));
 
-    let ip_blocker = IpBlocker::new(config.ip_blocker_db.as_deref()).unwrap();
-    let network = GraphNetwork::new(subgraphs, ip_blocker).await;
-
-    // Indexer blocklist
-    // Periodically check the defective POIs list against the network indexers and update the
-    // indexers blocklist accordingly.
-    let indexings_blocklist = if !config.poi_blocklist.is_empty() {
-        let pois = config.poi_blocklist.into_iter().map(Into::into).collect();
-        let update_interval = config
-            .poi_blocklist_update_interval
-            .map_or(indexings_blocklist::DEFAULT_UPDATE_INTERVAL, |min| {
-                Duration::from_secs(min * 60)
-            });
-
-        indexings_blocklist(
-            http_client.clone(),
-            network.deployments.clone(),
-            network.indexers.clone(),
-            pois,
-            update_interval,
-        )
-        .await
-    } else {
-        Eventual::from_value(Ptr::default())
-    };
-
-    let bad_indexers: &'static HashSet<Address> =
-        Box::leak(Box::new(FromIterator::from_iter(config.bad_indexers)));
-
-    let indexing_statuses = indexing::statuses(
-        network.deployments.clone(),
+    // Initialize the network service and wait for the initial network state synchronization
+    let network = match init_network_service(
+        network_subgraph_client,
+        config.l2_gateway.is_some(),
         http_client.clone(),
-        config.min_graph_node_version,
         config.min_indexer_version,
-    )
-    .await;
-    let latest_indexed_block_statuses = indexing_statuses.clone().map(|statuses| async move {
-        let statuses = statuses
-            .iter()
-            .map(|(id, status)| {
-                (
-                    (id.indexer, id.deployment),
-                    IndexingPerformanceStatus {
-                        latest_block: status.block,
-                    },
-                )
-            })
-            .collect::<HashMap<_, _>>();
-        Ptr::new(statuses)
-    });
+        config.min_graph_node_version,
+        config.bad_indexers,
+        config.ip_blocker_db.as_deref(),
+        config.poi_blocklist,
+    ) {
+        Ok(network) => network,
+        Err(err) => {
+            tracing::error!(%err);
+            panic!("Failed to initialize the network service: {err}");
+        }
+    };
+    network.wait_until_ready().await;
 
     let legacy_signer: &'static SecretKey = Box::leak(Box::new(
         config
@@ -181,45 +147,22 @@ async fn main() {
         legacy_signer,
     )));
 
-    // Periodically log the network topology stats
-    // TODO: Remove this once the network service is integrated
-    eventuals::join((network.deployments.clone(), indexing_statuses.clone()))
-        .pipe_async(move |(deployments, indexing_statuses)| async move {
-            tracing::info!(
-                deployments = deployments.len(),
-                indexings = deployments
-                    .values()
-                    .map(|d| d.indexers.len())
-                    .sum::<usize>(),
-                indexing_statuses = indexing_statuses.len(),
-            );
-        })
-        .forever();
-
     // Periodically update the largest allocations for each indexer-deployment pair.
     // TODO: Remove this once the network service is integrated and the largest allocation can be
     //  accessed via the `Indexing` instance.
     network
-        .deployments
-        .clone()
-        .pipe_async(move |deployments| async move {
-            let largest_allocations = deployments
-                .values()
-                .flat_map(|deployment| {
-                    deployment
-                        .indexers
-                        .values()
-                        .map(|indexer| (deployment.as_ref(), indexer.as_ref()))
-                })
-                .map(|(deployment, indexer)| {
-                    ((indexer.id, deployment.id), indexer.largest_allocation)
-                })
+        .indexings_largest_allocation()
+        .pipe_async(move |largest_allocations| async move {
+            let largest_allocations = largest_allocations
+                .iter()
+                .map(|(id, allocation)| ((id.indexer, id.deployment), *allocation))
                 .collect::<HashMap<_, _>>();
 
             receipt_signer.update_allocations(&largest_allocations);
         })
         .forever();
 
+    // Initialize the auth service
     let auth_service = init_auth_service(
         http_client.clone(),
         config.api_keys,
@@ -230,6 +173,21 @@ async fn main() {
     let query_fees_target =
         USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
+
+    let indexing_progress_ev = network.indexings_progress().map(|progress| async move {
+        let progress = progress
+            .iter()
+            .map(|(id, latest_block)| {
+                (
+                    (id.indexer, id.deployment),
+                    IndexingPerformanceStatus {
+                        latest_block: *latest_block,
+                    },
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        Ptr::new(progress)
+    });
 
     let reporter = reports::Reporter::create(
         config.graph_env_id.clone(),
@@ -251,11 +209,8 @@ async fn main() {
         chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
         grt_per_usd,
         network,
-        indexing_perf: IndexingPerformance::new(latest_indexed_block_statuses),
-        indexing_statuses,
+        indexing_perf: IndexingPerformance::new(indexing_progress_ev),
         attestation_domain,
-        bad_indexers,
-        indexings_blocklist,
         reporter,
     };
 
@@ -461,6 +416,49 @@ async fn init_auth_service(
         api_keys,
         special_api_keys,
     }
+}
+
+/// Creates a new network service instance based on the provided configuration, spawning the
+/// necessary background tasks.
+#[allow(clippy::too_many_arguments)]
+fn init_network_service(
+    subgraph_client: SubgraphClient,
+    subgraph_client_l2_transfer_support: bool,
+    indexer_http_client: reqwest::Client,
+    indexer_min_agent_version: Version,
+    indexer_min_graph_node_version: Version,
+    indexer_addr_blocklist: Vec<Address>,
+    indexer_host_blocklist: Option<&Path>,
+    indexer_pois_blocklist: Vec<config::ProofOfIndexingInfo>,
+) -> anyhow::Result<NetworkService> {
+    let subgraph_client =
+        NetworkSubgraphClient::new(subgraph_client, subgraph_client_l2_transfer_support);
+
+    let mut builder = NetworkServiceBuilder::new(subgraph_client, indexer_http_client);
+
+    // Configure the minimum agent and graph node versions required by indexers
+    builder = builder.with_indexer_min_agent_version(indexer_min_agent_version);
+    builder = builder.with_indexer_min_graph_node_version(indexer_min_graph_node_version);
+
+    // Configure the address-based blocklist for indexers
+    if !indexer_addr_blocklist.is_empty() {
+        let indexer_addr_blocklist = indexer_addr_blocklist.into_iter().collect();
+        builder = builder.with_indexer_addr_blocklist(indexer_addr_blocklist);
+    }
+
+    // Load and configure the host-based blocklist for indexers
+    if let Some(indexer_host_blocklist) = indexer_host_blocklist {
+        let indexer_host_blocklist = load_ip_blocklist_conf(indexer_host_blocklist)?;
+        builder = builder.with_indexer_host_blocklist(indexer_host_blocklist);
+    }
+
+    // Load and configure the POI-based blocklist for indexers
+    if !indexer_pois_blocklist.is_empty() {
+        let indexer_pois_blocklist = indexer_pois_blocklist.into_iter().map(Into::into).collect();
+        builder = builder.with_indexer_pois_blocklist(indexer_pois_blocklist);
+    }
+
+    Ok(builder.build().spawn())
 }
 
 // Mapping between config and internal types

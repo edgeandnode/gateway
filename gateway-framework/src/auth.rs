@@ -27,7 +27,7 @@ impl AuthSettings {
         common::is_subgraph_authorized(&self.authorized_subgraphs, subgraph)
     }
 
-    pub fn is_any_deployment_subgraph_authorized(&self, subgraphs: &[&SubgraphId]) -> bool {
+    pub fn is_any_deployment_subgraph_authorized(&self, subgraphs: &[SubgraphId]) -> bool {
         subgraphs
             .iter()
             .any(|subgraph| self.is_subgraph_authorized(subgraph))

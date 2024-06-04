@@ -40,12 +40,26 @@ impl IntoResponse for Error {
     }
 }
 
-#[derive(Debug)]
-pub struct IndexerErrors(pub BTreeMap<Address, IndexerError>);
+#[derive(Debug, Clone, Default)]
+pub struct IndexerErrors(BTreeMap<Address, IndexerError>);
+
+impl std::ops::Deref for IndexerErrors {
+    type Target = BTreeMap<Address, IndexerError>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for IndexerErrors {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 impl fmt::Display for IndexerErrors {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let entries = self.0.iter().map(|(k, v)| format!("{k:?}: {v}")).join(", ");
+        let entries = self.iter().map(|(k, v)| format!("{k:?}: {v}")).join(", ");
         write!(f, "{{{}}}", entries)
     }
 }

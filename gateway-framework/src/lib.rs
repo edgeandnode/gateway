@@ -14,5 +14,4 @@ pub mod logging;
 pub mod metrics;
 pub mod network;
 pub mod scalar;
-pub mod topology;
 pub mod utils;
