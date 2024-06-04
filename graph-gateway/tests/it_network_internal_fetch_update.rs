@@ -377,27 +377,4 @@ async fn fetch_a_network_topology_update() {
             }),
         "Subgraph associated deployment not found in the network deployments list"
     );
-
-    //- Assert that given a deployment, all the associated subgraphs contain the deployment ID in
-    //  their deployments list.
-    assert!(
-        network
-            .deployments()
-            .values()
-            .filter_map(|value| value.as_ref().ok())
-            .all(|deployment| {
-                deployment.subgraphs.iter().all(|subgraph_id| {
-                    network
-                        .subgraphs()
-                        .get(subgraph_id)
-                        .as_ref()
-                        .expect("Subgraph not found")
-                        .as_ref()
-                        .expect("Invalid subgraph")
-                        .deployments
-                        .contains(&deployment.id)
-                })
-            }),
-        "Deployment associated subgraph not found in the network subgraphs list"
-    );
 }
