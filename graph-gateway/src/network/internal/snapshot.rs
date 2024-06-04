@@ -370,9 +370,8 @@ fn construct_subgraphs_table_row(
         .find(|version| version.deployment.is_ok())
         .expect("no valid versions found");
 
-    let highest_version_number = highest_version.version;
-
     let (
+        highest_version_number,
         highest_version_deployment_manifest_chain,
         highest_version_deployment_manifest_start_block,
     ) = {
@@ -382,6 +381,7 @@ fn construct_subgraphs_table_row(
             .expect("invalid deployment");
 
         (
+            highest_version.version,
             deployment.manifest_network.to_owned(),
             deployment.manifest_start_block,
         )
@@ -407,6 +407,11 @@ fn construct_subgraphs_table_row(
     let subgraph_indexings = versions
         .into_iter()
         .filter_map(|version| version.deployment.ok())
+        .filter(|deployment| {
+            // Make sure we only select deployments indexing the same chain
+            // This simplifies dealing with block constraints later
+            deployment.manifest_network == highest_version_deployment_manifest_chain
+        })
         .flat_map(|deployment| {
             deployment
                 .allocations
