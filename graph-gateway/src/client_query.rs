@@ -5,7 +5,6 @@ use std::{
 };
 
 use alloy_primitives::{Address, BlockNumber};
-use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use axum::{
     body::Bytes,
@@ -15,36 +14,31 @@ use axum::{
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use eventuals::Ptr;
-use gateway_common::utils::{http_ext::HttpBuilderExt, timestamp::unix_timestamp};
+use gateway_common::utils::http_ext::HttpBuilderExt as _;
 use gateway_framework::{
     auth::AuthSettings,
     budgets::USD,
-    chains::ChainReader,
     errors::{
         Error, IndexerError, MissingBlockError,
         UnavailableReason::{self, MissingBlock},
     },
+    http::middleware::RequestId,
     indexing::Indexing,
     metrics::{with_metric, METRICS},
-    network::{
-        discovery::Status,
-        indexing_performance::{IndexingPerformance, Snapshot},
-    },
-    scalar::{ReceiptStatus, ScalarReceipt},
-    topology::network::{Deployment, GraphNetwork, Subgraph},
+    network::{discovery::Status, indexing_performance::Snapshot},
+    topology::network::{Deployment, GraphNetwork, Manifest, Subgraph},
 };
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
 use prost::bytes::Buf;
-use rand::{rngs::SmallRng, Rng as _, SeedableRng as _};
+use rand::{thread_rng, Rng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use thegraph_core::types::DeploymentId;
 use tokio::sync::mpsc;
-use tracing::Instrument;
-use url::Url;
+use tracing::Instrument as _;
 
 use self::{
     attestation_header::GraphAttestation, context::Context, l2_forwarding::forward_request_to_l2,
@@ -52,7 +46,8 @@ use self::{
 };
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
-    indexer_client::{IndexerClient, IndexerResponse},
+    indexer_client::IndexerResponse,
+    reports,
 };
 
 mod attestation_header;
@@ -69,17 +64,11 @@ pub struct QueryBody {
     pub variables: Option<Box<RawValue>>,
 }
 
-pub struct Selection {
-    pub indexing: Indexing,
-    pub url: Url,
-    pub receipt: ScalarReceipt,
-    pub blocks_behind: u64,
-}
-
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthSettings>,
+    Extension(RequestId(request_id)): Extension<RequestId>,
     query_settings: Option<Extension<QuerySettings>>,
     OriginalUri(original_uri): OriginalUri,
     selector: QuerySelector,
@@ -87,7 +76,6 @@ pub async fn handle_query(
     payload: Bytes,
 ) -> Result<Response<String>, Error> {
     let start_time = Instant::now();
-    let timestamp = unix_timestamp();
 
     // Check if the query selector is authorized by the auth token and
     // resolve the subgraph deployments for the query.
@@ -119,8 +107,6 @@ pub async fn handle_query(
         }
     };
 
-    tracing::info!(deployments = ?deployments.iter().map(|d| d.id).collect::<Vec<_>>());
-
     if let Some(l2_url) = ctx.l2_gateway.as_ref() {
         // Forward query to L2 gateway if it's marked as transferred & there are no allocations.
         // abf62a6d-c071-4507-b528-ddc8e250127a
@@ -138,35 +124,70 @@ pub async fn handle_query(
         }
     }
 
-    let result = handle_client_query_inner(
-        &ctx,
-        query_settings.map(|Extension(settings)| settings),
-        deployments,
-        payload,
-    )
-    .in_current_span()
-    .await;
-
-    // metrics and tracing
-    {
-        match &result {
-            Ok(_) => METRICS.client_query.ok.inc(),
-            Err(_) => METRICS.client_query.err.inc(),
-        };
-        METRICS
-            .client_query
-            .duration
-            .observe((Instant::now() - start_time).as_secs_f64());
-
-        let status_message = match &result {
-            Ok(_) => "200 OK".to_string(),
-            Err(err) => err.to_string(),
-        };
-        tracing::info!(
-            start_time_ms = timestamp,
-            %status_message,
-        );
+    let available_indexers: BTreeSet<Indexing> = deployments
+        .iter()
+        .flat_map(move |deployment| {
+            let id = deployment.id;
+            deployment.indexers.keys().map(move |indexer| Indexing {
+                indexer: *indexer,
+                deployment: id,
+            })
+        })
+        .collect();
+    if available_indexers.is_empty() {
+        return Err(Error::NoIndexers);
     }
+
+    let manifest = deployments
+        .last()
+        .map(|deployment| deployment.manifest.clone())
+        .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
+
+    let client_request: QueryBody =
+        serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
+
+    let query_settings = query_settings
+        .map(|Extension(settings)| settings)
+        .unwrap_or_default();
+    let grt_per_usd = *ctx.grt_per_usd.borrow();
+    let one_grt = NotNan::new(1e18).unwrap();
+    let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
+    if let Some(user_budget_usd) = query_settings.budget_usd {
+        // Security: Consumers can and will set their budget to unreasonably high values.
+        // This `.min` prevents the budget from being set far beyond what it would be
+        // automatically. The reason this is important is that sometimes queries are
+        // subsidized, and we would be at-risk to allow arbitrarily high values.
+        let max_budget = budget * 10;
+        budget = (*(user_budget_usd * grt_per_usd * one_grt) as u128).min(max_budget);
+    }
+
+    let (tx, mut rx) = mpsc::channel(1);
+    tokio::spawn(
+        run_indexer_queries(
+            ctx,
+            request_id,
+            auth,
+            start_time,
+            deployments,
+            available_indexers,
+            manifest,
+            budget,
+            client_request,
+            tx,
+        )
+        .in_current_span(),
+    );
+    let result = rx.recv().await.unwrap();
+    drop(rx);
+
+    match &result {
+        Ok(_) => METRICS.client_query.ok.inc(),
+        Err(_) => METRICS.client_query.err.inc(),
+    };
+    METRICS
+        .client_query
+        .duration
+        .observe(Instant::now().duration_since(start_time).as_secs_f64());
 
     result.map(
         |IndexerResponse {
@@ -182,6 +203,332 @@ pub async fn handle_query(
                 .unwrap()
         },
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_indexer_queries(
+    ctx: Context,
+    request_id: String,
+    auth: AuthSettings,
+    start_time: Instant,
+    deployments: Vec<Arc<Deployment>>,
+    mut available_indexers: BTreeSet<Indexing>,
+    manifest: Manifest,
+    budget: u128,
+    client_request: QueryBody,
+    client_response: mpsc::Sender<Result<IndexerResponse, Error>>,
+) {
+    let one_grt = NotNan::new(1e18).unwrap();
+    let grt_per_usd = *ctx.grt_per_usd.borrow();
+
+    let variables = client_request
+        .variables
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    // We handle these errors here, instead of `handle_query`, because the agora context is tied to
+    // the lifetime of the query body which may need to extend past the client response. Even if
+    // it doesn't, it is relatively difficult to convince the compiler of that.
+    let agora_context = match AgoraContext::new(&client_request.query, &variables) {
+        Ok(agora_context) => agora_context,
+        Err(err) => {
+            client_response
+                .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
+                .unwrap();
+            return;
+        }
+    };
+    let chain = ctx.chains.chain(&manifest.network).await;
+    let chain_reader = chain.read().await;
+    let blocks_per_minute = chain_reader.blocks_per_minute();
+    let chain_head = chain_reader.latest().map(|b| b.number);
+    let block_requirements =
+        match resolve_block_requirements(&chain_reader, &agora_context, manifest.min_block) {
+            Ok(block_requirements) => block_requirements,
+            Err(err) => {
+                client_response
+                    .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
+                    .unwrap();
+                return;
+            }
+        };
+    drop(chain_reader);
+
+    let indexing_statuses = ctx.indexing_statuses.value_immediate().unwrap();
+    let chain_head = chain_head.unwrap_or_else(|| {
+        available_indexers
+            .iter()
+            .flat_map(|indexing| indexing_statuses.get(indexing).map(|status| status.block))
+            .max()
+            .unwrap_or(0) // doesn't matter if no indexers have status
+    });
+    tracing::debug!(chain_head, blocks_per_minute, ?block_requirements);
+
+    let mut indexer_errors: BTreeMap<Address, IndexerError> = Default::default();
+    let blocklist = ctx
+        .indexings_blocklist
+        .value_immediate()
+        .unwrap_or_default();
+    available_indexers.retain(|candidate| {
+        if blocklist.contains(candidate) || ctx.bad_indexers.contains(&candidate.indexer) {
+            indexer_errors.insert(
+                candidate.indexer,
+                IndexerError::Unavailable(UnavailableReason::NoStatus),
+            );
+            return false;
+        }
+        true
+    });
+
+    // List holding the indexers that support Scalar TAP.
+    //
+    // This is a temporary solution determine which indexers support Scalar TAP. This will be
+    // removed once the network service is integrated.
+    let mut indexers_with_tap_support = HashSet::new();
+
+    let versions_behind: BTreeMap<DeploymentId, u8> = deployments
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(index, deployment)| (deployment.id, index.try_into().unwrap_or(u8::MAX)))
+        .collect();
+    let mut candidates = Vec::new();
+    {
+        let perf = ctx.indexing_perf.latest();
+        for indexing in available_indexers {
+            if let Some(status) = indexing_statuses.get(&indexing) {
+                // If the indexer status indicates it supports Scalar TAP, add it to the set of
+                // indexers with Scalar TAP support.
+                if !status.legacy_scalar {
+                    indexers_with_tap_support.insert(indexing.indexer);
+                }
+            }
+
+            match prepare_candidate(
+                &ctx.network,
+                &indexing_statuses,
+                &perf,
+                &versions_behind,
+                &agora_context,
+                &block_requirements,
+                chain_head,
+                blocks_per_minute,
+                budget,
+                indexing,
+            ) {
+                Ok(candidate) => candidates.push(candidate),
+                Err(indexer_error) => {
+                    indexer_errors.insert(indexing.indexer, indexer_error);
+                }
+            }
+        }
+    }
+
+    if tracing::enabled!(tracing::Level::TRACE) {
+        tracing::trace!(client_query = client_request.query, variables);
+        tracing::trace!(?candidates);
+    } else if tracing::enabled!(tracing::Level::DEBUG) && thread_rng().gen_bool(0.01) {
+        tracing::debug!(client_query = client_request.query, variables);
+        tracing::debug!(?candidates);
+    }
+
+    let mut indexer_requests: Vec<reports::IndexerRequest> = Default::default();
+    let mut indexer_request_rewrites: BTreeMap<u32, String> = Default::default();
+    let mut client_response_time: Option<Duration> = None;
+    // If a client query cannot be handled by the available indexers, we should give a reason for
+    // all of the available indexers in the `bad indexers` response.
+    while !candidates.is_empty()
+        && (Instant::now().duration_since(start_time) < Duration::from_secs(60))
+    {
+        let selections: ArrayVec<&Candidate, SELECTION_LIMIT> =
+            indexer_selection::select(&candidates);
+        if selections.is_empty() {
+            // Candidates that would never be selected should be filtered out for improved errors.
+            tracing::error!("no candidates selected");
+            break;
+        }
+
+        let (tx, mut rx) = mpsc::channel(SELECTION_LIMIT);
+        let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
+        for &selection in &selections {
+            let indexer = selection.indexer;
+            let deployment = selection.deployment;
+            let url = selection.url.clone();
+            let seconds_behind = selection.seconds_behind;
+            let legacy_scalar = !indexers_with_tap_support.contains(&indexer);
+            let subgraph_chain = manifest.network.clone();
+
+            // over-pay indexers to hit target
+            let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections.len() as f64;
+            let indexer_fee = selection.fee.as_f64() * budget as f64;
+            let fee = indexer_fee.max(min_fee) as u128;
+            let receipt = match if legacy_scalar {
+                ctx.receipt_signer
+                    .create_legacy_receipt(indexer, deployment, fee)
+                    .await
+            } else {
+                ctx.receipt_signer
+                    .create_receipt(indexer, deployment, fee)
+                    .await
+            } {
+                Some(receipt) => receipt,
+                None => {
+                    tracing::error!(%indexer, %deployment, "failed to create receipt");
+                    continue;
+                }
+            };
+            debug_assert!(fee == receipt.grt_value());
+
+            let blocks_behind = blocks_behind(seconds_behind, blocks_per_minute);
+            let indexer_query = match indexer_request_rewrites.get(&seconds_behind) {
+                Some(indexer_query) => indexer_query.clone(),
+                None => {
+                    let chain = chain.read().await;
+                    let indexer_query =
+                        rewrite_query(&chain, &agora_context, &block_requirements, blocks_behind);
+                    if selections
+                        .iter()
+                        .filter(|s| s.seconds_behind == seconds_behind)
+                        .count()
+                        > 1
+                    {
+                        indexer_request_rewrites.insert(seconds_behind, indexer_query.clone());
+                    }
+                    indexer_query
+                }
+            };
+            let indexer_client = ctx.indexer_client.clone();
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let start_time = Instant::now();
+                let result = indexer_client
+                    .query_indexer(
+                        &deployment,
+                        &url,
+                        &receipt,
+                        ctx.attestation_domain,
+                        &indexer_query,
+                    )
+                    .await;
+                let response_time_ms = Instant::now().duration_since(start_time).as_millis() as u16;
+                let report = reports::IndexerRequest {
+                    indexer,
+                    deployment,
+                    url: url.to_string(),
+                    allocation: receipt.allocation(),
+                    subgraph_chain,
+                    result,
+                    response_time_ms,
+                    seconds_behind,
+                    blocks_behind,
+                    legacy_scalar,
+                    fee,
+                    request: indexer_query,
+                };
+                tx.try_send(report).unwrap();
+            });
+        }
+        drop(tx);
+        while let Some(report) = rx.recv().await {
+            if let Ok(response) = report.result.as_ref() {
+                if client_response_time.is_none() {
+                    let _ = client_response.try_send(Ok(response.clone()));
+                    client_response_time = Some(Instant::now().duration_since(start_time));
+                }
+            }
+            indexer_requests.push(report);
+        }
+
+        if client_response_time.is_some() {
+            break;
+        }
+
+        let selected_indexers: ArrayVec<Address, SELECTION_LIMIT> =
+            selections.into_iter().map(|s| s.indexer).collect();
+        candidates.retain(|c| !selected_indexers.contains(&c.indexer));
+    }
+    tracing::info!(?indexer_errors);
+
+    // Send fallback error to use when no indexers are successful.
+    if client_response_time.is_none() {
+        let _ = client_response.try_send(Err(Error::BadIndexers(indexer_errors.clone())));
+        client_response_time = Some(Instant::now().duration_since(start_time));
+    }
+
+    let result = if indexer_requests.iter().any(|r| r.result.is_ok()) {
+        Ok(())
+    } else {
+        Err(Error::BadIndexers(indexer_errors))
+    };
+
+    let total_fees_grt: f64 = indexer_requests.iter().map(|i| i.fee as f64 * 1e-18).sum();
+    let total_fees_usd = USD(NotNan::new(total_fees_grt / *grt_per_usd).unwrap());
+    let _ = ctx.budgeter.feedback.send(total_fees_usd);
+
+    for indexer_request in &indexer_requests {
+        let latest_block = match &indexer_request.result {
+            Ok(response) => response.probe_block.as_ref().map(|b| b.number),
+            Err(IndexerError::Unavailable(MissingBlock(err))) => err.latest,
+            _ => None,
+        };
+        ctx.indexing_perf.feedback(
+            indexer_request.indexer,
+            indexer_request.deployment,
+            indexer_request.result.is_ok(),
+            indexer_request.response_time_ms,
+            latest_block,
+        );
+
+        if let Some(block) = indexer_request
+            .result
+            .as_ref()
+            .ok()
+            .and_then(|r| r.probe_block.clone())
+        {
+            chain.notify(block, indexer_request.indexer);
+        }
+
+        let deployment = indexer_request.deployment.to_string();
+        let indexer = format!("{:?}", indexer_request.indexer);
+        let labels = [deployment.as_str(), indexer.as_str()];
+        METRICS
+            .indexer_query
+            .check(&labels, &indexer_request.result);
+        with_metric(&METRICS.indexer_query.duration, &labels, |hist| {
+            hist.observe(indexer_request.response_time_ms as f64)
+        });
+
+        tracing::info!(
+            indexer = ?indexer_request.indexer,
+            deployment = %indexer_request.deployment,
+            allocation = ?indexer_request.allocation,
+            url = indexer_request.url,
+            result = ?indexer_request.result.as_ref().map(|_| ()),
+            response_time_ms = indexer_request.response_time_ms,
+            seconds_behind = indexer_request.seconds_behind,
+            fee = indexer_request.fee as f64 * 1e-18,
+            "indexer_request"
+        );
+        tracing::trace!(indexer_request = indexer_request.request);
+    }
+
+    let response_time_ms = client_response_time.unwrap().as_millis() as u16;
+    tracing::info!(
+        result = ?result,
+        response_time_ms,
+        total_fees_grt,
+        total_fees_usd = *total_fees_usd.0,
+    );
+
+    let _ = ctx.reporter.send(reports::ClientRequest {
+        id: request_id,
+        response_time_ms,
+        result,
+        api_key: auth.key,
+        user_address: auth.user,
+        grt_per_usd,
+        indexer_requests,
+    });
 }
 
 /// Given a query selector, resolve the subgraph deployments for the query. If the selector is a subgraph ID, return
@@ -224,315 +571,6 @@ fn resolve_subgraph_deployments(
             Ok((vec![deployment], None))
         }
     }
-}
-
-async fn handle_client_query_inner(
-    ctx: &Context,
-    query_settings: Option<QuerySettings>,
-    deployments: Vec<Arc<Deployment>>,
-    payload: Bytes,
-) -> Result<IndexerResponse, Error> {
-    let subgraph_chain = deployments
-        .last()
-        .map(|deployment| deployment.manifest.network.clone())
-        .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
-
-    let manifest_min_block = deployments.last().unwrap().manifest.min_block;
-    let chain = ctx.chains.chain(&subgraph_chain).await;
-
-    let payload: QueryBody =
-        serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
-
-    let mut indexer_errors: BTreeMap<Address, IndexerError> = Default::default();
-
-    let mut available_indexers: BTreeSet<Indexing> = deployments
-        .iter()
-        .flat_map(move |deployment| {
-            let id = deployment.id;
-            deployment.indexers.keys().map(move |indexer| Indexing {
-                indexer: *indexer,
-                deployment: id,
-            })
-        })
-        .collect();
-    let blocklist = ctx
-        .indexings_blocklist
-        .value_immediate()
-        .unwrap_or_default();
-    available_indexers.retain(|candidate| {
-        if blocklist.contains(candidate) || ctx.bad_indexers.contains(&candidate.indexer) {
-            indexer_errors.insert(
-                candidate.indexer,
-                IndexerError::Unavailable(UnavailableReason::NoStatus),
-            );
-            return false;
-        }
-        true
-    });
-    if available_indexers.is_empty() {
-        return Err(Error::NoIndexers);
-    }
-
-    let variables = payload
-        .variables
-        .as_ref()
-        .map(ToString::to_string)
-        .unwrap_or_default();
-    let context = AgoraContext::new(&payload.query, &variables)
-        .map_err(|err| Error::BadQuery(anyhow!("{err}")))?;
-
-    tracing::info!(
-        query = %payload.query,
-        %variables,
-    );
-
-    let grt_per_usd = *ctx.grt_per_usd.borrow();
-    let one_grt = NotNan::new(1e18).unwrap();
-    let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
-    let query_settings = query_settings.unwrap_or_default();
-    if let Some(user_budget_usd) = query_settings.budget_usd {
-        // Security: Consumers can and will set their budget to unreasonably high values.
-        // This `.min` prevents the budget from being set far beyond what it would be
-        // automatically. The reason this is important is that sometimes queries are
-        // subsidized, and we would be at-risk to allow arbitrarily high values.
-        let max_budget = budget * 10;
-        budget = (*(user_budget_usd * grt_per_usd * one_grt) as u128).min(max_budget);
-    }
-    tracing::info!(budget_grt = (budget as f64 * 1e-18) as f32);
-
-    let versions_behind: BTreeMap<DeploymentId, u8> = deployments
-        .iter()
-        .rev()
-        .enumerate()
-        .map(|(index, deployment)| (deployment.id, index.try_into().unwrap_or(u8::MAX)))
-        .collect();
-
-    let (chain_head, blocks_per_minute, block_requirements) = {
-        let chain = chain.read().await;
-        let block_requirements = resolve_block_requirements(&chain, &context, manifest_min_block)?;
-        let blocks_per_minute = chain.blocks_per_minute();
-        let chain_head = chain.latest().map(|b| b.number);
-        (chain_head, blocks_per_minute, block_requirements)
-    };
-    let indexing_statuses = ctx.indexing_statuses.value_immediate().unwrap();
-    let chain_head = chain_head.unwrap_or_else(|| {
-        available_indexers
-            .iter()
-            .flat_map(|indexing| indexing_statuses.get(indexing).map(|status| status.block))
-            .max()
-            .unwrap_or(0) // doesn't matter if no indexers have status
-    });
-    tracing::debug!(chain_head, blocks_per_minute, ?block_requirements);
-
-    // List holding the indexers that support Scalar TAP.
-    //
-    // This is a temporary solution determine which indexers support Scalar TAP. This will be
-    // removed once the network service is integrated.
-    let mut candidates_with_scalar_tap_support = HashSet::new();
-
-    let mut candidates = Vec::new();
-    {
-        let perf = ctx.indexing_perf.latest();
-        for indexing in available_indexers {
-            if let Some(status) = indexing_statuses.get(&indexing) {
-                // If the indexer status indicates it supports Scalar TAP, add it to the set of
-                // indexers with Scalar TAP support.
-                if !status.legacy_scalar {
-                    candidates_with_scalar_tap_support.insert(indexing.indexer);
-                }
-            }
-
-            match prepare_candidate(
-                &ctx.network,
-                &indexing_statuses,
-                &perf,
-                &versions_behind,
-                &context,
-                &block_requirements,
-                chain_head,
-                blocks_per_minute,
-                budget,
-                indexing,
-            ) {
-                Ok(candidate) => candidates.push(candidate),
-                Err(indexer_error) => {
-                    indexer_errors.insert(indexing.indexer, indexer_error);
-                }
-            }
-        }
-    }
-
-    let mut rng = SmallRng::from_entropy();
-    if tracing::enabled!(tracing::Level::TRACE) {
-        tracing::trace!(?candidates);
-    } else if rng.gen_bool(0.001) {
-        tracing::debug!(?candidates);
-    }
-
-    if candidates.is_empty() {
-        tracing::debug!(?indexer_errors);
-        return Err(Error::BadIndexers(indexer_errors));
-    }
-
-    let mut total_indexer_fees_grt: u128 = 0;
-    let start_time = Instant::now();
-    while !candidates.is_empty()
-        && (Instant::now().duration_since(start_time) < Duration::from_secs(60))
-    {
-        let selected_candidates: ArrayVec<&Candidate, SELECTION_LIMIT> =
-            indexer_selection::select(&candidates);
-        let selections_len = selected_candidates.len();
-        let selected_indexers: ArrayVec<Address, SELECTION_LIMIT> =
-            selected_candidates.iter().map(|c| c.indexer).collect();
-        let mut selections: Vec<Selection> = Default::default();
-        for candidate in selected_candidates {
-            // over-pay indexers to hit target
-            let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
-            let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections_len as f64;
-            let indexer_fee = candidate.fee.as_f64() * budget as f64;
-            let fee = indexer_fee.max(min_fee) as u128;
-
-            let receipt = match if candidates_with_scalar_tap_support.contains(&candidate.indexer) {
-                ctx.receipt_signer
-                    .create_receipt(candidate.indexer, candidate.deployment, fee)
-                    .await
-            } else {
-                ctx.receipt_signer
-                    .create_legacy_receipt(candidate.indexer, candidate.deployment, fee)
-                    .await
-            } {
-                Some(receipt) => receipt,
-                None => {
-                    let indexing = Indexing {
-                        indexer: candidate.indexer,
-                        deployment: candidate.deployment,
-                    };
-                    tracing::error!(?indexing, "failed to create receipt");
-                    continue;
-                }
-            };
-            debug_assert!(fee == receipt.grt_value());
-
-            let blocks_behind = (candidate.seconds_behind as f64 / 60.0) * blocks_per_minute as f64;
-            selections.push(Selection {
-                indexing: Indexing {
-                    indexer: candidate.indexer,
-                    deployment: candidate.deployment,
-                },
-                url: candidate.url.clone(),
-                receipt,
-                blocks_behind: blocks_behind as u64,
-            });
-        }
-        if selections.is_empty() {
-            // Candidates that would never be selected should be filtered out for improved errors.
-            tracing::error!("no candidates selected");
-            return Err(Error::BadIndexers(indexer_errors));
-        }
-
-        let mut indexer_requests: ArrayVec<String, SELECTION_LIMIT> = Default::default();
-        {
-            let chain_view = chain.read().await;
-            for (i, selection) in selections.iter().enumerate() {
-                if let Some(i) = selections[..i]
-                    .iter()
-                    .position(|s| s.blocks_behind == selection.blocks_behind)
-                {
-                    indexer_requests.push(indexer_requests[i].clone());
-                } else {
-                    indexer_requests.push(rewrite_query(
-                        &chain_view,
-                        &context,
-                        &block_requirements,
-                        selection.blocks_behind,
-                    ));
-                }
-            }
-        }
-
-        let (outcome_tx, mut outcome_rx) = mpsc::channel(SELECTION_LIMIT);
-        for (selection, indexer_request) in selections.into_iter().zip(indexer_requests) {
-            let deployment = deployments
-                .iter()
-                .find(|deployment| deployment.id == selection.indexing.deployment)
-                .unwrap()
-                .clone();
-            let indexer_query_context = IndexerQueryContext {
-                indexer_client: ctx.indexer_client.clone(),
-                chain: chain.clone(),
-                attestation_domain: ctx.attestation_domain,
-                indexing_perf: ctx.indexing_perf.clone(),
-                deployment,
-                response_time: Duration::default(),
-            };
-
-            total_indexer_fees_grt += selection.receipt.grt_value();
-
-            let indexer_query_context = indexer_query_context.clone();
-            let outcome_tx = outcome_tx.clone();
-            // We must manually construct this span before the spawned task, since otherwise
-            // there's a race between creating this span and another indexer responding which will
-            // close the outer client_query span.
-            let span = tracing::info_span!(
-                "indexer_request",
-                indexer = ?selection.indexing.indexer,
-            );
-            let receipt_signer = ctx.receipt_signer;
-            tokio::spawn(
-                async move {
-                    let response =
-                        handle_indexer_query(indexer_query_context, &selection, indexer_request)
-                            .await;
-                    let receipt_status = match &response {
-                        Ok(_) => ReceiptStatus::Success,
-                        Err(IndexerError::Timeout) => ReceiptStatus::Unknown,
-                        Err(_) => ReceiptStatus::Failure,
-                    };
-                    receipt_signer
-                        .record_receipt(
-                            selection.indexing.indexer,
-                            selection.indexing.deployment,
-                            &selection.receipt,
-                            receipt_status,
-                        )
-                        .await;
-
-                    let _ = outcome_tx.send((selection, response)).await;
-                }
-                .instrument(span),
-            );
-        }
-        // This must be dropped to ensure the `outcome_rx.recv()` loop below can eventyually stop.
-        drop(outcome_tx);
-
-        let total_indexer_fees_usd =
-            USD(NotNan::new(total_indexer_fees_grt as f64 * 1e-18).unwrap() / grt_per_usd);
-        tracing::info!(
-            indexer_fees_grt = (total_indexer_fees_grt as f64 * 1e-18) as f32,
-            indexer_fees_usd = *total_indexer_fees_usd.0 as f32,
-        );
-
-        while let Some((selection, result)) = outcome_rx.recv().await {
-            match result {
-                Err(err) => {
-                    indexer_errors.insert(selection.indexing.indexer, err);
-                }
-                Ok(outcome) => {
-                    let _ = ctx.budgeter.feedback.send(total_indexer_fees_usd);
-
-                    tracing::debug!(?indexer_errors);
-                    tracing::info!(
-                        deployment = %selection.indexing.deployment,
-                    );
-                    return Ok(outcome);
-                }
-            };
-        }
-
-        candidates.retain(|c| !selected_indexers.contains(&c.indexer));
-    }
-
-    Err(Error::BadIndexers(indexer_errors))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -624,106 +662,6 @@ fn perf(
     })
 }
 
-#[derive(Clone)]
-struct IndexerQueryContext {
-    pub indexer_client: IndexerClient,
-    pub chain: ChainReader,
-    pub attestation_domain: &'static Eip712Domain,
-    pub indexing_perf: IndexingPerformance,
-    pub deployment: Arc<Deployment>,
-    pub response_time: Duration,
-}
-
-async fn handle_indexer_query(
-    mut ctx: IndexerQueryContext,
-    selection: &Selection,
-    indexer_request: String,
-) -> Result<IndexerResponse, IndexerError> {
-    let indexing = selection.indexing;
-    let deployment = indexing.deployment.to_string();
-    let indexer = format!("{:?}", indexing.indexer);
-
-    let result = handle_indexer_query_inner(&mut ctx, selection, indexer_request).await;
-    METRICS
-        .indexer_query
-        .check(&[&deployment, &indexer], &result);
-
-    let latest_block = match &result {
-        Ok(IndexerResponse { probe_block, .. }) => probe_block.as_ref().map(|b| b.number),
-        Err(IndexerError::Unavailable(MissingBlock(MissingBlockError { latest, .. }))) => *latest,
-        _ => None,
-    };
-
-    let latency_ms = ctx.response_time.as_millis() as u16;
-    tracing::info!(
-        %deployment,
-        url = %selection.url,
-        blocks_behind = selection.blocks_behind,
-        fee_grt = (selection.receipt.grt_value() as f64 * 1e-18) as f32,
-        allocation = ?selection.receipt.allocation(),
-        legacy_scalar = matches!(&selection.receipt, ScalarReceipt::Legacy(_, _)),
-        subgraph_chain = %ctx.deployment.manifest.network,
-        response_time_ms = latency_ms,
-        status_message = match &result {
-            Ok(_) => "200 OK".to_string(),
-            Err(err) => format!("{err:?}"),
-        },
-    );
-
-    ctx.indexing_perf.feedback(
-        indexing.indexer,
-        indexing.deployment,
-        result.is_ok(),
-        latency_ms,
-        latest_block,
-    );
-
-    result
-}
-
-async fn handle_indexer_query_inner(
-    ctx: &mut IndexerQueryContext,
-    selection: &Selection,
-    indexer_request: String,
-) -> Result<IndexerResponse, IndexerError> {
-    let start_time = Instant::now();
-    let result = ctx
-        .indexer_client
-        .query_indexer(
-            &selection.indexing.deployment,
-            &selection.url,
-            &selection.receipt,
-            ctx.attestation_domain,
-            indexer_request.clone(),
-        )
-        .await;
-    ctx.response_time = Instant::now() - start_time;
-
-    let deployment = selection.indexing.deployment.to_string();
-    let indexer = format!("{:?}", selection.indexing.indexer);
-    with_metric(
-        &METRICS.indexer_query.duration,
-        &[&deployment, &indexer],
-        |hist| hist.observe(ctx.response_time.as_millis() as f64),
-    );
-
-    let response = result?;
-
-    if let Some(block) = &response.probe_block {
-        ctx.chain.notify(block.clone(), selection.indexing.indexer);
-    }
-
-    let errors_repr = response
-        .errors
-        .iter()
-        .map(|err| err.as_str())
-        .collect::<Vec<&str>>()
-        .join("; ");
-    tracing::info!(indexer_errors = errors_repr);
-
-    Ok(response)
-}
-
 pub fn indexer_fee(
     cost_model: &Option<Ptr<CostModel>>,
     context: &AgoraContext,
@@ -738,6 +676,10 @@ pub fn indexer_fee(
             .ok_or(IndexerError::Unavailable(UnavailableReason::NoFee)),
         Some(Err(_)) => Err(IndexerError::Unavailable(UnavailableReason::NoFee)),
     }
+}
+
+fn blocks_behind(seconds_behind: u32, blocks_per_minute: u64) -> u64 {
+    ((seconds_behind as f64 / 60.0) * blocks_per_minute as f64) as u64
 }
 
 #[cfg(test)]

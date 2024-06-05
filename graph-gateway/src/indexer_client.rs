@@ -40,7 +40,7 @@ impl IndexerClient {
         url: &Url,
         receipt: &ScalarReceipt,
         attestation_domain: &Eip712Domain,
-        query: String,
+        query: &str,
     ) -> Result<IndexerResponse, IndexerError> {
         let url = url
             .join(&format!("subgraphs/id/{:?}", deployment))
@@ -51,7 +51,7 @@ impl IndexerClient {
             .post(url)
             .header("Content-Type", "application/json")
             .header("Scalar-Receipt", receipt.serialize())
-            .body(query.clone())
+            .body(query.to_string())
             .send()
             .await
             .and_then(|response| response.error_for_status());
@@ -105,7 +105,7 @@ impl IndexerClient {
                     attestation_domain,
                     attestation,
                     &allocation,
-                    &query,
+                    query,
                     &original_response,
                 ) {
                     return Err(BadResponse(format!("bad attestation: {err}")));
