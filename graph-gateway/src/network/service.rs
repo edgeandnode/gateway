@@ -394,16 +394,6 @@ fn spawn_updater_task(
                 update = fetch_update(&subgraph_client, &state) => {
                     match update {
                         Ok(network) => {
-                            tracing::info!(
-                                subgraphs = network.subgraphs().len(),
-                                deployments = network.deployments().len(),
-                                indexings = network.deployments()
-                                    .values()
-                                    .filter_map(|d| d.as_ref().ok())
-                                    .map(|d| d.indexings.len())
-                                    .sum::<usize>(),
-                            );
-
                             eventual_writer.write(Ptr::new(network));
                         }
                         // If the fetch fails, log a warning and skip the update
