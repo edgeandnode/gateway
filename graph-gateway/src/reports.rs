@@ -1,7 +1,7 @@
 use alloy_primitives::Address;
 use anyhow::{anyhow, Context};
 use gateway_common::utils::timestamp::unix_timestamp;
-use gateway_framework::errors;
+use gateway_framework::errors::{self, IndexerError};
 use ordered_float::NotNan;
 use prost::Message;
 use serde_json::json;
@@ -38,6 +38,7 @@ pub struct IndexerRequest {
 
 pub struct Reporter {
     pub graph_env: String,
+    pub budget: String,
     pub client_request_topic: String,
     pub indexer_request_topic: String,
     pub attestation_topic: String,
@@ -51,6 +52,7 @@ pub struct Reporter {
 impl Reporter {
     pub fn create(
         graph_env: String,
+        budget: String,
         client_request_topic: String,
         indexer_request_topic: String,
         attestation_topic: String,
@@ -59,6 +61,7 @@ impl Reporter {
         let kafka_producer = kafka_config.create().context("kafka producer error")?;
         let mut reporter = Self {
             graph_env,
+            budget,
             client_request_topic,
             indexer_request_topic,
             attestation_topic,
@@ -88,6 +91,26 @@ impl Reporter {
             .sum();
         let total_fees_usd: f64 = total_fees_grt / *client_request.grt_per_usd;
 
+        let (legacy_status_message, legacy_status_code): (String, u32) =
+            match &client_request.result {
+                Ok(_) => ("200 OK".to_string(), 0),
+                Err(err) => match err {
+                    errors::Error::BlockNotFound(_) => ("Unresolved block".to_string(), 604610595),
+                    errors::Error::Internal(_) => ("Internal error".to_string(), 816601499),
+                    errors::Error::Auth(_) => ("Invalid API key".to_string(), 888904173),
+                    errors::Error::BadQuery(_) => ("Invalid query".to_string(), 595700117),
+                    errors::Error::NoIndexers => (
+                        "No indexers found for subgraph deployment".to_string(),
+                        1621366907,
+                    ),
+                    errors::Error::BadIndexers(_) => (
+                        "No suitable indexer found for subgraph deployment".to_string(),
+                        510359393,
+                    ),
+                    errors::Error::SubgraphNotFound(_) => (err.to_string(), 2599148187),
+                },
+            };
+
         let client_request_payload = json!({
             "query_id": &client_request.id,
             "ray_id": &client_request.id,
@@ -98,10 +121,12 @@ impl Reporter {
             "deployment": client_request.indexer_requests.first().map(|i| i.deployment.to_string()).unwrap_or_default(),
             "network": client_request.indexer_requests.first().map(|i| i.subgraph_chain.as_str()).unwrap_or(""),
             "response_time_ms": client_request.response_time_ms,
+            "budget": self.budget.to_string(),
             "query_count": 1,
             "fee": total_fees_grt as f32,
             "fee_usd": total_fees_usd as f32,
-            "status": client_request.result.as_ref().map(|()| "200 OK".into()).unwrap_or_else(|err| err.to_string()),
+            "status": legacy_status_message,
+            "status_code": legacy_status_code,
         });
 
         for indexer_request in client_request.indexer_requests {
@@ -116,6 +141,16 @@ impl Reporter {
                         .join("; ")
                 })
                 .unwrap_or_default();
+            let legacy_status_code: u32 = {
+                let (prefix, data) = match &indexer_request.result {
+                    Ok(_) => (0x0, 200_u32.to_be()),
+                    Err(IndexerError::Internal(_)) => (0x1, 0x0),
+                    Err(IndexerError::Unavailable(_)) => (0x2, 0x0),
+                    Err(IndexerError::Timeout) => (0x3, 0x0),
+                    Err(IndexerError::BadResponse(_)) => (0x4, 0x0),
+                };
+                (prefix << 28) | (data & (u32::MAX >> 4))
+            };
             let indexer_request_payload = json!({
                 "query_id": &client_request.id,
                 "ray_id": &client_request.id,
@@ -135,6 +170,7 @@ impl Reporter {
                 "allocation": &indexer_request.allocation,
                 "indexer_errors": indexer_errors,
                 "status": indexer_request.result.as_ref().map(|_| "200 OK".into()).unwrap_or_else(|err| err.to_string()),
+                "status_code": legacy_status_code,
             });
             serde_json::to_writer(&mut self.write_buf, &indexer_request_payload).unwrap();
             let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
