@@ -21,21 +21,12 @@
 
 For indexers, note that automated allocation management might not allocate to a subgraph deployment if it doesn’t meet requirements like minimum signal.
 
-### Bad Client Query QoS
-
-- check relevant [indexer errors](./errors.md):
-
-  ```jsx
-  |~ "GyijYxW9yiSRcEd5u2gfquSvneQKi5QuvU3WZgFyfFSn|QmeBPZyEeaHyZAiFS2Q7cT3CESS49hhgGuT3E9S8RYoHNm"
-  |= "indexer_errors" != "indexer_request"
-  | pattern "<timestamp> stdout F <json>" | line_format "{{.json}}" | json query_id="spans[0].query_id", errors="fields.indexer_errors" | line_format "{{.query_id}} {{.errors}}"
-  ```
-
 ### Bad/Inconsistent Query Responses
 
 - Graphix is a useful tool to check if allocated indexers have divergent POIs, and might indicate which indexers are delivering the bad responses.
 
   If tools like Graphix are not available, you can query the relevant indexers manually to get their POIs:
+
   ```bash
   curl ${indexer_url}/status \
     -H 'content-type: application/json' \
@@ -53,16 +44,15 @@ For indexers, note that automated allocation management might not allocate to a 
 ### Degraded performance on multiple subgraphs
 
 - `|= "ERROR"`: error logs may show negative impacts on the gateway's ability to serve queries or make payments.
-  - `|= "fetch_block_err"`: failures to resolve block number/hash via RPC
   - `|= "poll_subgraphs_err"`: failures to poll asubgraph (potentially the network subgraph)
 
 ### Other
 
-- For other scenarios, it may be useful to identify a query where some issue occurred. Then filter for all logs containing the corresponding `query_id`.
+- For other scenarios, it may be useful to identify a query where some issue occurred. Then filter for all logs containing the corresponding `request_id`.
 
 - common log queries
 
   ```jsx
   |~ "GyijYxW9yiSRcEd5u2gfquSvneQKi5QuvU3WZgFyfFSn|QmeBPZyEeaHyZAiFS2Q7cT3CESS49hhgGuT3E9S8RYoHNm"
-  |= "status_message"
+  |= "client_request"
   ```
