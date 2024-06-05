@@ -129,6 +129,34 @@ impl Reporter {
             "status_code": legacy_status_code,
         });
 
+        let silly_old_timestamp =
+            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
+        // TODO: remove this println as soon as data science stops relying on it.
+        println!(
+            "{}",
+            serde_json::to_string(&json!({
+                "level": "INFO",
+                "timestamp": silly_old_timestamp,
+                "fields": {
+                    "message": "Client query result",
+                    "query_id": &client_request.id,
+                    "ray_id": &client_request.id,
+                    "deployment": client_request.indexer_requests.first().map(|i| i.deployment.to_string()).unwrap_or_default(),
+                    "network": client_request.indexer_requests.first().map(|i| i.subgraph_chain.as_str()).unwrap_or(""),
+                    "user": &client_request.user_address,
+                    "api_key": &client_request.api_key,
+                    "query_count": 1,
+                    "budget": self.budget,
+                    "fee": total_fees_grt as f32,
+                    "fee_usd": total_fees_usd as f32,
+                    "response_time_ms": client_request.response_time_ms,
+                    "status": legacy_status_message,
+                    "status_code": legacy_status_code,
+                },
+            }))
+            .unwrap()
+        );
+
         for indexer_request in client_request.indexer_requests {
             let indexer_errors = indexer_request
                 .result
@@ -151,6 +179,34 @@ impl Reporter {
                 };
                 (prefix << 28) | (data & (u32::MAX >> 4))
             };
+
+            // TODO: remove this println as soon as data science stops relying on it.
+            println!(
+                "{}",
+                serde_json::to_string(&json!({
+                    "level": "INFO",
+                    "timestamp": silly_old_timestamp,
+                    "fields": {
+                        "message": "Indexer attempt",
+                        "query_id": &client_request.id,
+                        "ray_id": &client_request.id,
+                        "deployment": indexer_request.deployment.to_string(),
+                        "indexer": &indexer_request.indexer,
+                        "url": &indexer_request.url,
+                        "blocks_behind": indexer_request.blocks_behind,
+                        "attempt_index": 0,
+                        "api_key": &client_request.api_key,
+                        "fee": total_fees_grt as f32,
+                        "response_time_ms": indexer_request.response_time_ms,
+                        "allocation": &indexer_request.allocation,
+                        "indexer_errors": indexer_errors,
+                        "status": indexer_request.result.as_ref().map(|_| "200 OK".into()).unwrap_or_else(|err| err.to_string()),
+                        "status_code": legacy_status_code,
+                    },
+                }))
+                .unwrap()
+            );
+
             let indexer_request_payload = json!({
                 "query_id": &client_request.id,
                 "ray_id": &client_request.id,
