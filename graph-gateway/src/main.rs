@@ -45,10 +45,9 @@ use gateway_framework::{
 use graph_gateway::{
     client_query::{self, context::Context},
     indexer_client::IndexerClient,
-    indexers,
-    indexers::indexing,
+    indexers::{self, indexing},
     indexings_blocklist::{self, indexings_blocklist},
-    subgraph_studio,
+    reports, subgraph_studio,
 };
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
@@ -207,6 +206,15 @@ async fn main() {
         USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
+    let reporter = reports::Reporter::create(
+        config.graph_env_id.clone(),
+        "gateway_client_query_results".into(),
+        "gateway_indexer_attempts".into(),
+        "gateway_attestations".into(),
+        &config.kafka.into(),
+    )
+    .unwrap();
+
     let client_query_ctx = Context {
         indexer_client: IndexerClient {
             client: http_client.clone(),
@@ -222,6 +230,7 @@ async fn main() {
         attestation_domain,
         bad_indexers,
         indexings_blocklist,
+        reporter,
     };
 
     // Host metrics on a separate server with a port that isn't open to public requests.

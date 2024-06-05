@@ -12,10 +12,10 @@ use gateway_framework::{
     topology::network::GraphNetwork,
 };
 use ordered_float::NotNan;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use url::Url;
 
-use crate::indexer_client::IndexerClient;
+use crate::{indexer_client::IndexerClient, reports};
 
 #[derive(Clone)]
 pub struct Context {
@@ -31,4 +31,5 @@ pub struct Context {
     pub attestation_domain: &'static Eip712Domain,
     pub bad_indexers: &'static HashSet<Address>,
     pub indexings_blocklist: Eventual<Ptr<HashSet<Indexing>>>,
+    pub reporter: mpsc::UnboundedSender<reports::ClientRequest>,
 }
