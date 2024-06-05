@@ -50,7 +50,7 @@ impl IndexerClient {
             .client
             .post(url)
             .header("Content-Type", "application/json")
-            .header("Scalar-Receipt", receipt.serialize())
+            .header(receipt.header_name(), receipt.serialize())
             .body(query.to_string())
             .send()
             .await

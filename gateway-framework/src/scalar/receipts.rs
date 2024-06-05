@@ -42,6 +42,13 @@ impl ScalarReceipt {
             ScalarReceipt::TAP(receipt) => serde_json::to_string(&receipt).unwrap(),
         }
     }
+
+    pub fn header_name(&self) -> &'static str {
+        match self {
+            ScalarReceipt::Legacy(_, _) => "Scalar-Receipt",
+            ScalarReceipt::TAP(_) => "Tap-Receipt",
+        }
+    }
 }
 
 /// Scalar TAP signer.
