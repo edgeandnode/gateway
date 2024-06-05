@@ -30,11 +30,9 @@ use gateway_framework::{
     http::middleware::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
-    indexing::Indexing,
     ip_blocker::IpBlocker,
     json,
     network::{
-        discovery::Status,
         exchange_rate,
         indexing_performance::{IndexingPerformance, Status as IndexingPerformanceStatus},
         network_subgraph,
@@ -44,7 +42,7 @@ use gateway_framework::{
         INDEXER_REQUEST_TARGET,
     },
     scalar::{self, ReceiptSigner},
-    topology::network::{Deployment, GraphNetwork},
+    topology::network::GraphNetwork,
 };
 use graph_gateway::{
     client_query::{self, context::Context},
@@ -60,10 +58,7 @@ use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
-use thegraph_core::{
-    client as subgraph_client,
-    types::{attestation, DeploymentId},
-};
+use thegraph_core::{client as subgraph_client, types::attestation};
 use tokio::{
     net::TcpListener,
     signal::unix::SignalKind,
@@ -219,9 +214,44 @@ async fn main() {
         .await,
     ));
 
+    // Periodically log the network topology stats
+    // TODO: Remove this once the network service is integrated
     eventuals::join((network.deployments.clone(), indexing_statuses.clone()))
         .pipe_async(move |(deployments, indexing_statuses)| async move {
-            update_allocations(receipt_signer, &deployments, &indexing_statuses).await;
+            tracing::info!(
+                deployments = deployments.len(),
+                indexings = deployments
+                    .values()
+                    .map(|d| d.indexers.len())
+                    .sum::<usize>(),
+                indexing_statuses = indexing_statuses.len(),
+            );
+        })
+        .forever();
+
+    // Periodically update the largest allocations for each indexer-deployment pair.
+    // TODO: Remove this once the network service is integrated and the largest allocation can be
+    //  accessed via the `Indexing` instance.
+    network
+        .deployments
+        .clone()
+        .pipe_async(move |deployments| async move {
+            let largest_allocations = deployments
+                .values()
+                .flat_map(|deployment| {
+                    deployment
+                        .indexers
+                        .values()
+                        .map(|indexer| (deployment.as_ref(), indexer.as_ref()))
+                })
+                .map(|(deployment, indexer)| {
+                    ((indexer.id, deployment.id), indexer.largest_allocation)
+                })
+                .collect::<HashMap<_, _>>();
+
+            receipt_signer
+                .update_allocations(&largest_allocations)
+                .await;
         })
         .forever();
 
@@ -408,32 +438,6 @@ async fn ip_rate_limit(
     }
 
     Ok(next.run(req).await)
-}
-
-async fn update_allocations(
-    receipt_signer: &ReceiptSigner,
-    deployments: &HashMap<DeploymentId, Arc<Deployment>>,
-    indexing_statuses: &HashMap<Indexing, Status>,
-) {
-    tracing::info!(
-        deployments = deployments.len(),
-        indexings = deployments
-            .values()
-            .map(|d| d.indexers.len())
-            .sum::<usize>(),
-        indexing_statuses = indexing_statuses.len(),
-    );
-
-    let mut allocations: HashMap<(Address, DeploymentId), Address> = HashMap::new();
-    for (deployment, indexer) in deployments.values().flat_map(|deployment| {
-        deployment
-            .indexers
-            .values()
-            .map(|indexer| (deployment.as_ref(), indexer.as_ref()))
-    }) {
-        allocations.insert((indexer.id, deployment.id), indexer.largest_allocation);
-    }
-    receipt_signer.update_allocations(&allocations).await;
 }
 
 async fn handle_metrics() -> impl axum::response::IntoResponse {
