@@ -8,7 +8,6 @@ use gateway_framework::{
     chains::Chains,
     indexing::Indexing,
     network::{discovery::Status, indexing_performance::IndexingPerformance},
-    reporting::KafkaClient,
     scalar::ReceiptSigner,
     topology::network::GraphNetwork,
 };
@@ -22,7 +21,6 @@ use crate::indexer_client::IndexerClient;
 pub struct Context {
     pub indexer_client: IndexerClient,
     pub receipt_signer: &'static ReceiptSigner,
-    pub kafka_client: &'static KafkaClient,
     pub budgeter: &'static Budgeter,
     pub l2_gateway: Option<Url>,
     pub grt_per_usd: watch::Receiver<NotNan<f64>>,

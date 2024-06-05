@@ -21,14 +21,15 @@ use gateway_framework::{
     budgets::USD,
     chains::ChainReader,
     errors::{
-        Error, IndexerError, MissingBlockError, UnavailableReason, UnavailableReason::MissingBlock,
+        Error, IndexerError, MissingBlockError,
+        UnavailableReason::{self, MissingBlock},
     },
     indexing::Indexing,
+    metrics::{with_metric, METRICS},
     network::{
         discovery::Status,
         indexing_performance::{IndexingPerformance, Snapshot},
     },
-    reporting::{with_metric, KafkaClient, CLIENT_REQUEST_TARGET, INDEXER_REQUEST_TARGET, METRICS},
     scalar::{ReceiptStatus, ScalarReceipt},
     topology::network::{Deployment, GraphNetwork, Subgraph},
 };
@@ -52,7 +53,6 @@ use self::{
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     indexer_client::{IndexerClient, IndexerResponse},
-    reports::{self, serialize_attestation},
 };
 
 mod attestation_header;
@@ -162,13 +162,9 @@ pub async fn handle_query(
             Ok(_) => "200 OK".to_string(),
             Err(err) => err.to_string(),
         };
-        let (legacy_status_message, legacy_status_code) = reports::legacy_status(&result);
         tracing::info!(
-            target: CLIENT_REQUEST_TARGET,
             start_time_ms = timestamp,
             %status_message,
-            %legacy_status_message,
-            legacy_status_code,
         );
     }
 
@@ -240,7 +236,6 @@ async fn handle_client_query_inner(
         .last()
         .map(|deployment| deployment.manifest.network.clone())
         .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
-    tracing::info!(target: CLIENT_REQUEST_TARGET, subgraph_chain);
 
     let manifest_min_block = deployments.last().unwrap().manifest.min_block;
     let chain = ctx.chains.chain(&subgraph_chain).await;
@@ -287,7 +282,6 @@ async fn handle_client_query_inner(
         .map_err(|err| Error::BadQuery(anyhow!("{err}")))?;
 
     tracing::info!(
-        target: CLIENT_REQUEST_TARGET,
         query = %payload.query,
         %variables,
     );
@@ -304,11 +298,7 @@ async fn handle_client_query_inner(
         let max_budget = budget * 10;
         budget = (*(user_budget_usd * grt_per_usd * one_grt) as u128).min(max_budget);
     }
-    tracing::info!(
-        target: CLIENT_REQUEST_TARGET,
-        query_count = 1,
-        budget_grt = (budget as f64 * 1e-18) as f32,
-    );
+    tracing::info!(budget_grt = (budget as f64 * 1e-18) as f32);
 
     let versions_behind: BTreeMap<DeploymentId, u8> = deployments
         .iter()
@@ -469,7 +459,6 @@ async fn handle_client_query_inner(
                 .clone();
             let indexer_query_context = IndexerQueryContext {
                 indexer_client: ctx.indexer_client.clone(),
-                kafka_client: ctx.kafka_client,
                 chain: chain.clone(),
                 attestation_domain: ctx.attestation_domain,
                 indexing_perf: ctx.indexing_perf.clone(),
@@ -485,7 +474,6 @@ async fn handle_client_query_inner(
             // there's a race between creating this span and another indexer responding which will
             // close the outer client_query span.
             let span = tracing::info_span!(
-                target: INDEXER_REQUEST_TARGET,
                 "indexer_request",
                 indexer = ?selection.indexing.indexer,
             );
@@ -520,7 +508,6 @@ async fn handle_client_query_inner(
         let total_indexer_fees_usd =
             USD(NotNan::new(total_indexer_fees_grt as f64 * 1e-18).unwrap() / grt_per_usd);
         tracing::info!(
-            target: CLIENT_REQUEST_TARGET,
             indexer_fees_grt = (total_indexer_fees_grt as f64 * 1e-18) as f32,
             indexer_fees_usd = *total_indexer_fees_usd.0 as f32,
         );
@@ -535,7 +522,6 @@ async fn handle_client_query_inner(
 
                     tracing::debug!(?indexer_errors);
                     tracing::info!(
-                        target: CLIENT_REQUEST_TARGET,
                         deployment = %selection.indexing.deployment,
                     );
                     return Ok(outcome);
@@ -641,7 +627,6 @@ fn perf(
 #[derive(Clone)]
 struct IndexerQueryContext {
     pub indexer_client: IndexerClient,
-    pub kafka_client: &'static KafkaClient,
     pub chain: ChainReader,
     pub attestation_domain: &'static Eip712Domain,
     pub indexing_perf: IndexingPerformance,
@@ -671,7 +656,6 @@ async fn handle_indexer_query(
 
     let latency_ms = ctx.response_time.as_millis() as u16;
     tracing::info!(
-        target: INDEXER_REQUEST_TARGET,
         %deployment,
         url = %selection.url,
         blocks_behind = selection.blocks_behind,
@@ -684,7 +668,6 @@ async fn handle_indexer_query(
             Ok(_) => "200 OK".to_string(),
             Err(err) => format!("{err:?}"),
         },
-        status_code = reports::indexer_attempt_status_code(&result),
     );
 
     ctx.indexing_perf.feedback(
@@ -736,22 +719,7 @@ async fn handle_indexer_query_inner(
         .map(|err| err.as_str())
         .collect::<Vec<&str>>()
         .join("; ");
-    tracing::info!(
-        target: INDEXER_REQUEST_TARGET,
-        indexer_errors = errors_repr,
-    );
-
-    if let Some(attestation) = &response.attestation {
-        // We send the Kafka message directly to avoid passing the request & response payloads
-        // through the normal reporting path. This is to reduce log bloat.
-        let payload = serialize_attestation(
-            attestation,
-            selection.receipt.allocation(),
-            indexer_request,
-            response.original_response.clone(),
-        );
-        ctx.kafka_client.send("gateway_attestations", &payload);
-    }
+    tracing::info!(indexer_errors = errors_repr);
 
     Ok(response)
 }

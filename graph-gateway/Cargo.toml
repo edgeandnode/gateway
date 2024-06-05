@@ -8,7 +8,6 @@ alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 anyhow.workspace = true
 axum = { workspace = true, features = ["tokio", "http1"] }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cost-model.workspace = true
 custom_debug = "0.6.1"
 eventuals = "0.6.7"

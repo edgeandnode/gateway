@@ -8,7 +8,6 @@ alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 anyhow.workspace = true
 axum.workspace = true
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cost-model.workspace = true
 dashmap = "5.5.3"
 ethers = "2.0.14"
@@ -28,7 +27,6 @@ pin-project = "1.1.5"
 primitive-types.workspace = true
 prometheus = "0.13.3"
 rand.workspace = true
-rdkafka = { version = "0.36.2", features = ["gssapi", "tracing"] }
 receipts.workspace = true
 reqwest.workspace = true
 secp256k1.workspace = true
