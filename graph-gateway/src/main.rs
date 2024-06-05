@@ -208,6 +208,7 @@ async fn main() {
 
     let reporter = reports::Reporter::create(
         config.graph_env_id.clone(),
+        config.query_fees_target.to_string(),
         "gateway_client_query_results".into(),
         "gateway_indexer_attempts".into(),
         "gateway_attestations".into(),
