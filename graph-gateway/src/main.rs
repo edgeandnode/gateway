@@ -31,15 +31,11 @@ use gateway_framework::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
     ip_blocker::IpBlocker,
-    json,
+    json, logging,
     network::{
         exchange_rate,
         indexing_performance::{IndexingPerformance, Status as IndexingPerformanceStatus},
         network_subgraph,
-    },
-    reporting::{
-        self, EventHandlerFn, KafkaClient, LoggingOptions, CLIENT_REQUEST_TARGET,
-        INDEXER_REQUEST_TARGET,
     },
     scalar::{self, ReceiptSigner},
     topology::network::GraphNetwork,
@@ -47,11 +43,9 @@ use gateway_framework::{
 use graph_gateway::{
     client_query::{self, context::Context},
     indexer_client::IndexerClient,
-    indexers,
-    indexers::indexing,
+    indexers::{self, indexing},
     indexings_blocklist::{self, indexings_blocklist},
-    reports::{report_client_query, report_indexer_query},
-    subgraph_studio,
+    reports, subgraph_studio,
 };
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
@@ -93,31 +87,7 @@ async fn main() {
 
     let config_repr = format!("{config:?}");
 
-    // Instantiate the Kafka client
-    let kafka_client: &'static KafkaClient = match KafkaClient::new(&config.kafka.into()) {
-        Ok(kafka_client) => Box::leak(Box::new(kafka_client)),
-        Err(kafka_client_err) => {
-            tracing::error!(%kafka_client_err);
-            return;
-        }
-    };
-
-    // Initialize logging
-    reporting::init(
-        kafka_client,
-        LoggingOptions {
-            executable_name: "graph-gateway".into(),
-            json: config.log_json,
-            event_handler: EventHandlerFn::new(|client, metadata, fields| {
-                match metadata.target() {
-                    CLIENT_REQUEST_TARGET => report_client_query(client, fields),
-                    INDEXER_REQUEST_TARGET => report_indexer_query(client, fields),
-                    _ => unreachable!("invalid event target for KafkaLayer"),
-                }
-            }),
-        },
-    );
-
+    logging::init("graph-gateway".into(), config.log_json);
     tracing::info!("gateway ID: {}", gateway_id);
     tracing::debug!(config = %config_repr);
 
@@ -266,12 +236,20 @@ async fn main() {
         USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
+    let reporter = reports::Reporter::create(
+        config.graph_env_id.clone(),
+        "gateway_client_query_results".into(),
+        "gateway_indexer_attempts".into(),
+        "gateway_attestations".into(),
+        &config.kafka.into(),
+    )
+    .unwrap();
+
     let client_query_ctx = Context {
         indexer_client: IndexerClient {
             client: http_client.clone(),
         },
         receipt_signer,
-        kafka_client,
         budgeter,
         l2_gateway: config.l2_gateway,
         chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
@@ -282,6 +260,7 @@ async fn main() {
         attestation_domain,
         bad_indexers,
         indexings_blocklist,
+        reporter,
     };
 
     // Host metrics on a separate server with a port that isn't open to public requests.
@@ -346,7 +325,7 @@ async fn main() {
                         .allow_methods([http::Method::OPTIONS, http::Method::POST]),
                 )
                 // Set up the query tracing span
-                .layer(RequestTracingLayer::new(config.graph_env_id.clone()))
+                .layer(RequestTracingLayer)
                 // Set the query ID on the request
                 .layer(SetRequestIdLayer::new(gateway_id))
                 // Handle legacy in-path auth, and convert it into a header

@@ -10,7 +10,7 @@ use tokio::{
     time::{interval, MissedTickBehavior},
 };
 
-use crate::{blocks::Block, chain::Chain, reporting::METRICS};
+use crate::{blocks::Block, chain::Chain, metrics::METRICS};
 
 #[derive(Clone)]
 pub struct ChainReader {

@@ -7,7 +7,7 @@ use tokio::{
     time::{interval, MissedTickBehavior},
 };
 
-use crate::reporting::METRICS;
+use crate::metrics::METRICS;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct USD(pub NotNan<f64>);

@@ -14,6 +14,7 @@ use url::Url;
 use crate::{indexing::Indexing, ip_blocker::IpBlocker, network::network_subgraph};
 
 /// Deployment manifest information needed for the gateway to work.
+#[derive(Clone)]
 pub struct Manifest {
     pub network: String,
     pub min_block: u64,

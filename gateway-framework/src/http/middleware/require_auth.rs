@@ -14,7 +14,6 @@ use crate::{
     auth::{AuthContext, AuthSettings},
     errors::Error,
     graphql,
-    reporting::CLIENT_REQUEST_TARGET,
 };
 
 #[pin_project::pin_project(project = KindProj)]
@@ -131,11 +130,7 @@ where
                 return ResponseFuture::error(graphql::error_response(Error::Auth(err)));
             }
         };
-        tracing::info!(
-            target: CLIENT_REQUEST_TARGET,
-            user_address = ?auth.user,
-            api_key = %auth.key,
-        );
+        tracing::debug!(user_address = ?auth.user, api_key = %auth.key);
 
         // Insert the `AuthSettings` extension into the request
         req.extensions_mut().insert(auth);

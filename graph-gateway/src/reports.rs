@@ -1,231 +1,203 @@
 use alloy_primitives::Address;
+use anyhow::{anyhow, Context};
 use gateway_common::utils::timestamp::unix_timestamp;
-use gateway_framework::{
-    errors::{self, IndexerError},
-    reporting::{error_log, KafkaClient, CLIENT_REQUEST_TARGET, INDEXER_REQUEST_TARGET},
-};
-use prost::Message as _;
-use serde::Deserialize;
-use serde_json::{json, Map};
-use thegraph_core::types::attestation::Attestation;
+use gateway_framework::errors;
+use ordered_float::NotNan;
+use prost::Message;
+use serde_json::json;
+use thegraph_core::types::DeploymentId;
+use tokio::sync::mpsc;
 use toolshed::concat_bytes;
 
-pub fn report_client_query(kafka: &KafkaClient, fields: Map<String, serde_json::Value>) {
-    #[derive(Deserialize)]
-    struct Fields {
-        request_id: String,
+use crate::indexer_client::IndexerResponse;
+
+pub struct ClientRequest {
+    pub id: String,
+    pub response_time_ms: u16,
+    pub result: Result<(), errors::Error>,
+    pub api_key: String,
+    pub user_address: Address,
+    pub grt_per_usd: NotNan<f64>,
+    pub indexer_requests: Vec<IndexerRequest>,
+}
+
+pub struct IndexerRequest {
+    pub indexer: Address,
+    pub url: String,
+    pub deployment: DeploymentId,
+    pub allocation: Address,
+    pub subgraph_chain: String,
+    pub result: Result<IndexerResponse, errors::IndexerError>,
+    pub response_time_ms: u16,
+    pub seconds_behind: u32,
+    pub blocks_behind: u64, // TODO: rm
+    pub legacy_scalar: bool,
+    pub fee: u128,
+    pub request: String,
+}
+
+pub struct Reporter {
+    pub graph_env: String,
+    pub client_request_topic: String,
+    pub indexer_request_topic: String,
+    pub attestation_topic: String,
+    pub write_buf: Vec<u8>,
+    pub kafka_producer: rdkafka::producer::ThreadedProducer<
+        rdkafka::producer::DefaultProducerContext,
+        rdkafka::producer::NoCustomPartitioner,
+    >,
+}
+
+impl Reporter {
+    pub fn create(
         graph_env: String,
-        legacy_status_message: String,
-        legacy_status_code: u32,
-        start_time_ms: u64,
-        deployment: Option<String>,
-        user_address: Option<String>,
-        api_key: Option<String>,
-        subgraph_chain: Option<String>,
-        query_count: Option<u32>,
-        budget_grt: Option<f32>,
-        indexer_fees_grt: Option<f32>,
-        indexer_fees_usd: Option<f32>,
+        client_request_topic: String,
+        indexer_request_topic: String,
+        attestation_topic: String,
+        kafka_config: &rdkafka::ClientConfig,
+    ) -> anyhow::Result<mpsc::UnboundedSender<ClientRequest>> {
+        let kafka_producer = kafka_config.create().context("kafka producer error")?;
+        let mut reporter = Self {
+            graph_env,
+            client_request_topic,
+            indexer_request_topic,
+            attestation_topic,
+            write_buf: Default::default(),
+            kafka_producer,
+        };
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            loop {
+                let msg = rx.recv().await.expect("channel closed");
+                if let Err(report_err) = reporter.report(msg) {
+                    tracing::error!(%report_err);
+                }
+            }
+        });
+        Ok(tx)
     }
-    let fields = match serde_json::from_value::<Fields>(fields.into()) {
-        Ok(fields) => fields,
-        Err(err) => {
-            error_log(
-                CLIENT_REQUEST_TARGET,
-                &format!("failed to report client query: {}", err),
-            );
-            return;
+
+    fn report(&mut self, client_request: ClientRequest) -> anyhow::Result<()> {
+        let timestamp = unix_timestamp();
+
+        let total_fees_grt: f64 = client_request
+            .indexer_requests
+            .iter()
+            .map(|i| i.fee as f64 * 1e-18)
+            .sum();
+        let total_fees_usd: f64 = total_fees_grt / *client_request.grt_per_usd;
+
+        let client_request_payload = json!({
+            "query_id": &client_request.id,
+            "ray_id": &client_request.id,
+            "graph_env": &self.graph_env,
+            "timestamp": timestamp,
+            "api_key": &client_request.api_key,
+            "user": &client_request.user_address,
+            "deployment": client_request.indexer_requests.first().map(|i| i.deployment.to_string()).unwrap_or_default(),
+            "network": client_request.indexer_requests.first().map(|i| i.subgraph_chain.as_str()).unwrap_or(""),
+            "response_time_ms": client_request.response_time_ms,
+            "query_count": 1,
+            "fee": total_fees_grt as f32,
+            "fee_usd": total_fees_usd as f32,
+            "status": client_request.result.as_ref().map(|()| "200 OK".into()).unwrap_or_else(|err| err.to_string()),
+        });
+
+        for indexer_request in client_request.indexer_requests {
+            let indexer_errors = indexer_request
+                .result
+                .as_ref()
+                .map(|r| {
+                    r.errors
+                        .iter()
+                        .map(|err| err.as_str())
+                        .collect::<Vec<&str>>()
+                        .join("; ")
+                })
+                .unwrap_or_default();
+            let indexer_request_payload = json!({
+                "query_id": &client_request.id,
+                "ray_id": &client_request.id,
+                "graph_env": &self.graph_env,
+                "timestamp": timestamp,
+                "api_key": &client_request.api_key,
+                "user_address": &client_request.user_address,
+                "deployment": &indexer_request.deployment,
+                "network": &indexer_request.subgraph_chain,
+                "indexer": &indexer_request.indexer,
+                "url": &indexer_request.url,
+                "fee": (indexer_request.fee as f64 * 1e-18) as f32,
+                "legacy_scalar": indexer_request.legacy_scalar,
+                "utility": 1.0,
+                "blocks_behind": indexer_request.blocks_behind,
+                "response_time_ms": indexer_request.response_time_ms,
+                "allocation": &indexer_request.allocation,
+                "indexer_errors": indexer_errors,
+                "status": indexer_request.result.as_ref().map(|_| "200 OK".into()).unwrap_or_else(|err| err.to_string()),
+            });
+            serde_json::to_writer(&mut self.write_buf, &indexer_request_payload).unwrap();
+            let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
+                rdkafka::producer::BaseRecord::to(&self.indexer_request_topic)
+                    .payload(&self.write_buf);
+            self.kafka_producer
+                .send(record)
+                .map_err(|(err, _)| err)
+                .context(anyhow!(
+                    "failed to send to topic {}",
+                    self.indexer_request_topic
+                ))?;
+            self.write_buf.clear();
+
+            if let Some((original_response, attestation)) = indexer_request
+                .result
+                .ok()
+                .and_then(|r| Some((r.original_response, r.attestation?)))
+            {
+                const MAX_PAYLOAD_BYTES: usize = 10_000;
+                AttestationProtobuf {
+                    request: Some(indexer_request.request).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
+                    response: Some(original_response).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
+                    allocation: indexer_request.allocation.0 .0.into(),
+                    subgraph_deployment: attestation.deployment.0.into(),
+                    request_cid: attestation.request_cid.0.into(),
+                    response_cid: attestation.response_cid.0.into(),
+                    signature: concat_bytes!(
+                        65,
+                        [&[attestation.v], &attestation.r.0, &attestation.s.0]
+                    )
+                    .into(),
+                }
+                .encode(&mut self.write_buf)
+                .unwrap();
+                let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
+                    rdkafka::producer::BaseRecord::to(&self.attestation_topic)
+                        .payload(&self.write_buf);
+                self.kafka_producer
+                    .send(record)
+                    .map_err(|(err, _)| err)
+                    .context(anyhow!(
+                        "failed to send to topic {}",
+                        self.attestation_topic
+                    ))?;
+                self.write_buf.clear();
+            }
         }
-    };
 
-    let timestamp = unix_timestamp();
-    let response_time_ms = timestamp.saturating_sub(fields.start_time_ms) as u32;
+        serde_json::to_writer(&mut self.write_buf, &client_request_payload).unwrap();
+        let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
+            rdkafka::producer::BaseRecord::to(&self.client_request_topic).payload(&self.write_buf);
+        self.kafka_producer
+            .send(record)
+            .map_err(|(err, _)| err)
+            .context(anyhow!(
+                "failed to send to topic {}",
+                self.client_request_topic
+            ))?;
+        self.write_buf.clear();
 
-    // data science: bigquery datasets still rely on this log line
-    let log = serde_json::to_string(&json!({
-        "target": CLIENT_REQUEST_TARGET,
-        "level": "INFO",
-        "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
-        "fields": {
-            "message": "Client query result",
-            "query_id": &fields.request_id,
-            "ray_id": &fields.request_id, // In production this will be the Ray ID.
-            "deployment": fields.deployment.as_deref().unwrap_or(""),
-            "network": fields.subgraph_chain.as_deref().unwrap_or(""),
-            "user": &fields.user_address,
-            "api_key": &fields.api_key,
-            "query_count": fields.query_count.unwrap_or(0),
-            "budget": fields.budget_grt.unwrap_or(0.0).to_string(),
-            "fee": fields.indexer_fees_grt.unwrap_or(0.0),
-            "fee_usd": fields.indexer_fees_usd.unwrap_or(0.0),
-            "response_time_ms": response_time_ms,
-            "status": &fields.legacy_status_message,
-            "status_code": fields.legacy_status_code,
-        },
-    }))
-    .unwrap();
-    println!("{log}");
-
-    let kafka_msg = json!({
-        "query_id": &fields.request_id,
-        "ray_id": &fields.request_id, // In production this will be the Ray ID.
-        "graph_env": &fields.graph_env,
-        "timestamp": timestamp,
-        "user": &fields.user_address,
-        "api_key": &fields.api_key,
-        "deployment": &fields.deployment.as_deref().unwrap_or(""),
-        "network": &fields.subgraph_chain.as_deref().unwrap_or(""),
-        "response_time_ms": response_time_ms,
-        "budget": fields.budget_grt.unwrap_or(0.0).to_string(),
-        "budget_float": fields.budget_grt,
-        "query_count": fields.query_count.unwrap_or(0),
-        "fee": fields.indexer_fees_grt.unwrap_or(0.0),
-        "fee_usd": fields.indexer_fees_usd.unwrap_or(0.0),
-        "status": &fields.legacy_status_message,
-        "status_code": fields.legacy_status_code,
-    });
-    kafka.send(
-        "gateway_client_query_results",
-        &serde_json::to_vec(&kafka_msg).unwrap(),
-    );
-}
-
-pub fn report_indexer_query(kafka: &KafkaClient, fields: Map<String, serde_json::Value>) {
-    #[derive(Deserialize)]
-    struct Fields {
-        request_id: String,
-        graph_env: String,
-        api_key: Option<String>,
-        user_address: Option<String>,
-        status_message: String,
-        status_code: u32,
-        response_time_ms: u32,
-        deployment: String,
-        subgraph_chain: String,
-        indexer: String,
-        url: String,
-        blocks_behind: u64,
-        fee_grt: f32,
-        legacy_scalar: Option<bool>,
-        allocation: Option<String>,
-        indexer_errors: Option<String>,
+        Ok(())
     }
-    let fields = match serde_json::from_value::<Fields>(fields.into()) {
-        Ok(fields) => fields,
-        Err(err) => {
-            error_log(
-                INDEXER_REQUEST_TARGET,
-                &format!("failed to report indexer query: {}", err),
-            );
-            return;
-        }
-    };
-
-    // data science: bigquery datasets still rely on this log line
-    let log = serde_json::to_string(&json!({
-        "target": INDEXER_REQUEST_TARGET,
-        "level": "INFO",
-        "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
-        "fields": {
-            "message": "Indexer attempt",
-            "query_id": &fields.request_id,
-            "ray_id": &fields.request_id, // In production this will be the Ray ID.
-            "deployment": &fields.deployment,
-            "indexer": &fields.indexer,
-            "url": &fields.url,
-            "blocks_behind": fields.blocks_behind,
-            "attempt_index": 0,
-            "api_key": fields.api_key.as_deref().unwrap_or(""),
-            "fee": fields.fee_grt,
-            "response_time_ms": fields.response_time_ms,
-            "allocation": &fields.allocation,
-            "indexer_errors": &fields.indexer_errors,
-            "status": &fields.status_message,
-            "status_code": fields.status_code,
-        },
-    }))
-    .unwrap();
-    println!("{log}");
-
-    let kafka_msg = json!({
-        "query_id": &fields.request_id,
-        "ray_id": &fields.request_id, // In production this will be the Ray ID.
-        "graph_env": &fields.graph_env,
-        "timestamp": unix_timestamp(),
-        "api_key": fields.api_key.as_deref().unwrap_or(""),
-        "user_address": fields.user_address.as_deref().unwrap_or(""),
-        "deployment": &fields.deployment,
-        "network": &fields.subgraph_chain,
-        "indexer": &fields.indexer,
-        "url": &fields.url,
-        "fee": fields.fee_grt,
-        "legacy_scalar": fields.legacy_scalar.unwrap_or(false),
-        "utility": 1.0,
-        "blocks_behind": fields.blocks_behind,
-        "response_time_ms": fields.response_time_ms,
-        "allocation": fields.allocation.as_deref().unwrap_or(""),
-        "indexer_errors": fields.indexer_errors.as_deref().unwrap_or(""),
-        "status": &fields.status_message,
-        "status_code": fields.status_code,
-    });
-    kafka.send(
-        "gateway_indexer_attempts",
-        &serde_json::to_vec(&kafka_msg).unwrap(),
-    );
-}
-
-pub fn legacy_status<T>(result: &Result<T, errors::Error>) -> (String, u32) {
-    match result {
-        Ok(_) => ("200 OK".to_string(), 0),
-        Err(err) => match err {
-            errors::Error::BlockNotFound(_) => ("Unresolved block".to_string(), 604610595),
-            errors::Error::Internal(_) => ("Internal error".to_string(), 816601499),
-            errors::Error::Auth(_) => ("Invalid API key".to_string(), 888904173),
-            errors::Error::BadQuery(_) => ("Invalid query".to_string(), 595700117),
-            errors::Error::NoIndexers => (
-                "No indexers found for subgraph deployment".to_string(),
-                1621366907,
-            ),
-            errors::Error::BadIndexers(_) => (
-                "No suitable indexer found for subgraph deployment".to_string(),
-                510359393,
-            ),
-            errors::Error::SubgraphNotFound(_) => (err.to_string(), 2599148187),
-        },
-    }
-}
-
-// Like much of this file. This is maintained is a partially backward-compatible state for data
-// science, and should be deleted ASAP.
-pub fn indexer_attempt_status_code<T>(result: &Result<T, IndexerError>) -> u32 {
-    let (prefix, data) = match &result {
-        Ok(_) => (0x0, 200_u32.to_be()),
-        Err(IndexerError::Internal(_)) => (0x1, 0x0),
-        Err(IndexerError::Unavailable(_)) => (0x2, 0x0),
-        Err(IndexerError::Timeout) => (0x3, 0x0),
-        Err(IndexerError::BadResponse(_)) => (0x4, 0x0),
-    };
-    (prefix << 28) | (data & (u32::MAX >> 4))
-}
-
-pub fn serialize_attestation(
-    attestation: &Attestation,
-    allocation: Address,
-    request: String,
-    response: String,
-) -> Vec<u8> {
-    // Limit string payloads to 10 KB.
-    const MAX_LEN: usize = 10_000;
-    AttestationProtobuf {
-        request: (request.len() <= MAX_LEN).then_some(request),
-        response: (response.len() <= MAX_LEN).then_some(response),
-        allocation: allocation.0 .0.into(),
-        subgraph_deployment: attestation.deployment.0.into(),
-        request_cid: attestation.request_cid.0.into(),
-        response_cid: attestation.response_cid.0.into(),
-        signature: concat_bytes!(65, [&[attestation.v], &attestation.r.0, &attestation.s.0]).into(),
-    }
-    .encode_to_vec()
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
