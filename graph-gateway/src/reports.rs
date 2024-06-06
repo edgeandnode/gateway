@@ -1,7 +1,10 @@
 use alloy_primitives::Address;
 use anyhow::{anyhow, Context};
 use gateway_common::utils::timestamp::unix_timestamp;
-use gateway_framework::errors::{self, IndexerError};
+use gateway_framework::{
+    errors::{self, IndexerError},
+    scalar::ScalarReceipt,
+};
 use ordered_float::NotNan;
 use prost::Message;
 use serde_json::json;
@@ -25,14 +28,12 @@ pub struct IndexerRequest {
     pub indexer: Address,
     pub url: String,
     pub deployment: DeploymentId,
-    pub allocation: Address,
+    pub receipt: ScalarReceipt,
     pub subgraph_chain: String,
     pub result: Result<IndexerResponse, errors::IndexerError>,
     pub response_time_ms: u16,
     pub seconds_behind: u32,
     pub blocks_behind: u64, // TODO: rm
-    pub legacy_scalar: bool,
-    pub fee: u128,
     pub request: String,
 }
 
@@ -87,7 +88,7 @@ impl Reporter {
         let total_fees_grt: f64 = client_request
             .indexer_requests
             .iter()
-            .map(|i| i.fee as f64 * 1e-18)
+            .map(|i| i.receipt.grt_value() as f64 * 1e-18)
             .sum();
         let total_fees_usd: f64 = total_fees_grt / *client_request.grt_per_usd;
 
@@ -198,7 +199,7 @@ impl Reporter {
                         "api_key": &client_request.api_key,
                         "fee": total_fees_grt as f32,
                         "response_time_ms": indexer_request.response_time_ms,
-                        "allocation": &indexer_request.allocation,
+                        "allocation": &indexer_request.receipt.allocation(),
                         "indexer_errors": indexer_errors,
                         "status": indexer_request.result.as_ref().map(|_| "200 OK".into()).unwrap_or_else(|err| err.to_string()),
                         "status_code": legacy_status_code,
@@ -218,12 +219,12 @@ impl Reporter {
                 "network": &indexer_request.subgraph_chain,
                 "indexer": &indexer_request.indexer,
                 "url": &indexer_request.url,
-                "fee": (indexer_request.fee as f64 * 1e-18) as f32,
-                "legacy_scalar": indexer_request.legacy_scalar,
+                "fee": (indexer_request.receipt.grt_value() as f64 * 1e-18) as f32,
+                "legacy_scalar": matches!(&indexer_request.receipt, ScalarReceipt::Legacy(_, _)),
                 "utility": 1.0,
                 "blocks_behind": indexer_request.blocks_behind,
                 "response_time_ms": indexer_request.response_time_ms,
-                "allocation": &indexer_request.allocation,
+                "allocation": &indexer_request.receipt.allocation(),
                 "indexer_errors": indexer_errors,
                 "status": indexer_request.result.as_ref().map(|_| "200 OK".into()).unwrap_or_else(|err| err.to_string()),
                 "status_code": legacy_status_code,
@@ -250,7 +251,7 @@ impl Reporter {
                 AttestationProtobuf {
                     request: Some(indexer_request.request).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
                     response: Some(original_response).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
-                    allocation: indexer_request.allocation.0 .0.into(),
+                    allocation: indexer_request.receipt.allocation().0 .0.into(),
                     subgraph_deployment: attestation.deployment.0.into(),
                     request_cid: attestation.request_cid.0.into(),
                     response_cid: attestation.response_cid.0.into(),
