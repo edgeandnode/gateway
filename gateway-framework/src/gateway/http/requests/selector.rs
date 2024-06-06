@@ -7,23 +7,24 @@ use axum::{
     http::request::Parts,
     response::IntoResponse,
 };
-use gateway_framework::{errors::Error, graphql};
 use thegraph_core::types::{DeploymentId, SubgraphId};
 
-/// Rejection type for the query selector extractor, [`QuerySelector`].
+use crate::{errors::Error, graphql};
+
+/// Rejection type for the query selector extractor, [`RequestSelector`].
 ///
 /// This is a thin wrapper around [`Error`] and implements [`IntoResponse`] to return a GraphQL
 /// error response.
 #[derive(Debug)]
-pub struct QuerySelectorRejection(Error);
+pub struct RequestSelectorRejection(Error);
 
-impl From<Error> for QuerySelectorRejection {
+impl From<Error> for RequestSelectorRejection {
     fn from(value: Error) -> Self {
         Self(value)
     }
 }
 
-impl IntoResponse for QuerySelectorRejection {
+impl IntoResponse for RequestSelectorRejection {
     fn into_response(self) -> axum::response::Response {
         graphql::error_response(self.0).into_response()
     }
@@ -34,28 +35,28 @@ impl IntoResponse for QuerySelectorRejection {
 /// If the path parameter parsing fails, a GraphQL error response is returned indicating that
 /// the provided ID is invalid.
 #[derive(Debug, Clone)]
-pub enum QuerySelector {
-    /// The query selector is a [`DeploymentId`].
+pub enum RequestSelector {
+    /// The request selector is a [`DeploymentId`].
     Deployment(DeploymentId),
-    /// The query selector is a [`SubgraphId`].
+    /// The request selector is a [`SubgraphId`].
     Subgraph(SubgraphId),
 }
 
-impl std::fmt::Display for QuerySelector {
+impl std::fmt::Display for RequestSelector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            QuerySelector::Deployment(id) => write!(f, "{}", id),
-            QuerySelector::Subgraph(id) => write!(f, "{}", id),
+            RequestSelector::Deployment(id) => write!(f, "{}", id),
+            RequestSelector::Subgraph(id) => write!(f, "{}", id),
         }
     }
 }
 
 #[async_trait]
-impl<S> FromRequestParts<S> for QuerySelector
+impl<S> FromRequestParts<S> for RequestSelector
 where
     S: Send + Sync,
 {
-    type Rejection = QuerySelectorRejection;
+    type Rejection = RequestSelectorRejection;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         // Get the path parameters
@@ -99,11 +100,11 @@ mod tests {
     use thegraph_core::types::{DeploymentId, SubgraphId};
     use tower::ServiceExt;
 
-    use super::QuerySelector;
+    use super::RequestSelector;
 
     /// Create a test router.
     fn test_router() -> Router {
-        async fn handle_query(selector: QuerySelector) -> String {
+        async fn handle_query(selector: RequestSelector) -> String {
             format!("{}", selector)
         }
 
