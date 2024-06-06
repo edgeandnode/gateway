@@ -26,6 +26,7 @@ use gateway_framework::{
     indexing::Indexing,
     metrics::{with_metric, METRICS},
     network::{discovery::Status, indexing_performance::Snapshot},
+    scalar::ReceiptStatus,
     topology::network::{Deployment, GraphNetwork, Manifest, Subgraph},
 };
 use headers::ContentType;
@@ -413,14 +414,12 @@ async fn run_indexer_queries(
                     indexer,
                     deployment,
                     url: url.to_string(),
-                    allocation: receipt.allocation(),
+                    receipt,
                     subgraph_chain,
                     result,
                     response_time_ms,
                     seconds_behind,
                     blocks_behind,
-                    legacy_scalar,
-                    fee,
                     request: indexer_query,
                 };
                 tx.try_send(report).unwrap();
@@ -438,6 +437,21 @@ async fn run_indexer_queries(
                     indexer_errors.insert(report.indexer, err.clone());
                 }
             }
+
+            let receipt_status = match &report.result {
+                Ok(_) => ReceiptStatus::Success,
+                Err(IndexerError::Timeout) => ReceiptStatus::Unknown,
+                Err(_) => ReceiptStatus::Failure,
+            };
+            ctx.receipt_signer
+                .record_receipt(
+                    report.indexer,
+                    report.deployment,
+                    &report.receipt,
+                    receipt_status,
+                )
+                .await;
+
             indexer_requests.push(report);
         }
 
@@ -465,7 +479,10 @@ async fn run_indexer_queries(
         Err(Error::BadIndexers(IndexerErrors(indexer_errors)))
     };
 
-    let total_fees_grt: f64 = indexer_requests.iter().map(|i| i.fee as f64 * 1e-18).sum();
+    let total_fees_grt: f64 = indexer_requests
+        .iter()
+        .map(|i| i.receipt.grt_value() as f64 * 1e-18)
+        .sum();
     let total_fees_usd = USD(NotNan::new(total_fees_grt / *grt_per_usd).unwrap());
     let _ = ctx.budgeter.feedback.send(total_fees_usd);
 
@@ -505,12 +522,12 @@ async fn run_indexer_queries(
         tracing::info!(
             indexer = ?indexer_request.indexer,
             deployment = %indexer_request.deployment,
-            allocation = ?indexer_request.allocation,
+            allocation = ?indexer_request.receipt.allocation(),
             url = indexer_request.url,
             result = ?indexer_request.result.as_ref().map(|_| ()),
             response_time_ms = indexer_request.response_time_ms,
             seconds_behind = indexer_request.seconds_behind,
-            fee = indexer_request.fee as f64 * 1e-18,
+            fee = indexer_request.receipt.grt_value() as f64 * 1e-18,
             "indexer_request"
         );
         tracing::trace!(indexer_request = indexer_request.request);
