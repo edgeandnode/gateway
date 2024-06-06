@@ -465,13 +465,16 @@ async fn run_indexer_queries(
     }
     tracing::info!(?indexer_errors);
 
-    // Send fallback error to use when no indexers are successful.
-    if client_response_time.is_none() {
-        let _ = client_response.try_send(Err(Error::BadIndexers(IndexerErrors(
-            indexer_errors.clone(),
-        ))));
-        client_response_time = Some(Instant::now().duration_since(start_time));
-    }
+    let client_response_time = match client_response_time {
+        Some(client_response_time) => client_response_time,
+        // Send fallback error to use when no indexers are successful.
+        None => {
+            let _ = client_response.try_send(Err(Error::BadIndexers(IndexerErrors(
+                indexer_errors.clone(),
+            ))));
+            Instant::now().duration_since(start_time)
+        }
+    };
 
     let result = if indexer_requests.iter().any(|r| r.result.is_ok()) {
         Ok(())
@@ -533,10 +536,17 @@ async fn run_indexer_queries(
         tracing::trace!(indexer_request = indexer_request.request);
     }
 
-    let response_time_ms = client_response_time.unwrap().as_millis() as u16;
+    let response_time_ms = client_response_time.as_millis() as u16;
+    let ideal_response_time_ms = indexer_requests
+        .iter()
+        .filter(|i| i.result.is_ok())
+        .map(|i| i.response_time_ms)
+        .min()
+        .unwrap_or(response_time_ms);
     tracing::info!(
         result = ?result,
         response_time_ms,
+        internal_latency_ms = response_time_ms.saturating_sub(ideal_response_time_ms),
         total_fees_grt,
         total_fees_usd = *total_fees_usd.0,
     );
