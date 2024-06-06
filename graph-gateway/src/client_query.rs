@@ -364,11 +364,8 @@ async fn run_indexer_queries(
             let receipt = match if legacy_scalar {
                 ctx.receipt_signer
                     .create_legacy_receipt(indexer, deployment, fee)
-                    .await
             } else {
-                ctx.receipt_signer
-                    .create_receipt(indexer, deployment, fee)
-                    .await
+                ctx.receipt_signer.create_receipt(indexer, deployment, fee)
             } {
                 Ok(receipt) => receipt,
                 Err(err) => {
@@ -443,14 +440,12 @@ async fn run_indexer_queries(
                 Err(IndexerError::Timeout) => ReceiptStatus::Unknown,
                 Err(_) => ReceiptStatus::Failure,
             };
-            ctx.receipt_signer
-                .record_receipt(
-                    report.indexer,
-                    report.deployment,
-                    &report.receipt,
-                    receipt_status,
-                )
-                .await;
+            ctx.receipt_signer.record_receipt(
+                report.indexer,
+                report.deployment,
+                &report.receipt,
+                receipt_status,
+            );
 
             indexer_requests.push(report);
         }

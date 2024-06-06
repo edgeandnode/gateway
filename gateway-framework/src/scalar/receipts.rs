@@ -8,13 +8,13 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
 use ethers::{core::k256::ecdsa::SigningKey, signers::Wallet};
 use gateway_common::ttl_hash_map::TtlHashMap;
+use parking_lot::{Mutex, RwLock};
 use rand::RngCore;
 pub use receipts::QueryStatus as ReceiptStatus;
 use receipts::ReceiptPool;
 use secp256k1::SecretKey;
 use tap_core::{receipt::Receipt, signed_message::EIP712SignedMessage};
 use thegraph_core::types::DeploymentId;
-use tokio::sync::{Mutex, RwLock};
 
 #[derive(Debug, Clone)]
 pub enum ScalarReceipt {
@@ -124,25 +124,21 @@ impl LegacySigner {
     }
 
     /// Creates a new receipt for the given allocation and fee.
-    async fn create_receipt(
-        &self,
-        allocation: Address,
-        fee: u128,
-    ) -> anyhow::Result<(u128, Vec<u8>)> {
+    fn create_receipt(&self, allocation: Address, fee: u128) -> anyhow::Result<(u128, Vec<u8>)> {
         // Get the pool for the allocation
-        let receipt_pool = self.receipt_pools.read().await.get(&allocation).cloned();
+        let receipt_pool = self.receipt_pools.read().get(&allocation).cloned();
 
         // If the pool for the allocation exists, use it. Otherwise, create a new pool.
         let receipt = match receipt_pool {
             Some(pool) => {
-                let mut pool = pool.lock().await;
+                let mut pool = pool.lock();
                 pool.commit(self.secret_key, 0.into())
             }
             None => {
                 let mut pool = ReceiptPool::new(allocation.0 .0);
                 let receipt = pool.commit(self.secret_key, 0.into());
 
-                let mut write_guard = self.receipt_pools.write().await;
+                let mut write_guard = self.receipt_pools.write();
                 write_guard.insert(allocation, Arc::new(Mutex::new(pool)));
 
                 receipt
@@ -154,10 +150,10 @@ impl LegacySigner {
     }
 
     /// Record the receipt status and release it from the pool.
-    async fn record_receipt(&self, allocation: Address, receipt: &[u8], status: ReceiptStatus) {
-        let legacy_pool = self.receipt_pools.read().await;
+    fn record_receipt(&self, allocation: Address, receipt: &[u8], status: ReceiptStatus) {
+        let legacy_pool = self.receipt_pools.read();
         if let Some(legacy_pool) = legacy_pool.get(&allocation) {
-            legacy_pool.lock().await.release(receipt, status);
+            legacy_pool.lock().release(receipt, status);
         };
     }
 }
@@ -189,7 +185,7 @@ impl ReceiptSigner {
     }
 
     /// Creates a new Scalar TAP receipt for the given allocation and fee.
-    pub async fn create_receipt(
+    pub fn create_receipt(
         &self,
         indexer: Address,
         deployment: DeploymentId,
@@ -201,7 +197,6 @@ impl ReceiptSigner {
         let allocation = self
             .largest_allocations
             .read()
-            .await
             .get(&(indexer, deployment))
             .cloned()
             .ok_or(anyhow::anyhow!("indexing allocation address not found"))?;
@@ -212,7 +207,7 @@ impl ReceiptSigner {
     }
 
     /// Creates a new Scalar legacy receipt for the given allocation and fee.
-    pub async fn create_legacy_receipt(
+    pub fn create_legacy_receipt(
         &self,
         indexer: Address,
         deployment: DeploymentId,
@@ -224,19 +219,17 @@ impl ReceiptSigner {
         let allocation = self
             .largest_allocations
             .read()
-            .await
             .get(&(indexer, deployment))
             .cloned()
             .ok_or(anyhow::anyhow!("indexing allocation address not found"))?;
 
         self.legacy
             .create_receipt(allocation, fee)
-            .await
             .map(|(fee, receipt)| ScalarReceipt::Legacy(fee, receipt))
     }
 
     /// Record the receipt status and release it from the pool.
-    pub async fn record_receipt(
+    pub fn record_receipt(
         &self,
         indexer: Address,
         deployment: DeploymentId,
@@ -250,7 +243,6 @@ impl ReceiptSigner {
             let allocation = match self
                 .largest_allocations
                 .read()
-                .await
                 .get(&(indexer, deployment))
                 .cloned()
             {
@@ -264,15 +256,13 @@ impl ReceiptSigner {
                 }
             };
 
-            self.legacy
-                .record_receipt(allocation, receipt, status)
-                .await;
+            self.legacy.record_receipt(allocation, receipt, status);
         }
     }
 
     /// Update the largest allocation for the given indexings (indexer-deployment pairs).
-    pub async fn update_allocations(&self, indexings: &HashMap<(Address, DeploymentId), Address>) {
-        let mut allocations = self.largest_allocations.write().await;
+    pub fn update_allocations(&self, indexings: &HashMap<(Address, DeploymentId), Address>) {
+        let mut allocations = self.largest_allocations.write();
         allocations.retain(|k, _| indexings.contains_key(k));
         for (indexing, allocation) in indexings {
             allocations.insert(*indexing, *allocation);
@@ -300,8 +290,8 @@ mod tests {
     mod legacy {
         use super::*;
 
-        #[tokio::test]
-        async fn create_receipt() {
+        #[test]
+        fn create_receipt() {
             //* Given
             let secret_key = Box::leak(Box::new(
                 SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key"),
@@ -315,7 +305,7 @@ mod tests {
             let fee = 1000;
 
             //* When
-            let res = signer.create_receipt(largest_allocation, fee).await;
+            let res = signer.create_receipt(largest_allocation, fee);
 
             //* Then
             let receipt = res.expect("failed to create legacy receipt");
@@ -324,8 +314,8 @@ mod tests {
             assert!(!receipt.1.is_empty());
         }
 
-        #[tokio::test]
-        async fn create_receipt_with_preexisting_pool() {
+        #[test]
+        fn create_receipt_with_preexisting_pool() {
             //* Given
             let secret_key = Box::leak(Box::new(
                 SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key"),
@@ -337,10 +327,10 @@ mod tests {
             let fee = 1000;
 
             // Pre-condition: Create a receipt so the pool for the allocation exists
-            let _ = signer.create_receipt(largest_allocation, fee).await;
+            let _ = signer.create_receipt(largest_allocation, fee);
 
             //* When
-            let res = signer.create_receipt(largest_allocation, fee).await;
+            let res = signer.create_receipt(largest_allocation, fee);
 
             //* Then
             let receipt = res.expect("failed to create legacy receipt");
@@ -353,8 +343,8 @@ mod tests {
     mod tap {
         use super::*;
 
-        #[tokio::test]
-        async fn create_receipt() {
+        #[test]
+        fn create_receipt() {
             //* Given
             let secret_key = SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key");
             let signer = TapSigner::new(
@@ -376,8 +366,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn create_legacy_receipt() {
+    #[test]
+    fn create_legacy_receipt() {
         //* Given
         let tap_secret_key = SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key");
         let legacy_secret_key = Box::leak(Box::new(
@@ -399,20 +389,20 @@ mod tests {
         let indexings = HashMap::from([((indexer, deployment), largest_allocation)]);
 
         // Update the receipt signer's largest allocations table
-        signer.update_allocations(&indexings).await;
+        signer.update_allocations(&indexings);
 
         let fee = 1000;
 
         //* When
-        let res = signer.create_legacy_receipt(indexer, deployment, fee).await;
+        let res = signer.create_legacy_receipt(indexer, deployment, fee);
 
         //* Then
         let receipt = res.expect("failed to create legacy receipt");
         assert!(matches!(receipt, ScalarReceipt::Legacy(_, _)));
     }
 
-    #[tokio::test]
-    async fn create_tap_receipt() {
+    #[test]
+    fn create_tap_receipt() {
         //* Given
         let tap_secret_key = SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key");
         let legacy_secret_key = Box::leak(Box::new(
@@ -434,20 +424,20 @@ mod tests {
         let indexings = HashMap::from([((indexer, deployment), largest_allocation)]);
 
         // Update the receipt signer largest allocations table
-        signer.update_allocations(&indexings).await;
+        signer.update_allocations(&indexings);
 
         let fee = 1000;
 
         //* When
-        let res = signer.create_receipt(indexer, deployment, fee).await;
+        let res = signer.create_receipt(indexer, deployment, fee);
 
         //* Then
         let receipt = res.expect("failed to create tap receipt");
         assert!(matches!(receipt, ScalarReceipt::TAP(_)));
     }
 
-    #[tokio::test]
-    async fn fail_creating_legacy_receipt_unknown_indexing() {
+    #[test]
+    fn fail_creating_legacy_receipt_unknown_indexing() {
         //* Given
         let tap_secret_key = SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key");
         let legacy_secret_key = Box::leak(Box::new(
@@ -467,12 +457,12 @@ mod tests {
         // let largest_allocation = parse_address("0x89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2");
 
         // Update the receipt signer's largest allocations table (no indexings)
-        signer.update_allocations(&HashMap::new()).await;
+        signer.update_allocations(&HashMap::new());
 
         let fee = 1000;
 
         //* When
-        let res = signer.create_legacy_receipt(indexer, deployment, fee).await;
+        let res = signer.create_legacy_receipt(indexer, deployment, fee);
 
         //* Then
         let receipt = res.expect_err("legacy receipt creation should fail");
@@ -481,8 +471,8 @@ mod tests {
             .contains("indexing allocation address not found"));
     }
 
-    #[tokio::test]
-    async fn fail_creating_tap_receipt_unknown_indexing() {
+    #[test]
+    fn fail_creating_tap_receipt_unknown_indexing() {
         //* Given
         let tap_secret_key = SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key");
         let legacy_secret_key = Box::leak(Box::new(
@@ -502,12 +492,12 @@ mod tests {
         // let largest_allocation = parse_address("0x89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2");
 
         // Update the receipt signer's largest allocations table (no indexings)
-        signer.update_allocations(&HashMap::new()).await;
+        signer.update_allocations(&HashMap::new());
 
         let fee = 1000;
 
         //* When
-        let res = signer.create_receipt(indexer, deployment, fee).await;
+        let res = signer.create_receipt(indexer, deployment, fee);
 
         //* Then
         let receipt = res.expect_err("legacy receipt creation should fail");

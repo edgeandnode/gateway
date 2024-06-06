@@ -216,9 +216,7 @@ async fn main() {
                 })
                 .collect::<HashMap<_, _>>();
 
-            receipt_signer
-                .update_allocations(&largest_allocations)
-                .await;
+            receipt_signer.update_allocations(&largest_allocations);
         })
         .forever();
 
