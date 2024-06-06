@@ -19,7 +19,7 @@ use gateway_framework::{
     auth::AuthSettings,
     budgets::USD,
     errors::{
-        Error, IndexerError, MissingBlockError,
+        Error, IndexerError, IndexerErrors, MissingBlockError,
         UnavailableReason::{self, MissingBlock},
     },
     http::middleware::RequestId,
@@ -297,8 +297,6 @@ async fn run_indexer_queries(
         let perf = ctx.indexing_perf.latest();
         for indexing in available_indexers {
             if let Some(status) = indexing_statuses.get(&indexing) {
-                // If the indexer status indicates it supports Scalar TAP, add it to the set of
-                // indexers with Scalar TAP support.
                 if !status.legacy_scalar {
                     indexers_with_tap_support.insert(indexing.indexer);
                 }
@@ -430,10 +428,14 @@ async fn run_indexer_queries(
         }
         drop(tx);
         while let Some(report) = rx.recv().await {
-            if let Ok(response) = report.result.as_ref() {
-                if client_response_time.is_none() {
+            match report.result.as_ref() {
+                Ok(response) if client_response_time.is_none() => {
                     let _ = client_response.try_send(Ok(response.clone()));
                     client_response_time = Some(Instant::now().duration_since(start_time));
+                }
+                Ok(_) => (),
+                Err(err) => {
+                    indexer_errors.insert(report.indexer, err.clone());
                 }
             }
             indexer_requests.push(report);
@@ -451,14 +453,16 @@ async fn run_indexer_queries(
 
     // Send fallback error to use when no indexers are successful.
     if client_response_time.is_none() {
-        let _ = client_response.try_send(Err(Error::BadIndexers(indexer_errors.clone())));
+        let _ = client_response.try_send(Err(Error::BadIndexers(IndexerErrors(
+            indexer_errors.clone(),
+        ))));
         client_response_time = Some(Instant::now().duration_since(start_time));
     }
 
     let result = if indexer_requests.iter().any(|r| r.result.is_ok()) {
         Ok(())
     } else {
-        Err(Error::BadIndexers(indexer_errors))
+        Err(Error::BadIndexers(IndexerErrors(indexer_errors)))
     };
 
     let total_fees_grt: f64 = indexer_requests.iter().map(|i| i.fee as f64 * 1e-18).sum();

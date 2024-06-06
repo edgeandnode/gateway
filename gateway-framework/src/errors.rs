@@ -1,7 +1,11 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    fmt::{self, Write as _},
+};
 
 use alloy_primitives::{Address, BlockNumber};
 use axum::response::{IntoResponse, Response};
+use itertools::Itertools as _;
 
 use crate::{blocks::UnresolvedBlock, graphql};
 
@@ -25,10 +29,9 @@ pub enum Error {
     /// There are no indexers allocated to the requested subgraph or deployment.
     #[error("no indexers found")]
     NoIndexers,
-    /// Indexers are available, but failed to return a suitable result. The indexer errors are displayed in descending
-    /// order of how many of the potential indexers failed for that reason.
-    #[error("bad indexers: {0:?}")]
-    BadIndexers(BTreeMap<Address, IndexerError>),
+    /// Indexers are available, but failed to return a suitable result.
+    #[error("bad indexers: {0}")]
+    BadIndexers(IndexerErrors),
 }
 
 impl IntoResponse for Error {
@@ -37,7 +40,17 @@ impl IntoResponse for Error {
     }
 }
 
-#[derive(thiserror::Error, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug)]
+pub struct IndexerErrors(pub BTreeMap<Address, IndexerError>);
+
+impl fmt::Display for IndexerErrors {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let entries = self.0.iter().map(|(k, v)| format!("{k:?}: {v}")).join(", ");
+        write!(f, "{{{}}}", entries)
+    }
+}
+
+#[derive(thiserror::Error, Clone, Debug)]
 pub enum IndexerError {
     /// Errors that should only occur in exceptional conditions.
     #[error("InternalError({0})")]
@@ -53,7 +66,7 @@ pub enum IndexerError {
     BadResponse(String),
 }
 
-#[derive(thiserror::Error, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(thiserror::Error, Clone, Debug)]
 pub enum UnavailableReason {
     /// Failed to query indexer version or indexing status for the requested deployment(s).
     #[error("no status")]
@@ -65,20 +78,25 @@ pub enum UnavailableReason {
     #[error("no fee")]
     NoFee,
     /// The indexer did not have a block required by the query.
-    #[error("missing block")]
+    #[error("{}", .0.message())]
     MissingBlock(MissingBlockError),
 }
 
-#[derive(Clone, Debug, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MissingBlockError {
     pub missing: Option<BlockNumber>,
     pub latest: Option<BlockNumber>,
 }
 
-impl PartialEq for MissingBlockError {
-    fn eq(&self, _other: &Self) -> bool {
-        true
+impl MissingBlockError {
+    fn message(&self) -> String {
+        let mut text = "missing block".to_string();
+        if let Some(n) = self.missing {
+            write!(&mut text, ": {n}").unwrap();
+        }
+        if let Some(n) = self.latest {
+            write!(&mut text, ", latest: {n}").unwrap();
+        }
+        text
     }
 }
-
-impl Eq for MissingBlockError {}
