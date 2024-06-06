@@ -1849,6 +1849,7 @@ dependencies = [
  "itertools 0.13.0",
  "lazy_static",
  "ordered-float",
+ "parking_lot",
  "pin-project",
  "primitive-types",
  "prometheus",

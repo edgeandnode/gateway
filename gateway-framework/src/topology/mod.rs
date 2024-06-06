@@ -44,5 +44,5 @@ async fn update_allocations(
     }) {
         allocations.insert((indexer.id, deployment.id), indexer.largest_allocation);
     }
-    receipt_signer.update_allocations(&allocations).await;
+    receipt_signer.update_allocations(&allocations);
 }
