@@ -371,9 +371,9 @@ async fn run_indexer_queries(
                     .create_receipt(indexer, deployment, fee)
                     .await
             } {
-                Some(receipt) => receipt,
-                None => {
-                    tracing::error!(%indexer, %deployment, "failed to create receipt");
+                Ok(receipt) => receipt,
+                Err(err) => {
+                    tracing::error!(%indexer, %deployment, error=?err, "failed to create receipt");
                     continue;
                 }
             };
