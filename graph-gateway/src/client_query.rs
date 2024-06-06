@@ -239,21 +239,23 @@ async fn run_indexer_queries(
             return;
         }
     };
-    let chain = ctx.chains.chain(&manifest.network).await;
-    let chain_reader = chain.read().await;
-    let blocks_per_minute = chain_reader.blocks_per_minute();
-    let chain_head = chain_reader.latest().map(|b| b.number);
-    let block_requirements =
-        match resolve_block_requirements(&chain_reader, &agora_context, manifest.min_block) {
-            Ok(block_requirements) => block_requirements,
-            Err(err) => {
-                client_response
-                    .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
-                    .unwrap();
-                return;
-            }
-        };
-    drop(chain_reader);
+    let chain = ctx.chains.chain(&manifest.network);
+    let (blocks_per_minute, chain_head, block_requirements) = {
+        let chain_reader = chain.read();
+        let blocks_per_minute = chain_reader.blocks_per_minute();
+        let chain_head = chain_reader.latest().map(|b| b.number);
+        let block_requirements =
+            match resolve_block_requirements(&chain_reader, &agora_context, manifest.min_block) {
+                Ok(block_requirements) => block_requirements,
+                Err(err) => {
+                    client_response
+                        .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
+                        .unwrap();
+                    return;
+                }
+            };
+        (blocks_per_minute, chain_head, block_requirements)
+    };
 
     let indexing_statuses = ctx.indexing_statuses.value_immediate().unwrap();
     let chain_head = chain_head.unwrap_or_else(|| {
@@ -379,7 +381,7 @@ async fn run_indexer_queries(
             let indexer_query = match indexer_request_rewrites.get(&seconds_behind) {
                 Some(indexer_query) => indexer_query.clone(),
                 None => {
-                    let chain = chain.read().await;
+                    let chain = chain.read();
                     let indexer_query =
                         rewrite_query(&chain, &agora_context, &block_requirements, blocks_behind);
                     if selections
