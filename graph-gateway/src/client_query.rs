@@ -22,6 +22,7 @@ use gateway_framework::{
         Error, IndexerError, MissingBlockError,
         UnavailableReason::{self, MissingBlock},
     },
+    gateway::http::RequestSelector,
     http::middleware::RequestId,
     indexing::Indexing,
     metrics::{with_metric, METRICS},
@@ -42,7 +43,7 @@ use tracing::Instrument as _;
 
 use self::{
     attestation_header::GraphAttestation, context::Context, l2_forwarding::forward_request_to_l2,
-    query_selector::QuerySelector, query_settings::QuerySettings,
+    query_settings::QuerySettings,
 };
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
@@ -53,7 +54,6 @@ use crate::{
 mod attestation_header;
 pub mod context;
 mod l2_forwarding;
-mod query_selector;
 mod query_settings;
 
 const SELECTION_LIMIT: usize = 3;
@@ -71,7 +71,7 @@ pub async fn handle_query(
     Extension(RequestId(request_id)): Extension<RequestId>,
     query_settings: Option<Extension<QuerySettings>>,
     OriginalUri(original_uri): OriginalUri,
-    selector: QuerySelector,
+    selector: RequestSelector,
     headers: HeaderMap,
     payload: Bytes,
 ) -> Result<Response<String>, Error> {
@@ -80,7 +80,7 @@ pub async fn handle_query(
     // Check if the query selector is authorized by the auth token and
     // resolve the subgraph deployments for the query.
     let (deployments, subgraph) = match &selector {
-        QuerySelector::Subgraph(id) => {
+        RequestSelector::Subgraph(id) => {
             // If the subgraph is not authorized, return an error.
             if !auth.is_subgraph_authorized(id) {
                 return Err(Error::Auth(anyhow!("Subgraph not authorized by user")));
@@ -88,7 +88,7 @@ pub async fn handle_query(
 
             resolve_subgraph_deployments(&ctx.network, &selector)?
         }
-        QuerySelector::Deployment(_) => {
+        RequestSelector::Deployment(_) => {
             // Authorization is based on the "authorized subgraphs" allowlist. We need to resolve
             // the subgraph deployments to check if any of the deployment's subgraphs are
             // authorized, otherwise return an error.
@@ -535,10 +535,10 @@ async fn run_indexer_queries(
 /// the subgraph's deployment instances. If the selector is a deployment ID, return the deployment instance.
 fn resolve_subgraph_deployments(
     network: &GraphNetwork,
-    selector: &QuerySelector,
+    selector: &RequestSelector,
 ) -> Result<(Vec<Arc<Deployment>>, Option<Subgraph>), Error> {
     match selector {
-        QuerySelector::Subgraph(subgraph_id) => {
+        RequestSelector::Subgraph(subgraph_id) => {
             // Get the subgraph by ID
             let subgraph = network
                 .subgraph_by_id(subgraph_id)
@@ -562,7 +562,7 @@ fn resolve_subgraph_deployments(
 
             Ok((versions, Some(subgraph)))
         }
-        QuerySelector::Deployment(deployment_id) => {
+        RequestSelector::Deployment(deployment_id) => {
             // Get the deployment by ID
             let deployment = network.deployment_by_id(deployment_id).ok_or_else(|| {
                 Error::SubgraphNotFound(anyhow!("deployment not found: {deployment_id}"))
