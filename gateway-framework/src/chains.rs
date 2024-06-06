@@ -4,9 +4,10 @@ use std::{
 };
 
 use alloy_primitives::Address;
+use parking_lot::{RwLock, RwLockReadGuard};
 use tokio::{
     select, spawn,
-    sync::{mpsc, RwLock, RwLockReadGuard},
+    sync::mpsc,
     time::{interval, MissedTickBehavior},
 };
 
@@ -19,8 +20,8 @@ pub struct ChainReader {
 }
 
 impl ChainReader {
-    pub async fn read(&self) -> RwLockReadGuard<'_, Chain> {
-        self.chain.read().await
+    pub fn read(&self) -> RwLockReadGuard<'_, Chain> {
+        self.chain.read()
     }
 
     pub fn notify(&self, block: Block, indexer: Address) {
@@ -41,16 +42,16 @@ impl Chains {
         }
     }
 
-    pub async fn chain(&self, name: &str) -> ChainReader {
+    pub fn chain(&self, name: &str) -> ChainReader {
         let name = self.aliases.get(name).map(|a| a.as_str()).unwrap_or(name);
         {
-            let reader = self.data.read().await;
+            let reader = self.data.read();
             if let Some(chain) = reader.get(name) {
                 return chain.clone();
             }
         }
         {
-            let mut writer = self.data.write().await;
+            let mut writer = self.data.write();
             writer
                 .entry(name.to_string())
                 .or_insert_with(|| Actor::spawn(name.to_string()))
@@ -76,9 +77,9 @@ impl Actor {
             timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
             loop {
                 select! {
-                    _ = rx.recv_many(&mut msgs, 32) => Self::handle_msgs(chain, &mut msgs).await,
+                    _ = rx.recv_many(&mut msgs, 32) => Self::handle_msgs(chain, &mut msgs),
                     _ = timer.tick() => {
-                        let blocks_per_minute = chain.read().await.blocks_per_minute();
+                        let blocks_per_minute = chain.read().blocks_per_minute();
                         METRICS
                             .blocks_per_minute
                             .with_label_values(&[&chain_name])
@@ -90,13 +91,13 @@ impl Actor {
         ChainReader { tx, chain }
     }
 
-    async fn handle_msgs(chain: &RwLock<Chain>, msgs: &mut Vec<Msg>) {
+    fn handle_msgs(chain: &RwLock<Chain>, msgs: &mut Vec<Msg>) {
         {
-            let reader = chain.read().await;
+            let reader = chain.read();
             msgs.retain(|Msg { block, indexer }| reader.should_insert(block, indexer));
         }
         {
-            let mut writer = chain.write().await;
+            let mut writer = chain.write();
             for Msg { block, indexer } in msgs.drain(..) {
                 if writer.should_insert(&block, &indexer) {
                     writer.insert(block, indexer);
