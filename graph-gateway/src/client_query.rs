@@ -22,12 +22,12 @@ use gateway_framework::{
         Error, IndexerError, MissingBlockError,
         UnavailableReason::{self, MissingBlock},
     },
-    gateway::http::RequestSelector,
+    gateway::http::{requests::auth::resolve_and_authorize_deployments, RequestSelector},
     http::middleware::RequestId,
     indexing::Indexing,
     metrics::{with_metric, METRICS},
     network::{discovery::Status, indexing_performance::Snapshot},
-    topology::network::{Deployment, GraphNetwork, Manifest, Subgraph},
+    topology::network::{Deployment, GraphNetwork, Manifest},
 };
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
@@ -77,35 +77,8 @@ pub async fn handle_query(
 ) -> Result<Response<String>, Error> {
     let start_time = Instant::now();
 
-    // Check if the query selector is authorized by the auth token and
-    // resolve the subgraph deployments for the query.
-    let (deployments, subgraph) = match &selector {
-        RequestSelector::Subgraph(id) => {
-            // If the subgraph is not authorized, return an error.
-            if !auth.is_subgraph_authorized(id) {
-                return Err(Error::Auth(anyhow!("Subgraph not authorized by user")));
-            }
-
-            resolve_subgraph_deployments(&ctx.network, &selector)?
-        }
-        RequestSelector::Deployment(_) => {
-            // Authorization is based on the "authorized subgraphs" allowlist. We need to resolve
-            // the subgraph deployments to check if any of the deployment's subgraphs are
-            // authorized, otherwise return an error.
-            let (deployments, subgraph) = resolve_subgraph_deployments(&ctx.network, &selector)?;
-
-            // If none of the deployment's subgraphs are authorized, return an error.
-            let deployment_subgraphs = deployments
-                .iter()
-                .flat_map(|d| d.subgraphs.iter())
-                .collect::<Vec<_>>();
-            if !auth.is_any_deployment_subgraph_authorized(&deployment_subgraphs) {
-                return Err(Error::Auth(anyhow!("Deployment not authorized by user")));
-            }
-
-            (deployments, subgraph)
-        }
-    };
+    let (deployments, subgraph) =
+        resolve_and_authorize_deployments(&ctx.network, &auth, &selector)?;
 
     if let Some(l2_url) = ctx.l2_gateway.as_ref() {
         // Forward query to L2 gateway if it's marked as transferred & there are no allocations.
@@ -529,48 +502,6 @@ async fn run_indexer_queries(
         grt_per_usd,
         indexer_requests,
     });
-}
-
-/// Given a query selector, resolve the subgraph deployments for the query. If the selector is a subgraph ID, return
-/// the subgraph's deployment instances. If the selector is a deployment ID, return the deployment instance.
-fn resolve_subgraph_deployments(
-    network: &GraphNetwork,
-    selector: &RequestSelector,
-) -> Result<(Vec<Arc<Deployment>>, Option<Subgraph>), Error> {
-    match selector {
-        RequestSelector::Subgraph(subgraph_id) => {
-            // Get the subgraph by ID
-            let subgraph = network
-                .subgraph_by_id(subgraph_id)
-                .ok_or_else(|| Error::SubgraphNotFound(anyhow!("{subgraph_id}")))?;
-
-            // Get the subgraph's chain (from the last of its deployments)
-            let subgraph_chain = subgraph
-                .deployments
-                .last()
-                .map(|deployment| deployment.manifest.network.clone())
-                .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
-
-            // Get the subgraph's deployments. Make sure we only select from deployments indexing
-            // the same chain. This simplifies dealing with block constraints later
-            let versions = subgraph
-                .deployments
-                .iter()
-                .filter(|deployment| deployment.manifest.network == subgraph_chain)
-                .cloned()
-                .collect();
-
-            Ok((versions, Some(subgraph)))
-        }
-        RequestSelector::Deployment(deployment_id) => {
-            // Get the deployment by ID
-            let deployment = network.deployment_by_id(deployment_id).ok_or_else(|| {
-                Error::SubgraphNotFound(anyhow!("deployment not found: {deployment_id}"))
-            })?;
-
-            Ok((vec![deployment], None))
-        }
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
