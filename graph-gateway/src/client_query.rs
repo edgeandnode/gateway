@@ -22,7 +22,13 @@ use gateway_framework::{
         Error, IndexerError, MissingBlockError,
         UnavailableReason::{self, MissingBlock},
     },
-    gateway::http::{requests::auth::resolve_and_authorize_deployments, RequestSelector},
+    gateway::http::{
+        requests::{
+            auth::resolve_and_authorize_deployments,
+            blocks::{resolve_block_requirements, BlockRequirements},
+        },
+        RequestSelector,
+    },
     http::middleware::RequestId,
     indexing::Indexing,
     metrics::{with_metric, METRICS},
@@ -46,7 +52,7 @@ use self::{
     query_settings::QuerySettings,
 };
 use crate::{
-    block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
+    block_constraints::{block_constraints, rewrite_query},
     indexer_client::IndexerResponse,
     reports,
 };
@@ -215,8 +221,9 @@ async fn run_indexer_queries(
     let chain_reader = chain.read().await;
     let blocks_per_minute = chain_reader.blocks_per_minute();
     let chain_head = chain_reader.latest().map(|b| b.number);
+    let block_constraints = block_constraints(&agora_context).unwrap_or_default();
     let block_requirements =
-        match resolve_block_requirements(&chain_reader, &agora_context, manifest.min_block) {
+        match resolve_block_requirements(&chain_reader, &block_constraints, manifest.min_block) {
             Ok(block_requirements) => block_requirements,
             Err(err) => {
                 client_response

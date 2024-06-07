@@ -11,6 +11,7 @@ use gateway_framework::{
     blocks::{Block, BlockConstraint, UnresolvedBlock},
     chain::Chain,
     errors::Error,
+    gateway::http::requests::blocks::BlockRequirements,
 };
 use graphql::{
     graphql_parser::query::{Field, OperationDefinition, Selection, SelectionSet, Text, Value},
@@ -19,88 +20,28 @@ use graphql::{
 use itertools::Itertools as _;
 use serde_json::{self, json};
 
-#[derive(Debug)]
-pub struct BlockRequirements {
-    /// required block range, for exact block constraints (`number` & `hash`)
-    pub range: Option<(BlockNumber, BlockNumber)>,
-    /// maximum `number_gte` constraint
-    pub number_gte: Option<BlockNumber>,
-    /// does the query benefit from using the latest block (contains NumberGTE or Unconstrained)
-    pub latest: bool,
-}
-
-pub fn resolve_block_requirements(
-    chain: &Chain,
-    context: &Context,
-    manifest_min_block: BlockNumber,
-) -> Result<BlockRequirements, Error> {
-    let constraints = block_constraints(context).unwrap_or_default();
-
-    let latest = constraints.iter().any(|c| match c {
-        BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
-        BlockConstraint::Hash(_) | BlockConstraint::Number(_) => false,
-    });
-    let number_gte = constraints
-        .iter()
-        .filter_map(|c| match c {
-            BlockConstraint::NumberGTE(n) => Some(*n),
-            _ => None,
-        })
-        .max();
-
-    let exact_constraints: Vec<u64> = constraints
-        .iter()
-        .filter_map(|c| match c {
-            BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => None,
-            BlockConstraint::Number(number) => Some(*number),
-            // resolving block hashes is not guaranteed
-            BlockConstraint::Hash(hash) => chain
-                .find(&UnresolvedBlock::WithHash(*hash))
-                .map(|b| b.number),
-        })
-        .collect();
-    let min_block = exact_constraints.iter().min().cloned();
-    let max_block = exact_constraints.iter().max().cloned();
-
-    // Reject queries for blocks before the minimum start block in the manifest, but only if the
-    // constraint is for an exact block. For example, we always want to allow `block_gte: 0`.
-    let request_contains_invalid_blocks = exact_constraints
-        .iter()
-        .any(|number| *number < manifest_min_block);
-    if request_contains_invalid_blocks {
-        return Err(Error::BadQuery(anyhow!(
-            "requested block {}, before minimum `startBlock` of manifest {}",
-            min_block.unwrap_or_default(),
-            manifest_min_block,
-        )));
-    }
-
-    Ok(BlockRequirements {
-        range: min_block.map(|min| (min, max_block.unwrap())),
-        number_gte,
-        latest,
-    })
-}
-
-fn block_constraints(context: &Context) -> Result<BTreeSet<BlockConstraint>, Error> {
+pub fn block_constraints(ctx: &Context) -> Result<BTreeSet<BlockConstraint>, Error> {
     let mut constraints = BTreeSet::new();
-    let vars = &context.variables;
+
+    let vars = &ctx.variables;
+    let operations = &ctx.operations;
+
     // ba6c90f1-3baf-45be-ac1c-f60733404436
-    for operation in &context.operations {
+    for operation in operations {
         let (selection_set, defaults) = match operation {
             OperationDefinition::SelectionSet(selection_set) => {
                 (selection_set, BTreeMap::default())
             }
             OperationDefinition::Query(query) if query.directives.is_empty() => {
                 // Add default definitions for variables not set at top level.
-                let defaults: BTreeMap<String, StaticValue> = query
+                let defaults = query
                     .variable_definitions
                     .iter()
                     .filter(|d| !vars.0.contains_key(d.name))
                     .filter_map(|d| {
                         Some((d.name.to_string(), d.default_value.as_ref()?.to_graphql()))
                     })
-                    .collect();
+                    .collect::<BTreeMap<String, StaticValue>>();
                 (&query.selection_set, defaults)
             }
             OperationDefinition::Query(_)
@@ -307,7 +248,7 @@ fn contains_introspection<'q>(ctx: &Context<'q>) -> bool {
     })
 }
 
-fn field_constraint<'c, T: Text<'c>>(
+pub fn field_constraint<'c, T: Text<'c>>(
     vars: &cost_model::QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
     field: &Value<'c, T>,
