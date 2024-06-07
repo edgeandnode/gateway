@@ -1,10 +1,10 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::Address;
 use anyhow::anyhow;
 use axum::{
     body::Bytes,
@@ -19,25 +19,20 @@ use gateway_framework::{
     auth::AuthSettings,
     budgets::USD,
     errors::{
-        Error, IndexerError, MissingBlockError,
+        Error, IndexerError,
         UnavailableReason::{self, MissingBlock},
     },
-    gateway::http::{
-        requests::{
-            auth::resolve_and_authorize_deployments,
-            blocks::{resolve_block_requirements, BlockRequirements},
-            budget::Budget,
-        },
-        RequestSelector,
+    gateway::http::requests::{
+        auth::resolve_and_authorize_deployments, blocks::resolve_block_requirements,
+        budget::Budget, candidates::prepare_candidate, selector::RequestSelector,
     },
     http::middleware::RequestId,
     indexing::Indexing,
     metrics::{with_metric, METRICS},
-    network::{discovery::Status, indexing_performance::Snapshot},
-    topology::network::{Deployment, GraphNetwork, Manifest},
+    topology::network::{Deployment, Manifest},
 };
 use headers::ContentType;
-use indexer_selection::{ArrayVec, Candidate, Normalized};
+use indexer_selection::{ArrayVec, Candidate};
 use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
 use prost::bytes::Buf;
@@ -271,6 +266,7 @@ async fn run_indexer_queries(
 
             match prepare_candidate(
                 &ctx.network,
+                |request, status| indexer_fee(&status.cost_model, request),
                 &indexing_statuses,
                 &perf,
                 &versions_behind,
@@ -494,96 +490,6 @@ async fn run_indexer_queries(
         grt_per_usd,
         indexer_requests,
     });
-}
-
-#[allow(clippy::too_many_arguments)]
-fn prepare_candidate(
-    network: &GraphNetwork,
-    statuses: &HashMap<Indexing, Status>,
-    perf_snapshots: &HashMap<(Address, DeploymentId), Snapshot>,
-    versions_behind: &BTreeMap<DeploymentId, u8>,
-    context: &AgoraContext,
-    block_requirements: &BlockRequirements,
-    chain_head: BlockNumber,
-    blocks_per_minute: u64,
-    budget: &Budget,
-    indexing: Indexing,
-) -> Result<Candidate, IndexerError> {
-    let info = network
-        .indexing(&indexing)
-        .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
-    let status = statuses
-        .get(&indexing)
-        .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
-    let perf = perf_snapshots
-        .get(&(indexing.indexer, indexing.deployment))
-        .and_then(|snapshot| perf(snapshot, block_requirements, chain_head, blocks_per_minute))
-        .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
-
-    let fee =
-        Normalized::new(indexer_fee(&status.cost_model, context)? as f64 / budget.budget as f64)
-            .unwrap_or(Normalized::ONE);
-
-    if let Some((min, max)) = &block_requirements.range {
-        // Allow indexers if their last reported block is "close enough" to the required block
-        // range. This is to compensate for the gateway's lack of knowledge about which blocks
-        // indexers have responded with already. All else being equal, indexers closer to chain head
-        // and with higher success rate will be favored.
-        let latest_block = status.block.max(perf.latest_block + blocks_per_minute);
-        let range = status.min_block.unwrap_or(0)..=latest_block;
-        let number_gte = block_requirements.number_gte.unwrap_or(0);
-        let missing_block = match range {
-            range if !range.contains(min) => Some(*min),
-            range if !range.contains(max) => Some(*max),
-            range if *range.end() < number_gte => Some(number_gte),
-            _ => None,
-        };
-        if let Some(missing) = missing_block {
-            let (missing, latest) = (Some(missing), None);
-            return Err(IndexerError::Unavailable(MissingBlock(MissingBlockError {
-                missing,
-                latest,
-            })));
-        }
-    }
-
-    Ok(Candidate {
-        indexer: indexing.indexer,
-        deployment: indexing.deployment,
-        url: info.url.clone(),
-        perf: perf.response,
-        fee,
-        seconds_behind: perf.seconds_behind,
-        slashable_grt: (info.staked_tokens as f64 * 1e-18) as u64,
-        versions_behind: *versions_behind.get(&indexing.deployment).unwrap_or(&0),
-        zero_allocation: info.allocated_tokens == 0,
-    })
-}
-
-struct Perf {
-    response: indexer_selection::ExpectedPerformance,
-    latest_block: BlockNumber,
-    seconds_behind: u32,
-}
-
-fn perf(
-    snapshot: &Snapshot,
-    block_requirements: &BlockRequirements,
-    chain_head: BlockNumber,
-    blocks_per_minute: u64,
-) -> Option<Perf> {
-    let latest_block = snapshot.latest_block?;
-    let seconds_behind = if !block_requirements.latest || (blocks_per_minute == 0) {
-        0
-    } else {
-        ((chain_head.saturating_sub(latest_block) as f64 / blocks_per_minute as f64) * 60.0).ceil()
-            as u32
-    };
-    Some(Perf {
-        response: snapshot.response.expected_performance(),
-        latest_block,
-        seconds_behind,
-    })
 }
 
 pub fn indexer_fee(

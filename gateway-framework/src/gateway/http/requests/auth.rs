@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 
+use super::selector::RequestSelector;
 use crate::{
     auth::AuthSettings,
     errors::Error,
-    gateway::http::RequestSelector,
     topology::network::{Deployment, GraphNetwork, Subgraph},
 };
 
