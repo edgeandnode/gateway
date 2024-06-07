@@ -29,7 +29,7 @@ use gateway_framework::{
             budget::Budget, candidates::prepare_candidate, selector::RequestSelector,
         },
     },
-    http::middleware::RequestId,
+    http::{attestation_header::GraphAttestation, middleware::RequestId},
     indexing::Indexing,
     metrics::{with_metric, METRICS},
     reports,
@@ -47,12 +47,9 @@ use thegraph_core::types::DeploymentId;
 use tokio::sync::mpsc;
 use tracing::Instrument as _;
 
-use self::{
-    attestation_header::GraphAttestation, context::Context, l2_forwarding::forward_request_to_l2,
-};
+use self::{context::Context, l2_forwarding::forward_request_to_l2};
 use crate::block_constraints::{block_constraints, rewrite_query};
 
-mod attestation_header;
 pub mod context;
 mod l2_forwarding;
 
