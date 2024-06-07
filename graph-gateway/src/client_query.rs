@@ -1,6 +1,6 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    sync::Arc,
+    cmp::max,
+    collections::{BTreeMap, HashMap},
     time::{Duration, Instant},
 };
 
@@ -13,21 +13,15 @@ use axum::{
     Extension,
 };
 use cost_model::{Context as AgoraContext, CostModel};
-use eventuals::Ptr;
-use gateway_common::utils::http_ext::HttpBuilderExt as _;
+use gateway_common::{ptr::Ptr, utils::http_ext::HttpBuilderExt as _};
 use gateway_framework::{
     auth::AuthSettings,
     budgets::USD,
-    errors::{
-        Error, IndexerError, IndexerErrors, MissingBlockError,
-        UnavailableReason::{self, MissingBlock},
-    },
+    errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     http::middleware::RequestId,
-    indexing::Indexing,
     metrics::{with_metric, METRICS},
-    network::{discovery::Status, indexing_performance::Snapshot},
+    network::indexing_performance::Snapshot,
     scalar::ReceiptStatus,
-    topology::network::{Deployment, GraphNetwork, Manifest, Subgraph},
 };
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
@@ -37,7 +31,7 @@ use prost::bytes::Buf;
 use rand::{thread_rng, Rng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::types::DeploymentId;
+use thegraph_core::types::SubgraphId;
 use tokio::sync::mpsc;
 use tracing::Instrument as _;
 
@@ -48,6 +42,8 @@ use self::{
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     indexer_client::IndexerResponse,
+    network,
+    network::{DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
     reports,
 };
 
@@ -80,87 +76,46 @@ pub async fn handle_query(
 
     // Check if the query selector is authorized by the auth token and
     // resolve the subgraph deployments for the query.
-    let (deployments, subgraph) = match &selector {
-        QuerySelector::Subgraph(id) => {
-            // If the subgraph is not authorized, return an error.
-            if !auth.is_subgraph_authorized(id) {
-                return Err(Error::Auth(anyhow!("Subgraph not authorized by user")));
+    let subgraph = match resolve_subgraph_info(&ctx, &auth, selector).await? {
+        Err(ResolutionError::TransferredToL2 { id_on_l2 }) => {
+            return match ctx.l2_gateway.as_ref() {
+                Some(l2_gateway_url) => Ok(forward_request_to_l2(
+                    &ctx.indexer_client.client,
+                    l2_gateway_url,
+                    &original_uri,
+                    headers,
+                    payload,
+                    id_on_l2,
+                )
+                .await),
+                None => Err(Error::SubgraphNotFound(anyhow!("transferred to l2"))),
             }
-
-            resolve_subgraph_deployments(&ctx.network, &selector)?
         }
-        QuerySelector::Deployment(_) => {
-            // Authorization is based on the "authorized subgraphs" allowlist. We need to resolve
-            // the subgraph deployments to check if any of the deployment's subgraphs are
-            // authorized, otherwise return an error.
-            let (deployments, subgraph) = resolve_subgraph_deployments(&ctx.network, &selector)?;
-
-            // If none of the deployment's subgraphs are authorized, return an error.
-            let deployment_subgraphs = deployments
-                .iter()
-                .flat_map(|d| d.subgraphs.iter())
-                .collect::<Vec<_>>();
-            if !auth.is_any_deployment_subgraph_authorized(&deployment_subgraphs) {
-                return Err(Error::Auth(anyhow!("Deployment not authorized by user")));
-            }
-
-            (deployments, subgraph)
-        }
+        Ok(info) => info,
     };
-
-    if let Some(l2_url) = ctx.l2_gateway.as_ref() {
-        // Forward query to L2 gateway if it's marked as transferred & there are no allocations.
-        // abf62a6d-c071-4507-b528-ddc8e250127a
-        let transferred_to_l2 = deployments.iter().all(|d| d.transferred_to_l2);
-        if transferred_to_l2 {
-            return Ok(forward_request_to_l2(
-                &ctx.indexer_client.client,
-                l2_url,
-                &original_uri,
-                headers,
-                payload,
-                subgraph.and_then(|s| s.l2_id),
-            )
-            .await);
-        }
-    }
-
-    let available_indexers: BTreeSet<Indexing> = deployments
-        .iter()
-        .flat_map(move |deployment| {
-            let id = deployment.id;
-            deployment.indexers.keys().map(move |indexer| Indexing {
-                indexer: *indexer,
-                deployment: id,
-            })
-        })
-        .collect();
-    if available_indexers.is_empty() {
-        return Err(Error::NoIndexers);
-    }
-
-    let manifest = deployments
-        .last()
-        .map(|deployment| deployment.manifest.clone())
-        .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
 
     let client_request: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
 
-    let query_settings = query_settings
-        .map(|Extension(settings)| settings)
-        .unwrap_or_default();
+    // Calculate the budget for the query
     let grt_per_usd = *ctx.grt_per_usd.borrow();
     let one_grt = NotNan::new(1e18).unwrap();
-    let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
-    if let Some(user_budget_usd) = query_settings.budget_usd {
-        // Security: Consumers can and will set their budget to unreasonably high values.
-        // This `.min` prevents the budget from being set far beyond what it would be
-        // automatically. The reason this is important is that sometimes queries are
-        // subsidized, and we would be at-risk to allow arbitrarily high values.
-        let max_budget = budget * 10;
-        budget = (*(user_budget_usd * grt_per_usd * one_grt) as u128).min(max_budget);
-    }
+    let budget = {
+        let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
+        if let Some(Extension(QuerySettings {
+            budget_usd: Some(user_budget_usd),
+        })) = query_settings
+        {
+            // Security: Consumers can and will set their budget to unreasonably high values.
+            // This `.min` prevents the budget from being set far beyond what it would be
+            // automatically. The reason this is important is that sometimes queries are
+            // subsidized, and we would be at-risk to allow arbitrarily high values.
+            let max_budget = budget * 10;
+
+            budget = (*(user_budget_usd * grt_per_usd * one_grt) as u128).min(max_budget);
+        }
+        budget
+    };
 
     let (tx, mut rx) = mpsc::channel(1);
     tokio::spawn(
@@ -169,9 +124,7 @@ pub async fn handle_query(
             request_id,
             auth,
             start_time,
-            deployments,
-            available_indexers,
-            manifest,
+            subgraph,
             budget,
             client_request,
             tx,
@@ -206,15 +159,84 @@ pub async fn handle_query(
     )
 }
 
+/// Error type for the `resolve_subgraph_info` function.
+#[derive(Debug, thiserror::Error)]
+enum ResolutionError {
+    /// The subgraph (or deployment) was transferred to L2.
+    #[error("subgraph transferred to L2: {id_on_l2:?}")]
+    TransferredToL2 { id_on_l2: Option<SubgraphId> },
+}
+
+/// Resolve the subgraph info for the given query selector.
+///
+/// This function checks if the subgraph (or deployment) is authorized by the auth settings and
+/// resolves the subgraph deployments associated with the query selector.
+async fn resolve_subgraph_info(
+    ctx: &Context,
+    auth: &AuthSettings,
+    selector: QuerySelector,
+) -> Result<Result<ResolvedSubgraphInfo, ResolutionError>, Error> {
+    match selector {
+        QuerySelector::Subgraph(ref id) => {
+            // If the subgraph is not authorized, return an error.
+            if !auth.is_subgraph_authorized(id) {
+                return Err(Error::Auth(anyhow!("subgraph not authorized by user")));
+            }
+
+            match ctx
+                .network
+                .resolve_with_subgraph_id(id)
+                .map_err(Error::Internal)?
+            {
+                Err(SubgraphError::TransferredToL2 { id_on_l2 }) => {
+                    Ok(Err(ResolutionError::TransferredToL2 { id_on_l2 }))
+                }
+                Err(SubgraphError::NoAllocations) => {
+                    Err(Error::SubgraphNotFound(anyhow!("no allocations",)))
+                }
+                Err(SubgraphError::NoValidVersions) => {
+                    Err(Error::SubgraphNotFound(anyhow!("no valid versions",)))
+                }
+                Ok(None) => Err(Error::SubgraphNotFound(anyhow!("{selector}",))),
+                Ok(Some(info)) if info.indexings.is_empty() => Err(Error::NoIndexers),
+                Ok(Some(info)) => Ok(Ok(info)),
+            }
+        }
+        QuerySelector::Deployment(ref id) => {
+            // Authorization is based on the "authorized subgraphs" allowlist. We need to resolve
+            // the subgraph deployments to check if any of the deployment's subgraphs are authorized
+            match ctx
+                .network
+                .resolve_with_deployment_id(id)
+                .map_err(Error::Internal)?
+            {
+                Err(DeploymentError::TransferredToL2) => {
+                    Ok(Err(ResolutionError::TransferredToL2 { id_on_l2: None }))
+                }
+                Err(DeploymentError::NoAllocations) => {
+                    Err(Error::SubgraphNotFound(anyhow!("no allocations",)))
+                }
+                Ok(None) => Err(Error::SubgraphNotFound(anyhow!("{selector}",))),
+                Ok(Some(info)) if info.indexings.is_empty() => Err(Error::NoIndexers),
+                Ok(Some(info)) => {
+                    if !auth.is_any_deployment_subgraph_authorized(&info.subgraphs) {
+                        Err(Error::Auth(anyhow!("deployment not authorized by user")))
+                    } else {
+                        Ok(Ok(info))
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_indexer_queries(
     ctx: Context,
     request_id: String,
     auth: AuthSettings,
     start_time: Instant,
-    deployments: Vec<Arc<Deployment>>,
-    mut available_indexers: BTreeSet<Indexing>,
-    manifest: Manifest,
+    subgraph: ResolvedSubgraphInfo,
     budget: u128,
     client_request: QueryBody,
     client_response: mpsc::Sender<Result<IndexerResponse, Error>>,
@@ -222,6 +244,7 @@ async fn run_indexer_queries(
     let one_grt = NotNan::new(1e18).unwrap();
     let grt_per_usd = *ctx.grt_per_usd.borrow();
 
+    // Create the Agora context from the query and variables
     let variables = client_request
         .variables
         .as_ref()
@@ -239,13 +262,26 @@ async fn run_indexer_queries(
             return;
         }
     };
-    let chain = ctx.chains.chain(&manifest.network);
-    let (blocks_per_minute, chain_head, block_requirements) = {
+
+    // Get the chain information for the resolved subgraph
+    let chain = ctx.chains.chain(&subgraph.chain);
+    let (chain_head, blocks_per_minute, block_requirements) = {
         let chain_reader = chain.read();
+
+        // Get the chain head block number. Try to get it from the chain head tracker service, if it
+        // is not available, get the largest block number from the resolved indexers' indexing
+        // progress, and if that is not available, default to the subgraph start block.
+        let chain_head = chain_reader.latest().map(|b| b.number).unwrap_or_else(|| {
+            subgraph
+                .latest_reported_block()
+                .unwrap_or(subgraph.start_block)
+        });
+
+        // Get the estimated blocks per minute for the chain
         let blocks_per_minute = chain_reader.blocks_per_minute();
-        let chain_head = chain_reader.latest().map(|b| b.number);
+
         let block_requirements =
-            match resolve_block_requirements(&chain_reader, &agora_context, manifest.min_block) {
+            match resolve_block_requirements(&chain_reader, &agora_context, subgraph.start_block) {
                 Ok(block_requirements) => block_requirements,
                 Err(err) => {
                     client_response
@@ -254,81 +290,30 @@ async fn run_indexer_queries(
                     return;
                 }
             };
-        (blocks_per_minute, chain_head, block_requirements)
-    };
 
-    let indexing_statuses = ctx.indexing_statuses.value_immediate().unwrap();
-    let chain_head = chain_head.unwrap_or_else(|| {
-        available_indexers
-            .iter()
-            .flat_map(|indexing| indexing_statuses.get(indexing).map(|status| status.block))
-            .max()
-            .unwrap_or(0) // doesn't matter if no indexers have status
-    });
+        (chain_head, blocks_per_minute, block_requirements)
+    };
     tracing::debug!(chain_head, blocks_per_minute, ?block_requirements);
 
-    let mut indexer_errors: BTreeMap<Address, IndexerError> = Default::default();
-    let blocklist = ctx
-        .indexings_blocklist
-        .value_immediate()
-        .unwrap_or_default();
-    available_indexers.retain(|candidate| {
-        if blocklist.contains(candidate) || ctx.bad_indexers.contains(&candidate.indexer) {
-            indexer_errors.insert(
-                candidate.indexer,
-                IndexerError::Unavailable(UnavailableReason::NoStatus),
-            );
-            return false;
-        }
-        true
-    });
+    let mut indexer_errors = IndexerErrors::default();
 
-    // List holding the indexers that support Scalar TAP.
-    //
-    // This is a temporary solution determine which indexers support Scalar TAP. This will be
-    // removed once the network service is integrated.
-    let mut indexers_with_tap_support = HashSet::new();
-
-    let versions_behind: BTreeMap<DeploymentId, u8> = deployments
-        .iter()
-        .rev()
-        .enumerate()
-        .map(|(index, deployment)| (deployment.id, index.try_into().unwrap_or(u8::MAX)))
-        .collect();
-    let mut candidates = Vec::new();
-    {
-        let perf = ctx.indexing_perf.latest();
-        for indexing in available_indexers {
-            if let Some(status) = indexing_statuses.get(&indexing) {
-                if !status.legacy_scalar {
-                    indexers_with_tap_support.insert(indexing.indexer);
-                }
-            }
-
-            match prepare_candidate(
-                &ctx.network,
-                &indexing_statuses,
-                &perf,
-                &versions_behind,
-                &agora_context,
-                &block_requirements,
-                chain_head,
-                blocks_per_minute,
-                budget,
-                indexing,
-            ) {
-                Ok(candidate) => candidates.push(candidate),
-                Err(indexer_error) => {
-                    indexer_errors.insert(indexing.indexer, indexer_error);
-                }
-            }
-        }
-    }
+    // Candidate selection preparation
+    let (mut candidates, errors) = build_candidates_list(
+        &ctx,
+        &agora_context,
+        budget,
+        chain_head,
+        blocks_per_minute,
+        &block_requirements,
+        subgraph.indexings,
+    );
+    indexer_errors.extend(errors);
 
     if tracing::enabled!(tracing::Level::TRACE) {
         tracing::trace!(client_query = client_request.query, variables);
         tracing::trace!(?candidates);
     } else if tracing::enabled!(tracing::Level::DEBUG) && thread_rng().gen_bool(0.01) {
+        // Log candidates at a low rate to avoid log bloat
         tracing::debug!(client_query = client_request.query, variables);
         tracing::debug!(?candidates);
     }
@@ -336,13 +321,13 @@ async fn run_indexer_queries(
     let mut indexer_requests: Vec<reports::IndexerRequest> = Default::default();
     let mut indexer_request_rewrites: BTreeMap<u32, String> = Default::default();
     let mut client_response_time: Option<Duration> = None;
+
     // If a client query cannot be handled by the available indexers, we should give a reason for
-    // all of the available indexers in the `bad indexers` response.
+    // all the available indexers in the `bad indexers` response.
     while !candidates.is_empty()
         && (Instant::now().duration_since(start_time) < Duration::from_secs(60))
     {
-        let selections: ArrayVec<&Candidate, SELECTION_LIMIT> =
-            indexer_selection::select(&candidates);
+        let selections: ArrayVec<_, SELECTION_LIMIT> = indexer_selection::select(&candidates);
         if selections.is_empty() {
             // Candidates that would never be selected should be filtered out for improved errors.
             tracing::error!("no candidates selected");
@@ -352,12 +337,12 @@ async fn run_indexer_queries(
         let (tx, mut rx) = mpsc::channel(SELECTION_LIMIT);
         let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
         for &selection in &selections {
-            let indexer = selection.indexer;
-            let deployment = selection.deployment;
-            let url = selection.url.clone();
+            let indexer = selection.id.indexer;
+            let deployment = selection.id.deployment;
+            let url = selection.data.indexer.url.clone();
             let seconds_behind = selection.seconds_behind;
-            let legacy_scalar = !indexers_with_tap_support.contains(&indexer);
-            let subgraph_chain = manifest.network.clone();
+            let legacy_scalar = !selection.data.indexer.scalar_tap_support;
+            let subgraph_chain = subgraph.chain.clone();
 
             // over-pay indexers to hit target
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections.len() as f64;
@@ -425,6 +410,7 @@ async fn run_indexer_queries(
             });
         }
         drop(tx);
+
         while let Some(report) = rx.recv().await {
             match report.result.as_ref() {
                 Ok(response) if client_response_time.is_none() => {
@@ -457,8 +443,8 @@ async fn run_indexer_queries(
         }
 
         let selected_indexers: ArrayVec<Address, SELECTION_LIMIT> =
-            selections.into_iter().map(|s| s.indexer).collect();
-        candidates.retain(|c| !selected_indexers.contains(&c.indexer));
+            selections.into_iter().map(|s| s.id.indexer).collect();
+        candidates.retain(|c| !selected_indexers.contains(&c.id.indexer));
     }
     tracing::info!(?indexer_errors);
 
@@ -466,9 +452,7 @@ async fn run_indexer_queries(
         Some(client_response_time) => client_response_time,
         // Send fallback error to use when no indexers are successful.
         None => {
-            let _ = client_response.try_send(Err(Error::BadIndexers(IndexerErrors(
-                indexer_errors.clone(),
-            ))));
+            let _ = client_response.try_send(Err(Error::BadIndexers(indexer_errors.clone())));
             Instant::now().duration_since(start_time)
         }
     };
@@ -476,7 +460,7 @@ async fn run_indexer_queries(
     let result = if indexer_requests.iter().any(|r| r.result.is_ok()) {
         Ok(())
     } else {
-        Err(Error::BadIndexers(IndexerErrors(indexer_errors)))
+        Err(Error::BadIndexers(indexer_errors))
     };
 
     let total_fees_grt: f64 = indexer_requests
@@ -489,7 +473,7 @@ async fn run_indexer_queries(
     for indexer_request in &indexer_requests {
         let latest_block = match &indexer_request.result {
             Ok(response) => response.probe_block.as_ref().map(|b| b.number),
-            Err(IndexerError::Unavailable(MissingBlock(err))) => err.latest,
+            Err(IndexerError::Unavailable(UnavailableReason::MissingBlock(err))) => err.latest,
             _ => None,
         };
         ctx.indexing_perf.feedback(
@@ -559,109 +543,129 @@ async fn run_indexer_queries(
     });
 }
 
-/// Given a query selector, resolve the subgraph deployments for the query. If the selector is a subgraph ID, return
-/// the subgraph's deployment instances. If the selector is a deployment ID, return the deployment instance.
-fn resolve_subgraph_deployments(
-    network: &GraphNetwork,
-    selector: &QuerySelector,
-) -> Result<(Vec<Arc<Deployment>>, Option<Subgraph>), Error> {
-    match selector {
-        QuerySelector::Subgraph(subgraph_id) => {
-            // Get the subgraph by ID
-            let subgraph = network
-                .subgraph_by_id(subgraph_id)
-                .ok_or_else(|| Error::SubgraphNotFound(anyhow!("{subgraph_id}")))?;
-
-            // Get the subgraph's chain (from the last of its deployments)
-            let subgraph_chain = subgraph
-                .deployments
-                .last()
-                .map(|deployment| deployment.manifest.network.clone())
-                .ok_or_else(|| Error::SubgraphNotFound(anyhow!("no matching deployments")))?;
-
-            // Get the subgraph's deployments. Make sure we only select from deployments indexing
-            // the same chain. This simplifies dealing with block constraints later
-            let versions = subgraph
-                .deployments
-                .iter()
-                .filter(|deployment| deployment.manifest.network == subgraph_chain)
-                .cloned()
-                .collect();
-
-            Ok((versions, Some(subgraph)))
-        }
-        QuerySelector::Deployment(deployment_id) => {
-            // Get the deployment by ID
-            let deployment = network.deployment_by_id(deployment_id).ok_or_else(|| {
-                Error::SubgraphNotFound(anyhow!("deployment not found: {deployment_id}"))
-            })?;
-
-            Ok((vec![deployment], None))
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn prepare_candidate(
-    network: &GraphNetwork,
-    statuses: &HashMap<Indexing, Status>,
-    perf_snapshots: &HashMap<(Address, DeploymentId), Snapshot>,
-    versions_behind: &BTreeMap<DeploymentId, u8>,
+/// Given a list of indexings, build a list of candidates that are within the required block range
+/// and have the required performance.
+#[allow(clippy::type_complexity)]
+fn build_candidates_list(
+    ctx: &Context,
     context: &AgoraContext,
-    block_requirements: &BlockRequirements,
+    budget: u128,
     chain_head: BlockNumber,
     blocks_per_minute: u64,
-    budget: u128,
-    indexing: Indexing,
-) -> Result<Candidate, IndexerError> {
-    let info = network
-        .indexing(&indexing)
-        .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
-    let status = statuses
-        .get(&indexing)
-        .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
-    let perf = perf_snapshots
-        .get(&(indexing.indexer, indexing.deployment))
-        .and_then(|snapshot| perf(snapshot, block_requirements, chain_head, blocks_per_minute))
-        .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
+    block_requirements: &BlockRequirements,
+    indexings: HashMap<IndexingId, Result<Indexing, network::IndexingError>>,
+) -> (
+    Vec<Candidate<IndexingId, Indexing>>,
+    BTreeMap<Address, IndexerError>,
+) {
+    let mut candidates_list = Vec::new();
+    let mut candidates_errors = BTreeMap::default();
 
-    let fee = Normalized::new(indexer_fee(&status.cost_model, context)? as f64 / budget as f64)
-        .unwrap_or(Normalized::ONE);
+    // Lock the indexing performance and get access to the latest performance snapshots
+    let perf_snapshots = ctx.indexing_perf.latest();
 
-    if let Some((min, max)) = &block_requirements.range {
-        // Allow indexers if their last reported block is "close enough" to the required block
-        // range. This is to compensate for the gateway's lack of knowledge about which blocks
-        // indexers have responded with already. All else being equal, indexers closer to chain head
-        // and with higher success rate will be favored.
-        let latest_block = status.block.max(perf.latest_block + blocks_per_minute);
-        let range = status.min_block.unwrap_or(0)..=latest_block;
-        let number_gte = block_requirements.number_gte.unwrap_or(0);
-        let missing_block = match range {
-            range if !range.contains(min) => Some(*min),
-            range if !range.contains(max) => Some(*max),
-            range if *range.end() < number_gte => Some(number_gte),
-            _ => None,
+    for (indexing_id, indexing) in indexings {
+        // If the indexer is not available, register an error and continue to the next indexer
+        let indexing = match indexing {
+            Ok(indexing) => indexing,
+            Err(err) => {
+                candidates_errors.insert(indexing_id.indexer, err.into());
+                continue;
+            }
         };
-        if let Some(missing) = missing_block {
-            let (missing, latest) = (Some(missing), None);
-            return Err(IndexerError::Unavailable(MissingBlock(MissingBlockError {
-                missing,
-                latest,
-            })));
+
+        // Get the performance snapshot for the indexer and calculate the expected performance.
+        // If the indexer is not available, register an error and continue to the next indexer
+        let perf = match perf_snapshots
+            .get(&(indexing_id.indexer, indexing_id.deployment))
+            .and_then(|snapshot| perf(snapshot, block_requirements, chain_head, blocks_per_minute))
+        {
+            Some(perf) => perf,
+            None => {
+                candidates_errors.insert(
+                    indexing_id.indexer,
+                    IndexerError::Unavailable(UnavailableReason::NoStatus),
+                );
+                continue;
+            }
+        };
+
+        // Check if the indexer is within the required block range
+        if let Some((min_block, max_block)) = &block_requirements.range {
+            // Allow indexers if their last reported block is "close enough" to the required block
+            // range. This is to compensate for the gateway's lack of knowledge about which blocks
+            // indexers have responded with already. All else being equal, indexers closer to chain head
+            // and with higher success rate will be favored.
+
+            // Infer the indexed range from the indexing progress information
+            let range = {
+                let (start, end) = indexing.progress.as_range();
+                start.unwrap_or(0)..=max(end, perf.latest_block + blocks_per_minute)
+            };
+
+            let number_gte = block_requirements.number_gte.unwrap_or(0);
+
+            // If the indexing is not within the required block range, register an error and
+            // continue to the next indexer
+            let missing_block = match range {
+                range if !range.contains(min_block) => Some(*min_block),
+                range if !range.contains(max_block) => Some(*max_block),
+                range if *range.end() < number_gte => Some(number_gte),
+                _ => None,
+            };
+
+            if let Some(missing) = missing_block {
+                candidates_errors.insert(
+                    indexing_id.indexer,
+                    IndexerError::Unavailable(UnavailableReason::MissingBlock(MissingBlockError {
+                        missing: Some(missing),
+                        latest: None,
+                    })),
+                );
+                continue;
+            }
         }
+
+        // Calculate the fee for the indexing, and normalize it
+        let fee = match indexer_fee(context, &indexing.cost_model) {
+            Some(fee) => Normalized::new(fee as f64 / budget as f64).unwrap_or(Normalized::ONE),
+            None => {
+                candidates_errors.insert(
+                    indexing_id.indexer,
+                    IndexerError::Unavailable(UnavailableReason::NoFee),
+                );
+                continue;
+            }
+        };
+
+        // Construct the ISA candidate
+        candidates_list.push(prepare_candidate(indexing_id, indexing, perf, fee));
     }
 
-    Ok(Candidate {
-        indexer: indexing.indexer,
-        deployment: indexing.deployment,
-        url: info.url.clone(),
+    (candidates_list, candidates_errors)
+}
+
+/// Construct a candidate from an indexing and its performance.
+fn prepare_candidate(
+    id: IndexingId,
+    indexing: Indexing,
+    perf: Perf,
+    fee: Normalized,
+) -> Candidate<IndexingId, Indexing> {
+    let versions_behind = indexing.versions_behind;
+    let zero_allocation = indexing.total_allocated_tokens == 0;
+    let slashable_grt = (indexing.indexer.staked_tokens as f64 * 1e-18) as u64;
+
+    Candidate {
+        id,
+        data: indexing,
         perf: perf.response,
         fee,
         seconds_behind: perf.seconds_behind,
-        slashable_grt: (info.staked_tokens as f64 * 1e-18) as u64,
-        versions_behind: *versions_behind.get(&indexing.deployment).unwrap_or(&0),
-        zero_allocation: info.allocated_tokens == 0,
-    })
+        slashable_grt,
+        versions_behind,
+        zero_allocation,
+    }
 }
 
 struct Perf {
@@ -683,6 +687,7 @@ fn perf(
         ((chain_head.saturating_sub(latest_block) as f64 / blocks_per_minute as f64) * 60.0).ceil()
             as u32
     };
+
     Some(Perf {
         response: snapshot.response.expected_performance(),
         latest_block,
@@ -690,24 +695,56 @@ fn perf(
     })
 }
 
-pub fn indexer_fee(
-    cost_model: &Option<Ptr<CostModel>>,
-    context: &AgoraContext,
-) -> Result<u128, IndexerError> {
+fn blocks_behind(seconds_behind: u32, blocks_per_minute: u64) -> u64 {
+    ((seconds_behind as f64 / 60.0) * blocks_per_minute as f64) as u64
+}
+
+/// Estimate the fee for an indexer based on the cost model and the query context.
+///
+/// If the cost model is not available, the fee is assumed to be zero.
+/// If the cost model is available but the cost cannot be calculated, the fee is assumed to be
+/// unavailable.
+pub fn indexer_fee(context: &AgoraContext, cost_model: &Option<Ptr<CostModel>>) -> Option<u128> {
     match cost_model
         .as_ref()
         .map(|model| model.cost_with_context(context))
     {
-        None => Ok(0),
-        Some(Ok(fee)) => fee
-            .to_u128()
-            .ok_or(IndexerError::Unavailable(UnavailableReason::NoFee)),
-        Some(Err(_)) => Err(IndexerError::Unavailable(UnavailableReason::NoFee)),
+        None => Some(0),
+        Some(Ok(fee)) => fee.to_u128(),
+        Some(Err(_)) => None,
     }
 }
 
-fn blocks_behind(seconds_behind: u32, blocks_per_minute: u64) -> u64 {
-    ((seconds_behind as f64 / 60.0) * blocks_per_minute as f64) as u64
+impl From<network::IndexingError> for IndexerError {
+    fn from(err: network::IndexingError) -> Self {
+        match err {
+            network::IndexingError::Unavailable(reason) => {
+                let reason = match reason {
+                    network::UnavailableReason::BlockedByAddrBlocklist => {
+                        UnavailableReason::NoStatus // TODO: Add blocked error
+                    }
+                    network::UnavailableReason::BlockedByHostBlocklist => {
+                        UnavailableReason::NoStatus // TODO: Add blocked error
+                    }
+                    network::UnavailableReason::AgentVersionBelowMin(_, _) => {
+                        UnavailableReason::NoStatus // TODO: Add blocked error (?)
+                    }
+                    network::UnavailableReason::GraphNodeVersionBelowMin(_, _) => {
+                        UnavailableReason::NoStatus // TODO: Add blocked error (?)
+                    }
+                    network::UnavailableReason::IndexingBlockedByPoiBlocklist => {
+                        UnavailableReason::NoStatus // TODO: Add blocked error
+                    }
+                    network::UnavailableReason::NoStatus(_) => UnavailableReason::NoStatus,
+                };
+                IndexerError::Unavailable(reason)
+            }
+            network::IndexingError::Internal(err) => {
+                tracing::error!(error = ?err, "internal error");
+                IndexerError::Unavailable(UnavailableReason::NoStatus)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
