@@ -26,6 +26,7 @@ use gateway_framework::{
         requests::{
             auth::resolve_and_authorize_deployments,
             blocks::{resolve_block_requirements, BlockRequirements},
+            budget::Budget,
         },
         RequestSelector,
     },
@@ -49,7 +50,6 @@ use tracing::Instrument as _;
 
 use self::{
     attestation_header::GraphAttestation, context::Context, l2_forwarding::forward_request_to_l2,
-    query_settings::QuerySettings,
 };
 use crate::{
     block_constraints::{block_constraints, rewrite_query},
@@ -60,7 +60,6 @@ use crate::{
 mod attestation_header;
 pub mod context;
 mod l2_forwarding;
-mod query_settings;
 
 const SELECTION_LIMIT: usize = 3;
 
@@ -75,7 +74,6 @@ pub async fn handle_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthSettings>,
     Extension(RequestId(request_id)): Extension<RequestId>,
-    query_settings: Option<Extension<QuerySettings>>,
     OriginalUri(original_uri): OriginalUri,
     selector: RequestSelector,
     headers: HeaderMap,
@@ -125,20 +123,7 @@ pub async fn handle_query(
     let client_request: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
 
-    let query_settings = query_settings
-        .map(|Extension(settings)| settings)
-        .unwrap_or_default();
-    let grt_per_usd = *ctx.grt_per_usd.borrow();
-    let one_grt = NotNan::new(1e18).unwrap();
-    let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
-    if let Some(user_budget_usd) = query_settings.budget_usd {
-        // Security: Consumers can and will set their budget to unreasonably high values.
-        // This `.min` prevents the budget from being set far beyond what it would be
-        // automatically. The reason this is important is that sometimes queries are
-        // subsidized, and we would be at-risk to allow arbitrarily high values.
-        let max_budget = budget * 10;
-        budget = (*(user_budget_usd * grt_per_usd * one_grt) as u128).min(max_budget);
-    }
+    let budget = Budget::calculate(&ctx.grt_per_usd, &ctx.budgeter, &auth)?;
 
     let (tx, mut rx) = mpsc::channel(1);
     tokio::spawn(
@@ -193,12 +178,12 @@ async fn run_indexer_queries(
     deployments: Vec<Arc<Deployment>>,
     mut available_indexers: BTreeSet<Indexing>,
     manifest: Manifest,
-    budget: u128,
+    budget: Budget,
     client_request: QueryBody,
     client_response: mpsc::Sender<Result<IndexerResponse, Error>>,
 ) {
-    let one_grt = NotNan::new(1e18).unwrap();
-    let grt_per_usd = *ctx.grt_per_usd.borrow();
+    let one_grt = budget.one_grt;
+    let grt_per_usd = budget.grt_per_usd;
 
     let variables = client_request
         .variables
@@ -293,7 +278,7 @@ async fn run_indexer_queries(
                 &block_requirements,
                 chain_head,
                 blocks_per_minute,
-                budget,
+                &budget,
                 indexing,
             ) {
                 Ok(candidate) => candidates.push(candidate),
@@ -340,7 +325,7 @@ async fn run_indexer_queries(
 
             // over-pay indexers to hit target
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections.len() as f64;
-            let indexer_fee = selection.fee.as_f64() * budget as f64;
+            let indexer_fee = selection.fee.as_f64() * budget.budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
             let receipt = match if legacy_scalar {
                 ctx.receipt_signer
@@ -521,7 +506,7 @@ fn prepare_candidate(
     block_requirements: &BlockRequirements,
     chain_head: BlockNumber,
     blocks_per_minute: u64,
-    budget: u128,
+    budget: &Budget,
     indexing: Indexing,
 ) -> Result<Candidate, IndexerError> {
     let info = network
@@ -535,8 +520,9 @@ fn prepare_candidate(
         .and_then(|snapshot| perf(snapshot, block_requirements, chain_head, blocks_per_minute))
         .ok_or(IndexerError::Unavailable(UnavailableReason::NoStatus))?;
 
-    let fee = Normalized::new(indexer_fee(&status.cost_model, context)? as f64 / budget as f64)
-        .unwrap_or(Normalized::ONE);
+    let fee =
+        Normalized::new(indexer_fee(&status.cost_model, context)? as f64 / budget.budget as f64)
+            .unwrap_or(Normalized::ONE);
 
     if let Some((min, max)) = &block_requirements.range {
         // Allow indexers if their last reported block is "close enough" to the required block
