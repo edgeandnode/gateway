@@ -25,7 +25,9 @@ headers = "0.4.0"
 hex = "0.4"
 indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "373e702" }
 primitive-types = "0.12.2"
+prost = "0.12.4"
 rand = { version = "0.8", features = ["small_rng"] }
+rdkafka = { version = "0.36.2", features = ["gssapi", "tracing"] }
 receipts = { git = "https://github.com/edgeandnode/receipts", rev = "e94e0f1" }
 reqwest = { version = "0.12", default-features = false, features = [
     "json",

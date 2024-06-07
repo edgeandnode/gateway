@@ -7,6 +7,7 @@ use gateway_framework::{
         MissingBlockError,
         UnavailableReason::{self, *},
     },
+    gateway::http::gateway::IndexerResponse,
     scalar::ScalarReceipt,
 };
 use serde::{Deserialize, Serialize};
@@ -18,15 +19,6 @@ use thegraph_graphql_http::http::response::{Error as GQLError, ResponseBody as G
 use url::Url;
 
 use crate::unattestable_errors::miscategorized_unattestable;
-
-#[derive(Clone, Debug)]
-pub struct IndexerResponse {
-    pub original_response: String,
-    pub attestation: Option<Attestation>,
-    pub client_response: String,
-    pub errors: Vec<String>,
-    pub probe_block: Option<Block>,
-}
 
 #[derive(Clone)]
 pub struct IndexerClient {
@@ -65,6 +57,9 @@ impl IndexerClient {
                 _ => return Err(BadResponse(err.to_string())),
             },
         };
+
+        let status = response.status().as_u16();
+        let headers = response.headers().clone();
 
         #[derive(Debug, Deserialize)]
         pub struct IndexerResponsePayload {
@@ -129,6 +124,8 @@ impl IndexerClient {
         };
 
         Ok(IndexerResponse {
+            status,
+            headers,
             original_response,
             attestation: payload.attestation,
             client_response,

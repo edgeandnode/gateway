@@ -1,7 +1,6 @@
 use alloy_primitives::Address;
 use anyhow::{anyhow, Context};
 use gateway_common::utils::timestamp::unix_timestamp;
-use gateway_framework::errors;
 use ordered_float::NotNan;
 use prost::Message;
 use serde_json::json;
@@ -9,7 +8,10 @@ use thegraph_core::types::DeploymentId;
 use tokio::sync::mpsc;
 use toolshed::concat_bytes;
 
-use crate::indexer_client::IndexerResponse;
+use crate::{
+    errors,
+    gateway::http::gateway::{DeterministicRequest, IndexerResponse},
+};
 
 pub struct ClientRequest {
     pub id: String,
@@ -33,7 +35,7 @@ pub struct IndexerRequest {
     pub blocks_behind: u64, // TODO: rm
     pub legacy_scalar: bool,
     pub fee: u128,
-    pub request: String,
+    pub request: DeterministicRequest,
 }
 
 pub struct Reporter {
@@ -156,7 +158,9 @@ impl Reporter {
             {
                 const MAX_PAYLOAD_BYTES: usize = 10_000;
                 AttestationProtobuf {
-                    request: Some(indexer_request.request).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
+                    request: Some(indexer_request.request)
+                        .filter(|r| r.body.len() <= MAX_PAYLOAD_BYTES)
+                        .map(|r| r.body),
                     response: Some(original_response).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
                     allocation: indexer_request.allocation.0 .0.into(),
                     subgraph_deployment: attestation.deployment.0.into(),

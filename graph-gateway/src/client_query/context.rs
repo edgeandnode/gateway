@@ -8,6 +8,7 @@ use gateway_framework::{
     chains::Chains,
     indexing::Indexing,
     network::{discovery::Status, indexing_performance::IndexingPerformance},
+    reports,
     scalar::ReceiptSigner,
     topology::network::GraphNetwork,
 };
@@ -15,7 +16,7 @@ use ordered_float::NotNan;
 use tokio::sync::{mpsc, watch};
 use url::Url;
 
-use crate::{indexer_client::IndexerClient, reports};
+use crate::indexer_client::IndexerClient;
 
 #[derive(Clone)]
 pub struct Context {

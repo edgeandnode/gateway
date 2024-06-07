@@ -39,6 +39,7 @@ use gateway_framework::{
         indexing_performance::{IndexingPerformance, Status as IndexingPerformanceStatus},
         network_subgraph,
     },
+    reports,
     scalar::{self, ReceiptSigner},
     topology::network::{Deployment, GraphNetwork},
 };
@@ -47,7 +48,7 @@ use graph_gateway::{
     indexer_client::IndexerClient,
     indexers::{self, indexing},
     indexings_blocklist::{self, indexings_blocklist},
-    reports, subgraph_studio,
+    subgraph_studio,
 };
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};

@@ -24,9 +24,9 @@ itertools = "0.13.0"
 num-traits = "0.2.18"
 ordered-float = "4.2.0"
 prometheus = { version = "0.13", default-features = false }
-prost = "0.12.4"
+prost.workspace = true
 rand.workspace = true
-rdkafka = { version = "0.36.2", features = ["gssapi", "tracing"] }
+rdkafka.workspace = true
 reqwest.workspace = true
 secp256k1.workspace = true
 semver.workspace = true

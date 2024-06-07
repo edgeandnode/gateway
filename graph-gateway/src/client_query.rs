@@ -22,13 +22,17 @@ use gateway_framework::{
         Error, IndexerError,
         UnavailableReason::{self, MissingBlock},
     },
-    gateway::http::requests::{
-        auth::resolve_and_authorize_deployments, blocks::resolve_block_requirements,
-        budget::Budget, candidates::prepare_candidate, selector::RequestSelector,
+    gateway::http::{
+        gateway::{DeterministicRequest, IndexerResponse},
+        requests::{
+            auth::resolve_and_authorize_deployments, blocks::resolve_block_requirements,
+            budget::Budget, candidates::prepare_candidate, selector::RequestSelector,
+        },
     },
     http::middleware::RequestId,
     indexing::Indexing,
     metrics::{with_metric, METRICS},
+    reports,
     topology::network::{Deployment, Manifest},
 };
 use headers::ContentType;
@@ -46,11 +50,7 @@ use tracing::Instrument as _;
 use self::{
     attestation_header::GraphAttestation, context::Context, l2_forwarding::forward_request_to_l2,
 };
-use crate::{
-    block_constraints::{block_constraints, rewrite_query},
-    indexer_client::IndexerResponse,
-    reports,
-};
+use crate::block_constraints::{block_constraints, rewrite_query};
 
 mod attestation_header;
 pub mod context;
@@ -384,7 +384,10 @@ async fn run_indexer_queries(
                     blocks_behind,
                     legacy_scalar,
                     fee,
-                    request: indexer_query,
+                    request: DeterministicRequest {
+                        body: indexer_query,
+                        headers: Default::default(),
+                    },
                 };
                 tx.try_send(report).unwrap();
             });
@@ -470,7 +473,7 @@ async fn run_indexer_queries(
             fee = indexer_request.fee as f64 * 1e-18,
             "indexer_request"
         );
-        tracing::trace!(indexer_request = indexer_request.request);
+        tracing::trace!(indexer_request = ?indexer_request.request);
     }
 
     let response_time_ms = client_response_time.unwrap().as_millis() as u16;
