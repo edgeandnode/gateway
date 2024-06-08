@@ -1,6 +1,6 @@
 use std::{
     cmp::max,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     time::{Duration, Instant},
 };
 
@@ -31,7 +31,7 @@ use prost::bytes::Buf;
 use rand::{thread_rng, Rng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::types::SubgraphId;
+use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::sync::mpsc;
 use tracing::Instrument as _;
 
@@ -297,7 +297,6 @@ async fn run_indexer_queries(
 
     let mut indexer_errors = IndexerErrors::default();
 
-    // Candidate selection preparation
     let (mut candidates, errors) = build_candidates_list(
         &ctx,
         &agora_context,
@@ -337,8 +336,8 @@ async fn run_indexer_queries(
         let (tx, mut rx) = mpsc::channel(SELECTION_LIMIT);
         let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
         for &selection in &selections {
-            let indexer = selection.id.indexer;
-            let deployment = selection.id.deployment;
+            let indexer = selection.id;
+            let deployment = selection.data.id.deployment;
             let url = selection.data.indexer.url.clone();
             let seconds_behind = selection.seconds_behind;
             let legacy_scalar = !selection.data.indexer.scalar_tap_support;
@@ -443,8 +442,8 @@ async fn run_indexer_queries(
         }
 
         let selected_indexers: ArrayVec<Address, SELECTION_LIMIT> =
-            selections.into_iter().map(|s| s.id.indexer).collect();
-        candidates.retain(|c| !selected_indexers.contains(&c.id.indexer));
+            selections.into_iter().map(|s| s.id).collect();
+        candidates.retain(|c| !selected_indexers.contains(&c.id));
     }
     tracing::info!(?indexer_errors);
 
@@ -555,25 +554,40 @@ fn build_candidates_list(
     block_requirements: &BlockRequirements,
     indexings: HashMap<IndexingId, Result<Indexing, network::IndexingError>>,
 ) -> (
-    Vec<Candidate<IndexingId, Indexing>>,
+    Vec<Candidate<Address, Indexing>>,
     BTreeMap<Address, IndexerError>,
 ) {
-    let mut candidates_list = Vec::new();
-    let mut candidates_errors = BTreeMap::default();
+    let mut candidates_list: Vec<Candidate<Address, Indexing>> = Default::default();
+    let mut candidates_errors: BTreeMap<Address, IndexerError> = Default::default();
+
+    let mut indexings: HashMap<IndexingId, Indexing> = indexings
+        .into_iter()
+        .filter_map(|(id, result)| match result {
+            Ok(indexing) => Some((id, indexing)),
+            Err(err) => {
+                candidates_errors.insert(id.indexer, err.into());
+                None
+            }
+        })
+        .collect();
+
+    // Select versions_behind, based on reported indexing statuses.
+    let versions_behind = select_versions_behind(
+        &indexings,
+        chain_head.saturating_sub(blocks_per_minute * 60),
+    );
+    indexings.retain(|_, i| i.versions_behind == versions_behind);
+
+    debug_assert!({
+        let deployments: BTreeSet<DeploymentId> =
+            indexings.keys().map(|id| id.deployment).collect();
+        deployments.len() == 1
+    });
 
     // Lock the indexing performance and get access to the latest performance snapshots
     let perf_snapshots = ctx.indexing_perf.latest();
 
     for (indexing_id, indexing) in indexings {
-        // If the indexer is not available, register an error and continue to the next indexer
-        let indexing = match indexing {
-            Ok(indexing) => indexing,
-            Err(err) => {
-                candidates_errors.insert(indexing_id.indexer, err.into());
-                continue;
-            }
-        };
-
         // Get the performance snapshot for the indexer and calculate the expected performance.
         // If the indexer is not available, register an error and continue to the next indexer
         let perf = match perf_snapshots
@@ -638,34 +652,18 @@ fn build_candidates_list(
             }
         };
 
-        // Construct the ISA candidate
-        candidates_list.push(prepare_candidate(indexing_id, indexing, perf, fee));
+        candidates_list.push(Candidate {
+            id: indexing.indexer.id,
+            perf: perf.response,
+            fee,
+            seconds_behind: perf.seconds_behind,
+            slashable_grt: (indexing.indexer.staked_tokens as f64 * 1e-18) as u64,
+            zero_allocation: indexing.total_allocated_tokens == 0,
+            data: indexing,
+        });
     }
 
     (candidates_list, candidates_errors)
-}
-
-/// Construct a candidate from an indexing and its performance.
-fn prepare_candidate(
-    id: IndexingId,
-    indexing: Indexing,
-    perf: Perf,
-    fee: Normalized,
-) -> Candidate<IndexingId, Indexing> {
-    let versions_behind = indexing.versions_behind;
-    let zero_allocation = indexing.total_allocated_tokens == 0;
-    let slashable_grt = (indexing.indexer.staked_tokens as f64 * 1e-18) as u64;
-
-    Candidate {
-        id,
-        data: indexing,
-        perf: perf.response,
-        fee,
-        seconds_behind: perf.seconds_behind,
-        slashable_grt,
-        versions_behind,
-        zero_allocation,
-    }
 }
 
 struct Perf {
@@ -713,6 +711,28 @@ pub fn indexer_fee(context: &AgoraContext, cost_model: &Option<Ptr<CostModel>>) 
         Some(Ok(fee)) => fee.to_u128(),
         Some(Err(_)) => None,
     }
+}
+
+/// Select the `versions_behind` value with the most indexers past the `block_cutoff`.
+fn select_versions_behind(indexings: &HashMap<IndexingId, Indexing>, block_cutoff: u64) -> u8 {
+    let keys: BTreeSet<u8> = indexings.iter().map(|(_, i)| i.versions_behind).collect();
+    let counts: BTreeMap<u8, usize> = keys
+        .into_iter()
+        .map(|v| {
+            let count = indexings
+                .iter()
+                .filter(|(_, i)| i.versions_behind == v)
+                .filter(|(_, i)| i.progress.as_range().1 > block_cutoff)
+                .count();
+            (v, count)
+        })
+        .collect();
+    let max_count = *counts.values().max().unwrap_or(&0);
+    counts
+        .iter()
+        .find(|(_, c)| **c == max_count)
+        .map(|(v, _)| *v)
+        .unwrap_or(0)
 }
 
 impl From<network::IndexingError> for IndexerError {
