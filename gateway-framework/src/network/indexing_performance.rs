@@ -5,7 +5,7 @@ use eventuals::{Closed, Eventual, Ptr};
 use thegraph_core::types::DeploymentId;
 use tokio::{
     self,
-    sync::{mpsc, oneshot, RwLock},
+    sync::{mpsc, RwLock},
     time::MissedTickBehavior,
 };
 
@@ -24,18 +24,15 @@ pub struct Snapshot {
 #[derive(Clone)]
 pub struct IndexingPerformance {
     data: &'static DoubleBuffer,
-    msgs: mpsc::UnboundedSender<Msg>,
+    msgs: mpsc::UnboundedSender<Feedback>,
 }
 
-pub enum Msg {
-    Feedback {
-        indexer: Address,
-        deployment: DeploymentId,
-        success: bool,
-        latency_ms: u16,
-        latest_block: Option<BlockNumber>,
-    },
-    Flush(oneshot::Sender<()>),
+struct Feedback {
+    indexer: Address,
+    deployment: DeploymentId,
+    success: bool,
+    latency_ms: u16,
+    latest_block: Option<BlockNumber>,
 }
 
 impl IndexingPerformance {
@@ -69,7 +66,7 @@ impl IndexingPerformance {
         latest_block: Option<BlockNumber>,
     ) {
         self.msgs
-            .send(Msg::Feedback {
+            .send(Feedback {
                 indexer,
                 deployment,
                 success,
@@ -77,12 +74,6 @@ impl IndexingPerformance {
                 latest_block,
             })
             .unwrap();
-    }
-
-    pub async fn flush(&self) {
-        let (tx, rx) = oneshot::channel();
-        self.msgs.send(Msg::Flush(tx)).unwrap();
-        let _ = rx.await;
     }
 }
 
@@ -96,7 +87,7 @@ struct Actor {
 impl Actor {
     fn spawn(
         data: &'static DoubleBuffer,
-        mut messages: mpsc::UnboundedReceiver<Msg>,
+        mut messages: mpsc::UnboundedReceiver<Feedback>,
         indexing_statuses: Eventual<Ptr<HashMap<(Address, DeploymentId), Status>>>,
     ) {
         let mut actor = Self { data };
@@ -124,34 +115,23 @@ impl Actor {
         }
     }
 
-    async fn handle_msgs(&mut self, msgs: &mut Vec<Msg>) {
+    async fn handle_msgs(&mut self, msgs: &mut Vec<Feedback>) {
         for unlocked in &self.data.0 {
             let mut locked = unlocked.write().await;
-            for msg in msgs.iter() {
-                match msg {
-                    Msg::Flush(_) => (),
-                    &Msg::Feedback {
-                        indexer,
-                        deployment,
-                        success,
-                        latency_ms,
-                        latest_block,
-                    } => {
-                        let snapshot = locked.entry((indexer, deployment)).or_default();
-                        snapshot.response.feedback(success, latency_ms);
-                        snapshot.latest_block = match (snapshot.latest_block, latest_block) {
-                            (None, block) => block,
-                            (Some(a), Some(b)) if b > a => Some(b),
-                            (Some(a), _) => Some(a),
-                        };
-                    }
-                }
-            }
-        }
-        for msg in msgs.drain(..) {
-            if let Msg::Flush(notify) = msg {
-                if notify.send(()).is_err() {
-                    tracing::error!("flush notify failed");
+            for Feedback {
+                indexer,
+                deployment,
+                success,
+                latency_ms,
+                latest_block,
+            } in msgs.drain(..)
+            {
+                let snapshot = locked.entry((indexer, deployment)).or_default();
+                snapshot.response.feedback(success, latency_ms);
+                snapshot.latest_block = match (snapshot.latest_block, latest_block) {
+                    (None, block) => block,
+                    (Some(a), Some(b)) if b > a => Some(b),
+                    (Some(a), _) => Some(a),
                 };
             }
         }
