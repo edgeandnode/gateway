@@ -2,12 +2,9 @@ use std::{collections::HashMap, ops::Deref, time::Duration};
 
 use alloy_primitives::{Address, BlockNumber};
 use eventuals::{Closed, Eventual, Ptr};
+use parking_lot::RwLock;
 use thegraph_core::types::DeploymentId;
-use tokio::{
-    self,
-    sync::{mpsc, RwLock},
-    time::MissedTickBehavior,
-};
+use tokio::{self, sync::mpsc, time::MissedTickBehavior};
 
 #[derive(Clone)]
 pub struct Status {
@@ -50,7 +47,7 @@ impl IndexingPerformance {
             // the lock "immediately". These guarantees come from the invariant that there is a
             // single writer, and it can only be in a few possible states.
             for unlocked in &self.data.0 {
-                if let Ok(data) = unlocked.try_read() {
+                if let Some(data) = unlocked.try_read() {
                     return data;
                 }
             }
@@ -99,25 +96,25 @@ impl Actor {
             let mut msg_buf = Vec::with_capacity(batch_limit);
             loop {
                 tokio::select! {
-                    _ = timer.tick() => actor.decay().await,
-                    _ = messages.recv_many(&mut msg_buf, batch_limit) => actor.handle_msgs(&mut msg_buf).await,
-                    statuses = statuses.next() => actor.handle_statuses(statuses).await,
+                    _ = timer.tick() => actor.decay(),
+                    _ = messages.recv_many(&mut msg_buf, batch_limit) => actor.handle_msgs(&mut msg_buf),
+                    statuses = statuses.next() => actor.handle_statuses(statuses),
                 }
             }
         });
     }
 
-    async fn decay(&mut self) {
+    fn decay(&mut self) {
         for unlocked in &self.data.0 {
-            for snapshot in unlocked.write().await.values_mut() {
+            for snapshot in unlocked.write().values_mut() {
                 snapshot.response.decay();
             }
         }
     }
 
-    async fn handle_msgs(&mut self, msgs: &mut Vec<Feedback>) {
+    fn handle_msgs(&mut self, msgs: &mut Vec<Feedback>) {
         for unlocked in &self.data.0 {
-            let mut locked = unlocked.write().await;
+            let mut locked = unlocked.write();
             for Feedback {
                 indexer,
                 deployment,
@@ -139,7 +136,7 @@ impl Actor {
     }
 
     #[allow(clippy::type_complexity)]
-    async fn handle_statuses(
+    fn handle_statuses(
         &mut self,
         statuses: Result<Ptr<HashMap<(Address, DeploymentId), Status>>, Closed>,
     ) {
@@ -151,7 +148,7 @@ impl Actor {
             }
         };
         for unlocked in &self.data.0 {
-            let mut locked = unlocked.write().await;
+            let mut locked = unlocked.write();
             for (indexing, status) in statuses.iter() {
                 let snapshot = locked.entry(*indexing).or_default();
                 if status.latest_block >= snapshot.latest_block.unwrap_or(0) {
