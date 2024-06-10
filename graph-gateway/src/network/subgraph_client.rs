@@ -51,7 +51,7 @@ pub mod types {
     pub struct SubgraphDeployment {
         #[serde(rename = "ipfsHash")]
         pub id: DeploymentId,
-        pub manifest: Manifest,
+        pub manifest: Option<Manifest>,
         #[serde(rename = "indexerAllocations")]
         pub allocations: Vec<Allocation>,
         #[serde(default)]

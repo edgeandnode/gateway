@@ -86,10 +86,7 @@ async fn fetch_and_pre_process_subgraph_info(
     HashMap<Address, IndexerRawInfo>,
 )> {
     // Fetch the subgraphs information from the graph network subgraph
-    let data = client
-        .fetch()
-        .await
-        .map_err(|err| anyhow!("fetch failed: {err}"))?;
+    let data = client.fetch().await?;
     if data.is_empty() {
         return Err(anyhow!("empty subgraph fetch"));
     }
