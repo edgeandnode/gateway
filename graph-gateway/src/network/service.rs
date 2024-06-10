@@ -212,8 +212,8 @@ impl NetworkServiceBuilder {
         let indexer_indexing_progress_resolver =
             IndexingProgressResolver::with_timeout_and_cache_ttl(
                 indexer_client.clone(),
-                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 5 seconds
-                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL, // 2 minutes
+                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 25 seconds
+                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL, // 10 minutes
             );
         let indexer_indexing_cost_model_resolver = CostModelResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
