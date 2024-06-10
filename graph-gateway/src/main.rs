@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     env,
     fs::read_to_string,
     io::Write as _,
@@ -22,7 +22,6 @@ use axum::{
     routing, Router,
 };
 use config::{ApiKeys, Config, ExchangeRateProvider};
-use eventuals::EventualExt as _;
 use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},

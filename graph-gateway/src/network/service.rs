@@ -90,7 +90,7 @@ impl ResolvedSubgraphInfo {
 /// To create a new [`NetworkService`] instance, use the [`NetworkServiceBuilder`].
 #[derive(Clone)]
 pub struct NetworkService {
-    network: Eventual<Ptr<NetworkTopologySnapshot>>,
+    pub network: Eventual<Ptr<NetworkTopologySnapshot>>,
 }
 
 impl NetworkService {
