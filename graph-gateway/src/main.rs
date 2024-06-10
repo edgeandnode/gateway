@@ -22,7 +22,7 @@ use axum::{
     routing, Router,
 };
 use config::{ApiKeys, Config, ExchangeRateProvider};
-use eventuals::{EventualExt as _, Ptr};
+use eventuals::EventualExt as _;
 use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
@@ -31,10 +31,7 @@ use gateway_framework::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
     json, logging,
-    network::{
-        exchange_rate,
-        indexing_performance::{IndexingPerformance, Status as IndexingPerformanceStatus},
-    },
+    network::{exchange_rate, indexing_performance::IndexingPerformance},
     scalar::{self, ReceiptSigner},
 };
 use graph_gateway::{
@@ -159,21 +156,6 @@ async fn main() {
         USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
-    let indexing_progress_ev = network.indexings_progress().map(|progress| async move {
-        let progress = progress
-            .iter()
-            .map(|(id, latest_block)| {
-                (
-                    (id.indexer, id.deployment),
-                    IndexingPerformanceStatus {
-                        latest_block: *latest_block,
-                    },
-                )
-            })
-            .collect::<HashMap<_, _>>();
-        Ptr::new(progress)
-    });
-
     let reporter = reports::Reporter::create(
         config.graph_env_id.clone(),
         config.query_fees_target.to_string(),
@@ -193,8 +175,8 @@ async fn main() {
         l2_gateway: config.l2_gateway,
         chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
         grt_per_usd,
+        indexing_perf: IndexingPerformance::new(network.indexings_progress()),
         network,
-        indexing_perf: IndexingPerformance::new(indexing_progress_ev),
         attestation_domain,
         reporter,
     };

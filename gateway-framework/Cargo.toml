@@ -8,12 +8,9 @@ alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 anyhow.workspace = true
 axum.workspace = true
-cost-model.workspace = true
 dashmap = "5.5.3"
 ethers = "2.0.14"
-eventuals = "0.6.7"
 faster-hex = "0.9.0"
-futures.workspace = true
 gateway-common = { path = "../gateway-common" }
 headers.workspace = true
 hex.workspace = true

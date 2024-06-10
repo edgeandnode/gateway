@@ -1,10 +1,13 @@
 use std::{collections::HashMap, ops::Deref, time::Duration};
 
 use alloy_primitives::{Address, BlockNumber};
-use eventuals::{Closed, Eventual, Ptr};
 use parking_lot::RwLock;
 use thegraph_core::types::DeploymentId;
-use tokio::{self, sync::mpsc, time::MissedTickBehavior};
+use tokio::{
+    self,
+    sync::{mpsc, watch},
+    time::MissedTickBehavior,
+};
 
 #[derive(Clone)]
 pub struct Status {
@@ -33,8 +36,9 @@ struct Feedback {
 }
 
 impl IndexingPerformance {
-    #[allow(clippy::new_without_default)]
-    pub fn new(indexing_statuses: Eventual<Ptr<HashMap<(Address, DeploymentId), Status>>>) -> Self {
+    pub fn new(
+        indexing_statuses: watch::Receiver<HashMap<(Address, DeploymentId), BlockNumber>>,
+    ) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let data: &'static DoubleBuffer = Box::leak(Box::default());
         Actor::spawn(data, rx, indexing_statuses);
@@ -85,10 +89,9 @@ impl Actor {
     fn spawn(
         data: &'static DoubleBuffer,
         mut messages: mpsc::UnboundedReceiver<Feedback>,
-        indexing_statuses: Eventual<Ptr<HashMap<(Address, DeploymentId), Status>>>,
+        mut statuses: watch::Receiver<HashMap<(Address, DeploymentId), BlockNumber>>,
     ) {
         let mut actor = Self { data };
-        let mut statuses = indexing_statuses.subscribe();
         let mut timer = tokio::time::interval(Duration::from_secs(1));
         timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
         tokio::spawn(async move {
@@ -98,7 +101,7 @@ impl Actor {
                 tokio::select! {
                     _ = timer.tick() => actor.decay(),
                     _ = messages.recv_many(&mut msg_buf, batch_limit) => actor.handle_msgs(&mut msg_buf),
-                    statuses = statuses.next() => actor.handle_statuses(statuses),
+                    _ = statuses.changed() => actor.handle_statuses(&statuses.borrow()),
                 }
             }
         });
@@ -135,24 +138,13 @@ impl Actor {
         debug_assert!(msgs.is_empty());
     }
 
-    #[allow(clippy::type_complexity)]
-    fn handle_statuses(
-        &mut self,
-        statuses: Result<Ptr<HashMap<(Address, DeploymentId), Status>>, Closed>,
-    ) {
-        let statuses = match statuses {
-            Ok(statuses) => statuses,
-            Err(_) => {
-                tracing::error!("indexing statuses closed");
-                return;
-            }
-        };
+    fn handle_statuses(&mut self, statuses: &HashMap<(Address, DeploymentId), BlockNumber>) {
         for unlocked in &self.data.0 {
             let mut locked = unlocked.write();
-            for (indexing, status) in statuses.iter() {
+            for (indexing, latest_block) in statuses.iter() {
                 let snapshot = locked.entry(*indexing).or_default();
-                if status.latest_block >= snapshot.latest_block.unwrap_or(0) {
-                    snapshot.latest_block = Some(status.latest_block);
+                if *latest_block >= snapshot.latest_block.unwrap_or(0) {
+                    snapshot.latest_block = Some(*latest_block);
                 };
             }
         }

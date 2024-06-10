@@ -14,7 +14,10 @@ use gateway_framework::errors::Error;
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::types::{DeploymentId, SubgraphId};
-use tokio::{sync::Mutex, time::MissedTickBehavior};
+use tokio::{
+    sync::{watch, Mutex},
+    time::MissedTickBehavior,
+};
 use vec1::{vec1, Vec1};
 
 use super::{
@@ -172,27 +175,27 @@ impl NetworkService {
         })))
     }
 
-    /// Get an eventual that resolves to the latest indexed block number for each indexing
-    // TODO: For backwards-compat. Review this method and consider removing it
-    //   - This is consumed by the indexing performance service/actor.
-    pub fn indexings_progress(&self) -> Eventual<Ptr<HashMap<IndexingId, BlockNumber>>> {
-        self.network.clone().map(|network| async move {
-            let progress = network
-                .deployments()
-                .values()
-                .filter_map(|deployment| deployment.as_ref().ok())
-                .flat_map(|deployment| &deployment.indexings)
-                .filter_map(|(id, indexing)| match indexing {
-                    Ok(indexing) => Some((
-                        *id,
-                        indexing.progress.as_fresh().map(|prog| prog.latest_block)?,
-                    )),
-                    Err(_) => None,
-                })
-                .collect::<HashMap<_, _>>();
-
-            Ptr::new(progress)
-        })
+    pub fn indexings_progress(
+        &self,
+    ) -> watch::Receiver<HashMap<(Address, DeploymentId), BlockNumber>> {
+        let (tx, rx) = watch::channel(Default::default());
+        self.network
+            .subscribe()
+            .pipe(move |network| {
+                let progress = network
+                    .deployments()
+                    .iter()
+                    .flat_map(|(_, result)| result.iter().flat_map(|d| &d.indexings))
+                    .flat_map(|(id, indexing)| {
+                        indexing
+                            .iter()
+                            .map(|i| ((id.indexer, id.deployment), i.progress.latest_block))
+                    })
+                    .collect();
+                let _ = tx.send(progress);
+            })
+            .forever();
+        rx
     }
 }
 
