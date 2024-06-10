@@ -9,12 +9,6 @@ use tokio::{
     time::MissedTickBehavior,
 };
 
-#[derive(Clone)]
-pub struct Status {
-    /// The latest reported block number
-    pub latest_block: BlockNumber,
-}
-
 #[derive(Default)]
 pub struct Snapshot {
     pub response: indexer_selection::Performance,
