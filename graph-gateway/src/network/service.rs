@@ -48,7 +48,7 @@ use super::{
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 /// Default update interval for the network topology information.
-pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(30);
+pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {

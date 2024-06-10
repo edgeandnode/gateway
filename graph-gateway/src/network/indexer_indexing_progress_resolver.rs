@@ -11,13 +11,13 @@ use url::Url;
 use crate::{indexers, indexers::indexing_statuses::IndexingStatusResponse};
 
 /// The default timeout for the indexer's indexing progress resolution.
-pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
+pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(25);
 
-/// The default TTL (time-to-live) for the cached indexer's indexing progress information: 2 minutes.
+/// The default TTL (time-to-live) for the cached indexer's indexing progress information: 10 minutes.
 ///
 /// The cache TTL is the time that the indexer's indexing progress resolution is cached for.
 pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL: Duration =
-    Duration::from_secs(120);
+    Duration::from_secs(60 * 10);
 
 /// An error that occurred while resolving the indexer's progress.
 // TODO: Differentiate deserialization errors from resolver errors

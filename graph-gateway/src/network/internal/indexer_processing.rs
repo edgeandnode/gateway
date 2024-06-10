@@ -217,7 +217,7 @@ where
             // Instrument the indexer processing span
             let indexer_span = tracing::debug_span!(
                 "indexer processing",
-                indexer.id = %indexer.id,
+                indexer.id = ?indexer.id,
                 indexer.url = %indexer.url,
                 indexer.agent_version = tracing::field::Empty,
                 indexer.graph_node_version = tracing::field::Empty,
