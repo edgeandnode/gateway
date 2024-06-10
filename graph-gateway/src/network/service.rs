@@ -206,14 +206,14 @@ impl NetworkServiceBuilder {
         .expect("failed to create host resolver");
         let indexer_version_resolver = VersionResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
-            DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1.5 seconds
-            DEFAULT_INDEXER_VERSION_CACHE_TTL,          // 20 minutes
+            DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 5 seconds
+            DEFAULT_INDEXER_VERSION_CACHE_TTL,          // 30 minutes
         );
         let indexer_indexing_progress_resolver =
             IndexingProgressResolver::with_timeout_and_cache_ttl(
                 indexer_client.clone(),
                 DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 25 seconds
-                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL, // 10 minutes
+                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL, // 30 minutes
             );
         let indexer_indexing_cost_model_resolver = CostModelResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
