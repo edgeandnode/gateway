@@ -130,7 +130,6 @@ impl Default for KafkaConfig {
     fn default() -> Self {
         let settings = [
             ("bootstrap.servers", ""),
-            ("group.id", "graph-gateway"),
             ("message.timeout.ms", "3000"),
             ("queue.buffering.max.ms", "1000"),
             ("queue.buffering.max.messages", "100000"),
