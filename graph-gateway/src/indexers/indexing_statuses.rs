@@ -1,19 +1,20 @@
 use alloy_primitives::BlockNumber;
-use anyhow::{bail, ensure};
-use futures::future::join_all;
+use anyhow::{anyhow, bail, ensure};
 use indoc::formatdoc;
 use itertools::Itertools;
 use serde::Deserialize;
 use serde_with::serde_as;
 use thegraph_core::types::DeploymentId;
 use thegraph_graphql_http::http_client::ReqwestExt as _;
+use tokio::task::JoinSet;
 
 pub async fn query(
     client: &reqwest::Client,
     status_url: reqwest::Url,
     deployments: &[DeploymentId],
 ) -> anyhow::Result<Vec<IndexingStatusResponse>> {
-    let queries = deployments.chunks(100).map(|deployments| {
+    let mut queries = JoinSet::new();
+    for deployments in deployments.chunks(100) {
         let deployments = deployments.iter().map(|d| format!("\"{d}\"")).join(",");
         let query = formatdoc! {
             r#"{{
@@ -27,17 +28,21 @@ pub async fn query(
                 }}
             }}"#
         };
-        client.post(status_url.clone()).send_graphql(query)
-    });
-    let results: Vec<Result<IndexingStatusesResponse, String>> = join_all(queries)
-        .await
-        .into_iter()
-        .map(|r| match r {
-            Ok(Ok(response)) => Ok(response),
-            Ok(Err(err)) => Err(err.to_string()),
-            Err(err) => Err(err.to_string()),
-        })
-        .collect();
+        queries.spawn(client.post(status_url.clone()).send_graphql(query));
+    }
+    let mut results: Vec<Result<IndexingStatusesResponse, String>> = Default::default();
+    while let Some(result) = queries.join_next().await {
+        let result = match result {
+            Ok(Ok(Ok(response))) => Ok(response),
+            Ok(Ok(Err(err))) => Err(anyhow!("response: {err}").to_string()),
+            Ok(Err(err)) => Err(anyhow!("request: {err}").to_string()),
+            Err(join_err) => {
+                tracing::error!(%join_err);
+                continue;
+            }
+        };
+        results.push(result);
+    }
     ensure!(!results.is_empty(), "no results");
     if results.iter().all(|r| r.is_err()) {
         let error = results.into_iter().find_map(|r| r.err()).unwrap();

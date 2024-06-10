@@ -10,6 +10,7 @@ use thegraph_graphql_http::{
     graphql::{Document, IntoDocument, IntoDocumentWithVariables},
     http_client::ReqwestExt,
 };
+use tokio::task::JoinSet;
 use url::Url;
 
 pub type ProofOfIndexing = B256;
@@ -57,8 +58,8 @@ pub async fn merge_queries(
     requests: &[(DeploymentId, BlockNumber)],
     batch_size: usize,
 ) -> HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> {
-    // Build the query batches and create the futures
-    let queries = requests
+    let mut queries = JoinSet::new();
+    for query in requests
         .iter()
         .map(|(deployment, block_number)| PublicProofOfIndexingRequest {
             deployment: *deployment,
@@ -69,13 +70,21 @@ pub async fn merge_queries(
         .map(|requests| PublicProofOfIndexingQuery {
             requests: requests.collect(),
         })
-        .map(|query| self::query(client.clone(), status_url.clone(), query))
-        .collect::<Vec<_>>();
+    {
+        queries.spawn(self::query(client.clone(), status_url.clone(), query));
+    }
+    let mut results: Vec<anyhow::Result<PublicProofOfIndexingResponse>> = Default::default();
+    while let Some(result) = queries.join_next().await {
+        match result {
+            Ok(result) => results.push(result),
+            Err(join_err) => {
+                tracing::error!(%join_err);
+                continue;
+            }
+        };
+    }
 
-    // Send all queries concurrently
-    let responses = futures::future::join_all(queries).await;
-
-    let response_map: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> = responses
+    let response_map: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> = results
         .into_iter()
         .filter_map(|response| {
             response
