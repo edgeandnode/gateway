@@ -295,16 +295,27 @@ pub fn rewrite_query<'q>(
     serde_json::to_string(&json!({ "query": buf, "variables": ctx.variables })).unwrap()
 }
 
-fn contains_introspection<'q>(ctx: &Context<'q>) -> bool {
-    let is_introspection_field = |s: &Selection<'q, &'q str>| match s {
-        Selection::Field(f) => f.name.starts_with("__"),
-        Selection::FragmentSpread(_) | Selection::InlineFragment(_) => false,
-    };
+fn contains_introspection(ctx: &Context<'_>) -> bool {
+    fn selection_has_introspection<'q>(s: &Selection<'q, &'q str>) -> bool {
+        match s {
+            Selection::Field(f) => {
+                f.name.starts_with("__") || selection_set_has_introspection(&f.selection_set)
+            }
+            Selection::InlineFragment(f) => selection_set_has_introspection(&f.selection_set),
+            Selection::FragmentSpread(_) => false,
+        }
+    }
+    fn selection_set_has_introspection<'q>(s: &SelectionSet<'q, &'q str>) -> bool {
+        s.items.iter().any(selection_has_introspection)
+    }
     ctx.operations.iter().any(|op| match op {
-        OperationDefinition::Query(q) => q.selection_set.items.iter().any(is_introspection_field),
-        OperationDefinition::SelectionSet(s) => s.items.iter().any(is_introspection_field),
+        OperationDefinition::Query(q) => selection_set_has_introspection(&q.selection_set),
+        OperationDefinition::SelectionSet(s) => selection_set_has_introspection(s),
         OperationDefinition::Mutation(_) | OperationDefinition::Subscription(_) => false,
-    })
+    }) || ctx
+        .fragments
+        .iter()
+        .any(|f| selection_set_has_introspection(&f.selection_set))
 }
 
 fn field_constraint<'c, T: Text<'c>>(
@@ -467,9 +478,15 @@ mod tests {
 
     #[test]
     fn query_contains_introspection() {
-        let query = "{ __schema { queryType { name } } }";
-        let context = Context::new(query, "").unwrap();
-        assert!(super::contains_introspection(&context));
+        let examples = [
+            "{ __schema { queryType { name } } }",
+            "{ deposits { l1Token { id __typename } __typename } }",
+            "fragment TermPoolFragment on Pool { id __typename } query terms { terms { pool { ...TermPoolFragment } } }",
+        ];
+        for example in examples {
+            let context = Context::new(example, "").unwrap();
+            assert!(super::contains_introspection(&context));
+        }
     }
 
     #[test]

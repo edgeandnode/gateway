@@ -371,8 +371,8 @@ fn spawn_updater_task(
                             let _ = tx.send(network);
                         }
                         // If the fetch fails, log a warning and skip the update
-                        Err(err) => {
-                            tracing::warn!(network_update_err=%err);
+                        Err(network_update_err) => {
+                            tracing::warn!(%network_update_err);
                         }
                     }
                 }
