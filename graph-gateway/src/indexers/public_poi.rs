@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-
 use alloy_primitives::{BlockNumber, B256};
 use indoc::indoc;
-use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use thegraph_core::types::DeploymentId;
@@ -50,50 +47,6 @@ pub async fn query(
         )),
     }
 }
-
-pub async fn merge_queries(
-    client: reqwest::Client,
-    status_url: Url,
-    requests: &[(DeploymentId, BlockNumber)],
-    batch_size: usize,
-) -> HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> {
-    // Build the query batches and create the futures
-    let queries = requests
-        .iter()
-        .map(|(deployment, block_number)| PublicProofOfIndexingRequest {
-            deployment: *deployment,
-            block_number: *block_number,
-        })
-        .chunks(batch_size)
-        .into_iter()
-        .map(|requests| PublicProofOfIndexingQuery {
-            requests: requests.collect(),
-        })
-        .map(|query| self::query(client.clone(), status_url.clone(), query))
-        .collect::<Vec<_>>();
-
-    // Send all queries concurrently
-    let responses = futures::future::join_all(queries).await;
-
-    let response_map: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> = responses
-        .into_iter()
-        .filter_map(|response| {
-            response
-                .map_err(|e| tracing::trace!("Error querying public proof of indexing: {}", e))
-                .ok()
-        })
-        .flat_map(|response| response.public_proofs_of_indexing)
-        .filter_map(|response| {
-            // If the response is missing the POI field, skip it.
-            let poi = response.proof_of_indexing?;
-            Some(((response.deployment, response.block.number), poi))
-        })
-        .collect::<HashMap<_, _>>();
-
-    response_map
-}
-
-pub const MAX_REQUESTS_PER_QUERY: usize = 10;
 
 pub(super) const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = indoc! {
     r#"query ($requests: [PublicProofOfIndexingRequest!]!) {
