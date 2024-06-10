@@ -1544,18 +1544,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eventuals"
-version = "0.6.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0450e5c57135f799007162ff8beba7b2809d4a018cf9cdcbca2c319a73d9d8ee"
-dependencies = [
- "by_address",
- "futures",
- "never",
- "tokio",
-]
-
-[[package]]
 name = "eyre"
 version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1929,7 +1917,6 @@ dependencies = [
  "chrono",
  "cost-model",
  "custom_debug",
- "eventuals",
  "futures",
  "gateway-common",
  "gateway-framework",
@@ -2855,12 +2842,6 @@ dependencies = [
  "security-framework-sys",
  "tempfile",
 ]
-
-[[package]]
-name = "never"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c96aba5aa877601bb3f6dd6a63a969e1f82e60646e81e71b14496995e9853c91"
 
 [[package]]
 name = "new_debug_unreachable"

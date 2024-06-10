@@ -9,6 +9,8 @@ use tokio::{
     time::MissedTickBehavior,
 };
 
+use crate::network::{internal::NetworkTopologySnapshot, IndexingId};
+
 #[derive(Default)]
 pub struct Snapshot {
     pub response: indexer_selection::Performance,
@@ -30,12 +32,10 @@ struct Feedback {
 }
 
 impl IndexingPerformance {
-    pub fn new(
-        indexing_statuses: watch::Receiver<HashMap<(Address, DeploymentId), BlockNumber>>,
-    ) -> Self {
+    pub fn new(network: watch::Receiver<NetworkTopologySnapshot>) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let data: &'static DoubleBuffer = Box::leak(Box::default());
-        Actor::spawn(data, rx, indexing_statuses);
+        Actor::spawn(data, rx, network);
         Self { data, msgs: tx }
     }
 
@@ -83,7 +83,7 @@ impl Actor {
     fn spawn(
         data: &'static DoubleBuffer,
         mut messages: mpsc::UnboundedReceiver<Feedback>,
-        mut statuses: watch::Receiver<HashMap<(Address, DeploymentId), BlockNumber>>,
+        mut network: watch::Receiver<NetworkTopologySnapshot>,
     ) {
         let mut actor = Self { data };
         let mut timer = tokio::time::interval(Duration::from_secs(1));
@@ -95,7 +95,7 @@ impl Actor {
                 tokio::select! {
                     _ = timer.tick() => actor.decay(),
                     _ = messages.recv_many(&mut msg_buf, batch_limit) => actor.handle_msgs(&mut msg_buf),
-                    _ = statuses.changed() => actor.handle_statuses(&statuses.borrow()),
+                    _ = network.changed() => actor.handle_network(&network.borrow()),
                 }
             }
         });
@@ -132,11 +132,20 @@ impl Actor {
         debug_assert!(msgs.is_empty());
     }
 
-    fn handle_statuses(&mut self, statuses: &HashMap<(Address, DeploymentId), BlockNumber>) {
+    fn handle_network(&mut self, network: &NetworkTopologySnapshot) {
+        let progress: HashMap<IndexingId, BlockNumber> = network
+            .deployments()
+            .iter()
+            .flat_map(|(_, result)| result.iter().flat_map(|d| &d.indexings))
+            .flat_map(|(id, indexing)| indexing.iter().map(|i| (*id, i.progress.latest_block)))
+            .collect();
+
         for unlocked in &self.data.0 {
             let mut locked = unlocked.write();
-            for (indexing, latest_block) in statuses.iter() {
-                let snapshot = locked.entry(*indexing).or_default();
+            for (indexing, latest_block) in progress.iter() {
+                let snapshot = locked
+                    .entry((indexing.indexer, indexing.deployment))
+                    .or_default();
                 if *latest_block >= snapshot.latest_block.unwrap_or(0) {
                     snapshot.latest_block = Some(*latest_block);
                 };

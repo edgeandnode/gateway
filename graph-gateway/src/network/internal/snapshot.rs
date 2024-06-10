@@ -254,6 +254,7 @@ pub enum UnavailableReason {
 }
 
 /// A snapshot of the network topology.
+#[derive(Default)]
 pub struct NetworkTopologySnapshot {
     /// Subgraphs network topology table.
     subgraphs: HashMap<SubgraphId, Result<Subgraph, SubgraphError>>,

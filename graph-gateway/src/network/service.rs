@@ -9,8 +9,6 @@ use std::{
 
 use alloy_primitives::{Address, BlockNumber};
 use anyhow::anyhow;
-use eventuals::{Eventual, EventualExt as _, Ptr};
-use gateway_framework::errors::Error;
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::types::{DeploymentId, SubgraphId};
@@ -90,17 +88,16 @@ impl ResolvedSubgraphInfo {
 /// To create a new [`NetworkService`] instance, use the [`NetworkServiceBuilder`].
 #[derive(Clone)]
 pub struct NetworkService {
-    pub network: Eventual<Ptr<NetworkTopologySnapshot>>,
+    pub network: watch::Receiver<NetworkTopologySnapshot>,
 }
 
 impl NetworkService {
     /// Wait for the network topology information to be available.
-    pub async fn wait_until_ready(&self) {
-        let _ = self
-            .network
-            .value()
+    pub async fn wait_until_ready(&mut self) {
+        self.network
+            .wait_for(|n| !n.subgraphs().is_empty())
             .await
-            .expect("network service not available");
+            .unwrap();
     }
 
     /// Given a [`SubgraphId`], resolve the deployments associated with the subgraph.
@@ -110,10 +107,7 @@ impl NetworkService {
         &self,
         id: &SubgraphId,
     ) -> anyhow::Result<Result<Option<ResolvedSubgraphInfo>, SubgraphError>> {
-        let network = self
-            .network
-            .value_immediate()
-            .ok_or(Error::Internal(anyhow!("network topology not available")))?;
+        let network = self.network.borrow();
 
         // Resolve the subgraph information
         let subgraph = match network.get_subgraph_by_id(id) {
@@ -143,10 +137,7 @@ impl NetworkService {
         &self,
         id: &DeploymentId,
     ) -> anyhow::Result<Result<Option<ResolvedSubgraphInfo>, DeploymentError>> {
-        let network = self
-            .network
-            .value_immediate()
-            .ok_or(Error::Internal(anyhow!("network topology not available")))?;
+        let network = self.network.borrow();
 
         // Resolve the deployment information
         let deployment = match network.get_deployment_by_id(id) {
@@ -173,29 +164,6 @@ impl NetworkService {
             subgraphs,
             indexings,
         })))
-    }
-
-    pub fn indexings_progress(
-        &self,
-    ) -> watch::Receiver<HashMap<(Address, DeploymentId), BlockNumber>> {
-        let (tx, rx) = watch::channel(Default::default());
-        self.network
-            .subscribe()
-            .pipe(move |network| {
-                let progress = network
-                    .deployments()
-                    .iter()
-                    .flat_map(|(_, result)| result.iter().flat_map(|d| &d.indexings))
-                    .flat_map(|(id, indexing)| {
-                        indexing
-                            .iter()
-                            .map(|i| ((id.indexer, id.deployment), i.progress.latest_block))
-                    })
-                    .collect();
-                let _ = tx.send(progress);
-            })
-            .forever();
-        rx
     }
 }
 
@@ -360,8 +328,8 @@ fn spawn_updater_task(
     subgraph_client: SubgraphClient,
     state: InternalState,
     update_interval: Duration,
-) -> Eventual<Ptr<NetworkTopologySnapshot>> {
-    let (mut eventual_writer, eventual) = Eventual::new();
+) -> watch::Receiver<NetworkTopologySnapshot> {
+    let (tx, rx) = watch::channel(Default::default());
 
     tokio::spawn(async move {
         let mut timer = tokio::time::interval(update_interval);
@@ -386,7 +354,7 @@ fn spawn_updater_task(
                                     .sum::<usize>(),
                             );
 
-                            eventual_writer.write(Ptr::new(network));
+                            let _ = tx.send(network);
                         }
                         // If the fetch fails, log a warning and skip the update
                         Err(err) => {
@@ -402,5 +370,5 @@ fn spawn_updater_task(
         }
     });
 
-    eventual
+    rx
 }

@@ -112,7 +112,7 @@ async fn main() {
         )));
 
     // Initialize the network service and wait for the initial network state synchronization
-    let network = match init_network_service(
+    let mut network = match init_network_service(
         network_subgraph_client,
         config.l2_gateway.is_some(),
         http_client.clone(),
@@ -175,7 +175,7 @@ async fn main() {
         l2_gateway: config.l2_gateway,
         chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
         grt_per_usd,
-        indexing_perf: IndexingPerformance::new(network.indexings_progress()),
+        indexing_perf: IndexingPerformance::new(network.network.clone()),
         network,
         attestation_domain,
         reporter,
