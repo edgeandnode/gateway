@@ -33,7 +33,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use thegraph_core::types::SubgraphId;
 use tokio::sync::mpsc;
-use tracing::Instrument as _;
+use tracing::{info_span, Instrument as _};
 use url::Url;
 
 use self::{
@@ -384,33 +384,38 @@ async fn run_indexer_queries(
             };
             let indexer_client = ctx.indexer_client.clone();
             let tx = tx.clone();
-            tokio::spawn(async move {
-                let start_time = Instant::now();
-                let result = indexer_client
-                    .query_indexer(
-                        &deployment,
-                        &url,
-                        &receipt,
-                        ctx.attestation_domain,
-                        &indexer_query,
-                    )
-                    .await;
-                let response_time_ms = Instant::now().duration_since(start_time).as_millis() as u16;
-                let report = reports::IndexerRequest {
-                    indexer,
-                    deployment,
-                    largest_allocation,
-                    url: url.to_string(),
-                    receipt,
-                    subgraph_chain,
-                    result,
-                    response_time_ms,
-                    seconds_behind,
-                    blocks_behind,
-                    request: indexer_query,
-                };
-                tx.try_send(report).unwrap();
-            });
+            tokio::spawn(
+                async move {
+                    let start_time = Instant::now();
+                    let result = indexer_client
+                        .query_indexer(
+                            &deployment,
+                            &url,
+                            &receipt,
+                            ctx.attestation_domain,
+                            &indexer_query,
+                        )
+                        .in_current_span()
+                        .await;
+                    let response_time_ms =
+                        Instant::now().duration_since(start_time).as_millis() as u16;
+                    let report = reports::IndexerRequest {
+                        indexer,
+                        deployment,
+                        largest_allocation,
+                        url: url.to_string(),
+                        receipt,
+                        subgraph_chain,
+                        result,
+                        response_time_ms,
+                        seconds_behind,
+                        blocks_behind,
+                        request: indexer_query,
+                    };
+                    tx.try_send(report).unwrap();
+                }
+                .instrument(info_span!("indexer_request", ?indexer)),
+            );
         }
         drop(tx);
 
