@@ -128,6 +128,7 @@ async fn main() {
             panic!("Failed to initialize the network service: {err}");
         }
     };
+    let indexing_perf = IndexingPerformance::new(network.clone());
     network.wait_until_ready().await;
 
     let legacy_signer: &'static SecretKey = Box::leak(Box::new(
@@ -175,7 +176,7 @@ async fn main() {
         l2_gateway: config.l2_gateway,
         chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
         grt_per_usd,
-        indexing_perf: IndexingPerformance::new(network.clone()),
+        indexing_perf,
         network,
         attestation_domain,
         reporter,
