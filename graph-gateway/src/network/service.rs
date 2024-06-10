@@ -88,7 +88,7 @@ impl ResolvedSubgraphInfo {
 /// To create a new [`NetworkService`] instance, use the [`NetworkServiceBuilder`].
 #[derive(Clone)]
 pub struct NetworkService {
-    pub network: watch::Receiver<NetworkTopologySnapshot>,
+    network: watch::Receiver<NetworkTopologySnapshot>,
 }
 
 impl NetworkService {
@@ -98,6 +98,10 @@ impl NetworkService {
             .wait_for(|n| !n.subgraphs().is_empty())
             .await
             .unwrap();
+    }
+
+    pub async fn changed(&mut self) {
+        self.network.changed().await.unwrap();
     }
 
     /// Given a [`SubgraphId`], resolve the deployments associated with the subgraph.
@@ -164,6 +168,16 @@ impl NetworkService {
             subgraphs,
             indexings,
         })))
+    }
+
+    pub fn indexing_progress(&self) -> HashMap<IndexingId, BlockNumber> {
+        self.network
+            .borrow()
+            .deployments()
+            .iter()
+            .flat_map(|(_, result)| result.iter().flat_map(|d| &d.indexings))
+            .flat_map(|(id, indexing)| indexing.iter().map(|i| (*id, i.progress.latest_block)))
+            .collect()
     }
 }
 

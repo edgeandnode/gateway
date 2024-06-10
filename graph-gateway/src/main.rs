@@ -175,7 +175,7 @@ async fn main() {
         l2_gateway: config.l2_gateway,
         chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
         grt_per_usd,
-        indexing_perf: IndexingPerformance::new(network.network.clone()),
+        indexing_perf: IndexingPerformance::new(network.clone()),
         network,
         attestation_domain,
         reporter,

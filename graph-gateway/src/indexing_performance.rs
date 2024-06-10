@@ -3,13 +3,9 @@ use std::{collections::HashMap, ops::Deref, time::Duration};
 use alloy_primitives::{Address, BlockNumber};
 use parking_lot::RwLock;
 use thegraph_core::types::DeploymentId;
-use tokio::{
-    self,
-    sync::{mpsc, watch},
-    time::MissedTickBehavior,
-};
+use tokio::{self, sync::mpsc, time::MissedTickBehavior};
 
-use crate::network::{internal::NetworkTopologySnapshot, IndexingId};
+use crate::network::NetworkService;
 
 #[derive(Default)]
 pub struct Snapshot {
@@ -32,7 +28,7 @@ struct Feedback {
 }
 
 impl IndexingPerformance {
-    pub fn new(network: watch::Receiver<NetworkTopologySnapshot>) -> Self {
+    pub fn new(network: NetworkService) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let data: &'static DoubleBuffer = Box::leak(Box::default());
         Actor::spawn(data, rx, network);
@@ -83,7 +79,7 @@ impl Actor {
     fn spawn(
         data: &'static DoubleBuffer,
         mut messages: mpsc::UnboundedReceiver<Feedback>,
-        mut network: watch::Receiver<NetworkTopologySnapshot>,
+        mut network: NetworkService,
     ) {
         let mut actor = Self { data };
         let mut timer = tokio::time::interval(Duration::from_secs(1));
@@ -95,7 +91,7 @@ impl Actor {
                 tokio::select! {
                     _ = timer.tick() => actor.decay(),
                     _ = messages.recv_many(&mut msg_buf, batch_limit) => actor.handle_msgs(&mut msg_buf),
-                    _ = network.changed() => actor.handle_network(&network.borrow()),
+                    _ = network.changed() => actor.handle_network(&network),
                 }
             }
         });
@@ -132,14 +128,8 @@ impl Actor {
         debug_assert!(msgs.is_empty());
     }
 
-    fn handle_network(&mut self, network: &NetworkTopologySnapshot) {
-        let progress: HashMap<IndexingId, BlockNumber> = network
-            .deployments()
-            .iter()
-            .flat_map(|(_, result)| result.iter().flat_map(|d| &d.indexings))
-            .flat_map(|(id, indexing)| indexing.iter().map(|i| (*id, i.progress.latest_block)))
-            .collect();
-
+    fn handle_network(&mut self, network: &NetworkService) {
+        let progress = network.indexing_progress();
         for unlocked in &self.data.0 {
             let mut locked = unlocked.write();
             for (indexing, latest_block) in progress.iter() {
