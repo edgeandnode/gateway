@@ -13,6 +13,7 @@ use axum::{
     Extension,
 };
 use cost_model::{Context as AgoraContext, CostModel};
+use custom_debug::CustomDebug;
 use gateway_common::{ptr::Ptr, utils::http_ext::HttpBuilderExt as _};
 use gateway_framework::{
     auth::AuthSettings,
@@ -33,6 +34,7 @@ use serde_json::value::RawValue;
 use thegraph_core::types::SubgraphId;
 use tokio::sync::mpsc;
 use tracing::Instrument as _;
+use url::Url;
 
 use self::{
     attestation_header::GraphAttestation, context::Context, l2_forwarding::forward_request_to_l2,
@@ -339,9 +341,9 @@ async fn run_indexer_queries(
             let indexer = selection.id.indexer;
             let deployment = selection.id.deployment;
             let largest_allocation = selection.data.largest_allocation;
-            let url = selection.data.indexer.url.clone();
+            let url = selection.data.url.clone();
             let seconds_behind = selection.seconds_behind;
-            let legacy_scalar = !selection.data.indexer.scalar_tap_support;
+            let legacy_scalar = !selection.data.tap_support;
             let subgraph_chain = subgraph.chain.clone();
 
             // over-pay indexers to hit target
@@ -543,6 +545,14 @@ async fn run_indexer_queries(
     });
 }
 
+#[derive(CustomDebug)]
+struct CandidateMetadata {
+    #[debug(with = std::fmt::Display::fmt)]
+    url: Url,
+    largest_allocation: Address,
+    tap_support: bool,
+}
+
 /// Given a list of indexings, build a list of candidates that are within the required block range
 /// and have the required performance.
 #[allow(clippy::type_complexity)]
@@ -555,7 +565,7 @@ fn build_candidates_list(
     block_requirements: &BlockRequirements,
     indexings: HashMap<IndexingId, Result<Indexing, network::IndexingError>>,
 ) -> (
-    Vec<Candidate<IndexingId, Indexing>>,
+    Vec<Candidate<IndexingId, CandidateMetadata>>,
     BTreeMap<Address, IndexerError>,
 ) {
     let mut candidates_list = Vec::new();
@@ -651,14 +661,18 @@ fn prepare_candidate(
     indexing: Indexing,
     perf: Perf,
     fee: Normalized,
-) -> Candidate<IndexingId, Indexing> {
+) -> Candidate<IndexingId, CandidateMetadata> {
     let versions_behind = indexing.versions_behind;
     let zero_allocation = indexing.total_allocated_tokens == 0;
     let slashable_grt = (indexing.indexer.staked_tokens as f64 * 1e-18) as u64;
 
     Candidate {
         id,
-        data: indexing,
+        data: CandidateMetadata {
+            url: indexing.indexer.url.clone(),
+            largest_allocation: indexing.largest_allocation,
+            tap_support: indexing.indexer.tap_support,
+        },
         perf: perf.response,
         fee,
         seconds_behind: perf.seconds_behind,
