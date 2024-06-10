@@ -147,21 +147,6 @@ async fn main() {
         legacy_signer,
     )));
 
-    // Periodically update the largest allocations for each indexer-deployment pair.
-    // TODO: Remove this once the network service is integrated and the largest allocation can be
-    //  accessed via the `Indexing` instance.
-    network
-        .indexings_largest_allocation()
-        .pipe_async(move |largest_allocations| async move {
-            let largest_allocations = largest_allocations
-                .iter()
-                .map(|(id, allocation)| ((id.indexer, id.deployment), *allocation))
-                .collect::<HashMap<_, _>>();
-
-            receipt_signer.update_allocations(&largest_allocations);
-        })
-        .forever();
-
     // Initialize the auth service
     let auth_service = init_auth_service(
         http_client.clone(),

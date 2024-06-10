@@ -1,10 +1,7 @@
 use alloy_primitives::Address;
 use anyhow::{anyhow, Context};
 use gateway_common::utils::timestamp::unix_timestamp;
-use gateway_framework::{
-    errors::{self, IndexerError},
-    scalar::ScalarReceipt,
-};
+use gateway_framework::{errors, scalar::Receipt};
 use ordered_float::NotNan;
 use prost::Message;
 use serde_json::json;
@@ -26,9 +23,10 @@ pub struct ClientRequest {
 
 pub struct IndexerRequest {
     pub indexer: Address,
-    pub url: String,
     pub deployment: DeploymentId,
-    pub receipt: ScalarReceipt,
+    pub largest_allocation: Address,
+    pub url: String,
+    pub receipt: Receipt,
     pub subgraph_chain: String,
     pub result: Result<IndexerResponse, errors::IndexerError>,
     pub response_time_ms: u16,
@@ -173,10 +171,10 @@ impl Reporter {
             let legacy_status_code: u32 = {
                 let (prefix, data) = match &indexer_request.result {
                     Ok(_) => (0x0, 200_u32.to_be()),
-                    Err(IndexerError::Internal(_)) => (0x1, 0x0),
-                    Err(IndexerError::Unavailable(_)) => (0x2, 0x0),
-                    Err(IndexerError::Timeout) => (0x3, 0x0),
-                    Err(IndexerError::BadResponse(_)) => (0x4, 0x0),
+                    Err(errors::IndexerError::Internal(_)) => (0x1, 0x0),
+                    Err(errors::IndexerError::Unavailable(_)) => (0x2, 0x0),
+                    Err(errors::IndexerError::Timeout) => (0x3, 0x0),
+                    Err(errors::IndexerError::BadResponse(_)) => (0x4, 0x0),
                 };
                 (prefix << 28) | (data & (u32::MAX >> 4))
             };
@@ -220,7 +218,7 @@ impl Reporter {
                 "indexer": &indexer_request.indexer,
                 "url": &indexer_request.url,
                 "fee": (indexer_request.receipt.grt_value() as f64 * 1e-18) as f32,
-                "legacy_scalar": matches!(&indexer_request.receipt, ScalarReceipt::Legacy(_, _)),
+                "legacy_scalar": matches!(&indexer_request.receipt, Receipt::Legacy(_, _)),
                 "utility": 1.0,
                 "blocks_behind": indexer_request.blocks_behind,
                 "response_time_ms": indexer_request.response_time_ms,

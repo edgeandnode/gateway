@@ -7,7 +7,7 @@ use gateway_framework::{
         MissingBlockError,
         UnavailableReason::{self, *},
     },
-    scalar::ScalarReceipt,
+    scalar::Receipt,
 };
 use serde::{Deserialize, Serialize};
 use thegraph_core::types::{
@@ -38,7 +38,7 @@ impl IndexerClient {
         &self,
         deployment: &DeploymentId,
         url: &Url,
-        receipt: &ScalarReceipt,
+        receipt: &Receipt,
         attestation_domain: &Eip712Domain,
         query: &str,
     ) -> Result<IndexerResponse, IndexerError> {
