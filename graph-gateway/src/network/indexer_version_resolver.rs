@@ -16,11 +16,11 @@ use url::Url;
 
 use crate::indexers;
 
-/// The default indexer version resolution timeout: 1.5 seconds.
-pub const DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(1_500);
+/// The default indexer version resolution timeout: 5 seconds.
+pub const DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(5_000);
 
-/// The default TTL (time-to-live) for cache entries: 20 minutes.
-pub const DEFAULT_INDEXER_VERSION_CACHE_TTL: Duration = Duration::from_secs(20 * 60);
+/// The default TTL (time-to-live) for cache entries: 30 minutes.
+pub const DEFAULT_INDEXER_VERSION_CACHE_TTL: Duration = Duration::from_secs(60 * 30);
 
 /// The error that can occur while resolving the indexer versions.
 #[derive(Debug, thiserror::Error)]
