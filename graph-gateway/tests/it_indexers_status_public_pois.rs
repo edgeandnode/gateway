@@ -4,8 +4,9 @@ use alloy_primitives::BlockNumber;
 use assert_matches::assert_matches;
 use graph_gateway::{
     indexers,
-    indexers::public_poi::{
-        self, PublicProofOfIndexingQuery, PublicProofOfIndexingRequest, MAX_REQUESTS_PER_QUERY,
+    indexers::public_poi::{PublicProofOfIndexingQuery, PublicProofOfIndexingRequest},
+    network::indexer_indexing_poi_resolver::{
+        merge_queries, POIS_QUERY_BATCH_SIZE as MAX_REQUESTS_PER_QUERY,
     },
 };
 use thegraph_core::types::DeploymentId;
@@ -48,7 +49,7 @@ async fn query_indexer_public_pois() {
     };
 
     //* When
-    let request = public_poi::query(client, status_url, query);
+    let request = indexers::public_poi::query(client, status_url, query);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
@@ -86,7 +87,7 @@ async fn requests_over_max_requests_per_query_should_fail() {
     };
 
     //* When
-    let request = public_poi::query(client, status_url, query);
+    let request = indexers::public_poi::query(client, status_url, query);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
@@ -95,6 +96,7 @@ async fn requests_over_max_requests_per_query_should_fail() {
     assert!(response.is_err());
 }
 
+// TODO: Move test to the network module
 #[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
 #[tokio::test]
 async fn send_batched_queries_and_merge_results() {
@@ -109,8 +111,7 @@ async fn send_batched_queries_and_merge_results() {
         .collect::<Vec<_>>();
 
     //* When
-    let request =
-        public_poi::merge_queries(client, status_url, &pois_to_query, MAX_REQUESTS_PER_QUERY);
+    let request = merge_queries(client, status_url, &pois_to_query, MAX_REQUESTS_PER_QUERY);
     let response = timeout(Duration::from_secs(60), request)
         .await
         .expect("timeout");
