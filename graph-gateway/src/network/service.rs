@@ -48,7 +48,7 @@ use super::{
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 /// Default update interval for the network topology information.
-pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(30);
+pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
@@ -212,8 +212,8 @@ impl NetworkServiceBuilder {
         let indexer_indexing_progress_resolver =
             IndexingProgressResolver::with_timeout_and_cache_ttl(
                 indexer_client.clone(),
-                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 5 seconds
-                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL, // 2 minutes
+                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 25 seconds
+                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL, // 10 minutes
             );
         let indexer_indexing_cost_model_resolver = CostModelResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
