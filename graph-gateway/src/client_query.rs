@@ -336,7 +336,7 @@ async fn run_indexer_queries(
         let (tx, mut rx) = mpsc::channel(SELECTION_LIMIT);
         let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
         for &selection in &selections {
-            let indexer = selection.id;
+            let indexer = selection..data.id.indexer;
             let deployment = selection.data.id.deployment;
             let url = selection.data.indexer.url.clone();
             let seconds_behind = selection.seconds_behind;
