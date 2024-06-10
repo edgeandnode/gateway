@@ -60,35 +60,35 @@ impl<T: ?Sized> AsRef<T> for Ptr<T> {
     }
 }
 
-impl<T: ?Sized + Hash> Hash for Ptr<T> {
+impl<T: ?Sized> Hash for Ptr<T> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.inner.hash(state)
     }
 }
 
-impl<T: ?Sized + PartialEq> PartialEq for Ptr<T> {
+impl<T: ?Sized> PartialEq for Ptr<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.inner.eq(&other.inner)
     }
 }
 
-impl<T: ?Sized + PartialOrd> PartialOrd for Ptr<T> {
+impl<T: ?Sized> PartialOrd for Ptr<T> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.inner.partial_cmp(&other.inner)
+        Some(self.cmp(other))
     }
 }
 
-impl<T: ?Sized + Ord> Ord for Ptr<T> {
+impl<T: ?Sized> Ord for Ptr<T> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.inner.cmp(&other.inner)
     }
 }
 
-impl<T: ?Sized + Eq> Eq for Ptr<T> {}
+impl<T: ?Sized> Eq for Ptr<T> {}
 
 impl<T> Clone for Ptr<T> {
     #[inline]
@@ -112,6 +112,7 @@ impl<T: ?Sized + fmt::Debug> fmt::Debug for Ptr<T> {
         self.inner.fmt(f)
     }
 }
+
 impl<T: ?Sized> fmt::Pointer for Ptr<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Arc::fmt(&self.inner, f)
