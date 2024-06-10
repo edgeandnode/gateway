@@ -1,17 +1,20 @@
 //! The Graph Gateway configuration.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt::{self, Display},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use alloy_primitives::{Address, BlockNumber, U256};
+use anyhow::Context;
 use custom_debug::CustomDebug;
 use gateway_framework::{
     auth::api_keys::APIKey,
     config::{Hidden, HiddenSecretKey},
 };
+use ipnetwork::IpNetwork;
+use ordered_float::NotNan;
 use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
@@ -19,6 +22,7 @@ use serde_with::{serde_as, DisplayFromStr};
 use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 use url::Url;
 
+/// The Graph Gateway configuration.
 #[serde_as]
 #[derive(CustomDebug, Deserialize)]
 pub struct Config {
@@ -52,7 +56,7 @@ pub struct Config {
     /// Format log output as JSON
     pub log_json: bool,
     /// L2 gateway to forward client queries to
-    #[debug(with = fmt_optional_url)]
+    #[debug(with = fmt_debug_optional_url)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub l2_gateway: Option<Url>,
     /// Minimum graph-node version that will receive queries
@@ -77,18 +81,32 @@ pub struct Config {
     /// private metrics port
     pub port_metrics: u16,
     /// Target for indexer fees paid per request
-    pub query_fees_target: f64,
+    #[serde(deserialize_with = "deserialize_not_nan_f64")]
+    pub query_fees_target: NotNan<f64>,
     /// Scalar TAP config (receipt signing)
     pub scalar: Scalar,
 }
 
-fn fmt_optional_url(url: &Option<Url>, f: &mut fmt::Formatter) -> fmt::Result {
+/// Deserialize a `NotNan<f64>` from a `f64` and return an error if the value is NaN.
+fn deserialize_not_nan_f64<'de, D>(deserializer: D) -> Result<NotNan<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = f64::deserialize(deserializer)?;
+    NotNan::new(value).map_err(serde::de::Error::custom)
+}
+
+/// Implement Debug for Option<Url> as display `Some(Url)` or `None`.
+fn fmt_debug_optional_url(url: &Option<Url>, f: &mut fmt::Formatter) -> fmt::Result {
     match url {
         Some(url) => write!(f, "Some({})", url),
         None => write!(f, "None"),
     }
 }
 
+/// API keys configuration.
+///
+/// See [`Config`]'s [`api_keys`](struct.Config.html#structfield.api_keys).
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -107,12 +125,18 @@ pub enum ApiKeys {
     Fixed(Vec<APIKey>),
 }
 
+/// Attestation configuration.
+///
+/// See [`Config`]'s [`attestations`](struct.Config.html#structfield.attestations).
 #[derive(Debug, Deserialize)]
 pub struct AttestationConfig {
     pub chain_id: String,
     pub dispute_manager: Address,
 }
 
+/// The exchange rate provider.
+///
+/// See [`Config`]'s [`exchange_rate_provider`](struct.Config.html#structfield.exchange_rate_provider).
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -120,9 +144,12 @@ pub enum ExchangeRateProvider {
     /// Ethereum RPC provider
     Rpc(#[serde_as(as = "DisplayFromStr")] Url),
     /// Fixed conversion rate of GRT/USD
-    Fixed(f64),
+    Fixed(#[serde(deserialize_with = "deserialize_not_nan_f64")] NotNan<f64>),
 }
 
+/// Kafka configuration.
+///
+/// See [`Config`]'s [`kafka`](struct.Config.html#structfield.kafka).
 #[derive(Debug, Deserialize)]
 pub struct KafkaConfig(BTreeMap<String, String>);
 
@@ -156,6 +183,9 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
     }
 }
 
+/// Scalar TAP config (receipt signing).
+///
+/// See [`Config`]'s [`scalar`](struct.Config.html#structfield.scalar).
 #[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct Scalar {
@@ -174,12 +204,51 @@ pub struct Scalar {
 /// Proof of indexing info for the POI blocklist.
 ///
 /// See [`Config`]'s [`poi_blocklist`](struct.Config.html#structfield.poi_blocklist).
-#[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 pub struct ProofOfIndexingInfo {
-    /// Proof of indexing (POI).
-    pub proof_of_indexing: ProofOfIndexing,
     /// POI deployment ID (the IPFS Hash in the Graph Network Subgraph).
     pub deployment_id: DeploymentId,
     /// POI block number.
     pub block_number: BlockNumber,
+    /// Proof of indexing (POI).
+    pub proof_of_indexing: ProofOfIndexing,
+}
+
+impl From<ProofOfIndexingInfo> for ((DeploymentId, BlockNumber), ProofOfIndexing) {
+    fn from(info: ProofOfIndexingInfo) -> Self {
+        (
+            (info.deployment_id, info.block_number),
+            info.proof_of_indexing,
+        )
+    }
+}
+
+/// Load the configuration from a JSON file.
+pub fn load_from_file(path: &Path) -> Result<Config, Error> {
+    let config_content = std::fs::read_to_string(path)?;
+    let config = serde_json::from_str(&config_content)?;
+    Ok(config)
+}
+
+/// Load the IP blocklist from a CSV file.
+///
+/// The CSV file should contain rows of `IpNetwork,Country`.
+pub fn load_ip_blocklist_from_file(path: &Path) -> anyhow::Result<HashSet<IpNetwork>> {
+    let db = std::fs::read_to_string(path).context("IP blocklist DB")?;
+    Ok(db
+        .lines()
+        .filter_map(|line| line.split_once(',')?.0.parse().ok())
+        .collect())
+}
+
+/// An error that can occur when loading the configuration.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// An error occurred while reading the configuration file.
+    #[error("failed to read configuration file: {0}")]
+    Io(#[from] std::io::Error),
+
+    /// An error occurred while deserializing the configuration.
+    #[error("failed to deserialize configuration: {0}")]
+    Deserialize(#[from] serde_json::Error),
 }

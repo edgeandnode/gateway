@@ -1,6 +1,6 @@
 use tracing_subscriber::{prelude::*, registry, EnvFilter};
 
-pub fn init(executable_name: String, json: bool) {
+pub fn init(executable_name: &str, json: bool) {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::try_new(format!("info,{executable_name}=debug")).unwrap());
 

@@ -7,7 +7,7 @@ use alloy_primitives::{Address, BlockNumber};
 use assert_matches::assert_matches;
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::types::DeploymentId;
+use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
 
@@ -15,23 +15,20 @@ use super::{
     indexer_processing::{self, IndexerRawInfo, IndexingRawInfo},
     InternalState,
 };
-use crate::{
-    indexers::public_poi::{ProofOfIndexing, ProofOfIndexingInfo},
-    network::{
-        config::VersionRequirements as IndexerVersionRequirements,
-        errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
-        indexer_addr_blocklist::AddrBlocklist,
-        indexer_host_blocklist::HostBlocklist,
-        indexer_host_resolver::HostResolver,
-        indexer_indexing_cost_model_compiler::CostModelCompiler,
-        indexer_indexing_cost_model_resolver::CostModelResolver,
-        indexer_indexing_poi_blocklist::PoiBlocklist,
-        indexer_indexing_poi_resolver::PoiResolver,
-        indexer_indexing_progress_resolver::IndexingProgressResolver,
-        indexer_version_resolver::{
-            VersionResolver, DEFAULT_INDEXER_VERSION_CACHE_TTL,
-            DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
-        },
+use crate::network::{
+    config::VersionRequirements as IndexerVersionRequirements,
+    errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
+    indexer_addr_blocklist::AddrBlocklist,
+    indexer_host_blocklist::HostBlocklist,
+    indexer_host_resolver::HostResolver,
+    indexer_indexing_cost_model_compiler::CostModelCompiler,
+    indexer_indexing_cost_model_resolver::CostModelResolver,
+    indexer_indexing_poi_blocklist::PoiBlocklist,
+    indexer_indexing_poi_resolver::PoiResolver,
+    indexer_indexing_progress_resolver::IndexingProgressResolver,
+    indexer_version_resolver::{
+        VersionResolver, DEFAULT_INDEXER_VERSION_CACHE_TTL,
+        DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
     },
 };
 
@@ -134,14 +131,6 @@ fn test_service_state(
     }
 
     if !pois_blocklist.is_empty() {
-        let pois_blocklist = pois_blocklist
-            .into_iter()
-            .map(|((deployment_id, block_number), poi)| ProofOfIndexingInfo {
-                deployment_id,
-                block_number,
-                proof_of_indexing: poi,
-            })
-            .collect();
         let pois_blocklist = PoiBlocklist::new(pois_blocklist);
         let pois_resolver = PoiResolver::new(indexers_http_client.clone());
         state.indexer_indexing_pois_blocklist = Some((pois_resolver, pois_blocklist));

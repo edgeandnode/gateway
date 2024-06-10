@@ -5,22 +5,10 @@
 //! are resolved to IP addresses using a DNS resolver, and then checked against the blocklist. The
 //! result is cached so that subsequent calls with the same URL will return the same result.
 
-use std::{collections::HashSet, fs, net::IpAddr, path::Path};
+use std::{collections::HashSet, net::IpAddr};
 
-use anyhow::Context as _;
 use gateway_common::blocklist::{Blocklist, Result as BlocklistResult};
 use ipnetwork::IpNetwork;
-
-/// Load the IP blocklist from a CSV file.
-///
-/// The CSV file should contain rows of `IpNetwork,Country`.
-pub fn load_ip_blocklist_conf(db_path: &Path) -> anyhow::Result<HashSet<IpNetwork>> {
-    let db = fs::read_to_string(db_path).context("IP blocklist DB")?;
-    Ok(db
-        .lines()
-        .filter_map(|line| line.split_once(',')?.0.parse().ok())
-        .collect())
-}
 
 /// An IP blocklist for indexers.
 ///

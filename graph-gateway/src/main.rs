@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
     env,
-    fs::read_to_string,
     io::Write as _,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
@@ -11,7 +10,6 @@ use std::{
 
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
-use anyhow::{self, Context as _};
 use axum::{
     body::Body,
     extract::{ConnectInfo, DefaultBodyLimit, State},
@@ -21,7 +19,7 @@ use axum::{
     response::Response,
     routing, Router,
 };
-use config::{ApiKeys, Config, ExchangeRateProvider};
+use config::{ApiKeys, ExchangeRateProvider};
 use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
@@ -35,16 +33,13 @@ use gateway_framework::{
 use graph_gateway::{
     client_query::{self, context::Context},
     indexer_client::IndexerClient,
-    indexers,
     indexing_performance::IndexingPerformance,
     network::{
-        indexer_host_blocklist::load_ip_blocklist_conf,
         subgraph_client::Client as NetworkSubgraphClient, NetworkService, NetworkServiceBuilder,
     },
     receipts::ReceiptSigner,
     reports, subgraph_studio, vouchers,
 };
-use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use semver::Version;
@@ -67,60 +62,54 @@ static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 #[tokio::main]
 async fn main() {
-    let config_path = env::args()
+    let conf_path = env::args()
         .nth(1)
         .expect("Missing argument for config path")
         .parse::<PathBuf>()
         .unwrap();
-    let config_file_text = read_to_string(config_path.clone()).expect("Failed to open config");
-    let config = serde_json::from_str::<Config>(&config_file_text)
-        .context("Failed to parse JSON config")
-        .unwrap();
+    let conf = config::load_from_file(&conf_path).expect("Failed to load config");
 
     // Get the gateway ID from the config or generate a new one.
-    let gateway_id = config
+    let gateway_id = conf
         .gateway_id
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    let config_repr = format!("{config:?}");
+    let conf_repr = format!("{conf:?}");
 
-    logging::init("graph-gateway".into(), config.log_json);
+    logging::init("graph-gateway", conf.log_json);
     tracing::info!("gateway ID: {}", gateway_id);
-    tracing::debug!(config = %config_repr);
+    tracing::debug!(config = %conf_repr);
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
         .unwrap();
 
-    let grt_per_usd: watch::Receiver<NotNan<f64>> = match config.exchange_rate_provider {
-        ExchangeRateProvider::Fixed(grt_per_usd) => {
-            watch::channel(NotNan::new(grt_per_usd).expect("NAN exchange rate")).1
-        }
+    let grt_per_usd = match conf.exchange_rate_provider {
+        ExchangeRateProvider::Fixed(grt_per_usd) => watch::channel(grt_per_usd).1,
         ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await.unwrap(),
     };
 
-    let network_subgraph_client =
-        SubgraphClient::new(http_client.clone(), config.network_subgraph.clone());
-
     let attestation_domain: &'static Eip712Domain =
         Box::leak(Box::new(attestation::eip712_domain(
-            U256::from_str_radix(&config.attestations.chain_id, 10)
+            U256::from_str_radix(&conf.attestations.chain_id, 10)
                 .expect("failed to parse attestation domain chain_id"),
-            config.attestations.dispute_manager,
+            conf.attestations.dispute_manager,
         )));
 
     // Initialize the network service and wait for the initial network state synchronization
+    let network_subgraph_client =
+        SubgraphClient::new(http_client.clone(), conf.network_subgraph.clone());
     let mut network = match init_network_service(
         network_subgraph_client,
-        config.l2_gateway.is_some(),
+        conf.l2_gateway.is_some(),
         http_client.clone(),
-        config.min_indexer_version,
-        config.min_graph_node_version,
-        config.bad_indexers,
-        config.ip_blocker_db.as_deref(),
-        config.poi_blocklist,
+        conf.min_indexer_version,
+        conf.min_graph_node_version,
+        conf.bad_indexers,
+        conf.ip_blocker_db.as_deref(),
+        conf.poi_blocklist,
     ) {
         Ok(network) => network,
         Err(err) => {
@@ -132,49 +121,43 @@ async fn main() {
     network.wait_until_ready().await;
 
     let legacy_signer: &'static SecretKey = Box::leak(Box::new(
-        config
-            .scalar
+        conf.scalar
             .legacy_signer
             .map(|s| s.0)
-            .unwrap_or(config.scalar.signer.0),
+            .unwrap_or(conf.scalar.signer.0),
     ));
     let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(ReceiptSigner::new(
-        config.scalar.signer.0,
-        config.scalar.chain_id,
-        config.scalar.verifier,
+        conf.scalar.signer.0,
+        conf.scalar.chain_id,
+        conf.scalar.verifier,
         legacy_signer,
     )));
 
     // Initialize the auth service
-    let auth_service = init_auth_service(
-        http_client.clone(),
-        config.api_keys,
-        config.payment_required,
-    )
-    .await;
+    let auth_service =
+        init_auth_service(http_client.clone(), conf.api_keys, conf.payment_required).await;
 
-    let query_fees_target =
-        USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
-    let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
+    let budgeter: &'static Budgeter =
+        Box::leak(Box::new(Budgeter::new(USD(conf.query_fees_target))));
 
     let reporter = reports::Reporter::create(
-        config.graph_env_id.clone(),
-        config.query_fees_target.to_string(),
-        "gateway_client_query_results".into(),
-        "gateway_indexer_attempts".into(),
-        "gateway_attestations".into(),
-        &config.kafka.into(),
+        conf.graph_env_id,
+        conf.query_fees_target,
+        "gateway_client_query_results",
+        "gateway_indexer_attempts",
+        "gateway_attestations",
+        conf.kafka,
     )
     .unwrap();
 
-    let client_query_ctx = Context {
+    let ctx = Context {
         indexer_client: IndexerClient {
             client: http_client.clone(),
         },
         receipt_signer,
         budgeter,
-        l2_gateway: config.l2_gateway,
-        chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
+        l2_gateway: conf.l2_gateway,
+        chains: Box::leak(Box::new(Chains::new(conf.chain_aliases))),
         grt_per_usd,
         indexing_perf,
         network,
@@ -183,16 +166,16 @@ async fn main() {
     };
 
     // Host metrics on a separate server with a port that isn't open to public requests.
-    let metrics_port = config.port_metrics;
     tokio::spawn(async move {
         let router = Router::new().route("/metrics", routing::get(handle_metrics));
 
         let metrics_listener = TcpListener::bind(SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            metrics_port,
+            conf.port_metrics,
         ))
         .await
         .expect("Failed to bind metrics server");
+
         axum::serve(metrics_listener, router.into_make_service())
             // disable Nagle's algorithm
             .tcp_nodelay(true)
@@ -203,7 +186,7 @@ async fn main() {
     let rate_limiter_slots = 10;
     let rate_limiter: &'static RateLimiter<String> =
         Box::leak(Box::new(RateLimiter::<String>::new(
-            rate_limiter_slots * config.ip_rate_limit as usize,
+            rate_limiter_slots * conf.ip_rate_limit as usize,
             rate_limiter_slots,
         )));
     tokio::spawn(async move {
@@ -232,7 +215,7 @@ async fn main() {
             "/:api_key/subgraphs/id/:subgraph_id",
             routing::post(client_query::handle_query),
         )
-        .with_state(client_query_ctx)
+        .with_state(ctx)
         .layer(
             // ServiceBuilder works by composing all layers into one such that they run top to
             // bottom, and then the response would bubble back up through the layers in reverse
@@ -282,7 +265,7 @@ async fn main() {
 
     let app_listener = TcpListener::bind(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        config.port_api,
+        conf.port_api,
     ))
     .await
     .expect("Failed to bind API server");
@@ -416,7 +399,7 @@ fn init_network_service(
 
     // Load and configure the host-based blocklist for indexers
     if let Some(indexer_host_blocklist) = indexer_host_blocklist {
-        let indexer_host_blocklist = load_ip_blocklist_conf(indexer_host_blocklist)?;
+        let indexer_host_blocklist = config::load_ip_blocklist_from_file(indexer_host_blocklist)?;
         builder = builder.with_indexer_host_blocklist(indexer_host_blocklist);
     }
 
@@ -427,15 +410,4 @@ fn init_network_service(
     }
 
     Ok(builder.build().spawn())
-}
-
-// Mapping between config and internal types
-impl From<config::ProofOfIndexingInfo> for indexers::public_poi::ProofOfIndexingInfo {
-    fn from(value: config::ProofOfIndexingInfo) -> Self {
-        indexers::public_poi::ProofOfIndexingInfo {
-            proof_of_indexing: value.proof_of_indexing,
-            deployment_id: value.deployment_id,
-            block_number: value.block_number,
-        }
-    }
 }

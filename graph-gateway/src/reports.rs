@@ -38,9 +38,9 @@ pub struct IndexerRequest {
 pub struct Reporter {
     pub graph_env: String,
     pub budget: String,
-    pub client_request_topic: String,
-    pub indexer_request_topic: String,
-    pub attestation_topic: String,
+    pub client_request_topic: &'static str,
+    pub indexer_request_topic: &'static str,
+    pub attestation_topic: &'static str,
     pub write_buf: Vec<u8>,
     pub kafka_producer: rdkafka::producer::ThreadedProducer<
         rdkafka::producer::DefaultProducerContext,
@@ -51,16 +51,19 @@ pub struct Reporter {
 impl Reporter {
     pub fn create(
         graph_env: String,
-        budget: String,
-        client_request_topic: String,
-        indexer_request_topic: String,
-        attestation_topic: String,
-        kafka_config: &rdkafka::ClientConfig,
+        budget: NotNan<f64>,
+        client_request_topic: &'static str,
+        indexer_request_topic: &'static str,
+        attestation_topic: &'static str,
+        kafka_config: impl Into<rdkafka::ClientConfig>,
     ) -> anyhow::Result<mpsc::UnboundedSender<ClientRequest>> {
-        let kafka_producer = kafka_config.create().context("kafka producer error")?;
+        let kafka_producer = kafka_config
+            .into()
+            .create()
+            .context("kafka producer error")?;
         let mut reporter = Self {
             graph_env,
-            budget,
+            budget: budget.to_string(),
             client_request_topic,
             indexer_request_topic,
             attestation_topic,
@@ -228,7 +231,7 @@ impl Reporter {
             });
             serde_json::to_writer(&mut self.write_buf, &indexer_request_payload).unwrap();
             let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
-                rdkafka::producer::BaseRecord::to(&self.indexer_request_topic)
+                rdkafka::producer::BaseRecord::to(self.indexer_request_topic)
                     .payload(&self.write_buf);
             self.kafka_producer
                 .send(record)
@@ -261,7 +264,7 @@ impl Reporter {
                 .encode(&mut self.write_buf)
                 .unwrap();
                 let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
-                    rdkafka::producer::BaseRecord::to(&self.attestation_topic)
+                    rdkafka::producer::BaseRecord::to(self.attestation_topic)
                         .payload(&self.write_buf);
                 self.kafka_producer
                     .send(record)
@@ -276,7 +279,7 @@ impl Reporter {
 
         serde_json::to_writer(&mut self.write_buf, &client_request_payload).unwrap();
         let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
-            rdkafka::producer::BaseRecord::to(&self.client_request_topic).payload(&self.write_buf);
+            rdkafka::producer::BaseRecord::to(self.client_request_topic).payload(&self.write_buf);
         self.kafka_producer
             .send(record)
             .map_err(|(err, _)| err)

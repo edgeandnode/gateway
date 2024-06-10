@@ -62,6 +62,17 @@ impl ProofOfIndexingInfo {
     }
 }
 
+impl From<((DeploymentId, BlockNumber), ProofOfIndexing)> for ProofOfIndexingInfo {
+    fn from(value: ((DeploymentId, BlockNumber), ProofOfIndexing)) -> Self {
+        let ((deployment_id, block_number), proof_of_indexing) = value;
+        Self {
+            deployment_id,
+            block_number,
+            proof_of_indexing,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PublicProofOfIndexingRequest {
