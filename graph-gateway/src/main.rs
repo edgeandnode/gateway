@@ -26,17 +26,18 @@ use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
     chains::Chains,
+    exchange_rate,
     http::middleware::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
     json, logging,
-    network::{exchange_rate, indexing_performance::IndexingPerformance},
     scalar::{self, ReceiptSigner},
 };
 use graph_gateway::{
     client_query::{self, context::Context},
     indexer_client::IndexerClient,
     indexers,
+    indexing_performance::IndexingPerformance,
     network::{
         indexer_host_blocklist::load_ip_blocklist_conf,
         subgraph_client::Client as NetworkSubgraphClient, NetworkService, NetworkServiceBuilder,

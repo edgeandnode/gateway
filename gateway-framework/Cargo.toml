@@ -15,7 +15,6 @@ gateway-common = { path = "../gateway-common" }
 headers.workspace = true
 hex.workspace = true
 hickory-resolver = "0.24.1"
-indexer-selection.workspace = true
 itertools = "0.13.0"
 ipnetwork = "0.20.0"
 lazy_static = "1.4.0"
@@ -44,7 +43,7 @@ tower.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url = "2.5.0"
-parking_lot = "0.12.3"
+parking_lot.workspace = true
 
 [dev-dependencies]
 assert_matches = "1.5.0"
