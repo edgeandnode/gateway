@@ -22,7 +22,7 @@ use super::{
 };
 
 /// The minimum indexer agent version required to support Scalar TAP.
-fn min_required_indexer_agent_version_scalar_tap_support() -> &'static Version {
+fn min_required_indexer_agent_version_tap_support() -> &'static Version {
     static VERSION: OnceLock<Version> = OnceLock::new();
     VERSION.get_or_init(|| "1.0.0-alpha".parse().expect("valid version"))
 }
@@ -107,8 +107,8 @@ pub struct Indexer {
     /// The indexer's "graph node" version.
     pub graph_node_version: Version,
 
-    /// Whether the indexer supports using Scalar TAP.
-    pub scalar_tap_support: bool,
+    /// Whether the indexer supports TAP payments.
+    pub tap_support: bool,
 
     /// The indexer's indexings set.
     ///
@@ -312,15 +312,15 @@ pub fn new_from(
                 indexer.map(|info| {
                     // The indexer agent version must be greater than or equal to the minimum
                     // required version to support Scalar TAP.
-                    let indexer_scalar_tap_support = &info.indexer_agent_version
-                        >= min_required_indexer_agent_version_scalar_tap_support();
+                    let indexer_tap_support = &info.indexer_agent_version
+                        >= min_required_indexer_agent_version_tap_support();
 
                     let indexer = Indexer {
                         id: info.id,
                         url: info.url.clone(),
                         indexer_agent_version: info.indexer_agent_version.clone(),
                         graph_node_version: info.graph_node_version.clone(),
-                        scalar_tap_support: indexer_scalar_tap_support,
+                        tap_support: indexer_tap_support,
                         indexings: info.indexings.keys().copied().collect(),
                         staked_tokens: info.staked_tokens,
                     };
