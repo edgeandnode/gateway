@@ -20,7 +20,6 @@ use gateway_framework::{
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     http::middleware::RequestId,
     metrics::{with_metric, METRICS},
-    network::indexing_performance::Snapshot,
     scalar::ReceiptStatus,
 };
 use headers::ContentType;
@@ -42,8 +41,8 @@ use self::{
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     indexer_client::IndexerResponse,
-    network,
-    network::{DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
+    indexing_performance,
+    network::{self, DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
     reports,
 };
 
@@ -676,7 +675,7 @@ struct Perf {
 }
 
 fn perf(
-    snapshot: &Snapshot,
+    snapshot: &indexing_performance::Snapshot,
     block_requirements: &BlockRequirements,
     chain_head: BlockNumber,
     blocks_per_minute: u64,

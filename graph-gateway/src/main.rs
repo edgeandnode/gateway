@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     env,
     fs::read_to_string,
     io::Write as _,
@@ -22,25 +22,22 @@ use axum::{
     routing, Router,
 };
 use config::{ApiKeys, Config, ExchangeRateProvider};
-use eventuals::{EventualExt as _, Ptr};
 use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
     chains::Chains,
+    exchange_rate,
     http::middleware::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
     json, logging,
-    network::{
-        exchange_rate,
-        indexing_performance::{IndexingPerformance, Status as IndexingPerformanceStatus},
-    },
     scalar::{self, ReceiptSigner},
 };
 use graph_gateway::{
     client_query::{self, context::Context},
     indexer_client::IndexerClient,
     indexers,
+    indexing_performance::IndexingPerformance,
     network::{
         indexer_host_blocklist::load_ip_blocklist_conf,
         subgraph_client::Client as NetworkSubgraphClient, NetworkService, NetworkServiceBuilder,
@@ -115,7 +112,7 @@ async fn main() {
         )));
 
     // Initialize the network service and wait for the initial network state synchronization
-    let network = match init_network_service(
+    let mut network = match init_network_service(
         network_subgraph_client,
         config.l2_gateway.is_some(),
         http_client.clone(),
@@ -131,6 +128,7 @@ async fn main() {
             panic!("Failed to initialize the network service: {err}");
         }
     };
+    let indexing_perf = IndexingPerformance::new(network.clone());
     network.wait_until_ready().await;
 
     let legacy_signer: &'static SecretKey = Box::leak(Box::new(
@@ -159,21 +157,6 @@ async fn main() {
         USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
-    let indexing_progress_ev = network.indexings_progress().map(|progress| async move {
-        let progress = progress
-            .iter()
-            .map(|(id, latest_block)| {
-                (
-                    (id.indexer, id.deployment),
-                    IndexingPerformanceStatus {
-                        latest_block: *latest_block,
-                    },
-                )
-            })
-            .collect::<HashMap<_, _>>();
-        Ptr::new(progress)
-    });
-
     let reporter = reports::Reporter::create(
         config.graph_env_id.clone(),
         config.query_fees_target.to_string(),
@@ -193,8 +176,8 @@ async fn main() {
         l2_gateway: config.l2_gateway,
         chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
         grt_per_usd,
+        indexing_perf,
         network,
-        indexing_perf: IndexingPerformance::new(indexing_progress_ev),
         attestation_domain,
         reporter,
     };

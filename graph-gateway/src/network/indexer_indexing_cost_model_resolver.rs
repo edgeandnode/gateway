@@ -4,8 +4,7 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use eventuals::Ptr;
-use gateway_common::ttl_hash_map::TtlHashMap;
+use gateway_common::{ptr::Ptr, ttl_hash_map::TtlHashMap};
 use thegraph_core::types::DeploymentId;
 use tokio::sync::RwLock;
 use url::Url;

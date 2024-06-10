@@ -11,7 +11,6 @@ axum = { workspace = true, features = ["tokio", "http1"] }
 chrono = "0.4.38"
 cost-model.workspace = true
 custom_debug = "0.6.1"
-eventuals = "0.6.7"
 futures.workspace = true
 gateway-common = { path = "../gateway-common" }
 gateway-framework = { path = "../gateway-framework" }
@@ -24,6 +23,7 @@ ipnetwork = { version = "0.20.0", default-features = false }
 itertools = "0.13.0"
 num-traits = "0.2.18"
 ordered-float = "4.2.0"
+parking_lot.workspace = true
 prometheus = { version = "0.13", default-features = false }
 prost = "0.12.4"
 rand.workspace = true
