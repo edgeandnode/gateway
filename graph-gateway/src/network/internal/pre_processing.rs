@@ -162,10 +162,16 @@ fn into_subgraph_raw_info(subgraph: subgraph_client::types::Subgraph) -> Subgrap
     let subgraph_versions = subgraph
         .versions
         .into_iter()
-        .map(|version| {
-            let mut raw_info = into_subgraph_version_raw_info(version);
+        .filter_map(|version| {
+            let mut raw_info = match into_subgraph_version_raw_info(version) {
+                Ok(info) => info,
+                Err(err) => {
+                    tracing::debug!(subgraph = %subgraph_id, %err);
+                    return None;
+                }
+            };
             raw_info.deployment.subgraphs.insert(subgraph_id);
-            raw_info
+            Some(raw_info)
         })
         .collect::<Vec<_>>();
 
@@ -177,7 +183,9 @@ fn into_subgraph_raw_info(subgraph: subgraph_client::types::Subgraph) -> Subgrap
 }
 
 /// Convert from the fetched subgraph version information into the internal representation.
-fn into_subgraph_version_raw_info(version: SubgraphVersion) -> SubgraphVersionRawInfo {
+fn into_subgraph_version_raw_info(
+    version: SubgraphVersion,
+) -> anyhow::Result<SubgraphVersionRawInfo> {
     let deployment = version.subgraph_deployment;
 
     let deployment_allocations = deployment
@@ -191,21 +199,24 @@ fn into_subgraph_version_raw_info(version: SubgraphVersion) -> SubgraphVersionRa
 
     let deployment_id = deployment.id;
     let deployment_transferred_to_l2 = deployment.transferred_to_l2;
+    let manifest = deployment
+        .manifest
+        .ok_or_else(|| anyhow!("missing manifest"))?;
 
     let version_number = version.version;
     let version_deployment = DeploymentRawInfo {
         id: deployment_id,
         allocations: deployment_allocations,
-        manifest_network: deployment.manifest.network,
-        manifest_start_block: deployment.manifest.start_block,
+        manifest_network: manifest.network,
+        manifest_start_block: manifest.start_block,
         subgraphs: Default::default(),
         transferred_to_l2: deployment_transferred_to_l2,
     };
 
-    SubgraphVersionRawInfo {
+    Ok(SubgraphVersionRawInfo {
         version: version_number,
         deployment: version_deployment,
-    }
+    })
 }
 
 /// Convert from the fetched indexer information into the internal representation.
