@@ -202,12 +202,15 @@ fn into_subgraph_version_raw_info(
     let manifest = deployment
         .manifest
         .ok_or_else(|| anyhow!("missing manifest"))?;
+    let manifest_network = manifest
+        .network
+        .ok_or_else(|| anyhow!("manifest missing network"))?;
 
     let version_number = version.version;
     let version_deployment = DeploymentRawInfo {
         id: deployment_id,
         allocations: deployment_allocations,
-        manifest_network: manifest.network,
+        manifest_network,
         manifest_start_block: manifest.start_block,
         subgraphs: Default::default(),
         transferred_to_l2: deployment_transferred_to_l2,
