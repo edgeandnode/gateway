@@ -20,18 +20,18 @@ use crate::network::{
     indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist,
-    indexer_indexing_poi_resolver::{PoiResolver, ResolutionError as PoiResolutionError},
+    indexer_indexing_poi_resolver::{PoiResolver, ResolutionError as PoisResolutionError},
     indexer_indexing_progress_resolver::{
         IndexingProgressResolver, ResolutionError as IndexingProgressResolutionError,
     },
-    indexer_version_resolver::VersionResolver,
+    indexer_version_resolver::{ResolutionError as VersionResolutionError, VersionResolver},
 };
 
 /// The minimum version requirements for the indexer.
 #[derive(Debug, Clone)]
 pub struct VersionRequirements {
-    /// The minimum indexer agent version.
-    pub min_agent_version: Version,
+    /// The minimum indexer  version.
+    pub min_indexer_service_version: Version,
     /// The minimum graph node version.
     pub min_graph_node_version: Version,
 }
@@ -39,7 +39,7 @@ pub struct VersionRequirements {
 impl Default for VersionRequirements {
     fn default() -> Self {
         Self {
-            min_agent_version: Version::new(0, 0, 0),
+            min_indexer_service_version: Version::new(0, 0, 0),
             min_graph_node_version: Version::new(0, 0, 0),
         }
     }
@@ -89,7 +89,7 @@ pub struct IndexerInfo {
     /// The total amount of tokens staked by the indexer.
     pub staked_tokens: u128,
     /// The indexer's "indexer service" version.
-    pub indexer_agent_version: Version,
+    pub indexer_service_version: Version,
     /// The indexer's "graph node" version.
     pub graph_node_version: Version,
 
@@ -133,56 +133,38 @@ pub enum IndexerError {
 
     /// The indexer's host resolution failed.
     #[error("indexer host resolution failed: {0}")]
-    HostResolutionFailed(String),
+    HostResolutionFailed(#[from] HostResolutionError),
     /// The indexer was blocked by the host blocklist.
     #[error("indexer host blocked by blocklist")]
     BlockedByHostBlocklist,
 
-    /// The indexer's agent version resolution failed.
-    #[error("agent version resolution failed: {0}")]
-    AgentVersionResolutionFailed(String),
-    /// The indexer's agent version is below the minimum required.
-    #[error("agent version {0} below the minimum required {1}")]
-    AgentVersionBelowMin(Version, Version),
+    /// The indexer's service version resolution failed.
+    #[error("indexer service version resolution failed: {0}")]
+    IndexerServiceVersionResolutionFailed(VersionResolutionError),
+    /// The indexer's service version is below the minimum required.
+    #[error("service version {0} below the minimum required {1}")]
+    IndexerServiceVersionBelowMin(Version, Version),
 
     /// The indexer's graph node version resolution failed.
     #[error("graph-node version resolution failed: {0}")]
-    GraphNodeVersionResolutionFailed(String),
+    GraphNodeVersionResolutionFailed(VersionResolutionError),
     /// The indexer's graph node version is below the minimum required.
     #[error("graph node version {0} below the minimum required {1}")]
     GraphNodeVersionBelowMin(Version, Version),
 
     /// The indexer's indexing public POIs resolution failed.
     #[error("indexing public POIs resolution failed: {0}")]
-    IndexingPoisResolutionFailed(String),
+    IndexingPoisResolutionFailed(#[from] PoisResolutionError),
     /// All the indexer's indexings are blocked by the public POIs blocklist.
     #[error("all indexings blocked due to blocked POIs")]
     AllIndexingsBlockedByPoiBlocklist,
 
     /// The indexer's indexing progress resolution failed.
     #[error("indexing progress resolution failed: {0}")]
-    IndexingProgressResolutionFailed(String),
+    IndexingProgressResolutionFailed(#[from] IndexingProgressResolutionError),
     /// No indexing progress information was found for the indexer's deployments.
     #[error("no indexing progress information found")]
     IndexingProgressUnavailable,
-}
-
-impl From<HostResolutionError> for IndexerError {
-    fn from(err: HostResolutionError) -> Self {
-        IndexerError::HostResolutionFailed(err.to_string())
-    }
-}
-
-impl From<PoiResolutionError> for IndexerError {
-    fn from(err: PoiResolutionError) -> Self {
-        IndexerError::IndexingPoisResolutionFailed(err.to_string())
-    }
-}
-
-impl From<IndexingProgressResolutionError> for IndexerError {
-    fn from(err: IndexingProgressResolutionError) -> Self {
-        IndexerError::IndexingProgressResolutionFailed(err.to_string())
-    }
 }
 
 /// Error when processing the indexer's indexing information.
@@ -219,7 +201,7 @@ where
                 "indexer processing",
                 indexer.id = ?indexer.id,
                 indexer.url = %indexer.url,
-                indexer.agent_version = tracing::field::Empty,
+                indexer.indexer_service_version = tracing::field::Empty,
                 indexer.graph_node_version = tracing::field::Empty,
             );
             tracing::trace!(parent: &indexer_span, "processing");
@@ -253,7 +235,7 @@ where
                 //
                 // If the versions cannot be resolved or are not supported, the indexer must be
                 // marked as unhealthy
-                let (indexer_agent_version, graph_node_version) =
+                let (indexer_service_version, graph_node_version) =
                     match resolve_and_check_indexer_blocked_by_version(
                         state.as_ref(),
                         state.as_ref(),
@@ -271,8 +253,8 @@ where
                 // Update the span information with the resolved versions
                 tracing::Span::current()
                     .record(
-                        "indexer.agent_version",
-                        tracing::field::display(&indexer_agent_version),
+                        "indexer.indexer_service_version",
+                        tracing::field::display(&indexer_service_version),
                     )
                     .record(
                         "indexer.graph_node_version",
@@ -344,7 +326,7 @@ where
                     id: indexer.id,
                     url: indexer.url,
                     staked_tokens: indexer.staked_tokens,
-                    indexer_agent_version,
+                    indexer_service_version,
                     graph_node_version,
                     indexings: indexer
                         .indexings
@@ -445,17 +427,17 @@ async fn resolve_and_check_indexer_blocked_by_version(
     resolver: &VersionResolver,
     indexer: &IndexerRawInfo,
 ) -> Result<(Version, Version), IndexerError> {
-    // Resolve the indexer's agent version
-    let agent_version = resolver
-        .resolve_agent_version(&indexer.url)
+    // Resolve the indexer's service version
+    let indexer_service_version = resolver
+        .resolve_indexer_service_version(&indexer.url)
         .await
-        .map_err(|err| IndexerError::AgentVersionResolutionFailed(err.to_string()))?;
+        .map_err(IndexerError::IndexerServiceVersionResolutionFailed)?;
 
-    // Check if the indexer's agent version is supported
-    if agent_version < version_requirements.min_agent_version {
-        return Err(IndexerError::AgentVersionBelowMin(
-            agent_version,
-            version_requirements.min_agent_version.clone(),
+    // Check if the indexer's service version is supported
+    if indexer_service_version < version_requirements.min_indexer_service_version {
+        return Err(IndexerError::IndexerServiceVersionBelowMin(
+            indexer_service_version,
+            version_requirements.min_indexer_service_version.clone(),
         ));
     }
 
@@ -479,7 +461,7 @@ async fn resolve_and_check_indexer_blocked_by_version(
         ));
     }
 
-    Ok((agent_version, graph_node_version))
+    Ok((indexer_service_version, graph_node_version))
 }
 
 /// Resolve and check if any of the indexer's deployments should be blocked by POI.

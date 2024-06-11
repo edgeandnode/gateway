@@ -94,8 +94,10 @@ fn test_service_state(
         state.indexer_host_blocklist = Some(indexers_host_blocklist);
     }
 
-    if let Some((min_agent_version, min_graph_node_version)) = min_versions {
-        state.indexer_version_requirements.min_agent_version = min_agent_version;
+    if let Some((min_indexer_service_version, min_graph_node_version)) = min_versions {
+        state
+            .indexer_version_requirements
+            .min_indexer_service_version = min_indexer_service_version;
         state.indexer_version_requirements.min_graph_node_version = min_graph_node_version;
     }
 
@@ -129,7 +131,7 @@ async fn fetch_a_network_topology_update() {
         Default::default(), // No host blocklist
         // Minimum versions, different from the default values to assert the versions are set.
         Some((
-            Version::new(0, 0, 1), // Indexer agent version
+            Version::new(0, 0, 1), // Indexer service version
             Version::new(0, 0, 1), // Graph node version
         )),
     );
@@ -258,7 +260,7 @@ async fn fetch_a_network_topology_update() {
                     .values()
                     .filter_map(|indexing| indexing.as_ref().ok())
                     .all(|indexing| {
-                        indexing.indexer.indexer_agent_version >= Version::new(0, 0, 1)
+                        indexing.indexer.indexer_service_version >= Version::new(0, 0, 1)
                             && indexing.indexer.graph_node_version >= Version::new(0, 0, 1)
                     })
             }),
@@ -293,7 +295,7 @@ async fn fetch_a_network_topology_update() {
                     .values()
                     .filter_map(|indexing| indexing.as_ref().ok())
                     .all(|indexing| {
-                        indexing.indexer.indexer_agent_version >= Version::new(0, 0, 1)
+                        indexing.indexer.indexer_service_version >= Version::new(0, 0, 1)
                             && indexing.indexer.graph_node_version >= Version::new(0, 0, 1)
                     })
             }),
