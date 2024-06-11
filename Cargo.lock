@@ -1918,7 +1918,7 @@ dependencies = [
 
 [[package]]
 name = "graph-gateway"
-version = "21.2.0"
+version = "21.2.1"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -2254,12 +2254,12 @@ dependencies = [
 
 [[package]]
 name = "http-body-util"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0475f8b2ac86659c21b64320d5d653f9efe42acd2a4e560073ec61a155a34f1d"
+checksum = "793429d76616a256bcb62c2a2ec2bed781c8307e797e2598c50010f2bee2544f"
 dependencies = [
  "bytes",
- "futures-core",
+ "futures-util",
  "http 1.1.0",
  "http-body 1.0.0",
  "pin-project-lite",
@@ -2267,9 +2267,9 @@ dependencies = [
 
 [[package]]
 name = "httparse"
-version = "1.9.0"
+version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6feda4ab8376c63216ba34f883b3ebdc1b610dcb47b7bf4f4b5871323d996040"
+checksum = "9f3935c160d00ac752e09787e6e6bfc26494c2183cc922f1bc678a60d4733bc2"
 
 [[package]]
 name = "httpdate"
