@@ -21,13 +21,13 @@ pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL: Duration =
 
 /// An error that occurred while resolving the indexer's progress.
 // TODO: Differentiate deserialization errors from resolver errors
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum ResolutionError {
     /// An error occurred while fetching the indexer progress.
     ///
     /// This includes network errors, timeouts, and deserialization errors.
     #[error("fetch error: {0}")]
-    FetchError(anyhow::Error),
+    FetchError(String),
 
     /// The resolution timed out.
     #[error("timeout")]
@@ -91,7 +91,7 @@ impl IndexingProgressResolver {
         )
         .await
         .map_err(|_| ResolutionError::Timeout)?
-        .map_err(ResolutionError::FetchError)
+        .map_err(|err| ResolutionError::FetchError(err.to_string()))
     }
 
     /// Gets the cached progress information for the given indexings.

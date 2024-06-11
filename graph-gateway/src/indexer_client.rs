@@ -4,8 +4,7 @@ use gateway_framework::{
     blocks::Block,
     errors::{
         IndexerError::{self, *},
-        MissingBlockError,
-        UnavailableReason::{self, *},
+        MissingBlockError, UnavailableReason,
     },
     scalar::Receipt,
 };
@@ -44,7 +43,7 @@ impl IndexerClient {
     ) -> Result<IndexerResponse, IndexerError> {
         let url = url
             .join(&format!("subgraphs/id/{:?}", deployment))
-            .map_err(|_| Unavailable(NoStatus))?;
+            .map_err(|_| Unavailable(UnavailableReason::Internal("bad indexer url".to_string())))?;
 
         let result = self
             .client
@@ -69,11 +68,13 @@ impl IndexerClient {
         let response = match result {
             Ok(response) => response,
             Err(err) if err.is_timeout() => return Err(Timeout),
-            Err(err) => match err.status() {
-                Some(status) => return Err(BadResponse(status.as_u16().to_string())),
-                _ if err.is_connect() => return Err(BadResponse("failed to connect".to_string())),
-                _ => return Err(BadResponse(err.to_string())),
-            },
+            Err(err) => {
+                return match err.status() {
+                    Some(status) => Err(BadResponse(status.as_u16().to_string())),
+                    _ if err.is_connect() => Err(BadResponse("failed to connect".to_string())),
+                    _ => Err(BadResponse(err.to_string())),
+                }
+            }
         };
 
         #[derive(Debug, Deserialize)]

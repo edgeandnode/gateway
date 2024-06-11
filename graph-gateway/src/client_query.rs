@@ -599,7 +599,9 @@ fn build_candidates_list(
             None => {
                 candidates_errors.insert(
                     indexing_id.indexer,
-                    IndexerError::Unavailable(UnavailableReason::NoStatus),
+                    IndexerError::Unavailable(UnavailableReason::Internal(
+                        "no indexer performance info".to_string(),
+                    )),
                 );
                 continue;
             }
@@ -740,27 +742,27 @@ impl From<network::IndexingError> for IndexerError {
             network::IndexingError::Unavailable(reason) => {
                 let reason = match reason {
                     network::UnavailableReason::BlockedByAddrBlocklist => {
-                        UnavailableReason::NoStatus // TODO: Add blocked error
+                        UnavailableReason::Blocked
                     }
                     network::UnavailableReason::BlockedByHostBlocklist => {
-                        UnavailableReason::NoStatus // TODO: Add blocked error
+                        UnavailableReason::Blocked
                     }
-                    network::UnavailableReason::AgentVersionBelowMin(_, _) => {
-                        UnavailableReason::NoStatus // TODO: Add blocked error (?)
-                    }
-                    network::UnavailableReason::GraphNodeVersionBelowMin(_, _) => {
-                        UnavailableReason::NoStatus // TODO: Add blocked error (?)
+                    err @ network::UnavailableReason::IndexerServiceVersionBelowMin(_, _)
+                    | err @ network::UnavailableReason::GraphNodeVersionBelowMin(_, _) => {
+                        UnavailableReason::NotSupported(err.to_string())
                     }
                     network::UnavailableReason::IndexingBlockedByPoiBlocklist => {
-                        UnavailableReason::NoStatus // TODO: Add blocked error
+                        UnavailableReason::BlockedBadPOIs
                     }
-                    network::UnavailableReason::NoStatus(_) => UnavailableReason::NoStatus,
+                    network::UnavailableReason::StatusResolutionFailed(reason) => {
+                        UnavailableReason::NoStatus(reason)
+                    }
                 };
                 IndexerError::Unavailable(reason)
             }
             network::IndexingError::Internal(err) => {
                 tracing::error!(error = ?err, "internal error");
-                IndexerError::Unavailable(UnavailableReason::NoStatus)
+                IndexerError::Unavailable(UnavailableReason::Internal(err))
             }
         }
     }

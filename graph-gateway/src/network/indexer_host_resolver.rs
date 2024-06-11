@@ -11,7 +11,7 @@ use url::{Host, Url};
 pub const DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(1_500);
 
 /// Error that can occur during URL host resolution.
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum ResolutionError {
     /// The URL is invalid.
     ///
