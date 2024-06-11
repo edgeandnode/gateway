@@ -9,6 +9,7 @@ use std::{
 
 use alloy_primitives::{Address, BlockNumber};
 use anyhow::anyhow;
+use gateway_common::ttl_hash_map::DEFAULT_TTL;
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::types::{DeploymentId, SubgraphId};
@@ -24,21 +25,16 @@ use super::{
     indexer_host_resolver::{HostResolver, DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT},
     indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::{
-        CostModelResolver, DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_CACHE_TTL,
-        DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
+        CostModelResolver, DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
     },
     indexer_indexing_poi_blocklist::PoiBlocklist,
     indexer_indexing_poi_resolver::{
         PoiResolver, DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT,
     },
     indexer_indexing_progress_resolver::{
-        IndexingProgressResolver, DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL,
-        DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
+        IndexingProgressResolver, DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
     },
-    indexer_version_resolver::{
-        VersionResolver, DEFAULT_INDEXER_VERSION_CACHE_TTL,
-        DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
-    },
+    indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{
         fetch_update, DeploymentError, Indexing, IndexingError, IndexingId, InternalState,
         NetworkTopologySnapshot, SubgraphError, VersionRequirements as IndexerVersionRequirements,
@@ -207,18 +203,18 @@ impl NetworkServiceBuilder {
         let indexer_version_resolver = VersionResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
             DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 5 seconds
-            DEFAULT_INDEXER_VERSION_CACHE_TTL,          // 30 minutes
+            DEFAULT_TTL,
         );
         let indexer_indexing_progress_resolver =
             IndexingProgressResolver::with_timeout_and_cache_ttl(
                 indexer_client.clone(),
                 DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 25 seconds
-                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL, // 30 minutes
+                DEFAULT_TTL,
             );
         let indexer_indexing_cost_model_resolver = CostModelResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
             DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT, // 5 seconds
-            DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_CACHE_TTL, // 5 minutes
+            DEFAULT_TTL,
         );
         let indexer_indexing_cost_model_compiler = CostModelCompiler::default();
 
