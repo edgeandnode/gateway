@@ -41,7 +41,7 @@ pub mod types {
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct Manifest {
-        pub network: String,
+        pub network: Option<String>,
         #[serde_as(as = "serde_with::DisplayFromStr")]
         pub start_block: BlockNumber,
     }
