@@ -1,6 +1,6 @@
 //! Indexer versions resolver.
 //!
-//! The resolver is responsible for fetching the versions of the indexer agent and graph-node
+//! The resolver is responsible for fetching the versions of the indexer service and graph-node
 //! services. If the version takes more than the timeout to resolve, the resolver will return an
 //! error.
 //!
@@ -23,11 +23,11 @@ pub const DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT: Duration = Duration::from_
 pub const DEFAULT_INDEXER_VERSION_CACHE_TTL: Duration = Duration::from_secs(60 * 30);
 
 /// The error that can occur while resolving the indexer versions.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum ResolutionError {
     /// An error occurred while querying the indexer version.
     #[error("fetch error: {0}")]
-    FetchError(anyhow::Error),
+    FetchError(String),
 
     /// The resolution timed out.
     #[error("timeout")]
@@ -36,7 +36,7 @@ pub enum ResolutionError {
 
 /// The indexer versions resolver.
 ///
-/// The resolver is responsible for fetching the versions of the indexer agent and graph-node
+/// The resolver is responsible for fetching the versions of the indexer service and graph-node
 /// services. If the version takes more than the timeout to resolve, the resolver will return an
 /// error.
 // TODO: Cache the result with TTL in case the resolution fails.
@@ -49,13 +49,13 @@ pub struct VersionResolver {
     /// already established connections.
     client: reqwest::Client,
 
-    /// The indexer agent version resolution timeout.
-    agent_version_resolution_timeout: Duration,
+    /// The indexer service version resolution timeout.
+    indexer_service_version_resolution_timeout: Duration,
     /// The indexer graph-node version resolution timeout.
     graph_node_version_resolution_timeout: Duration,
 
-    /// Cache for the resolved indexer agent versions.
-    agent_version_cache: Arc<RwLock<TtlHashMap<String, Version>>>,
+    /// Cache for the resolved indexer service versions.
+    indexer_service_version_cache: Arc<RwLock<TtlHashMap<String, Version>>>,
     /// Cache for the resolved indexer graph-node versions.
     graph_node_version_cache: Arc<RwLock<TtlHashMap<String, Version>>>,
 }
@@ -69,9 +69,9 @@ impl VersionResolver {
     pub fn new(client: reqwest::Client) -> Self {
         Self {
             client,
-            agent_version_resolution_timeout: DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
+            indexer_service_version_resolution_timeout: DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
             graph_node_version_resolution_timeout: DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
-            agent_version_cache: Arc::new(RwLock::new(TtlHashMap::with_ttl(
+            indexer_service_version_cache: Arc::new(RwLock::new(TtlHashMap::with_ttl(
                 DEFAULT_INDEXER_VERSION_CACHE_TTL,
             ))),
             graph_node_version_cache: Arc::new(RwLock::new(TtlHashMap::with_ttl(
@@ -88,22 +88,22 @@ impl VersionResolver {
     ) -> Self {
         Self {
             client,
-            agent_version_resolution_timeout: timeout,
+            indexer_service_version_resolution_timeout: timeout,
             graph_node_version_resolution_timeout: timeout,
-            agent_version_cache: Arc::new(RwLock::new(TtlHashMap::with_ttl(cache_ttl))),
+            indexer_service_version_cache: Arc::new(RwLock::new(TtlHashMap::with_ttl(cache_ttl))),
             graph_node_version_cache: Arc::new(RwLock::new(TtlHashMap::with_ttl(cache_ttl))),
         }
     }
 
-    /// Fetches the indexer agent version from the given URL.
-    async fn fetch_agent_version(&self, url: &Url) -> Result<Version, ResolutionError> {
+    /// Fetches the indexer service version from the given URL.
+    async fn fetch_indexer_service_version(&self, url: &Url) -> Result<Version, ResolutionError> {
         tokio::time::timeout(
-            self.agent_version_resolution_timeout,
+            self.indexer_service_version_resolution_timeout,
             indexers::version::query_indexer_service_version(&self.client, url.clone()),
         )
         .await
         .map_err(|_| ResolutionError::Timeout)?
-        .map_err(ResolutionError::FetchError)
+        .map_err(|err| ResolutionError::FetchError(err.to_string()))
     }
 
     /// Fetches the indexer graph-node version from the given URL.
@@ -114,28 +114,34 @@ impl VersionResolver {
         )
         .await
         .map_err(|_| ResolutionError::Timeout)?
-        .map_err(ResolutionError::FetchError)
+        .map_err(|err| ResolutionError::FetchError(err.to_string()))
     }
 
-    /// Resolves the indexer agent version.
+    /// Resolves the indexer service version.
     ///
     /// The version resolution time is upper-bounded by the configured timeout.
-    pub async fn resolve_agent_version(&self, url: &Url) -> Result<Version, ResolutionError> {
-        let indexer_agent_version_url = indexers::version_url(url);
-        let indexer_agent_version_url_string = indexer_agent_version_url.to_string();
+    pub async fn resolve_indexer_service_version(
+        &self,
+        url: &Url,
+    ) -> Result<Version, ResolutionError> {
+        let indexer_service_version_url = indexers::version_url(url);
+        let indexer_service_version_url_string = indexer_service_version_url.to_string();
 
-        let version = match self.fetch_agent_version(&indexer_agent_version_url).await {
+        let version = match self
+            .fetch_indexer_service_version(&indexer_service_version_url)
+            .await
+        {
             Ok(version) => version,
             Err(err) => {
                 tracing::debug!(
-                    version_url = indexer_agent_version_url_string,
+                    version_url = indexer_service_version_url_string,
                     error = ?err,
-                    "indexer agent version resolution failed"
+                    "indexer service version resolution failed"
                 );
 
                 // Try to get the version from the cache, otherwise return the fetch error
-                let cache = self.agent_version_cache.read().await;
-                return if let Some(version) = cache.get(&indexer_agent_version_url_string) {
+                let cache = self.indexer_service_version_cache.read().await;
+                return if let Some(version) = cache.get(&indexer_service_version_url_string) {
                     Ok(version.clone())
                 } else {
                     Err(err)
@@ -145,8 +151,8 @@ impl VersionResolver {
 
         // Update the cache with the resolved version
         {
-            let mut cache = self.agent_version_cache.write().await;
-            cache.insert(indexer_agent_version_url_string, version.clone());
+            let mut cache = self.indexer_service_version_cache.write().await;
+            cache.insert(indexer_service_version_url_string, version.clone());
         }
 
         Ok(version)

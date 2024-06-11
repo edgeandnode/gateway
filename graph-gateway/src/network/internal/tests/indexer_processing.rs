@@ -88,7 +88,7 @@ fn test_service_state(
         indexer_host_blocklist: None,
         indexer_version_resolver,
         indexer_version_requirements: IndexerVersionRequirements {
-            min_agent_version: Version::new(0, 0, 0),
+            min_indexer_service_version: Version::new(0, 0, 0),
             min_graph_node_version: Version::new(0, 0, 0),
         },
         indexer_indexing_pois_blocklist: None,
@@ -106,8 +106,10 @@ fn test_service_state(
         state.indexer_host_blocklist = Some(indexers_host_blocklist);
     }
 
-    if let Some((min_agent_version, min_graph_node_version)) = min_versions {
-        state.indexer_version_requirements.min_agent_version = min_agent_version;
+    if let Some((min_indexer_service_version, min_graph_node_version)) = min_versions {
+        state
+            .indexer_version_requirements
+            .min_indexer_service_version = min_indexer_service_version;
         state.indexer_version_requirements.min_graph_node_version = min_graph_node_version;
     }
 
@@ -241,7 +243,7 @@ async fn block_indexer_by_host_ip_network() {
 }
 
 #[tokio::test]
-async fn block_indexer_if_agent_version_is_below_min() {
+async fn block_indexer_if_indexer_service_version_is_below_min() {
     init_test_tracing();
 
     //* Given
@@ -255,12 +257,12 @@ async fn block_indexer_if_agent_version_is_below_min() {
         indexings: Default::default(),
     };
 
-    // Set the minimum indexer agent version to block all indexers
+    // Set the minimum indexer service version to block all indexers
     let service = test_service_state(
         Default::default(), // No address blocklist
         Default::default(), // No host blocklist
         Some((
-            Version::new(999, 999, 9999), // Indexer agent version
+            Version::new(999, 999, 9999), // Indexer service version
             Version::new(0, 0, 0),        // Graph node version
         )),
     );
@@ -276,10 +278,13 @@ async fn block_indexer_if_agent_version_is_below_min() {
     //* Then
     let indexer_info = res.get(&indexer_addr).expect("indexer not found");
 
-    // Assert the test indexer is blocked due to the minimum agent version
+    // Assert the test indexer is blocked due to the minimum service version
     assert!(
-        matches!(indexer_info, Err(IndexerError::AgentVersionBelowMin(..))),
-        "indexer not marked as blocked due to agent version below min"
+        matches!(
+            indexer_info,
+            Err(IndexerError::IndexerServiceVersionBelowMin(..))
+        ),
+        "indexer not marked as blocked due to service version below min"
     );
 }
 
@@ -334,7 +339,7 @@ async fn process_indexers_info_successfully() {
         .as_ref()
         .expect("indexer information resolution failed");
 
-    // Assert the test indexer is blocked due to the minimum agent version
+    // Assert the test indexer is blocked due to the minimum service version
     assert_eq!(info.id, indexer_address);
     assert_eq!(info.url, indexer_url);
     assert_eq!(info.staked_tokens, 100_000_000_000_000_000_000_000);

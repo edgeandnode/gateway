@@ -30,7 +30,7 @@ pub const DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT: Duration = Duration:
 pub const POIS_QUERY_BATCH_SIZE: usize = 10;
 
 /// Error that can occur during POI resolution.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum ResolutionError {
     /// Resolution timed out.
     #[error("timeout")]

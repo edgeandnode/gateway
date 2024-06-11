@@ -82,18 +82,40 @@ pub enum IndexerError {
 
 #[derive(thiserror::Error, Clone, Debug)]
 pub enum UnavailableReason {
-    /// Failed to query indexer version or indexing status for the requested deployment(s).
-    #[error("no status")]
-    NoStatus,
+    /// The indexer is blocked by one of the block lists.
+    #[error("blocked")]
+    Blocked,
+
+    /// The indexer deployment was blocked since it reported a bad POI blocked by the gateway.
+    #[error("blocked: bad POI")]
+    BlockedBadPOIs,
+
+    /// The indexer version is not supported (e.g., the indexer service version is below the
+    /// minimum version required by the gateway, etc.)
+    #[error("not supported: {0}")]
+    NotSupported(String),
+
+    /// The indexer information resolution failed (e.g. the indexer failed to report the indexer
+    /// version within the expected time, the indexer failed to report the indexing progress info
+    /// within the expected time, etc.)
+    #[error("no status: {0}")]
+    NoStatus(String),
+
     /// The indexer has zero stake.
     #[error("no stake")]
     NoStake,
+
     /// The indexer's cost model did not produce a fee for the GraphQL document.
     #[error("no fee")]
     NoFee,
+
     /// The indexer did not have a block required by the query.
     #[error("{}", .0.message())]
     MissingBlock(MissingBlockError),
+
+    /// An internal error occurred.
+    #[error("internal error: {0}")]
+    Internal(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

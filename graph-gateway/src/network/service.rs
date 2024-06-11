@@ -240,9 +240,10 @@ impl NetworkServiceBuilder {
         self
     }
 
-    /// Sets the minimum agent version for indexers.
-    pub fn with_indexer_min_agent_version(mut self, version: Version) -> Self {
-        self.indexer_version_requirements.min_agent_version = version;
+    /// Sets the minimum indexer service version for indexers.
+    pub fn with_indexer_min_indexer_service_version(mut self, version: Version) -> Self {
+        self.indexer_version_requirements
+            .min_indexer_service_version = version;
         self
     }
 

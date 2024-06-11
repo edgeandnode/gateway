@@ -20,9 +20,15 @@ use super::{
     IndexerIndexingError as InternalIndexerIndexingError, IndexerIndexingError, IndexerInfo,
     SubgraphError, SubgraphInfo,
 };
+use crate::network::{
+    indexer_host_resolver::ResolutionError as HostResolutionError,
+    indexer_indexing_poi_resolver::ResolutionError as PoisResolutionError,
+    indexer_indexing_progress_resolver::ResolutionError as IndexingProgressResolutionError,
+    indexer_version_resolver::ResolutionError as VersionResolutionError,
+};
 
-/// The minimum indexer agent version required to support Scalar TAP.
-fn min_required_indexer_agent_version_tap_support() -> &'static Version {
+/// The minimum indexer service version required to support Scalar TAP.
+fn min_required_indexer_service_version_tap_support() -> &'static Version {
     static VERSION: OnceLock<Version> = OnceLock::new();
     VERSION.get_or_init(|| "1.0.0-alpha".parse().expect("valid version"))
 }
@@ -103,7 +109,7 @@ pub struct Indexer {
     pub url: Url,
 
     /// The indexer's "indexer service" version.
-    pub indexer_agent_version: Version,
+    pub indexer_service_version: Version,
     /// The indexer's "graph node" version.
     pub graph_node_version: Version,
 
@@ -188,31 +194,66 @@ impl From<InternalIndexerError> for IndexingError {
     fn from(err: InternalIndexerError) -> Self {
         IndexingError::Unavailable(match err {
             IndexerError::BlockedByAddrBlocklist => UnavailableReason::BlockedByAddrBlocklist,
-            IndexerError::HostResolutionFailed(_) => UnavailableReason::NoStatus(err.to_string()),
+            IndexerError::HostResolutionFailed(err) => {
+                tracing::debug!(error=?err, "host resolution failed");
+                let reason = match err {
+                    HostResolutionError::InvalidUrl(_) => "invalid indexer url",
+                    HostResolutionError::DnsResolutionError(_) => {
+                        "indexer url dns resolution failed"
+                    }
+                    HostResolutionError::Timeout => "indexer url dns resolution timeout",
+                };
+                UnavailableReason::StatusResolutionFailed(reason.to_string())
+            }
             IndexerError::BlockedByHostBlocklist => UnavailableReason::BlockedByHostBlocklist,
-            IndexerError::AgentVersionResolutionFailed(_) => {
-                UnavailableReason::NoStatus(err.to_string())
+            IndexerError::IndexerServiceVersionResolutionFailed(err) => {
+                tracing::debug!(error=?err, "indexer service version resolution failed");
+                let reason = match err {
+                    VersionResolutionError::FetchError(_) => {
+                        "indexer service version resolution failed"
+                    }
+                    VersionResolutionError::Timeout => "indexer service version resolution timeout",
+                };
+                UnavailableReason::StatusResolutionFailed(reason.to_string())
             }
-            IndexerError::AgentVersionBelowMin(cur, min) => {
-                UnavailableReason::AgentVersionBelowMin(cur, min)
+            IndexerError::IndexerServiceVersionBelowMin(cur, min) => {
+                UnavailableReason::IndexerServiceVersionBelowMin(cur, min)
             }
-            IndexerError::GraphNodeVersionResolutionFailed(_) => {
-                UnavailableReason::NoStatus(err.to_string())
+            IndexerError::GraphNodeVersionResolutionFailed(err) => {
+                tracing::debug!(error=?err, "graph node version resolution failed");
+                let reason = match err {
+                    VersionResolutionError::FetchError(_) => "graph node version resolution failed",
+                    VersionResolutionError::Timeout => "graph node version resolution timeout",
+                };
+                UnavailableReason::StatusResolutionFailed(reason.to_string())
             }
             IndexerError::GraphNodeVersionBelowMin(cur, min) => {
                 UnavailableReason::GraphNodeVersionBelowMin(cur, min)
             }
-            IndexerError::IndexingPoisResolutionFailed(_) => {
-                UnavailableReason::NoStatus(err.to_string())
+            IndexerError::IndexingPoisResolutionFailed(err) => {
+                tracing::debug!(error=?err, "indexing pois resolution failed");
+                let reason = match err {
+                    PoisResolutionError::Timeout => "indexing pois resolution timeout",
+                };
+                UnavailableReason::StatusResolutionFailed(reason.to_string())
             }
             IndexerError::AllIndexingsBlockedByPoiBlocklist => {
                 UnavailableReason::IndexingBlockedByPoiBlocklist
             }
-            IndexerError::IndexingProgressResolutionFailed(_) => {
-                UnavailableReason::NoStatus(err.to_string())
+            IndexerError::IndexingProgressResolutionFailed(err) => {
+                tracing::debug!(error=?err, "indexing progress resolution failed");
+                let reason = match err {
+                    IndexingProgressResolutionError::FetchError(_) => {
+                        "indexing progress resolution failed"
+                    }
+                    IndexingProgressResolutionError::Timeout => {
+                        "indexing progress resolution timeout"
+                    }
+                };
+                UnavailableReason::StatusResolutionFailed(reason.to_string())
             }
             IndexerError::IndexingProgressUnavailable => {
-                UnavailableReason::NoStatus(err.to_string())
+                UnavailableReason::StatusResolutionFailed(err.to_string())
             }
         })
     }
@@ -224,7 +265,9 @@ impl From<InternalIndexerIndexingError> for IndexingError {
             IndexerIndexingError::BlockedByPoiBlocklist => {
                 UnavailableReason::IndexingBlockedByPoiBlocklist
             }
-            IndexerIndexingError::ProgressNotFound => UnavailableReason::NoStatus(err.to_string()),
+            IndexerIndexingError::ProgressNotFound => {
+                UnavailableReason::StatusResolutionFailed(err.to_string())
+            }
         })
     }
 }
@@ -239,18 +282,18 @@ pub enum UnavailableReason {
     /// Blocked by host blocklist.
     #[error("blocked by host blocklist")]
     BlockedByHostBlocklist,
-    /// Indexer agent version is below the minimum required version.
-    #[error("indexer agent version below the minimum required version")]
-    AgentVersionBelowMin(Version, Version),
-    /// Graph node version is below the minimum required version.
-    #[error("graph node version below the minimum required version")]
+    /// Indexer service version is below the minimum required.
+    #[error("indexer service version below the minimum required")]
+    IndexerServiceVersionBelowMin(Version, Version),
+    /// Graph node version is below the minimum required.
+    #[error("graph node version below the minimum required")]
     GraphNodeVersionBelowMin(Version, Version),
     /// All indexings are blocked by the POI blocklist.
     #[error("indexing blocked by POI blocklist")]
     IndexingBlockedByPoiBlocklist,
-    /// Failed to resolve indexer information
-    #[error("no status")]
-    NoStatus(String),
+    /// Failed to resolve indexer status information
+    #[error("status info resolution failed: {0}")]
+    StatusResolutionFailed(String),
 }
 
 /// A snapshot of the network topology.
@@ -310,15 +353,15 @@ pub fn new_from(
             (
                 indexer_id,
                 indexer.map(|info| {
-                    // The indexer agent version must be greater than or equal to the minimum
+                    // The indexer service version must be greater than or equal to the minimum
                     // required version to support Scalar TAP.
-                    let indexer_tap_support = &info.indexer_agent_version
-                        >= min_required_indexer_agent_version_tap_support();
+                    let indexer_tap_support = &info.indexer_service_version
+                        >= min_required_indexer_service_version_tap_support();
 
                     let indexer = Indexer {
                         id: info.id,
                         url: info.url.clone(),
-                        indexer_agent_version: info.indexer_agent_version.clone(),
+                        indexer_service_version: info.indexer_service_version.clone(),
                         graph_node_version: info.graph_node_version.clone(),
                         tap_support: indexer_tap_support,
                         indexings: info.indexings.keys().copied().collect(),

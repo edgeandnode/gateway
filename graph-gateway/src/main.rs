@@ -393,7 +393,7 @@ fn init_network_service(
     subgraph_client: SubgraphClient,
     subgraph_client_l2_transfer_support: bool,
     indexer_http_client: reqwest::Client,
-    indexer_min_agent_version: Version,
+    indexer_min_indexer_service_version: Version,
     indexer_min_graph_node_version: Version,
     indexer_addr_blocklist: Vec<Address>,
     indexer_host_blocklist: Option<&Path>,
@@ -404,8 +404,8 @@ fn init_network_service(
 
     let mut builder = NetworkServiceBuilder::new(subgraph_client, indexer_http_client);
 
-    // Configure the minimum agent and graph node versions required by indexers
-    builder = builder.with_indexer_min_agent_version(indexer_min_agent_version);
+    // Configure the minimum  and graph node versions required by indexers
+    builder = builder.with_indexer_min_indexer_service_version(indexer_min_indexer_service_version);
     builder = builder.with_indexer_min_graph_node_version(indexer_min_graph_node_version);
 
     // Configure the address-based blocklist for indexers
