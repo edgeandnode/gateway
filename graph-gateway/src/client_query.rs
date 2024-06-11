@@ -738,6 +738,7 @@ impl From<network::IndexingError> for IndexerError {
     fn from(err: network::IndexingError) -> Self {
         match err {
             network::IndexingError::Unavailable(reason) => {
+                tracing::debug!(unavailable_reason = ?reason);
                 let reason = match reason {
                     network::UnavailableReason::BlockedByAddrBlocklist => {
                         UnavailableReason::NoStatus // TODO: Add blocked error
