@@ -9,7 +9,10 @@ use thegraph_core::types::DeploymentId;
 use tokio::sync::RwLock;
 use url::Url;
 
-use crate::{indexers, indexers::cost_models::CostModelSource};
+use crate::{
+    indexers,
+    indexers::cost_models::{CostModelSource, Error as IndexerCostModelFetchError},
+};
 
 /// The default timeout for the indexer indexings' cost model resolution.
 pub const DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
@@ -25,7 +28,7 @@ pub const DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_CACHE_TTL: Duration =
 pub enum ResolutionError {
     /// Cost model fetch failed.
     #[error("fetch error: {0}")]
-    FetchError(anyhow::Error),
+    FetchError(#[from] IndexerCostModelFetchError),
 
     /// Resolution timed out.
     #[error("timeout")]
@@ -73,8 +76,7 @@ impl CostModelResolver {
         let indexer_cost_url = indexers::cost_url(url);
         tokio::time::timeout(
             self.timeout,
-            // TODO: Handle the different errors once the indexers client module reports them
-            indexers::cost_models::query(&self.client, indexer_cost_url, indexings),
+            indexers::cost_models::send_request(&self.client, indexer_cost_url, indexings),
         )
         .await
         .map_err(|_| ResolutionError::Timeout)?

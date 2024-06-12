@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use assert_matches::assert_matches;
 use graph_gateway::{indexers, indexers::cost_models};
 use tokio::time::timeout;
 use url::Url;
@@ -15,7 +14,7 @@ fn test_indexer_url() -> Url {
 
 #[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
 #[tokio::test]
-async fn query_indexer_cost_models() {
+async fn fetch_indexer_cost_models() {
     //* Given
     let client = reqwest::Client::new();
     let url = indexers::cost_url(test_indexer_url());
@@ -23,14 +22,13 @@ async fn query_indexer_cost_models() {
     let test_deployments = [];
 
     //* When
-    let request = cost_models::query(&client, url, &test_deployments);
-    let response = timeout(Duration::from_secs(60), request)
-        .await
-        .expect("timeout");
+    let response = timeout(
+        Duration::from_secs(60),
+        cost_models::send_request(&client, url, &test_deployments),
+    )
+    .await
+    .expect("timeout");
 
     //* Then
-    assert_matches!(response, Ok(indexing_statuses) => {
-        assert_eq!(indexing_statuses.len(), test_deployments.len());
-        assert!(test_deployments.iter().all(|deployment| indexing_statuses.iter().any(|status| &status.deployment == deployment)));
-    });
+    assert!(response.is_ok(), "Failed to query cost models");
 }
