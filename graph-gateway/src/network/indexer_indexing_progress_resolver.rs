@@ -8,7 +8,10 @@ use thegraph_core::types::DeploymentId;
 use tokio::sync::RwLock;
 use url::Url;
 
-use crate::{indexers, indexers::indexing_statuses::IndexingStatusResponse};
+use crate::{
+    indexers,
+    indexers::indexing_progress::{ChainStatus, Error as IndexingProgressFetchError},
+};
 
 /// The default timeout for the indexer's indexing progress resolution.
 pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(25);
@@ -19,6 +22,10 @@ pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT: Duration = Durat
 pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL: Duration =
     Duration::from_secs(60 * 30);
 
+/// The number of deployments indexing progress to query in a single request.
+// TODO: Change visibility once integration tests are moved
+pub const INDEXINGS_PER_REQUEST_BATCH_SIZE: usize = 100;
+
 /// An error that occurred while resolving the indexer's progress.
 // TODO: Differentiate deserialization errors from resolver errors
 #[derive(Clone, Debug, thiserror::Error)]
@@ -27,7 +34,7 @@ pub enum ResolutionError {
     ///
     /// This includes network errors, timeouts, and deserialization errors.
     #[error("fetch error: {0}")]
-    FetchError(String),
+    FetchError(#[from] IndexingProgressFetchError),
 
     /// The resolution timed out.
     #[error("timeout")]
@@ -82,16 +89,23 @@ impl IndexingProgressResolver {
         &self,
         url: &Url,
         indexings: &[DeploymentId],
-    ) -> Result<Vec<IndexingStatusResponse>, ResolutionError> {
+    ) -> Result<
+        HashMap<DeploymentId, Result<Vec<ChainStatus>, IndexingProgressFetchError>>,
+        ResolutionError,
+    > {
         let indexer_status_url = indexers::status_url(url);
         tokio::time::timeout(
             self.timeout,
             // TODO: Handle the different errors once the indexers client module reports them
-            indexers::indexing_statuses::query(&self.client, indexer_status_url, indexings),
+            send_requests(
+                &self.client,
+                indexer_status_url,
+                indexings,
+                INDEXINGS_PER_REQUEST_BATCH_SIZE,
+            ),
         )
         .await
-        .map_err(|_| ResolutionError::Timeout)?
-        .map_err(|err| ResolutionError::FetchError(err.to_string()))
+        .map_err(|_| ResolutionError::Timeout)
     }
 
     /// Gets the cached progress information for the given indexings.
@@ -167,17 +181,21 @@ impl IndexingProgressResolver {
 
         let fresh_progress = fetched
             .into_iter()
-            .filter_map(|resp| {
+            .filter_map(|(deployment_id, result)| {
+                // TODO: Report the errors instead of filtering them out
+                Some((deployment_id, result.ok()?))
+            })
+            .filter_map(|(deployment_id, chains)| {
                 // Only consider the first chain status
-                let chain = resp.chains.into_iter().next()?;
+                let chain = chains.first()?;
 
                 // If the status has no chains or no latest block, skip it
-                let info_chain = chain.network;
-                let info_latest_block = chain.latest_block.map(|block| block.number)?;
+                let info_chain = chain.network.to_owned();
+                let info_latest_block = chain.latest_block.as_ref().map(|block| block.number)?;
                 let info_min_block = chain.earliest_block.as_ref().map(|block| block.number);
 
                 Some((
-                    resp.subgraph,
+                    deployment_id,
                     IndexingProgressInfo {
                         chain: info_chain,
                         latest_block: info_latest_block,
@@ -222,4 +240,57 @@ impl IndexingProgressResolver {
     ) -> Result<HashMap<DeploymentId, Freshness<IndexingProgressInfo>>, ResolutionError> {
         self.resolve_with_cache(url, indexer_deployments).await
     }
+}
+
+/// Sends requests to the indexer's status URL to fetch the indexing progress of deployments.
+///
+/// Given a list of deployment IDs, the function groups them into batches of a given size and sends
+/// all requests concurrently. If one request fails, the function marks all deployments in the batch
+/// as failed. The function returns a map of deployment IDs to the indexing progress information.
+// TODO: Change visibility once integration tests are moved
+pub async fn send_requests(
+    client: &reqwest::Client,
+    status_url: Url,
+    indexings: &[DeploymentId],
+    batch_size: usize,
+) -> HashMap<DeploymentId, Result<Vec<ChainStatus>, IndexingProgressFetchError>> {
+    debug_assert_ne!(batch_size, 0, "batch size must be greater than 0");
+
+    // Group the deployments into batches of `batch_size`
+    let request_batches = indexings.chunks(batch_size);
+
+    let requests = request_batches.map(|deployments| {
+        let status_url = status_url.clone();
+        async move {
+            // Request the indexing progress of the deployments in the batch
+            let result =
+                indexers::indexing_progress::send_request(client, status_url, deployments).await;
+
+            let result = match result {
+                Err(err) => {
+                    // If the request failed, mark all deployment IDs in the batch as failed
+                    return deployments
+                        .iter()
+                        .map(|deployment_id| (*deployment_id, Err(err.clone())))
+                        .collect::<HashMap<_, _>>();
+                }
+                Ok(res) => res,
+            };
+
+            // Construct a map of deployment IDs to responses
+            result
+                .into_iter()
+                .filter(|response| {
+                    deployments.contains(&response.deployment_id) && !response.chains.is_empty()
+                })
+                .map(|response| (response.deployment_id, Ok(response.chains)))
+                .collect::<HashMap<_, _>>()
+        }
+    });
+
+    // Send all requests concurrently
+    let responses = futures::future::join_all(requests).await;
+
+    // Merge the responses into a single map
+    responses.into_iter().flatten().collect()
 }

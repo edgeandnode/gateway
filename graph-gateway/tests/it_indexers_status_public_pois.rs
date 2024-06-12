@@ -5,9 +5,8 @@ use assert_matches::assert_matches;
 use graph_gateway::{
     indexers,
     indexers::public_poi::{PublicProofOfIndexingQuery, PublicProofOfIndexingRequest},
-    network::indexer_indexing_poi_resolver::{
-        merge_queries, POIS_QUERY_BATCH_SIZE as MAX_REQUESTS_PER_QUERY,
-    },
+    network,
+    network::indexer_indexing_poi_resolver::POIS_QUERY_BATCH_SIZE as MAX_REQUESTS_PER_QUERY,
 };
 use thegraph_core::types::DeploymentId;
 use tokio::time::timeout;
@@ -111,10 +110,17 @@ async fn send_batched_queries_and_merge_results() {
         .collect::<Vec<_>>();
 
     //* When
-    let request = merge_queries(client, status_url, &pois_to_query, MAX_REQUESTS_PER_QUERY);
-    let response = timeout(Duration::from_secs(60), request)
-        .await
-        .expect("timeout");
+    let response = timeout(
+        Duration::from_secs(60),
+        network::indexer_indexing_poi_resolver::merge_queries(
+            client,
+            status_url,
+            &pois_to_query,
+            MAX_REQUESTS_PER_QUERY,
+        ),
+    )
+    .await
+    .expect("timeout");
 
     //* Then
     assert_eq!(response.len(), MAX_REQUESTS_PER_QUERY + 2);

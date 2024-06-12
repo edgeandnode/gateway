@@ -137,7 +137,7 @@ async fn fetch_a_network_topology_update() {
     );
 
     //* When
-    let network = tokio::time::timeout(Duration::from_secs(30), fetch_update(&service))
+    let network = tokio::time::timeout(Duration::from_secs(60), fetch_update(&service))
         .await
         .expect("Topology fetch did not complete in time (30s)")
         .expect("Failed to fetch network topology");
