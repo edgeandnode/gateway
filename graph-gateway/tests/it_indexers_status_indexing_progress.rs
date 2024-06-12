@@ -20,7 +20,7 @@ fn parse_deployment_id(deployment: &str) -> DeploymentId {
 
 #[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
 #[tokio::test]
-async fn request_indexing_progress() {
+async fn fetch_indexer_indexing_progress() {
     //* Given
     let client = reqwest::Client::new();
     let status_url = indexers::status_url(test_indexer_url());

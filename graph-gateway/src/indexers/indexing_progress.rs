@@ -7,6 +7,19 @@ use thegraph_graphql_http::{
     http_client::{RequestError, ReqwestExt as _, ResponseError},
 };
 
+const INDEXING_PROGRESS_QUERY_DOCUMENT: &str = indoc::indoc! {r#"
+    query indexingProgress($deployments: [String!]!) {
+        indexingStatuses(subgraphs: $deployments) {
+            deploymentId: subgraph
+            chains {
+                network
+                latestBlock { number }
+                earliestBlock { number }
+            }
+        }
+    }
+"#};
+
 /// Errors that can occur while fetching the indexing progress.
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum Error {
@@ -25,24 +38,11 @@ pub enum Error {
     EmptyResponse,
 }
 
-const INDEXING_PROGRESS_QUERY_DOCUMENT: &str = indoc::indoc! {r#"
-    query indexingProgress($deployments: [String!]!) {
-        indexingStatuses(subgraphs: $deployments) {
-            deploymentId: subgraph
-            chains {
-                network
-                latestBlock { number }
-                earliestBlock { number }
-            }
-        }
-    }
-"#};
-
 /// Send a request to the indexer to get the indexing status of the given deployments.
-pub async fn send_request<'a>(
+pub async fn send_request(
     client: &reqwest::Client,
     status_url: reqwest::Url,
-    deployments: impl IntoIterator<Item = &'a DeploymentId>,
+    deployments: impl IntoIterator<Item = &DeploymentId>,
 ) -> Result<Vec<IndexingStatusResponse>, Error> {
     let resp = client
         .post(status_url)

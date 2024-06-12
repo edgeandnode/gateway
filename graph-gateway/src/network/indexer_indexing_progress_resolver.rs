@@ -27,7 +27,6 @@ pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL: Duration =
 pub const INDEXINGS_PER_REQUEST_BATCH_SIZE: usize = 100;
 
 /// An error that occurred while resolving the indexer's progress.
-// TODO: Differentiate deserialization errors from resolver errors
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ResolutionError {
     /// An error occurred while fetching the indexer progress.
@@ -96,7 +95,6 @@ impl IndexingProgressResolver {
         let indexer_status_url = indexers::status_url(url);
         tokio::time::timeout(
             self.timeout,
-            // TODO: Handle the different errors once the indexers client module reports them
             send_requests(
                 &self.client,
                 indexer_status_url,
