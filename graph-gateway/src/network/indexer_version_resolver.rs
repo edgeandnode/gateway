@@ -162,7 +162,7 @@ impl VersionResolver {
     ///
     /// The version resolution time is upper-bounded by the configured timeout.
     pub async fn resolve_graph_node_version(&self, url: &Url) -> Result<Version, ResolutionError> {
-        let indexer_graph_node_version_url = indexers::version_url(url);
+        let indexer_graph_node_version_url = indexers::status_url(url);
         let indexer_graph_node_version_url_string = indexer_graph_node_version_url.to_string();
 
         let version = match self
