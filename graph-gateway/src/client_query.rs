@@ -294,6 +294,7 @@ async fn run_indexer_queries(
 
         (chain_head, blocks_per_minute, block_requirements)
     };
+    let allow_errors = block_requirements.allow_errors;
     tracing::debug!(chain_head, blocks_per_minute, ?block_requirements);
 
     let mut indexer_errors = IndexerErrors::default();
@@ -394,6 +395,7 @@ async fn run_indexer_queries(
                             &receipt,
                             ctx.attestation_domain,
                             &indexer_query,
+                            allow_errors,
                         )
                         .in_current_span()
                         .await;

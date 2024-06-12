@@ -40,6 +40,7 @@ impl IndexerClient {
         receipt: &Receipt,
         attestation_domain: &Eip712Domain,
         query: &str,
+        allow_errors: bool,
     ) -> Result<IndexerResponse, IndexerError> {
         let url = url
             .join(&format!("subgraphs/id/{:?}", deployment))
@@ -122,6 +123,8 @@ impl IndexerClient {
                     return Err(BadResponse(format!("bad attestation: {err}")));
                 }
             }
+            // TODO: this is a hack to workaround the indexer-service mishandling `subgraphError:allow`
+            None if allow_errors => (),
             None => {
                 let message = if !errors.is_empty() {
                     format!(

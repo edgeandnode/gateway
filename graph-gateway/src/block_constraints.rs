@@ -27,6 +27,8 @@ pub struct BlockRequirements {
     pub number_gte: Option<BlockNumber>,
     /// does the query benefit from using the latest block (contains NumberGTE or Unconstrained)
     pub latest: bool,
+    /// workaround for indexer-service mishandling `subgraphError:allow`
+    pub allow_errors: bool,
 }
 
 pub fn resolve_block_requirements(
@@ -75,10 +77,31 @@ pub fn resolve_block_requirements(
         )));
     }
 
+    let allow_errors = allow_errors(context);
     Ok(BlockRequirements {
         range: min_block.map(|min| (min, max_block.unwrap())),
         number_gte,
         latest,
+        allow_errors,
+    })
+}
+
+fn allow_errors(context: &Context) -> bool {
+    context.operations.iter().any(|o| {
+        let selection_set = match o {
+            OperationDefinition::Query(q) => &q.selection_set,
+            OperationDefinition::SelectionSet(selection_set) => selection_set,
+            OperationDefinition::Mutation(_) | OperationDefinition::Subscription(_) => {
+                return false
+            }
+        };
+        selection_set.items.iter().any(|i| match i {
+            Selection::Field(f) => f
+                .arguments
+                .iter()
+                .any(|(k, v)| (*k == "subgraphError") && (&v.to_string() == "allow")),
+            _ => false,
+        })
     })
 }
 
@@ -512,6 +535,7 @@ mod tests {
                     latest: true,
                     number_gte: None,
                     range: Some((123, 123)),
+                    allow_errors: false,
                 },
                 "{\n  bundle0: bundle(block: { hash: \"0x0000000000000000000000000000000000000000000000000000000000000000\" }, id: \"1\") {\n    ethPriceUSD\n  }\n  bundle1: bundle(block: { hash: \"0x0000000000000000000000000000000000000000000000000000000000000001\" }, id: \"1\") {\n    ethPriceUSD\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
             ),
@@ -523,6 +547,7 @@ mod tests {
                     latest: true,
                     number_gte: None,
                     range: Some((125, 125)),
+                    allow_errors: false,
                 },
                 "{\n  bundle0: bundle(block: { number: 125 }, id: \"1\") {\n    ethPriceUSD\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
             ),
@@ -532,6 +557,7 @@ mod tests {
                     latest: true,
                     number_gte: Some(125),
                     range: None,
+                    allow_errors: false,
                 },
                 "{\n  bundle(block: { number_gte: 125 }) {\n    ethPriceUSD\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
             ),
@@ -545,6 +571,7 @@ mod tests {
                     latest: true,
                     number_gte: None,
                     range: None,
+                    allow_errors: false,
                 },
                 "query GetTopSales {\n  events(block: { hash: \"0x0000000000000000000000000000000000000000000000000000000000000001\" }, where: {type: \"Sale\"}, first: 1, orderBy: value, orderDirection: desc) {\n    type\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
             ),
@@ -564,6 +591,7 @@ mod tests {
                     latest: true,
                     number_gte: None,
                     range: None,
+                    allow_errors: false,
                 },
                 "fragment Foo on Delegation {\n  id\n}\n{\n  delegations(block: { hash: \"0x0000000000000000000000000000000000000000000000000000000000000001\" }, first: 1) {\n    delegator\n    ...Foo\n  }\n  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n",
             ),
@@ -581,5 +609,11 @@ mod tests {
             assert!(Context::new(doc, "").is_ok());
             assert_eq!(doc, expected_indexer_query);
         }
+    }
+
+    #[test]
+    fn allow_errors() {
+        let query = "{ factories(subgraphError:allow) { id } }";
+        assert!(super::allow_errors(&Context::new(query, "").unwrap()));
     }
 }
