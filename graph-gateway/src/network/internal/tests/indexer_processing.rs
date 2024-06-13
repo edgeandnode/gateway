@@ -68,8 +68,7 @@ fn test_service_state(
     min_versions: Option<(Version, Version)>,
 ) -> InternalState {
     let indexers_http_client = reqwest::Client::new();
-    let indexer_host_resolver =
-        Mutex::new(HostResolver::new().expect("Failed to create host resolver"));
+    let indexer_host_resolver = HostResolver::new().expect("Failed to create host resolver");
     let indexer_version_resolver = VersionResolver::with_timeout_and_cache_ttl(
         indexers_http_client.clone(),
         DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1500 ms

@@ -63,8 +63,7 @@ fn test_service_state(
     min_versions: Option<(Version, Version)>,
 ) -> Arc<InternalState> {
     let indexers_http_client = reqwest::Client::new();
-    let indexer_host_resolver =
-        Mutex::new(HostResolver::new().expect("Failed to create host resolver"));
+    let indexer_host_resolver = HostResolver::new().expect("Failed to create host resolver");
     let indexer_version_resolver = VersionResolver::new(indexers_http_client.clone());
     let indexer_indexing_progress_resolver =
         IndexingProgressResolver::new(indexers_http_client.clone());

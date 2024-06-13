@@ -287,7 +287,7 @@ impl NetworkServiceBuilder {
     pub fn build(self) -> NetworkServicePending {
         let internal_state = InternalState {
             indexer_addr_blocklist: self.indexer_addr_blocklist,
-            indexer_host_resolver: Mutex::new(self.indexer_host_resolver),
+            indexer_host_resolver: self.indexer_host_resolver,
             indexer_host_blocklist: self.indexer_host_blocklist,
             indexer_version_requirements: self.indexer_version_requirements,
             indexer_version_resolver: self.indexer_version_resolver,
