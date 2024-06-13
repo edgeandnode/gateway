@@ -190,7 +190,7 @@ where
         + AsRef<Option<HostBlocklist>>
         + AsRef<VersionRequirements>
         + AsRef<VersionResolver>
-        + AsRef<Option<(PoiBlocklist, Mutex<PoiResolver>)>>
+        + AsRef<Option<(PoiBlocklist, PoiResolver)>>
         + AsRef<IndexingProgressResolver>
         + AsRef<(CostModelResolver, Mutex<CostModelCompiler>)>,
 {
@@ -466,7 +466,7 @@ async fn resolve_and_check_indexer_blocked_by_version(
 
 /// Resolve and check if any of the indexer's deployments should be blocked by POI.
 async fn resolve_and_check_indexer_indexings_blocked_by_poi(
-    blocklist: &Option<(PoiBlocklist, Mutex<PoiResolver>)>,
+    blocklist: &Option<(PoiBlocklist, PoiResolver)>,
     indexings: &[DeploymentId],
     indexer: &IndexerRawInfo,
 ) -> Result<HashSet<DeploymentId>, IndexerError> {
@@ -484,12 +484,9 @@ async fn resolve_and_check_indexer_indexings_blocked_by_poi(
     }
 
     // Resolve the indexer public POIs for the affected deployments
-    let poi_result = {
-        let mut pois_resolver = pois_resolver.lock().await;
-        pois_resolver
-            .resolve(&indexer.url, &indexer_affected_pois)
-            .await?
-    };
+    let poi_result = pois_resolver
+        .resolve(&indexer.url, &indexer_affected_pois)
+        .await?;
 
     // Check if any of the reported POIs are in the blocklist
     let blocklist_check_result = pois_blocklist.check(poi_result);

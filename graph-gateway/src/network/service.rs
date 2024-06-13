@@ -291,9 +291,7 @@ impl NetworkServiceBuilder {
             indexer_host_blocklist: self.indexer_host_blocklist,
             indexer_version_requirements: self.indexer_version_requirements,
             indexer_version_resolver: self.indexer_version_resolver,
-            indexer_indexing_pois_blocklist: self
-                .indexer_indexing_pois_blocklist
-                .map(|(bl, res)| (bl, Mutex::new(res))),
+            indexer_indexing_pois_blocklist: self.indexer_indexing_pois_blocklist,
             indexer_indexing_progress_resolver: self.indexer_indexing_progress_resolver,
             indexer_indexing_cost_model_resolver: (
                 self.indexer_indexing_cost_model_resolver,
