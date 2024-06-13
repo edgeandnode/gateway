@@ -17,7 +17,7 @@ pub struct InternalState {
     pub indexer_host_blocklist: Option<HostBlocklist>,
     pub indexer_version_requirements: IndexerVersionRequirements,
     pub indexer_version_resolver: VersionResolver,
-    pub indexer_indexing_pois_blocklist: Option<(PoiBlocklist, PoiResolver)>,
+    pub indexer_indexing_pois_blocklist: Option<(PoiResolver, PoiBlocklist)>,
     pub indexer_indexing_progress_resolver: IndexingProgressResolver,
     pub indexer_indexing_cost_model_resolver: (CostModelResolver, Mutex<CostModelCompiler>),
 }
@@ -52,8 +52,8 @@ impl AsRef<VersionResolver> for InternalState {
     }
 }
 
-impl AsRef<Option<(PoiBlocklist, PoiResolver)>> for InternalState {
-    fn as_ref(&self) -> &Option<(PoiBlocklist, PoiResolver)> {
+impl AsRef<Option<(PoiResolver, PoiBlocklist)>> for InternalState {
+    fn as_ref(&self) -> &Option<(PoiResolver, PoiBlocklist)> {
         &self.indexer_indexing_pois_blocklist
     }
 }

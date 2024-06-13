@@ -44,9 +44,10 @@ impl PoiBlocklist {
     /// querying the indexer for POIs if none of its deployments is affected.
     pub fn affected_pois_metadata<'a>(
         &self,
-        deployments: impl Iterator<Item = &'a DeploymentId>,
+        deployments: impl IntoIterator<Item = &'a DeploymentId>,
     ) -> Vec<(DeploymentId, BlockNumber)> {
         deployments
+            .into_iter()
             .flat_map(|deployment_id| {
                 self.blocklist
                     .get(deployment_id)

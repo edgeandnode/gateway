@@ -131,16 +131,20 @@ impl PoiResolver {
         url: &Url,
         poi_requests: &[(DeploymentId, BlockNumber)],
     ) -> Result<HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>, ResolutionError> {
-        let url_string = url.to_string();
+        let status_url = indexers::status_url(url);
+        let status_url_string = status_url.to_string();
 
-        let fetched = match self.fetch_indexer_public_pois(url, poi_requests).await {
+        let fetched = match self
+            .fetch_indexer_public_pois(&status_url, poi_requests)
+            .await
+        {
             Ok(fetched) => fetched,
             Err(err) => {
                 tracing::debug!(error=%err, "indexer public pois fetch failed");
 
                 // If the data fetch failed, return the cached data
                 // If no cached data is available, return the error
-                let cached_info = self.get_from_cache(&url_string, poi_requests);
+                let cached_info = self.get_from_cache(&status_url_string, poi_requests);
                 return if cached_info.is_empty() {
                     Err(err)
                 } else {
@@ -159,7 +163,7 @@ impl PoiResolver {
 
         // Update the cache with the fetched data, if any
         if !fresh_info.is_empty() {
-            self.update_cache(&url_string, &fresh_info);
+            self.update_cache(&status_url_string, &fresh_info);
         }
 
         // Get the cached data for the missing deployments
@@ -170,7 +174,7 @@ impl PoiResolver {
                 .filter(|meta| !poi_requests.contains(meta));
 
             // Get the cached data for the missing deployments
-            self.get_from_cache(&url_string, missing_indexings)
+            self.get_from_cache(&status_url_string, missing_indexings)
         };
 
         // Merge the fetched and cached data
