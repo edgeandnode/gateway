@@ -8,7 +8,6 @@ use assert_matches::assert_matches;
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::types::DeploymentId;
-use tokio::sync::Mutex;
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
 
@@ -90,7 +89,7 @@ fn test_service_state(
         IndexingProgressResolver::new(indexers_http_client.clone());
     let indexer_indexing_cost_model_resolver = (
         CostModelResolver::new(indexers_http_client.clone()),
-        Mutex::new(CostModelCompiler::default()),
+        CostModelCompiler::default(),
     );
 
     let mut state = InternalState {

@@ -13,10 +13,7 @@ use gateway_common::ttl_hash_map::DEFAULT_TTL;
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::types::{DeploymentId, SubgraphId};
-use tokio::{
-    sync::{watch, Mutex},
-    time::MissedTickBehavior,
-};
+use tokio::{sync::watch, time::MissedTickBehavior};
 use vec1::{vec1, Vec1};
 
 use super::{
@@ -295,7 +292,7 @@ impl NetworkServiceBuilder {
             indexer_indexing_progress_resolver: self.indexer_indexing_progress_resolver,
             indexer_indexing_cost_model_resolver: (
                 self.indexer_indexing_cost_model_resolver,
-                Mutex::new(self.indexer_indexing_cost_model_compiler),
+                self.indexer_indexing_cost_model_compiler,
             ),
         };
 
