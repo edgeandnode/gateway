@@ -3,13 +3,10 @@ use std::time::Duration;
 use alloy_primitives::BlockNumber;
 use assert_matches::assert_matches;
 use graph_gateway::{
-    indexers,
-    indexers::public_poi::{PublicProofOfIndexingQuery, PublicProofOfIndexingRequest},
-    network,
+    indexers, network,
     network::indexer_indexing_poi_resolver::POIS_QUERY_BATCH_SIZE as MAX_REQUESTS_PER_QUERY,
 };
 use thegraph_core::types::DeploymentId;
-use tokio::time::timeout;
 use url::Url;
 
 /// Test helper to get the testnet indexer url from the environment.
@@ -34,34 +31,25 @@ async fn query_indexer_public_pois() {
 
     let deployment0 = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
     let deployment1 = test_deployment_id("QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw");
-    let query = PublicProofOfIndexingQuery {
-        requests: vec![
-            PublicProofOfIndexingRequest {
-                deployment: deployment0,
-                block_number: 123,
-            },
-            PublicProofOfIndexingRequest {
-                deployment: deployment1,
-                block_number: 456,
-            },
-        ],
-    };
+    let query = [(deployment0, 123), (deployment1, 456)];
 
     //* When
-    let request = indexers::public_poi::query(client, status_url, query);
-    let response = timeout(Duration::from_secs(60), request)
-        .await
-        .expect("timeout");
+    let response = tokio::time::timeout(
+        Duration::from_secs(60),
+        indexers::public_poi::send_request(&client, status_url, &query),
+    )
+    .await
+    .expect("timeout");
 
     //* Then
     assert_matches!(response, Ok(resp) => {
-        assert_eq!(resp.public_proofs_of_indexing.len(), 2);
+        assert_eq!(resp.len(), 2);
 
-        assert_eq!(resp.public_proofs_of_indexing[0].deployment, deployment0);
-        assert_eq!(resp.public_proofs_of_indexing[0].block.number, 123);
+        assert_eq!(resp[0].deployment, deployment0);
+        assert_eq!(resp[0].block.number, 123);
 
-        assert_eq!(resp.public_proofs_of_indexing[1].deployment, deployment1);
-        assert_eq!(resp.public_proofs_of_indexing[1].block.number, 456);
+        assert_eq!(resp[1].deployment, deployment1);
+        assert_eq!(resp[1].block.number, 456);
     });
 }
 
@@ -76,20 +64,17 @@ async fn requests_over_max_requests_per_query_should_fail() {
     let status_url = indexers::status_url(test_indexer_url());
 
     let deployment = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
-    let query = PublicProofOfIndexingQuery {
-        requests: (1..=MAX_REQUESTS_PER_QUERY + 1)
-            .map(|i| PublicProofOfIndexingRequest {
-                deployment,
-                block_number: i as BlockNumber,
-            })
-            .collect(),
-    };
+    let query = (1..=MAX_REQUESTS_PER_QUERY + 1)
+        .map(|i| (deployment, i as BlockNumber))
+        .collect::<Vec<_>>();
 
     //* When
-    let request = indexers::public_poi::query(client, status_url, query);
-    let response = timeout(Duration::from_secs(60), request)
-        .await
-        .expect("timeout");
+    let response = tokio::time::timeout(
+        Duration::from_secs(60),
+        indexers::public_poi::send_request(&client, status_url, &query),
+    )
+    .await
+    .expect("timeout");
 
     //* Then
     assert!(response.is_err());
@@ -110,11 +95,11 @@ async fn send_batched_queries_and_merge_results() {
         .collect::<Vec<_>>();
 
     //* When
-    let response = timeout(
+    let response = tokio::time::timeout(
         Duration::from_secs(60),
-        network::indexer_indexing_poi_resolver::merge_queries(
-            client,
-            status_url,
+        network::indexer_indexing_poi_resolver::send_requests(
+            &client,
+            &status_url,
             &pois_to_query,
             MAX_REQUESTS_PER_QUERY,
         ),

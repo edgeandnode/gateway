@@ -5,11 +5,39 @@ use serde_with::{serde_as, DisplayFromStr};
 use thegraph_core::types::DeploymentId;
 use thegraph_graphql_http::{
     graphql::{Document, IntoDocument, IntoDocumentWithVariables},
-    http_client::ReqwestExt,
+    http_client::{RequestError, ReqwestExt, ResponseError},
 };
 use url::Url;
 
+const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = indoc! {
+    r#"query publicPois($requests: [PublicProofOfIndexingRequest!]!) {
+        publicProofsOfIndexing(requests: $requests) {
+            deployment
+            proofOfIndexing
+            block { number }
+        }
+    }"#
+};
+
 pub type ProofOfIndexing = B256;
+
+/// Errors that can occur while fetching the indexer's public POIs.
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum Error {
+    /// The request failed.
+    #[error("request error: {0}")]
+    RequestError(String),
+
+    /// Invalid response.
+    ///
+    /// The response could not be deserialized or is missing required fields.
+    #[error("invalid response: {0}")]
+    InvalidResponse(String),
+
+    /// The response did not contain any public POIs.
+    #[error("empty response")]
+    EmptyResponse,
+}
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Deserialize)]
 pub struct ProofOfIndexingInfo {
@@ -33,63 +61,85 @@ impl ProofOfIndexingInfo {
     }
 }
 
-pub async fn query(
-    client: reqwest::Client,
-    status_url: Url,
-    query: PublicProofOfIndexingQuery,
-) -> anyhow::Result<PublicProofOfIndexingResponse> {
-    let res = client.post(status_url).send_graphql(query).await;
-    match res {
-        Ok(res) => Ok(res?),
-        Err(e) => Err(anyhow::anyhow!(
-            "Error sending public proof of indexing query: {}",
-            e
-        )),
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicProofOfIndexingRequest {
+    deployment: DeploymentId,
+    block_number: BlockNumber,
+}
+
+impl From<(DeploymentId, BlockNumber)> for PublicProofOfIndexingRequest {
+    fn from((deployment, block_number): (DeploymentId, BlockNumber)) -> Self {
+        Self {
+            deployment,
+            block_number,
+        }
     }
 }
 
-pub(super) const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = indoc! {
-    r#"query ($requests: [PublicProofOfIndexingRequest!]!) {
-        publicProofsOfIndexing(requests: $requests) {
-            deployment
-            proofOfIndexing
-            block {
-                number
+/// Send a request to the indexer to get the Public POIs of the given deployment-block number pairs.
+pub async fn send_request(
+    client: &reqwest::Client,
+    status_url: Url,
+    pois: impl IntoIterator<Item = &(DeploymentId, BlockNumber)>,
+) -> Result<Vec<PublicProofOfIndexingResult>, Error> {
+    let resp = client
+        .post(status_url)
+        .send_graphql::<Response>(Request::new(pois))
+        .await
+        .map_err(|err| match err {
+            RequestError::RequestSerializationError(..) => {
+                unreachable!("request serialization should not fail")
             }
+            RequestError::RequestSendError(..) | RequestError::ResponseRecvError(..) => {
+                Error::RequestError(err.to_string())
+            }
+            RequestError::ResponseDeserializationError { .. } => {
+                Error::InvalidResponse(err.to_string())
+            }
+        })?
+        .map_err(|err| match err {
+            ResponseError::Failure { .. } => Error::RequestError(err.to_string()),
+            ResponseError::Empty => Error::EmptyResponse,
+        })?;
+
+    if resp.public_proofs_of_indexing.is_empty() {
+        return Err(Error::EmptyResponse);
+    }
+
+    Ok(resp.public_proofs_of_indexing)
+}
+
+#[derive(Clone, Debug)]
+pub struct Request {
+    document: Document,
+    var_requests: Vec<PublicProofOfIndexingRequest>,
+}
+
+impl Request {
+    pub fn new<'a>(requests: impl IntoIterator<Item = &'a (DeploymentId, BlockNumber)>) -> Self {
+        Self {
+            document: PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT.into_document(),
+            var_requests: requests.into_iter().copied().map(Into::into).collect(),
         }
-    }"#
-};
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PublicProofOfIndexingQuery {
-    pub requests: Vec<PublicProofOfIndexingRequest>,
+    }
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PublicProofOfIndexingRequest {
-    pub deployment: DeploymentId,
-    pub block_number: BlockNumber,
-}
-
-impl IntoDocumentWithVariables for PublicProofOfIndexingQuery {
-    type Variables = Self;
+impl IntoDocumentWithVariables for Request {
+    type Variables = serde_json::Value;
 
     fn into_document_with_variables(self) -> (Document, Self::Variables) {
-        debug_assert!(!self.requests.is_empty(), "Must have at least one request");
-
         (
-            PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT.into_document(),
-            self,
+            self.document,
+            serde_json::json!({ "requests": self.var_requests }),
         )
     }
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PublicProofOfIndexingResponse {
-    pub public_proofs_of_indexing: Vec<PublicProofOfIndexingResult>,
+struct Response {
+    public_proofs_of_indexing: Vec<PublicProofOfIndexingResult>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,81 +159,25 @@ pub struct PartialBlockPtr {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use thegraph_core::types::DeploymentId;
 
-    mod query {
-        use serde_json::json;
-        use thegraph_graphql_http::http::request::IntoRequestParameters;
+    use super::{ProofOfIndexing, Response};
 
-        use super::*;
-
-        #[test]
-        fn create_status_public_pois_request_params() {
-            //// Given
-            let query = PublicProofOfIndexingQuery {
-                requests: vec![
-                    PublicProofOfIndexingRequest {
-                        deployment: "QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw"
-                            .parse()
-                            .expect("Failed to parse deployment ID"),
-                        block_number: 123,
-                    },
-                    PublicProofOfIndexingRequest {
-                        deployment: "QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH"
-                            .parse()
-                            .expect("Failed to parse deployment ID"),
-                        block_number: 456,
-                    },
-                ],
-            };
-
-            //// When
-            let query = query.into_request_parameters();
-
-            //// Then
-            // Assert the query document.
-            assert_eq!(
-                query.query.as_str(),
-                PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT
-            );
-
-            // Assert the query variables.
-            assert!(matches!(
-                query.variables.get("requests"),
-                Some(serde_json::Value::Array(_))
-            ));
-
-            let var_requests = query
-                .variables
-                .get("requests")
-                .expect("Missing requests variables")
-                .as_array()
-                .expect("Invalid requests variables");
-            assert_eq!(
-                var_requests[0],
-                json!({
-                    "deployment": "QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw",
-                    "blockNumber": 123
-                })
-            );
-            assert_eq!(
-                var_requests[1],
-                json!({
-                    "deployment": "QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH",
-                    "blockNumber": 456
-                })
-            );
-        }
+    /// Test helper to create a valid `DeploymentId` instance from an arbitrary string.
+    fn parse_deployment_id(id: impl AsRef<str>) -> DeploymentId {
+        id.as_ref().parse().expect("invalid deployment id")
     }
 
-    mod response {
-        use super::*;
+    /// Test helper to create a valid `ProofOfIndexing` instance from an arbitrary string.
+    fn parse_poi(poi: impl AsRef<str>) -> ProofOfIndexing {
+        poi.as_ref().parse().expect("invalid POI")
+    }
 
-        #[test]
-        fn deserialize_public_pois_response() {
-            //// Given
-            let response = indoc! {
-                r#"{
+    #[test]
+    fn deserialize_public_pois_response() {
+        //* Given
+        let response = indoc::indoc! {
+            r#"{
                     "publicProofsOfIndexing": [
                         {
                             "deployment": "QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH",
@@ -200,40 +194,34 @@ mod tests {
                         }
                     ]
                 }"#
-            };
+        };
 
-            //// When
-            let response: PublicProofOfIndexingResponse =
-                serde_json::from_str(response).expect("Failed to deserialize response");
+        //* When
+        let response = serde_json::from_str::<Response>(response);
 
-            //// Then
-            assert_eq!(response.public_proofs_of_indexing.len(), 2);
-            assert_eq!(
-                response.public_proofs_of_indexing[0].deployment,
-                "QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH"
-                    .parse()
-                    .unwrap()
-            );
-            assert_eq!(
-                response.public_proofs_of_indexing[0].proof_of_indexing,
-                Some(
-                    "0xba8a057796a81e013789789996551bb5b2920fb9947334db956992f7098bd287"
-                        .parse()
-                        .unwrap()
-                )
-            );
-            assert_eq!(response.public_proofs_of_indexing[0].block.number, 123);
-            assert_eq!(
-                response.public_proofs_of_indexing[1].deployment,
-                "QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw"
-                    .parse()
-                    .unwrap()
-            );
-            assert_eq!(
-                response.public_proofs_of_indexing[1].proof_of_indexing,
-                None
-            );
-            assert_eq!(response.public_proofs_of_indexing[1].block.number, 456);
-        }
+        //* Then
+        let response = response.expect("deserialization failed");
+
+        assert_eq!(response.public_proofs_of_indexing.len(), 2);
+        assert_eq!(
+            response.public_proofs_of_indexing[0].deployment,
+            parse_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH")
+        );
+        assert_eq!(
+            response.public_proofs_of_indexing[0].proof_of_indexing,
+            Some(parse_poi(
+                "0xba8a057796a81e013789789996551bb5b2920fb9947334db956992f7098bd287"
+            ))
+        );
+        assert_eq!(response.public_proofs_of_indexing[0].block.number, 123);
+        assert_eq!(
+            response.public_proofs_of_indexing[1].deployment,
+            parse_deployment_id("QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw")
+        );
+        assert_eq!(
+            response.public_proofs_of_indexing[1].proof_of_indexing,
+            None
+        );
+        assert_eq!(response.public_proofs_of_indexing[1].block.number, 456);
     }
 }
