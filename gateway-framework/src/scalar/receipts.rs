@@ -1,12 +1,8 @@
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
 use ethers::{core::k256::ecdsa::SigningKey, signers::Wallet};
-use gateway_common::ttl_hash_map::TtlHashMap;
 use parking_lot::{Mutex, RwLock};
 use rand::RngCore;
 pub use receipts::QueryStatus as ReceiptStatus;
@@ -114,17 +110,17 @@ impl TapSigner {
 /// Legacy Scalar signer.
 struct LegacySigner {
     secret_key: &'static SecretKey,
-    receipt_pools: RwLock<TtlHashMap<Address, Arc<Mutex<ReceiptPool>>>>,
+    // Note: We are holding on to receipt pools indefinitely. This is acceptable, since the memory
+    // cost is minor and the typical duration of an allocation is 28 days.
+    receipt_pools: RwLock<HashMap<Address, Arc<Mutex<ReceiptPool>>>>,
 }
 
 impl LegacySigner {
     /// Creates a new `LegacySigner`.
     fn new(secret_key: &'static SecretKey) -> Self {
-        let legacy_pool_ttl = Duration::from_secs(12 * 60 * 60); // 12 hours
-
         Self {
             secret_key,
-            receipt_pools: RwLock::new(TtlHashMap::with_ttl(legacy_pool_ttl)),
+            receipt_pools: RwLock::default(),
         }
     }
 
