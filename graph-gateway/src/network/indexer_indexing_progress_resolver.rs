@@ -228,6 +228,7 @@ impl IndexingProgressResolver {
             .map(|(k, v)| (k, Freshness::Cached(v)));
         Ok(HashMap::from_iter(cached_progress.chain(fresh_progress)))
     }
+
     /// Resolves the indexing progress of the given deployments.
     ///
     /// Returns a map of deployment IDs to their indexing progress information.

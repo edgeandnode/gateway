@@ -10,7 +10,7 @@ use thegraph_graphql_http::{
 const INDEXING_PROGRESS_QUERY_DOCUMENT: &str = indoc::indoc! {r#"
     query indexingProgress($deployments: [String!]!) {
         indexingStatuses(subgraphs: $deployments) {
-            deploymentId: subgraph
+            subgraph
             chains {
                 network
                 latestBlock { number }
@@ -115,8 +115,8 @@ struct Response {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct IndexingStatusResponse {
+    #[serde(rename = "subgraph")]
     pub deployment_id: DeploymentId,
     pub chains: Vec<ChainStatus>,
 }
@@ -146,7 +146,7 @@ mod tests {
         let response = serde_json::json!({
             "indexingStatuses": [
                 {
-                    "deploymentId": "QmZTy9EJHu8rfY9QbEk3z1epmmvh5XHhT2Wqhkfbyt8k9Z",
+                    "subgraph": "QmZTy9EJHu8rfY9QbEk3z1epmmvh5XHhT2Wqhkfbyt8k9Z",
                     "chains": [
                         {
                             "network": "rinkeby",
@@ -162,7 +162,7 @@ mod tests {
                     ]
                 },
                 {
-                    "deploymentId": "QmSLQfPFcz2pKRJZUH16Sk26EFpRgdxTYGnMiKvWgKRM2a",
+                    "subgraph": "QmSLQfPFcz2pKRJZUH16Sk26EFpRgdxTYGnMiKvWgKRM2a",
                     "chains": [
                         {
                             "network": "rinkeby"
