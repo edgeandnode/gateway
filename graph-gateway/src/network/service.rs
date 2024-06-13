@@ -186,7 +186,7 @@ pub struct NetworkServiceBuilder {
     indexer_host_blocklist: Option<HostBlocklist>,
     indexer_version_requirements: IndexerVersionRequirements,
     indexer_version_resolver: VersionResolver,
-    indexer_indexing_pois_blocklist: Option<(PoiBlocklist, PoiResolver)>,
+    indexer_indexing_pois_blocklist: Option<(PoiResolver, PoiBlocklist)>,
     indexer_indexing_progress_resolver: IndexingProgressResolver,
     indexer_indexing_cost_model_resolver: CostModelResolver,
     indexer_indexing_cost_model_compiler: CostModelCompiler,
@@ -277,7 +277,7 @@ impl NetworkServiceBuilder {
         );
         let blocklist = PoiBlocklist::new(blocklist);
 
-        self.indexer_indexing_pois_blocklist = Some((blocklist, resolver));
+        self.indexer_indexing_pois_blocklist = Some((resolver, blocklist));
         self
     }
 

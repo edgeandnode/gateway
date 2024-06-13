@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, BlockNumber};
 use assert_matches::assert_matches;
 use ipnetwork::IpNetwork;
 use semver::Version;
@@ -12,20 +12,26 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
 
-use crate::network::{
-    indexer_addr_blocklist::AddrBlocklist,
-    indexer_host_blocklist::HostBlocklist,
-    indexer_host_resolver::HostResolver,
-    indexer_indexing_cost_model_compiler::CostModelCompiler,
-    indexer_indexing_cost_model_resolver::CostModelResolver,
-    indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::{
-        VersionResolver, DEFAULT_INDEXER_VERSION_CACHE_TTL,
-        DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
-    },
-    internal::{
-        indexer_processing::{self, IndexerIndexingRawInfo, IndexerRawInfo},
-        IndexerError, InternalState, VersionRequirements as IndexerVersionRequirements,
+use crate::{
+    indexers::public_poi::{ProofOfIndexing, ProofOfIndexingInfo},
+    network::{
+        indexer_addr_blocklist::AddrBlocklist,
+        indexer_host_blocklist::HostBlocklist,
+        indexer_host_resolver::HostResolver,
+        indexer_indexing_cost_model_compiler::CostModelCompiler,
+        indexer_indexing_cost_model_resolver::CostModelResolver,
+        indexer_indexing_poi_blocklist::PoiBlocklist,
+        indexer_indexing_poi_resolver::PoiResolver,
+        indexer_indexing_progress_resolver::IndexingProgressResolver,
+        indexer_version_resolver::{
+            VersionResolver, DEFAULT_INDEXER_VERSION_CACHE_TTL,
+            DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
+        },
+        internal::{
+            indexer_processing::{self, IndexerIndexingRawInfo, IndexerRawInfo},
+            IndexerError, IndexerIndexingError, InternalState,
+            VersionRequirements as IndexerVersionRequirements,
+        },
     },
 };
 
@@ -61,11 +67,17 @@ fn parse_ip_network(network: impl AsRef<str>) -> IpNetwork {
     network.as_ref().parse().expect("Invalid IP network")
 }
 
+/// Test helper to get a [`ProofOfIndexing`] from a given string.
+fn parse_poi(poi: impl AsRef<str>) -> ProofOfIndexing {
+    poi.as_ref().parse().expect("Invalid POI")
+}
+
 /// Test helper to build the service config for the tests.
 fn test_service_state(
     addr_blocklist: HashSet<Address>,
     host_blocklist: HashSet<IpNetwork>,
     min_versions: Option<(Version, Version)>,
+    pois_blocklist: HashSet<((DeploymentId, BlockNumber), ProofOfIndexing)>,
 ) -> InternalState {
     let indexers_http_client = reqwest::Client::new();
     let indexer_host_resolver = HostResolver::new().expect("Failed to create host resolver");
@@ -105,6 +117,20 @@ fn test_service_state(
         state.indexer_host_blocklist = Some(indexers_host_blocklist);
     }
 
+    if !pois_blocklist.is_empty() {
+        let pois_blocklist = pois_blocklist
+            .into_iter()
+            .map(|((deployment_id, block_number), poi)| ProofOfIndexingInfo {
+                deployment_id,
+                block_number,
+                proof_of_indexing: poi,
+            })
+            .collect();
+        let pois_blocklist = PoiBlocklist::new(pois_blocklist);
+        let pois_resolver = PoiResolver::new(indexers_http_client.clone());
+        state.indexer_indexing_pois_blocklist = Some((pois_resolver, pois_blocklist));
+    }
+
     if let Some((min_indexer_service_version, min_graph_node_version)) = min_versions {
         state
             .indexer_version_requirements
@@ -135,6 +161,7 @@ async fn block_indexer_by_address() {
         addr_blocklist,
         Default::default(), // No host blocklist
         Default::default(), // No minimum version requirements
+        Default::default(), // No POIs blocklist
     );
 
     //* When
@@ -177,6 +204,7 @@ async fn block_indexer_if_host_resolution_fails() {
         Default::default(), // No address blocklist
         Default::default(), // No host blocklist
         Default::default(), // No minimum version requirements
+        Default::default(), // No POIs blocklist
     );
 
     //* When
@@ -221,6 +249,7 @@ async fn block_indexer_by_host_ip_network() {
         Default::default(), // No address blocklist
         host_blocklist,
         Default::default(), // No minimum version requirements
+        Default::default(), // No POIs blocklist
     );
 
     //* When
@@ -264,6 +293,7 @@ async fn block_indexer_if_indexer_service_version_is_below_min() {
             Version::new(999, 999, 9999), // Indexer service version
             Version::new(0, 0, 0),        // Graph node version
         )),
+        Default::default(), // No POIs blocklist
     );
 
     //* When
@@ -287,10 +317,297 @@ async fn block_indexer_if_indexer_service_version_is_below_min() {
     );
 }
 
-// TODO: Add tests covering the POIs blocklist scenarios:
-//  - Block indexer if POIs blocklist resolution fails
-//  - Block indexer if all deployments are blocked by the POIs blocklist
-//  - Block indexing if the indexer is blocked by the POIs blocklist
+#[tokio::test]
+async fn block_indexing_if_blocked_by_pois_blocklist() {
+    init_test_tracing();
+
+    //* Given
+    // Network subgraph arbitrum v1.1.1
+    let deployment_1 = parse_deployment_id("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
+    // Network subgraph ethereum v1.1.1
+    let deployment_2 = parse_deployment_id("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
+
+    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
+    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
+    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    let indexer = IndexerRawInfo {
+        id: indexer_addr,
+        url: indexer_url,
+        staked_tokens: Default::default(),
+        indexings: HashMap::from([
+            (
+                deployment_1,
+                IndexerIndexingRawInfo {
+                    largest_allocation: Default::default(),
+                    total_allocated_tokens: 0,
+                },
+            ),
+            (
+                deployment_2,
+                IndexerIndexingRawInfo {
+                    largest_allocation: Default::default(),
+                    total_allocated_tokens: 0,
+                },
+            ),
+        ]),
+    };
+
+    // Set the POIs blocklist to block the network subgraph arbitrum v1.1.1 indexing only
+    // if the returned POI matches the faulty one
+    let faulty_poi = (
+        (deployment_1, 1337),
+        parse_poi("0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1"),
+    );
+
+    let service = test_service_state(
+        Default::default(), // No address blocklist
+        Default::default(), // No host blocklist
+        Default::default(), // No minimum version requirements
+        HashSet::from([faulty_poi]),
+    );
+
+    //* When
+    let res = tokio::time::timeout(
+        Duration::from_secs(20),
+        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+    )
+    .await
+    .expect("topology processing did not complete in time (20s)");
+
+    //* Then
+    let indexer_info = res.get(&indexer_addr).expect("indexer not found");
+
+    // Assert the indexer's indexing is blocked due to the POIs blocklist
+    let indexing = indexer_info
+        .as_ref()
+        .expect("indexer information resolution failed")
+        .indexings
+        .get(&deployment_1)
+        .expect("indexing info not found");
+
+    assert_matches!(
+        indexing,
+        Err(IndexerIndexingError::BlockedByPoiBlocklist),
+        "indexing not marked as blocked due to POIs blocklist"
+    );
+
+    // Assert the other deployment is not blocked
+    let indexing = indexer_info
+        .as_ref()
+        .expect("indexer information resolution failed")
+        .indexings
+        .get(&deployment_2)
+        .expect("indexing info not found");
+
+    assert!(indexing.is_ok(), "indexing marked as blocked");
+}
+
+#[tokio::test]
+async fn block_indexer_if_all_indexings_blocked_by_pois_blocklist() {
+    init_test_tracing();
+
+    //* Given
+    // Network subgraph arbitrum v1.1.1
+    let deployment_1 = parse_deployment_id("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
+
+    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
+    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
+    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    let indexer = IndexerRawInfo {
+        id: indexer_addr,
+        url: indexer_url,
+        staked_tokens: Default::default(),
+        indexings: HashMap::from([(
+            deployment_1,
+            IndexerIndexingRawInfo {
+                largest_allocation: Default::default(),
+                total_allocated_tokens: 0,
+            },
+        )]),
+    };
+
+    // Set the POIs blocklist to block the network subgraph arbitrum v1.1.1 indexing only
+    // if the returned POI matches the faulty one
+    let faulty_poi = (
+        (deployment_1, 1337),
+        parse_poi("0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1"),
+    );
+
+    let service = test_service_state(
+        Default::default(), // No address blocklist
+        Default::default(), // No host blocklist
+        Default::default(), // No minimum version requirements
+        HashSet::from([faulty_poi]),
+    );
+
+    //* When
+    let res = tokio::time::timeout(
+        Duration::from_secs(20),
+        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+    )
+    .await
+    .expect("topology processing did not complete in time (20s)");
+
+    //* Then
+    let indexer_info = res.get(&indexer_addr).expect("indexer not found");
+
+    assert_matches!(
+        indexer_info,
+        Err(IndexerError::AllIndexingsBlockedByPoiBlocklist),
+        "indexer not marked as blocked due to POIs blocklist"
+    );
+}
+
+#[tokio::test]
+async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
+    init_test_tracing();
+
+    //* Given
+    // Network subgraph arbitrum v1.1.1
+    let deployment_1 = parse_deployment_id("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
+    // Network subgraph ethereum v1.1.1
+    let deployment_2 = parse_deployment_id("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
+
+    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
+    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
+    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    let indexer = IndexerRawInfo {
+        id: indexer_addr,
+        url: indexer_url,
+        staked_tokens: Default::default(),
+        indexings: HashMap::from([
+            (
+                deployment_1,
+                IndexerIndexingRawInfo {
+                    largest_allocation: Default::default(),
+                    total_allocated_tokens: 0,
+                },
+            ),
+            (
+                deployment_2,
+                IndexerIndexingRawInfo {
+                    largest_allocation: Default::default(),
+                    total_allocated_tokens: 0,
+                },
+            ),
+        ]),
+    };
+
+    // Set the POIs blocklist to block the network subgraph arbitrum v1.1.1 indexing only
+    // if the returned POI matches the faulty one.
+    //
+    let faulty_poi = (
+        (deployment_1, 1337),
+        // A random POI that does not match the faulty one.
+        //
+        // The POI for block 1337 of  the network subgraph arbitrum v1.1.1 is:
+        // 0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1
+        parse_poi("0x2b7a6d4ed9fbef02c8aa817dfd9bafb126cadc0f8ebcab736e627ef6d5aab060"),
+    );
+
+    let service = test_service_state(
+        Default::default(), // No address blocklist
+        Default::default(), // No host blocklist
+        Default::default(), // No minimum version requirements
+        HashSet::from([faulty_poi]),
+    );
+
+    //* When
+    let res = tokio::time::timeout(
+        Duration::from_secs(20),
+        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+    )
+    .await
+    .expect("topology processing did not complete in time (20s)");
+
+    //* Then
+    let indexer_info = res.get(&indexer_addr).expect("indexer not found");
+
+    // Assert the indexer's indexing is blocked due to the POIs blocklist
+    let indexing = indexer_info
+        .as_ref()
+        .expect("indexer information resolution failed")
+        .indexings
+        .get(&deployment_1)
+        .expect("indexing info not found");
+
+    assert!(indexing.is_ok(), "indexing not marked as blocked");
+}
+
+#[tokio::test]
+async fn do_not_block_indexing_if_public_pois_resolution_fails() {
+    init_test_tracing();
+
+    //* Given
+    // Network subgraph arbitrum v1.1.1
+    let deployment_1 = parse_deployment_id("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
+    // Network subgraph ethereum v1.1.1
+    let deployment_2 = parse_deployment_id("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
+
+    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
+    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
+    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    let indexer = IndexerRawInfo {
+        id: indexer_addr,
+        url: indexer_url,
+        staked_tokens: Default::default(),
+        indexings: HashMap::from([
+            (
+                deployment_1,
+                IndexerIndexingRawInfo {
+                    largest_allocation: Default::default(),
+                    total_allocated_tokens: 0,
+                },
+            ),
+            (
+                deployment_2,
+                IndexerIndexingRawInfo {
+                    largest_allocation: Default::default(),
+                    total_allocated_tokens: 0,
+                },
+            ),
+        ]),
+    };
+
+    // Set the POIs blocklist to block the network subgraph arbitrum v1.1.1 indexing only
+    // if the returned POI matches the faulty one.
+    //
+    let faulty_poi = (
+        (
+            deployment_1,
+            u64::MAX, // An absurd block number that will cause the POI resolution to fail
+        ),
+        parse_poi("0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1"),
+    );
+
+    let service = test_service_state(
+        Default::default(), // No address blocklist
+        Default::default(), // No host blocklist
+        Default::default(), // No minimum version requirements
+        HashSet::from([faulty_poi]),
+    );
+
+    //* When
+    let res = tokio::time::timeout(
+        Duration::from_secs(20),
+        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+    )
+    .await
+    .expect("topology processing did not complete in time (20s)");
+
+    //* Then
+    let indexer_info = res.get(&indexer_addr).expect("indexer not found");
+
+    // Assert the indexer's indexing is blocked due to the POIs blocklist
+    let indexing = indexer_info
+        .as_ref()
+        .expect("indexer information resolution failed")
+        .indexings
+        .get(&deployment_1)
+        .expect("indexing info not found");
+
+    assert!(indexing.is_ok(), "indexing not marked as blocked");
+}
 
 #[tokio::test]
 async fn process_indexers_info_successfully() {
@@ -321,6 +638,7 @@ async fn process_indexers_info_successfully() {
         Default::default(), // No address blocklist
         Default::default(), // No host blocklist
         Default::default(), // No minimum version requirements
+        Default::default(), // No POIs blocklist
     );
 
     //* When

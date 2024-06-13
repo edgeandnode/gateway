@@ -190,7 +190,7 @@ where
         + AsRef<Option<HostBlocklist>>
         + AsRef<VersionRequirements>
         + AsRef<VersionResolver>
-        + AsRef<Option<(PoiBlocklist, PoiResolver)>>
+        + AsRef<Option<(PoiResolver, PoiBlocklist)>>
         + AsRef<IndexingProgressResolver>
         + AsRef<(CostModelResolver, Mutex<CostModelCompiler>)>,
 {
@@ -466,19 +466,19 @@ async fn resolve_and_check_indexer_blocked_by_version(
 
 /// Resolve and check if any of the indexer's deployments should be blocked by POI.
 async fn resolve_and_check_indexer_indexings_blocked_by_poi(
-    blocklist: &Option<(PoiBlocklist, PoiResolver)>,
+    blocklist: &Option<(PoiResolver, PoiBlocklist)>,
     indexings: &[DeploymentId],
     indexer: &IndexerRawInfo,
 ) -> Result<HashSet<DeploymentId>, IndexerError> {
     // If the POI blocklist was not configured, the indexer must be ALLOWED
-    let (pois_blocklist, pois_resolver) = match blocklist {
+    let (pois_resolver, pois_blocklist) = match blocklist {
         Some((blocklist, resolver)) => (blocklist, resolver),
         _ => return Ok(HashSet::new()),
     };
 
     // Get the list of affected POIs to resolve for the indexer's deployments
     // If none of the deployments are affected, the indexer must be ALLOWED
-    let indexer_affected_pois = pois_blocklist.affected_pois_metadata(indexer.indexings.keys());
+    let indexer_affected_pois = pois_blocklist.affected_pois_metadata(indexings);
     if indexer_affected_pois.is_empty() {
         return Ok(HashSet::new());
     }
