@@ -186,7 +186,7 @@ pub(super) async fn process_info<S>(
 ) -> HashMap<Address, Result<IndexerInfo, IndexerError>>
 where
     S: AsRef<Option<AddrBlocklist>>
-        + AsRef<Mutex<HostResolver>>
+        + AsRef<HostResolver>
         + AsRef<Option<HostBlocklist>>
         + AsRef<VersionRequirements>
         + AsRef<VersionResolver>
@@ -401,12 +401,12 @@ fn check_indexer_blocked_by_addr_blocklist(
 /// - If the host blocklist was not configured: the indexer is ALLOWED.
 /// - If the indexer's host is in the blocklist: the indexer is BLOCKED.
 async fn resolve_and_check_indexer_blocked_by_host_blocklist(
-    resolver: &Mutex<HostResolver>,
+    resolver: &HostResolver,
     blocklist: &Option<HostBlocklist>,
     indexer: &IndexerRawInfo,
 ) -> Result<(), IndexerError> {
     // Resolve the indexer's URL, if it fails (or times out), the indexer must be BLOCKED
-    let resolution_result = resolver.lock().await.resolve_url(&indexer.url).await?;
+    let resolution_result = resolver.resolve_url(&indexer.url).await?;
 
     // If the host blocklist was not configured, the indexer must be ALLOWED
     let host_blocklist = match blocklist {

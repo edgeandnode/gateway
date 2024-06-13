@@ -13,7 +13,7 @@ use crate::network::{
 /// Internal type holding the network service state.
 pub struct InternalState {
     pub indexer_addr_blocklist: Option<AddrBlocklist>,
-    pub indexer_host_resolver: Mutex<HostResolver>,
+    pub indexer_host_resolver: HostResolver,
     pub indexer_host_blocklist: Option<HostBlocklist>,
     pub indexer_version_requirements: IndexerVersionRequirements,
     pub indexer_version_resolver: VersionResolver,
@@ -34,8 +34,8 @@ impl AsRef<Option<AddrBlocklist>> for InternalState {
     }
 }
 
-impl AsRef<Mutex<HostResolver>> for InternalState {
-    fn as_ref(&self) -> &Mutex<HostResolver> {
+impl AsRef<HostResolver> for InternalState {
+    fn as_ref(&self) -> &HostResolver {
         &self.indexer_host_resolver
     }
 }

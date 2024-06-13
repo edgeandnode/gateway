@@ -5,6 +5,7 @@
 use std::{borrow::Borrow, collections::HashMap, net::IpAddr, time::Duration};
 
 use hickory_resolver::{error::ResolveError, TokioAsyncResolver as DnsResolver};
+use parking_lot::RwLock;
 use url::{Host, Url};
 
 /// The default timeout for the indexer host resolution.
@@ -44,7 +45,7 @@ impl ResolutionError {
 /// This resolver caches the results of host resolution to avoid repeated DNS lookups.
 pub struct HostResolver {
     inner: DnsResolver,
-    cache: HashMap<String, Result<Vec<IpAddr>, ResolutionError>>,
+    cache: RwLock<HashMap<String, Result<Vec<IpAddr>, ResolutionError>>>,
     timeout: Duration,
 }
 
@@ -72,7 +73,7 @@ impl HostResolver {
     }
 
     /// Resolve the IP address of the given domain with a timeout.
-    async fn resolve_domain(&mut self, domain: &str) -> Result<Vec<IpAddr>, ResolutionError> {
+    async fn resolve_domain(&self, domain: &str) -> Result<Vec<IpAddr>, ResolutionError> {
         tokio::time::timeout(self.timeout, self.inner.lookup_ip(domain))
             .await
             .map_err(|_| ResolutionError::Timeout)?
@@ -80,12 +81,29 @@ impl HostResolver {
             .map(FromIterator::from_iter)
     }
 
+    /// Gets the cached DNS resolution result for the given host.
+    ///
+    /// This method locks the cache in read mode and returns the cached information.
+    fn get_from_cache(&self, host: &str) -> Option<Result<Vec<IpAddr>, ResolutionError>> {
+        let cache_read = self.cache.read();
+        cache_read.get(host).cloned()
+    }
+
+    /// Updates the cache with the given DNS resolution result.
+    ///
+    /// This method locks the cache in write mode and updates the cache with the given progress
+    /// information.
+    fn update_cache(&self, host: &str, res: Result<Vec<IpAddr>, ResolutionError>) {
+        let mut cache_write = self.cache.write();
+        cache_write.insert(host.to_owned(), res);
+    }
+
     /// Resolve the IP address of the given URL.
     ///
     /// The URL is resolved to an IP address. The result is cached so that subsequent calls with the
     /// same URL will return the same result.
     pub async fn resolve_url<U: Borrow<Url>>(
-        &mut self,
+        &self,
         url: U,
     ) -> Result<Vec<IpAddr>, ResolutionError> {
         let url = url.borrow();
@@ -95,7 +113,8 @@ impl HostResolver {
         let host_str = url
             .host_str()
             .ok_or(ResolutionError::invalid_url("no host"))?;
-        let resolution = match self.cache.get(host_str).cloned() {
+
+        match self.get_from_cache(host_str) {
             Some(state) => state,
             None => {
                 // Resolve the URL IP addresses
@@ -108,12 +127,10 @@ impl HostResolver {
                 };
 
                 // Cache the result
-                self.cache.insert(host_str.to_string(), resolution.clone());
+                self.update_cache(host_str, resolution.clone());
 
                 resolution
             }
-        };
-
-        resolution
+        }
     }
 }
