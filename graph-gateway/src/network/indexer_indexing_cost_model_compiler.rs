@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use cost_model::{CompileError, CostModel};
 use gateway_common::{ptr::Ptr, ttl_hash_map::TtlHashMap};
+use parking_lot::RwLock;
 
 use crate::indexers::cost_models::CostModelSource;
 
@@ -58,7 +59,7 @@ impl From<CompileError> for CompilationError {
 
 /// Resolve the indexers' cost models sources and compile them into cost models.
 pub struct CostModelCompiler {
-    cache: TtlHashMap<CacheKey, Result<Ptr<CostModel>, CompilationError>>,
+    cache: RwLock<TtlHashMap<CacheKey, Result<Ptr<CostModel>, CompilationError>>>,
 }
 
 impl Default for CostModelCompiler {
@@ -66,7 +67,7 @@ impl Default for CostModelCompiler {
     /// time-to-live, which is 12 hours.
     fn default() -> Self {
         Self {
-            cache: TtlHashMap::with_ttl(DEFAULT_COMPILATION_CACHE_TTL),
+            cache: RwLock::new(TtlHashMap::with_ttl(DEFAULT_COMPILATION_CACHE_TTL)),
         }
     }
 }
@@ -75,7 +76,7 @@ impl CostModelCompiler {
     /// Creates a new [`CostModelCompiler`] instance with a custom compilation cache time-to-live.
     pub fn new(cache_ttl: Duration) -> Self {
         Self {
-            cache: TtlHashMap::with_ttl(cache_ttl),
+            cache: RwLock::new(TtlHashMap::with_ttl(cache_ttl)),
         }
     }
 
@@ -83,7 +84,7 @@ impl CostModelCompiler {
     ///
     /// The compilation result is cached, so if the same cost model source is compiled multiple
     /// times, the compilation result is returned from the cache.
-    pub fn compile(&mut self, src: &CostModelSource) -> Result<Ptr<CostModel>, CompilationError> {
+    pub fn compile(&self, src: &CostModelSource) -> Result<Ptr<CostModel>, CompilationError> {
         if src.model.len() > MAX_COST_MODEL_SIZE {
             return Err(CompilationError::CostModelTooLarge(src.model.len()));
         }
@@ -95,7 +96,7 @@ impl CostModelCompiler {
         };
 
         // Check the cache for the compilation result, if it exists, return it
-        if let Some(cached_result) = self.cache.get(&sources).cloned() {
+        if let Some(cached_result) = self.cache.read().get(&sources).cloned() {
             return cached_result;
         }
 
@@ -107,7 +108,7 @@ impl CostModelCompiler {
         .map(Ptr::new)
         .map_err(Into::into);
 
-        self.cache.insert(sources, result.clone());
+        self.cache.write().insert(sources, result.clone());
 
         result
     }

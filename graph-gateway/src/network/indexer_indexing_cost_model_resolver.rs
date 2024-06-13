@@ -5,8 +5,8 @@
 use std::{collections::HashMap, time::Duration};
 
 use gateway_common::{ptr::Ptr, ttl_hash_map::TtlHashMap};
+use parking_lot::RwLock;
 use thegraph_core::types::DeploymentId;
-use tokio::sync::RwLock;
 use url::Url;
 
 use crate::{
@@ -87,18 +87,18 @@ impl CostModelResolver {
     ///
     /// This method locks the cache in read mode and returns the cached data for the given URL and
     /// given indexings.
-    async fn get_from_cache(
+    fn get_from_cache<'a>(
         &self,
         url: &str,
-        indexings: impl IntoIterator<Item = &DeploymentId>,
+        keys: impl IntoIterator<Item = &'a DeploymentId>,
     ) -> HashMap<DeploymentId, Ptr<CostModelSource>> {
-        let read_cache = self.cache.read().await;
+        let read_cache = self.cache.read();
         let mut result = HashMap::new();
 
-        for deployment in indexings {
-            match read_cache.get(&(url.to_owned(), *deployment)) {
+        for key in keys {
+            match read_cache.get(&(url.to_owned(), *key)) {
                 Some(data) => {
-                    result.insert(*deployment, data.clone());
+                    result.insert(*key, data.to_owned());
                 }
                 None => continue,
             }
@@ -111,14 +111,14 @@ impl CostModelResolver {
     ///
     /// This method locks the cache in write mode and updates the cache with the given progress
     /// information.
-    async fn update_cache(
+    fn update_cache<'a>(
         &self,
         url: &str,
-        progress: &HashMap<DeploymentId, Ptr<CostModelSource>>,
+        data: impl IntoIterator<Item = (&'a DeploymentId, &'a Ptr<CostModelSource>)>,
     ) {
-        let mut write_cache = self.cache.write().await;
-        for (deployment, data) in progress.iter() {
-            write_cache.insert((url.to_owned(), *deployment), data.clone());
+        let mut write_cache = self.cache.write();
+        for (key, value) in data {
+            write_cache.insert((url.to_owned(), *key), value.clone());
         }
     }
 
@@ -140,7 +140,7 @@ impl CostModelResolver {
 
                 // If the data fetch failed, return the cached data
                 // If no cached data is available, return the error
-                let cached_progress = self.get_from_cache(&url_string, indexings).await;
+                let cached_progress = self.get_from_cache(&url_string, indexings);
                 return if cached_progress.is_empty() {
                     Err(err)
                 } else {
@@ -156,7 +156,7 @@ impl CostModelResolver {
 
         // Update the cache with the fetched data, if any
         if !fresh_sources.is_empty() {
-            self.update_cache(&url_string, &fresh_sources).await;
+            self.update_cache(&url_string, fresh_sources.iter());
         }
 
         // Get the cached data for the missing deployments
@@ -167,7 +167,7 @@ impl CostModelResolver {
                 .filter(|deployment| !indexings.contains(deployment));
 
             // Get the cached data for the missing deployments
-            self.get_from_cache(&url_string, missing_indexings).await
+            self.get_from_cache(&url_string, missing_indexings)
         };
 
         // Merge the fetched and cached data

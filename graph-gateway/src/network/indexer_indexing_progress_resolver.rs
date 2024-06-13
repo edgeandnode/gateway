@@ -4,8 +4,8 @@ use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::BlockNumber;
 use gateway_common::{caching::Freshness, ttl_hash_map::TtlHashMap};
+use parking_lot::RwLock;
 use thegraph_core::types::DeploymentId;
-use tokio::sync::RwLock;
 use url::Url;
 
 use crate::{
@@ -110,18 +110,18 @@ impl IndexingProgressResolver {
     ///
     /// This method locks the cache in read mode and returns the cached progress information for the
     /// given indexings.
-    async fn get_from_cache(
+    fn get_from_cache<'a>(
         &self,
         url: &str,
-        indexings: impl IntoIterator<Item = &DeploymentId>,
+        keys: impl IntoIterator<Item = &'a DeploymentId>,
     ) -> HashMap<DeploymentId, IndexingProgressInfo> {
-        let read_cache = self.cache.read().await;
+        let read_cache = self.cache.read();
         let mut result = HashMap::new();
 
-        for deployment in indexings {
-            match read_cache.get(&(url.to_owned(), *deployment)) {
+        for key in keys {
+            match read_cache.get(&(url.to_owned(), *key)) {
                 Some(data) => {
-                    result.insert(*deployment, data.clone());
+                    result.insert(*key, data.clone());
                 }
                 None => continue,
             }
@@ -134,14 +134,14 @@ impl IndexingProgressResolver {
     ///
     /// This method locks the cache in write mode and updates the cache with the given progress
     /// information.
-    async fn update_cache(
+    fn update_cache<'a>(
         &self,
         url: &str,
-        progress: &HashMap<DeploymentId, IndexingProgressInfo>,
+        data: impl IntoIterator<Item = (&'a DeploymentId, &'a IndexingProgressInfo)>,
     ) {
-        let mut write_cache = self.cache.write().await;
-        for (deployment, data) in progress.iter() {
-            write_cache.insert((url.to_owned(), *deployment), data.clone());
+        let mut write_cache = self.cache.write();
+        for (key, value) in data {
+            write_cache.insert((url.to_owned(), *key), value.to_owned());
         }
     }
 
@@ -165,7 +165,6 @@ impl IndexingProgressResolver {
                 // If no cached data is available, return the error
                 let cached_progress = self
                     .get_from_cache(&url_string, indexings)
-                    .await
                     .into_iter()
                     .map(|(k, v)| (k, Freshness::Cached(v)))
                     .collect::<HashMap<_, _>>();
@@ -205,7 +204,7 @@ impl IndexingProgressResolver {
 
         // Update the cache with the fetched data, if any
         if !fresh_progress.is_empty() {
-            self.update_cache(&url_string, &fresh_progress).await;
+            self.update_cache(&url_string, &fresh_progress);
         }
 
         // Get the cached data for the missing deployments
@@ -216,7 +215,7 @@ impl IndexingProgressResolver {
                 .filter(|deployment| !indexings.contains(deployment));
 
             // Get the cached data for the missing deployments
-            self.get_from_cache(&url_string, missing_indexings).await
+            self.get_from_cache(&url_string, missing_indexings)
         };
 
         // Merge the fetched and cached data

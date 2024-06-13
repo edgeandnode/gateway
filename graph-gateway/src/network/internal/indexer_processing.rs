@@ -9,7 +9,6 @@ use custom_debug::CustomDebug;
 use gateway_common::{blocklist::Blocklist as _, caching::Freshness, ptr::Ptr};
 use semver::Version;
 use thegraph_core::types::DeploymentId;
-use tokio::sync::Mutex;
 use tracing::Instrument;
 use url::Url;
 
@@ -192,7 +191,7 @@ where
         + AsRef<VersionResolver>
         + AsRef<Option<(PoiResolver, PoiBlocklist)>>
         + AsRef<IndexingProgressResolver>
-        + AsRef<(CostModelResolver, Mutex<CostModelCompiler>)>,
+        + AsRef<(CostModelResolver, CostModelCompiler)>,
 {
     let processed_info = {
         let indexers_iter_fut = indexers.into_iter().map(move |(indexer_id, indexer)| {
@@ -540,7 +539,7 @@ async fn resolve_indexer_progress(
 
 /// Resolve the indexer's cost models.
 async fn resolve_indexer_cost_models(
-    (resolver, compiler): &(CostModelResolver, Mutex<CostModelCompiler>),
+    (resolver, compiler): &(CostModelResolver, CostModelCompiler),
     indexings: &[DeploymentId],
     indexer: &IndexerRawInfo,
 ) -> Result<HashMap<DeploymentId, Ptr<CostModel>>, Infallible> {
@@ -559,21 +558,18 @@ async fn resolve_indexer_cost_models(
     };
 
     // Compile the cost model sources into cost models
-    let cost_models = {
-        let mut compiler = compiler.lock().await;
-        cost_model_sources
-            .into_iter()
-            .filter_map(
-                |(deployment, source)| match compiler.compile(source.as_ref()) {
-                    Err(err) => {
-                        tracing::debug!("cost model compilation failed: {err}");
-                        None
-                    }
-                    Ok(cost_model) => Some((deployment, cost_model)),
-                },
-            )
-            .collect()
-    };
+    let cost_models = cost_model_sources
+        .into_iter()
+        .filter_map(
+            |(deployment, source)| match compiler.compile(source.as_ref()) {
+                Err(err) => {
+                    tracing::debug!("cost model compilation failed: {err}");
+                    None
+                }
+                Ok(cost_model) => Some((deployment, cost_model)),
+            },
+        )
+        .collect();
 
     Ok(cost_models)
 }

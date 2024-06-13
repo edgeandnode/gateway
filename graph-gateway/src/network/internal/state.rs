@@ -1,5 +1,3 @@
-use tokio::sync::Mutex;
-
 use super::indexer_processing::VersionRequirements as IndexerVersionRequirements;
 use crate::network::{
     indexer_addr_blocklist::AddrBlocklist, indexer_host_blocklist::HostBlocklist,
@@ -19,7 +17,7 @@ pub struct InternalState {
     pub indexer_version_resolver: VersionResolver,
     pub indexer_indexing_pois_blocklist: Option<(PoiResolver, PoiBlocklist)>,
     pub indexer_indexing_progress_resolver: IndexingProgressResolver,
-    pub indexer_indexing_cost_model_resolver: (CostModelResolver, Mutex<CostModelCompiler>),
+    pub indexer_indexing_cost_model_resolver: (CostModelResolver, CostModelCompiler),
 }
 
 impl AsRef<IndexerVersionRequirements> for InternalState {
@@ -64,8 +62,8 @@ impl AsRef<IndexingProgressResolver> for InternalState {
     }
 }
 
-impl AsRef<(CostModelResolver, Mutex<CostModelCompiler>)> for InternalState {
-    fn as_ref(&self) -> &(CostModelResolver, Mutex<CostModelCompiler>) {
+impl AsRef<(CostModelResolver, CostModelCompiler)> for InternalState {
+    fn as_ref(&self) -> &(CostModelResolver, CostModelCompiler) {
         &self.indexer_indexing_cost_model_resolver
     }
 }

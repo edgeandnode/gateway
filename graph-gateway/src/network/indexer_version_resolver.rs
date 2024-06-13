@@ -10,8 +10,8 @@
 use std::{sync::Arc, time::Duration};
 
 use gateway_common::ttl_hash_map::TtlHashMap;
+use parking_lot::RwLock;
 use semver::Version;
-use tokio::sync::RwLock;
 use url::Url;
 
 use crate::indexers;
@@ -124,24 +124,21 @@ impl VersionResolver {
         &self,
         url: &Url,
     ) -> Result<Version, ResolutionError> {
-        let indexer_service_version_url = indexers::version_url(url);
-        let indexer_service_version_url_string = indexer_service_version_url.to_string();
+        let version_url = indexers::version_url(url);
+        let version_url_string = version_url.to_string();
 
-        let version = match self
-            .fetch_indexer_service_version(&indexer_service_version_url)
-            .await
-        {
+        let version = match self.fetch_indexer_service_version(&version_url).await {
             Ok(version) => version,
             Err(err) => {
                 tracing::debug!(
-                    version_url = indexer_service_version_url_string,
+                    version_url = version_url_string,
                     error = ?err,
                     "indexer service version resolution failed"
                 );
 
                 // Try to get the version from the cache, otherwise return the fetch error
-                let cache = self.indexer_service_version_cache.read().await;
-                return if let Some(version) = cache.get(&indexer_service_version_url_string) {
+                let cache = self.indexer_service_version_cache.read();
+                return if let Some(version) = cache.get(&version_url_string) {
                     Ok(version.clone())
                 } else {
                     Err(err)
@@ -151,8 +148,8 @@ impl VersionResolver {
 
         // Update the cache with the resolved version
         {
-            let mut cache = self.indexer_service_version_cache.write().await;
-            cache.insert(indexer_service_version_url_string, version.clone());
+            let mut cache = self.indexer_service_version_cache.write();
+            cache.insert(version_url_string, version.clone());
         }
 
         Ok(version)
@@ -162,24 +159,21 @@ impl VersionResolver {
     ///
     /// The version resolution time is upper-bounded by the configured timeout.
     pub async fn resolve_graph_node_version(&self, url: &Url) -> Result<Version, ResolutionError> {
-        let indexer_graph_node_version_url = indexers::status_url(url);
-        let indexer_graph_node_version_url_string = indexer_graph_node_version_url.to_string();
+        let status_url = indexers::status_url(url);
+        let status_url_string = status_url.to_string();
 
-        let version = match self
-            .fetch_graph_node_version(&indexer_graph_node_version_url)
-            .await
-        {
+        let version = match self.fetch_graph_node_version(&status_url).await {
             Ok(version) => version,
             Err(err) => {
                 tracing::debug!(
-                    version_url = indexer_graph_node_version_url_string,
+                    version_url = status_url_string,
                     error = ?err,
                     "indexer graph-node version resolution failed"
                 );
 
                 // Try to get the version from the cache, otherwise return the fetch error
-                let cache = self.graph_node_version_cache.read().await;
-                return if let Some(version) = cache.get(&indexer_graph_node_version_url_string) {
+                let cache = self.graph_node_version_cache.read();
+                return if let Some(version) = cache.get(&status_url_string) {
                     Ok(version.clone())
                 } else {
                     Err(err)
@@ -189,8 +183,8 @@ impl VersionResolver {
 
         // Update the cache with the resolved version
         {
-            let mut cache = self.graph_node_version_cache.write().await;
-            cache.insert(indexer_graph_node_version_url_string, version.clone());
+            let mut cache = self.graph_node_version_cache.write();
+            cache.insert(status_url_string, version.clone());
         }
 
         Ok(version)
