@@ -4,19 +4,32 @@
 
 - This document assumes logs can be filtered using [Loki LogQL](https://grafana.com/docs/loki/latest/query/log_queries/). See [logs.md](./logs.md) for a list of the log fields available.
 
-- This doc uses the [ENS Governance subgraph](https://thegraph.com/explorer/subgraphs/GyijYxW9yiSRcEd5u2gfquSvneQKi5QuvU3WZgFyfFSn?view=Overview&chain=arbitrum-one) for examples:
-  - `subgraph_id: GyijYxW9yiSRcEd5u2gfquSvneQKi5QuvU3WZgFyfFSn`
-  - `deployment_id: QmeBPZyEeaHyZAiFS2Q7cT3CESS49hhgGuT3E9S8RYoHNm`
+- This doc uses the [Graph Network Arbitrum subgraph](https://thegraph.com/explorer/subgraphs/DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp?view=About&chain=arbitrum-one) for examples:
+  - `subgraph_id: DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp`
+  - `deployment_id: QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY`
+
+## Common Log Queries
+
+- `|= "client_request" |= "result" != "Ok"`
+- `|= "indexer_request" |= "result" != "Ok"`
+- `|= "client_request" |= "indexer_errors" != "{}"`
 
 ## Scenarios
 
 ### No Indexer Available to Serve Client Query
 
-- check failed queries:
+- check indexer errors:
 
-  ```jsx
-  |~ "GyijYxW9yiSRcEd5u2gfquSvneQKi5QuvU3WZgFyfFSn|QmeBPZyEeaHyZAiFS2Q7cT3CESS49hhgGuT3E9S8RYoHNm"
-  |= "bad indexers"
+  ```ts
+  |~ "DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp|QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY"
+  |= "client_request" |= "indexer_errors" != "{}"
+  ```
+
+- check for failed client queries:
+
+  ```ts
+  |~ "DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp|QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY"
+  |= "client_request" |= "result" != "Ok"
   ```
 
 For indexers, note that automated allocation management might not allocate to a subgraph deployment if it doesn’t meet requirements like minimum signal.
@@ -49,10 +62,3 @@ For indexers, note that automated allocation management might not allocate to a 
 ### Other
 
 - For other scenarios, it may be useful to identify a query where some issue occurred. Then filter for all logs containing the corresponding `request_id`.
-
-- common log queries
-
-  ```jsx
-  |~ "GyijYxW9yiSRcEd5u2gfquSvneQKi5QuvU3WZgFyfFSn|QmeBPZyEeaHyZAiFS2Q7cT3CESS49hhgGuT3E9S8RYoHNm"
-  |= "client_request"
-  ```
