@@ -137,11 +137,11 @@ impl LegacySigner {
         let receipt = match receipt_pool {
             Some(pool) => {
                 let mut pool = pool.lock();
-                pool.commit(self.secret_key, 0.into())
+                pool.commit(self.secret_key, fee.into())
             }
             None => {
                 let mut pool = ReceiptPool::new(allocation.0 .0);
-                let receipt = pool.commit(self.secret_key, 0.into());
+                let receipt = pool.commit(self.secret_key, fee.into());
 
                 let mut write_guard = self.receipt_pools.write();
                 write_guard.insert(allocation, Arc::new(Mutex::new(pool)));
