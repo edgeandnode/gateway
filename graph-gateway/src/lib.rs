@@ -4,6 +4,8 @@ pub mod indexer_client;
 pub mod indexers;
 pub mod indexing_performance;
 pub mod network;
+pub mod receipts;
 pub mod reports;
 pub mod subgraph_studio;
 pub mod unattestable_errors;
+pub mod vouchers;

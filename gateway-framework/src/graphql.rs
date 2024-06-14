@@ -1,5 +1,5 @@
 use axum::http::{Response, StatusCode};
-use gateway_common::utils::http_ext::HttpBuilderExt;
+use gateway_common::http_ext::HttpBuilderExt;
 use headers::ContentType;
 use thegraph_graphql_http::http::response::{IntoError as IntoGraphqlResponseError, ResponseBody};
 

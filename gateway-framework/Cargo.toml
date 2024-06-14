@@ -5,7 +5,6 @@ version = "0.0.1"
 
 [dependencies]
 alloy-primitives.workspace = true
-alloy-sol-types.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 dashmap = "5.5.3"
@@ -13,24 +12,17 @@ ethers = "2.0.14"
 faster-hex = "0.9.0"
 gateway-common = { path = "../gateway-common" }
 headers.workspace = true
-hex.workspace = true
-hickory-resolver = "0.24.1"
 itertools = "0.13.0"
-ipnetwork = "0.20.0"
 lazy_static = "1.4.0"
 ordered-float = "4.2.0"
 pin-project = "1.1.5"
-primitive-types.workspace = true
 prometheus = "0.13.3"
 rand.workspace = true
-receipts.workspace = true
 reqwest.workspace = true
 secp256k1.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 serde_with.workspace = true
-siphasher.workspace = true
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "c179dfe" }
 thegraph-core = { workspace = true, features = [
   "subgraph-client",
   "subscriptions",

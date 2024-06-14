@@ -1,12 +1,12 @@
 use alloy_sol_types::Eip712Domain;
-use gateway_framework::{budgets::Budgeter, chains::Chains, scalar::ReceiptSigner};
+use gateway_framework::{budgets::Budgeter, chains::Chains};
 use ordered_float::NotNan;
 use tokio::sync::{mpsc, watch};
 use url::Url;
 
 use crate::{
     indexer_client::IndexerClient, indexing_performance::IndexingPerformance,
-    network::NetworkService, reports,
+    network::NetworkService, receipts::ReceiptSigner, reports,
 };
 
 #[derive(Clone)]
