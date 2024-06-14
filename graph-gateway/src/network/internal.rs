@@ -101,7 +101,7 @@ async fn fetch_and_pre_process_subgraph_info(
 
 #[cfg(test)]
 mod tests {
-    mod indexer_processing;
+    mod it_indexer_processing;
     mod pre_processing;
     mod subgraph_processing;
 }

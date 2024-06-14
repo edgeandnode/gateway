@@ -43,6 +43,22 @@ fn init_test_tracing() {
         .try_init();
 }
 
+/// Load the upgrade indexer address from the environment.
+fn upgrade_indexer_address() -> Address {
+    std::env::var("IT_TEST_UPGRADE_INDEXER_ADDRESS")
+        .expect("Missing IT_TEST_UPGRADE_INDEXER_ADDRESS")
+        .parse()
+        .expect("Invalid IT_TEST_UPGRADE_INDEXER_ADDRESS")
+}
+
+/// Load the upgrade indexer URL from the environment.
+fn upgrade_indexer_url() -> Url {
+    std::env::var("IT_TEST_UPGRADE_INDEXER_URL")
+        .expect("Missing IT_TEST_UPGRADE_INDEXER_URL")
+        .parse()
+        .expect("Invalid IT_TEST_UPGRADE_INDEXER_URL")
+}
+
 /// Test helper to get an [`Address`] from a given string.
 fn parse_address(addr: impl AsRef<str>) -> Address {
     addr.as_ref().parse().expect("Invalid address")
@@ -140,14 +156,15 @@ fn test_service_state(
     state
 }
 
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_ADDRESS, IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn block_indexer_by_address() {
     init_test_tracing();
 
     //* Given
-    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
-    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
-    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    // The indexer info
+    let indexer_url = upgrade_indexer_url();
+    let indexer_addr = upgrade_indexer_address();
     let indexer = IndexerRawInfo {
         id: indexer_addr,
         url: indexer_url,
@@ -225,14 +242,15 @@ async fn block_indexer_if_host_resolution_fails() {
     );
 }
 
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_ADDRESS, IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn block_indexer_by_host_ip_network() {
     init_test_tracing();
 
     //* Given
-    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
-    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
-    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    // The indexer info
+    let indexer_url = upgrade_indexer_url();
+    let indexer_addr = upgrade_indexer_address();
     let indexer = IndexerRawInfo {
         id: indexer_addr,
         url: indexer_url,
@@ -269,14 +287,15 @@ async fn block_indexer_by_host_ip_network() {
     );
 }
 
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_ADDRESS, IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn block_indexer_if_indexer_service_version_is_below_min() {
     init_test_tracing();
 
     //* Given
-    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
-    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
-    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    // The indexer info
+    let indexer_url = upgrade_indexer_url();
+    let indexer_addr = upgrade_indexer_address();
     let indexer = IndexerRawInfo {
         id: indexer_addr,
         url: indexer_url,
@@ -316,6 +335,7 @@ async fn block_indexer_if_indexer_service_version_is_below_min() {
     );
 }
 
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_ADDRESS, IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn block_indexing_if_blocked_by_pois_blocklist() {
     init_test_tracing();
@@ -326,9 +346,9 @@ async fn block_indexing_if_blocked_by_pois_blocklist() {
     // Network subgraph ethereum v1.1.1
     let deployment_2 = parse_deployment_id("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
 
-    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
-    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
-    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    // The indexer info
+    let indexer_url = upgrade_indexer_url();
+    let indexer_addr = upgrade_indexer_address();
     let indexer = IndexerRawInfo {
         id: indexer_addr,
         url: indexer_url,
@@ -401,6 +421,7 @@ async fn block_indexing_if_blocked_by_pois_blocklist() {
     assert!(indexing.is_ok(), "indexing marked as blocked");
 }
 
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_ADDRESS, IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn block_indexer_if_all_indexings_blocked_by_pois_blocklist() {
     init_test_tracing();
@@ -409,9 +430,9 @@ async fn block_indexer_if_all_indexings_blocked_by_pois_blocklist() {
     // Network subgraph arbitrum v1.1.1
     let deployment_1 = parse_deployment_id("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
 
-    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
-    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
-    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    // The indexer info
+    let indexer_url = upgrade_indexer_url();
+    let indexer_addr = upgrade_indexer_address();
     let indexer = IndexerRawInfo {
         id: indexer_addr,
         url: indexer_url,
@@ -457,6 +478,7 @@ async fn block_indexer_if_all_indexings_blocked_by_pois_blocklist() {
     );
 }
 
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_ADDRESS, IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
     init_test_tracing();
@@ -467,9 +489,9 @@ async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
     // Network subgraph ethereum v1.1.1
     let deployment_2 = parse_deployment_id("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
 
-    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
-    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
-    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    // The indexer info
+    let indexer_url = upgrade_indexer_url();
+    let indexer_addr = upgrade_indexer_address();
     let indexer = IndexerRawInfo {
         id: indexer_addr,
         url: indexer_url,
@@ -533,6 +555,7 @@ async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
     assert!(indexing.is_ok(), "indexing not marked as blocked");
 }
 
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_ADDRESS, IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn do_not_block_indexing_if_public_pois_resolution_fails() {
     init_test_tracing();
@@ -543,9 +566,9 @@ async fn do_not_block_indexing_if_public_pois_resolution_fails() {
     // Network subgraph ethereum v1.1.1
     let deployment_2 = parse_deployment_id("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
 
-    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
-    let indexer_addr = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
-    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    // The indexer info
+    let indexer_url = upgrade_indexer_url();
+    let indexer_addr = upgrade_indexer_address();
     let indexer = IndexerRawInfo {
         id: indexer_addr,
         url: indexer_url,
@@ -608,19 +631,20 @@ async fn do_not_block_indexing_if_public_pois_resolution_fails() {
     assert!(indexing.is_ok(), "indexing not marked as blocked");
 }
 
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_ADDRESS, IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn process_indexers_info_successfully() {
     init_test_tracing();
 
     //* Given
-    // The Indexer info for 'https://indexer.upgrade.thegraph.com/' indexer
-    let indexer_address = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
-    let indexer_url = parse_url("https://indexer.upgrade.thegraph.com/");
+    // The indexer info
+    let indexer_url = upgrade_indexer_url();
+    let indexer_addr = upgrade_indexer_address();
     let indexing_id = parse_deployment_id("QmZtNN8NbxjJ1KD5uKBYa7Gj29CT8xypSXnAmXbrLNTQgX"); // Network subgraph v1.1.0
     let indexing_largest_allocation = parse_address("0xffe9642282d9ead2db93ddb95cc3772a0ac8707c");
 
     let indexer = IndexerRawInfo {
-        id: indexer_address,
+        id: indexer_addr,
         url: indexer_url.clone(),
         staked_tokens: 100_000_000_000_000_000_000_000,
         indexings: HashMap::from([(
@@ -643,20 +667,20 @@ async fn process_indexers_info_successfully() {
     //* When
     let res = tokio::time::timeout(
         Duration::from_secs(20),
-        indexer_processing::process_info(&service, HashMap::from([(indexer_address, indexer)])),
+        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
     )
     .await
     .expect("topology processing did not complete in time (20s)");
 
     //* Then
     let info = res
-        .get(&indexer_address)
+        .get(&indexer_addr)
         .expect("indexer not found")
         .as_ref()
         .expect("indexer information resolution failed");
 
     // Assert the test indexer is blocked due to the minimum service version
-    assert_eq!(info.id, indexer_address);
+    assert_eq!(info.id, indexer_addr);
     assert_eq!(info.url, indexer_url);
     assert_eq!(info.staked_tokens, 100_000_000_000_000_000_000_000);
 

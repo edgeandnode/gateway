@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use graph_gateway::{indexers, network};
+use graph_gateway::indexers;
 use thegraph_core::types::DeploymentId;
 use tokio::time::timeout;
 
@@ -67,70 +67,6 @@ async fn fetch_indexer_indexing_progress() {
 
     assert_eq!(status2.chains.len(), 1);
     let chain = &status2.chains[0];
-    assert_eq!(chain.network, "mainnet");
-    assert_matches!(chain.latest_block, Some(ref block) => {
-        assert!(block.number > 0);
-    });
-    assert_matches!(chain.earliest_block, Some(ref block) => {
-        assert!(block.number > 0);
-    });
-}
-
-// TODO: Move test to the network module
-#[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
-#[tokio::test]
-async fn resolve_indexer_indexing_progress() {
-    //* Given
-    let client = reqwest::Client::new();
-    let status_url = indexers::status_url(test_indexer_url());
-
-    let test_deployments = [
-        parse_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH"),
-        parse_deployment_id("QmSqxfDGyGenGFPkqw9sqnYar4XgzaioVWNvhw5QQ3RB1U"),
-    ];
-
-    //* When
-    let indexing_statuses = timeout(
-        Duration::from_secs(30),
-        network::indexer_indexing_progress_resolver::send_requests(
-            &client,
-            status_url,
-            &test_deployments,
-            100,
-        ),
-    )
-    .await
-    .expect("timeout");
-
-    //* Then
-    assert_eq!(indexing_statuses.len(), 2);
-
-    // Status for the first deployment
-    let chain_status1 = indexing_statuses
-        .get(&test_deployments[0])
-        .expect("missing status for deployment 1")
-        .as_ref()
-        .expect("fetch failed");
-
-    assert_eq!(chain_status1.len(), 1);
-    let chain = &chain_status1[0];
-    assert_eq!(chain.network, "mainnet");
-    assert_matches!(chain.latest_block, Some(ref block) => {
-        assert!(block.number > 0);
-    });
-    assert_matches!(chain.earliest_block, Some(ref block) => {
-        assert!(block.number > 0);
-    });
-
-    // Status for the second deployment
-    let chain_status2 = indexing_statuses
-        .get(&test_deployments[1])
-        .expect("missing status for deployment")
-        .as_ref()
-        .expect("fetch failed");
-
-    assert_eq!(chain_status2.len(), 1);
-    let chain = &chain_status2[0];
     assert_eq!(chain.network, "mainnet");
     assert_matches!(chain.latest_block, Some(ref block) => {
         assert!(block.number > 0);

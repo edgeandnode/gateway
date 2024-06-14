@@ -42,7 +42,7 @@ pub fn miscategorized_unattestable(error: &str) -> bool {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::miscategorized_unattestable;
 
     #[test]
