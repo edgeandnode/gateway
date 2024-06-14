@@ -87,22 +87,30 @@ impl IndexingProgressResolver {
         &self,
         url: &Url,
         indexings: &[DeploymentId],
-    ) -> Result<
-        HashMap<DeploymentId, Result<Vec<ChainStatus>, IndexingProgressFetchError>>,
-        ResolutionError,
-    > {
+    ) -> HashMap<DeploymentId, Result<Vec<ChainStatus>, ResolutionError>> {
         let status_url = indexers::status_url(url);
-        tokio::time::timeout(
+        let res = tokio::time::timeout(
             self.timeout,
             send_requests(
                 &self.client,
-                &status_url,
+                status_url,
                 indexings,
                 INDEXINGS_PER_REQUEST_BATCH_SIZE,
             ),
         )
-        .await
-        .map_err(|_| ResolutionError::Timeout)
+        .await;
+
+        match res {
+            Ok(res) => res
+                .into_iter()
+                .map(|(deployment_id, result)| (deployment_id, result.map_err(Into::into)))
+                .collect(),
+            // If the request timed out, return a timeout error for all deployments
+            Err(_) => indexings
+                .iter()
+                .map(|deployment_id| (*deployment_id, Err(ResolutionError::Timeout)))
+                .collect(),
+        }
     }
 
     /// Gets the cached progress information for the given indexings.
@@ -146,36 +154,23 @@ impl IndexingProgressResolver {
 
     /// Resolves the indexing progress of the given deployments.
     ///
-    /// If the request successfully returns the data, the cached data is updated and the new data is
-    /// returned, otherwise the cached data is returned.
-    async fn resolve_with_cache(
+    /// The function fetches the indexing progress of the given deployments from the indexer's
+    /// status URL. If the fetch fails, the function returns the cached data for the failed
+    /// deployments. If the fetch succeeds, the function updates the cache with the fetched data.
+    ///
+    /// Returns a map of deployment IDs to their indexing progress information.
+    pub async fn resolve(
         &self,
         url: &Url,
-        indexings: &[DeploymentId],
-    ) -> Result<HashMap<DeploymentId, Freshness<IndexingProgressInfo>>, ResolutionError> {
+        indexer_deployments: &[DeploymentId],
+    ) -> HashMap<DeploymentId, Freshness<IndexingProgressInfo>> {
         let url_string = url.to_string();
 
-        let fetched = match self.fetch_indexing_progress(url, indexings).await {
-            Ok(fetched) => fetched,
-            Err(err) => {
-                tracing::debug!(error=%err, "indexing progress fetch failed");
+        // Fetch the indexings' indexing progress
+        let fetched = self.fetch_indexing_progress(url, indexer_deployments).await;
 
-                // If the data fetch failed, return the cached data
-                // If no cached data is available, return the error
-                let cached_progress = self
-                    .get_from_cache(&url_string, indexings)
-                    .into_iter()
-                    .map(|(k, v)| (k, Freshness::Cached(v)))
-                    .collect::<HashMap<_, _>>();
-                return if cached_progress.is_empty() {
-                    Err(err)
-                } else {
-                    Ok(cached_progress)
-                };
-            }
-        };
-
-        let fresh_progress = fetched
+        // Filter out the failures
+        let fresh_data = fetched
             .into_iter()
             .filter_map(|(deployment_id, result)| {
                 // TODO: Report the errors instead of filtering them out
@@ -202,40 +197,29 @@ impl IndexingProgressResolver {
             .collect::<HashMap<_, _>>();
 
         // Update the cache with the fetched data, if any
-        if !fresh_progress.is_empty() {
-            self.update_cache(&url_string, &fresh_progress);
+        if !fresh_data.is_empty() {
+            self.update_cache(&url_string, &fresh_data);
         }
 
         // Get the cached data for the missing deployments
-        let cached_progress = {
+        let cached_data = {
             // Get the list of deployments that are missing from the fetched data
-            let missing_indexings = fresh_progress
+            let missing_indexings = fresh_data
                 .keys()
-                .filter(|deployment| !indexings.contains(deployment));
+                .filter(|deployment| !indexer_deployments.contains(deployment));
 
             // Get the cached data for the missing deployments
             self.get_from_cache(&url_string, missing_indexings)
         };
 
         // Merge the fetched and cached data
-        let fresh_progress = fresh_progress
+        let fresh_data = fresh_data
             .into_iter()
             .map(|(k, v)| (k, Freshness::Fresh(v)));
-        let cached_progress = cached_progress
+        let cached_data = cached_data
             .into_iter()
             .map(|(k, v)| (k, Freshness::Cached(v)));
-        Ok(HashMap::from_iter(cached_progress.chain(fresh_progress)))
-    }
-
-    /// Resolves the indexing progress of the given deployments.
-    ///
-    /// Returns a map of deployment IDs to their indexing progress information.
-    pub async fn resolve(
-        &self,
-        url: &Url,
-        indexer_deployments: &[DeploymentId],
-    ) -> Result<HashMap<DeploymentId, Freshness<IndexingProgressInfo>>, ResolutionError> {
-        self.resolve_with_cache(url, indexer_deployments).await
+        HashMap::from_iter(cached_data.chain(fresh_data))
     }
 }
 
@@ -246,25 +230,25 @@ impl IndexingProgressResolver {
 /// as failed. The function returns a map of deployment IDs to the indexing progress information.
 async fn send_requests(
     client: &reqwest::Client,
-    url: &indexers::StatusUrl,
+    url: indexers::StatusUrl,
     indexings: &[DeploymentId],
     batch_size: usize,
 ) -> HashMap<DeploymentId, Result<Vec<ChainStatus>, IndexingProgressFetchError>> {
-    debug_assert_ne!(batch_size, 0, "batch size must be greater than 0");
-
     // Group the deployments into batches of `batch_size`
     let request_batches = indexings.chunks(batch_size);
 
-    let requests = request_batches.map(|deployments| {
+    // Create a request for each batch
+    let requests = request_batches.map(|batch| {
+        let url = url.clone();
         async move {
-            // Request the indexing progress of the deployments in the batch
-            let result =
-                indexers::indexing_progress::send_request(client, url.clone(), deployments).await;
+            // Request the indexing progress
+            let response =
+                indexers::indexing_progress::send_request(client, url.clone(), batch).await;
 
-            let result = match result {
+            let result = match response {
                 Err(err) => {
                     // If the request failed, mark all deployment IDs in the batch as failed
-                    return deployments
+                    return batch
                         .iter()
                         .map(|deployment_id| (*deployment_id, Err(err.clone())))
                         .collect::<HashMap<_, _>>();
@@ -276,7 +260,7 @@ async fn send_requests(
             result
                 .into_iter()
                 .filter(|response| {
-                    deployments.contains(&response.deployment_id) && !response.chains.is_empty()
+                    batch.contains(&response.deployment_id) && !response.chains.is_empty()
                 })
                 .map(|response| (response.deployment_id, Ok(response.chains)))
                 .collect::<HashMap<_, _>>()
@@ -333,7 +317,7 @@ mod tests {
                 Duration::from_secs(60),
                 send_requests(
                     &client,
-                    &status_url,
+                    status_url,
                     &test_deployments,
                     INDEXINGS_PER_REQUEST_BATCH_SIZE,
                 ),

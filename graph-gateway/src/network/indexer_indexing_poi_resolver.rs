@@ -28,6 +28,12 @@ const POIS_PER_REQUEST_BATCH_SIZE: usize = 10;
 /// Error that can occur during POI resolution.
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ResolutionError {
+    /// An error occurred while fetching the Public POIs of the indexer.
+    ///
+    /// This includes network errors, timeouts, and deserialization errors.
+    #[error("fetch error: {0}")]
+    FetchError(#[from] PublicPoiFetchError),
+
     /// Resolution timed out.
     #[error("timeout")]
     Timeout,
@@ -52,17 +58,21 @@ impl PoiResolver {
     pub fn new(client: reqwest::Client) -> Self {
         Self {
             client,
-            cache: RwLock::new(TtlHashMap::with_ttl(DEFAULT_CACHE_TLL)),
             timeout: DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT,
+            cache: RwLock::new(TtlHashMap::with_ttl(DEFAULT_CACHE_TLL)),
         }
     }
 
-    /// Create a new [`PoiResolver`] with the given client and timeout.
-    pub fn with_timeout(client: reqwest::Client, timeout: Duration) -> Self {
+    /// Create a new [`PoiResolver`] with the given timeout and cache TTL.
+    pub fn with_timeout_and_cache_ttl(
+        client: reqwest::Client,
+        timeout: Duration,
+        cache_ttl: Duration,
+    ) -> Self {
         Self {
             client,
-            cache: RwLock::new(TtlHashMap::with_ttl(DEFAULT_CACHE_TLL)),
             timeout,
+            cache: RwLock::new(TtlHashMap::with_ttl(cache_ttl)),
         }
     }
 
@@ -71,17 +81,25 @@ impl PoiResolver {
         &self,
         url: &Url,
         pois: &[(DeploymentId, BlockNumber)],
-    ) -> Result<
-        HashMap<(DeploymentId, BlockNumber), Result<ProofOfIndexing, PublicPoiFetchError>>,
-        ResolutionError,
-    > {
+    ) -> HashMap<(DeploymentId, BlockNumber), Result<ProofOfIndexing, ResolutionError>> {
         let status_url = indexers::status_url(url);
-        tokio::time::timeout(
+        let res = tokio::time::timeout(
             self.timeout,
-            send_requests(&self.client, &status_url, pois, POIS_PER_REQUEST_BATCH_SIZE),
+            send_requests(&self.client, status_url, pois, POIS_PER_REQUEST_BATCH_SIZE),
         )
-        .await
-        .map_err(|_| ResolutionError::Timeout)
+        .await;
+
+        match res {
+            Ok(res) => res
+                .into_iter()
+                .map(|(meta, result)| (meta, result.map_err(Into::into)))
+                .collect(),
+            // If the request timed out, return a timeout error for all deployment-block number pairs
+            Err(_) => pois
+                .iter()
+                .map(|meta| (*meta, Err(ResolutionError::Timeout)))
+                .collect(),
+        }
     }
 
     /// Gets the cached Public POIs information for the given deployment-block number pairs.
@@ -122,34 +140,21 @@ impl PoiResolver {
         }
     }
 
-    /// Resolves the Public POIs of the indexer based on the given POIs metadata.
+    /// Resolve the public POIs of the indexer based on the given POIs metadata.
     ///
-    /// If the request successfully returns the data, the cached data is updated and the new data is
-    /// returned, otherwise the cached data is returned.
-    async fn resolve_with_cache(
+    /// If the public POIs of the indexer are already in the cache, the resolver returns them.
+    pub async fn resolve(
         &self,
         url: &Url,
         poi_requests: &[(DeploymentId, BlockNumber)],
-    ) -> Result<HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>, ResolutionError> {
+    ) -> HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> {
         let url_string = url.to_string();
 
-        let fetched = match self.fetch_indexer_public_pois(url, poi_requests).await {
-            Ok(fetched) => fetched,
-            Err(err) => {
-                tracing::debug!(error=%err, "indexer public pois fetch failed");
+        // Fetch the indexings' indexing progress
+        let fetched = self.fetch_indexer_public_pois(url, poi_requests).await;
 
-                // If the data fetch failed, return the cached data
-                // If no cached data is available, return the error
-                let cached_info = self.get_from_cache(&url_string, poi_requests);
-                return if cached_info.is_empty() {
-                    Err(err)
-                } else {
-                    Ok(cached_info)
-                };
-            }
-        };
-
-        let fresh_info = fetched
+        // Filter out the failures
+        let fresh_data = fetched
             .into_iter()
             .filter_map(|(meta, result)| {
                 // TODO: Report the errors instead of filtering them out
@@ -158,14 +163,14 @@ impl PoiResolver {
             .collect::<HashMap<_, _>>();
 
         // Update the cache with the fetched data, if any
-        if !fresh_info.is_empty() {
-            self.update_cache(&url_string, &fresh_info);
+        if !fresh_data.is_empty() {
+            self.update_cache(&url_string, &fresh_data);
         }
 
         // Get the cached data for the missing deployments
         let cached_info = {
             // Get the list of deployments that are missing from the fetched data
-            let missing_indexings = fresh_info
+            let missing_indexings = fresh_data
                 .keys()
                 .filter(|meta| !poi_requests.contains(meta));
 
@@ -174,18 +179,7 @@ impl PoiResolver {
         };
 
         // Merge the fetched and cached data
-        Ok(cached_info.into_iter().chain(fresh_info).collect())
-    }
-
-    /// Resolve the public POIs of the indexer based on the given POIs metadata.
-    ///
-    /// If the public POIs of the indexer are already in the cache, the resolver returns them.
-    pub async fn resolve(
-        &self,
-        url: &Url,
-        poi_requests: &[(DeploymentId, BlockNumber)],
-    ) -> Result<HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>, ResolutionError> {
-        self.resolve_with_cache(url, poi_requests).await
+        cached_info.into_iter().chain(fresh_data).collect()
     }
 }
 
@@ -198,15 +192,16 @@ impl PoiResolver {
 /// an error if the request failed.
 async fn send_requests(
     client: &reqwest::Client,
-    url: &indexers::StatusUrl,
+    url: indexers::StatusUrl,
     poi_requests: &[(DeploymentId, BlockNumber)],
     batch_size: usize,
 ) -> HashMap<(DeploymentId, BlockNumber), Result<ProofOfIndexing, PublicPoiFetchError>> {
     // Batch the POI queries into groups of `batch_size`
-    let batches = poi_requests.chunks(batch_size);
+    let request_batches = poi_requests.chunks(batch_size);
 
     // Create a request for each batch
-    let requests = batches.map(|batch| {
+    let requests = request_batches.map(|batch| {
+        let url = url.clone();
         async move {
             // Request the indexings' POIs
             let response = indexers::public_poi::send_request(client, url.clone(), batch).await;
@@ -236,10 +231,10 @@ async fn send_requests(
         }
     });
 
-    // Send all queries concurrently
+    // Send all requests concurrently
     let responses = futures::future::join_all(requests).await;
 
-    // Merge all responses into a single map
+    // Merge the responses into a single map
     responses.into_iter().flatten().collect()
 }
 
@@ -286,7 +281,7 @@ mod tests {
                 Duration::from_secs(60),
                 send_requests(
                     &client,
-                    &status_url,
+                    status_url,
                     &pois_to_query,
                     POIS_PER_REQUEST_BATCH_SIZE,
                 ),
