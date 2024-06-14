@@ -23,8 +23,7 @@ pub const DEFAULT_CACHE_TLL: Duration = Duration::from_secs(20 * 60); // 20 minu
 pub const DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The number of Public POI queries in a single request.
-// TODO: Change visibility once integration tests are moved
-pub const POIS_QUERY_BATCH_SIZE: usize = 10;
+const POIS_PER_REQUEST_BATCH_SIZE: usize = 10;
 
 /// Error that can occur during POI resolution.
 #[derive(Clone, Debug, thiserror::Error)]
@@ -70,15 +69,16 @@ impl PoiResolver {
     /// Fetch the public POIs of the indexer based on the given POIs metadata.
     async fn fetch_indexer_public_pois(
         &self,
-        status_url: &Url,
+        url: &Url,
         pois: &[(DeploymentId, BlockNumber)],
     ) -> Result<
         HashMap<(DeploymentId, BlockNumber), Result<ProofOfIndexing, PublicPoiFetchError>>,
         ResolutionError,
     > {
+        let status_url = indexers::status_url(url);
         tokio::time::timeout(
             self.timeout,
-            send_requests(&self.client, status_url, pois, POIS_QUERY_BATCH_SIZE),
+            send_requests(&self.client, &status_url, pois, POIS_PER_REQUEST_BATCH_SIZE),
         )
         .await
         .map_err(|_| ResolutionError::Timeout)
@@ -131,20 +131,16 @@ impl PoiResolver {
         url: &Url,
         poi_requests: &[(DeploymentId, BlockNumber)],
     ) -> Result<HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>, ResolutionError> {
-        let status_url = indexers::status_url(url);
-        let status_url_string = status_url.to_string();
+        let url_string = url.to_string();
 
-        let fetched = match self
-            .fetch_indexer_public_pois(&status_url, poi_requests)
-            .await
-        {
+        let fetched = match self.fetch_indexer_public_pois(url, poi_requests).await {
             Ok(fetched) => fetched,
             Err(err) => {
                 tracing::debug!(error=%err, "indexer public pois fetch failed");
 
                 // If the data fetch failed, return the cached data
                 // If no cached data is available, return the error
-                let cached_info = self.get_from_cache(&status_url_string, poi_requests);
+                let cached_info = self.get_from_cache(&url_string, poi_requests);
                 return if cached_info.is_empty() {
                     Err(err)
                 } else {
@@ -163,7 +159,7 @@ impl PoiResolver {
 
         // Update the cache with the fetched data, if any
         if !fresh_info.is_empty() {
-            self.update_cache(&status_url_string, &fresh_info);
+            self.update_cache(&url_string, &fresh_info);
         }
 
         // Get the cached data for the missing deployments
@@ -174,7 +170,7 @@ impl PoiResolver {
                 .filter(|meta| !poi_requests.contains(meta));
 
             // Get the cached data for the missing deployments
-            self.get_from_cache(&status_url_string, missing_indexings)
+            self.get_from_cache(&url_string, missing_indexings)
         };
 
         // Merge the fetched and cached data
@@ -200,8 +196,7 @@ impl PoiResolver {
 /// and sends them in a single request. All requests are sent concurrently to the indexer. The
 /// function returns a map of deployment-block number pairs to the Public POIs of the indexers, or
 /// an error if the request failed.
-// TODO: Change visibility once integration tests are moved
-pub async fn send_requests(
+async fn send_requests(
     client: &reqwest::Client,
     status_url: &Url,
     poi_requests: &[(DeploymentId, BlockNumber)],
@@ -247,4 +242,64 @@ pub async fn send_requests(
 
     // Merge all responses into a single map
     responses.into_iter().flatten().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{send_requests, POIS_PER_REQUEST_BATCH_SIZE};
+
+    mod it_public_pois_resolution {
+        use std::time::Duration;
+
+        use alloy_primitives::BlockNumber;
+        use thegraph_core::types::DeploymentId;
+
+        use super::*;
+        use crate::indexers;
+
+        /// Test helper to get the testnet indexer url from the environment.
+        fn test_indexer_url() -> reqwest::Url {
+            std::env::var("IT_TEST_TESTNET_INDEXER_URL")
+                .expect("Missing IT_TEST_TESTNET_INDEXER_URL")
+                .parse()
+                .expect("Invalid IT_TEST_TESTNET_INDEXER_URL")
+        }
+
+        /// Parse a deployment ID from a string.
+        fn parse_deployment_id(deployment: &str) -> DeploymentId {
+            deployment.parse().expect("invalid deployment id")
+        }
+
+        #[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
+        #[tokio::test]
+        async fn send_batched_queries_and_merge_results() {
+            //* Given
+            let client = reqwest::Client::new();
+            let status_url = indexers::status_url(test_indexer_url());
+
+            let deployment = parse_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
+            let pois_to_query = (1..=POIS_PER_REQUEST_BATCH_SIZE + 2)
+                .map(|i| (deployment, i as BlockNumber))
+                .collect::<Vec<_>>();
+
+            //* When
+            let response = tokio::time::timeout(
+                Duration::from_secs(60),
+                send_requests(
+                    &client,
+                    &status_url,
+                    &pois_to_query,
+                    POIS_PER_REQUEST_BATCH_SIZE,
+                ),
+            )
+            .await
+            .expect("request timed out");
+
+            //* Then
+            assert_eq!(response.len(), POIS_PER_REQUEST_BATCH_SIZE + 2);
+            assert!(response.contains_key(&(deployment, 1)));
+            assert!(response.contains_key(&(deployment, 2)));
+            assert!(response.contains_key(&(deployment, 3)));
+        }
+    }
 }

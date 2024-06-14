@@ -111,7 +111,7 @@ impl Chain {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use alloy_primitives::{Address, BlockHash, U256};
     use itertools::Itertools;
     use rand::{

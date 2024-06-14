@@ -2,10 +2,7 @@ use std::time::Duration;
 
 use alloy_primitives::BlockNumber;
 use assert_matches::assert_matches;
-use graph_gateway::{
-    indexers, network,
-    network::indexer_indexing_poi_resolver::POIS_QUERY_BATCH_SIZE as MAX_REQUESTS_PER_QUERY,
-};
+use graph_gateway::indexers;
 use thegraph_core::types::DeploymentId;
 use url::Url;
 
@@ -64,7 +61,7 @@ async fn requests_over_max_requests_per_query_should_fail() {
     let status_url = indexers::status_url(test_indexer_url());
 
     let deployment = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
-    let query = (1..=MAX_REQUESTS_PER_QUERY + 1)
+    let query = (1..=11)
         .map(|i| (deployment, i as BlockNumber))
         .collect::<Vec<_>>();
 
@@ -78,38 +75,4 @@ async fn requests_over_max_requests_per_query_should_fail() {
 
     //* Then
     assert!(response.is_err());
-}
-
-// TODO: Move test to the network module
-#[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
-#[tokio::test]
-async fn send_batched_queries_and_merge_results() {
-    //* Given
-    let client = reqwest::Client::new();
-    let status_url = indexers::status_url(test_indexer_url());
-
-    let deployment = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
-
-    let pois_to_query = (1..=MAX_REQUESTS_PER_QUERY + 2)
-        .map(|i| (deployment, i as BlockNumber))
-        .collect::<Vec<_>>();
-
-    //* When
-    let response = tokio::time::timeout(
-        Duration::from_secs(60),
-        network::indexer_indexing_poi_resolver::send_requests(
-            &client,
-            &status_url,
-            &pois_to_query,
-            MAX_REQUESTS_PER_QUERY,
-        ),
-    )
-    .await
-    .expect("timeout");
-
-    //* Then
-    assert_eq!(response.len(), MAX_REQUESTS_PER_QUERY + 2);
-    assert!(response.contains_key(&(deployment, 1)));
-    assert!(response.contains_key(&(deployment, 2)));
-    assert!(response.contains_key(&(deployment, 3)));
 }

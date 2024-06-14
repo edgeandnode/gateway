@@ -163,7 +163,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_should_insert_an_item_and_get_it() {
+    fn insert_and_get_an_item() {
         //* Given
         let mut ttl_hash_map = TtlHashMap::new();
 
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn it_should_get_none_if_no_item_is_present() {
+    fn get_none_if_no_item_is_present() {
         //* Given
         let ttl_hash_map = TtlHashMap::<&str, ()>::new();
 
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn it_should_get_none_if_the_item_is_expired() {
+    fn get_none_if_the_item_is_expired() {
         //* Given
         let mut ttl_hash_map = TtlHashMap::with_ttl(Duration::from_millis(5));
 
@@ -213,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn it_should_report_the_correct_length() {
+    fn report_the_correct_length() {
         //* Given
         let mut ttl_hash_map = TtlHashMap::with_ttl(Duration::from_millis(5));
 
@@ -245,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn it_should_insert_an_item_and_return_the_old_value_if_not_expired() {
+    fn insert_an_item_and_return_the_old_value_if_not_expired() {
         //* Given
         let mut ttl_hash_map = TtlHashMap::new();
 
@@ -268,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn it_should_insert_an_item_and_return_none_if_the_old_value_is_expired() {
+    fn insert_an_item_and_return_none_if_the_old_value_is_expired() {
         //* Given
         let mut ttl_hash_map = TtlHashMap::with_ttl(Duration::from_millis(5));
 
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn it_should_remove_an_item_and_return_it_if_not_expired() {
+    fn remove_an_item_and_return_it_if_not_expired() {
         //* Given
         let mut ttl_hash_map = TtlHashMap::new();
 
@@ -316,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn it_should_remove_an_item_and_return_none_if_expired() {
+    fn remove_an_item_and_return_none_if_expired() {
         //* Given
         let mut ttl_hash_map = TtlHashMap::with_ttl(Duration::from_millis(5));
 
@@ -341,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn it_should_clear_the_hashmap() {
+    fn clear_the_hashmap() {
         //* Given
         let mut ttl_hash_map = TtlHashMap::with_ttl_and_capacity(Duration::from_millis(5), 5);
 
@@ -365,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn it_should_cleanup_the_hashmap_and_shrink_to_fit() {
+    fn cleanup_the_hashmap_and_shrink_to_fit() {
         //* Given
         let mut ttl_hash_map = TtlHashMap::with_ttl_and_capacity(Duration::from_millis(5), 5);
 

@@ -212,7 +212,7 @@ fn check_block_error(err: &str) -> Result<(), MissingBlockError> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use gateway_framework::errors::MissingBlockError;
 
     #[test]

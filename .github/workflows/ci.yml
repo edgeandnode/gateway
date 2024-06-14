@@ -51,9 +51,17 @@ jobs:
           SOPS_AGE_KEY: ${{ secrets.IT_TESTS_AGE_KEY }}
         with:
           env_file: .env
-          run: cargo test --lib
+          run: cargo test 'tests::' -- --skip 'tests::it_'
 
-      - name: Integration tests
+      - name: Integration tests (in-tree)
+        uses: LNSD/sops-exec-action@6da1fbca63459d9796097496d5f5e6233555b31a # v1
+        env:
+          SOPS_AGE_KEY: ${{ secrets.IT_TESTS_AGE_KEY }}
+        with:
+          env_file: .env
+          run: cargo test 'tests::it_'
+
+      - name: Integration tests (public api)
         uses: LNSD/sops-exec-action@6da1fbca63459d9796097496d5f5e6233555b31a # v1
         env:
           SOPS_AGE_KEY: ${{ secrets.IT_TESTS_AGE_KEY }}
