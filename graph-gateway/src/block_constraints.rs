@@ -6,7 +6,7 @@ use std::{
 use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail};
 use cost_model::Context;
-use gateway_common::utils::timestamp::unix_timestamp;
+use gateway_common::timestamp::unix_timestamp;
 use gateway_framework::{
     blocks::{Block, BlockConstraint, UnresolvedBlock},
     chain::Chain,
@@ -404,10 +404,9 @@ fn parse_number<'c, T: Text<'c>>(
 
 #[cfg(test)]
 mod tests {
-    use std::iter::FromIterator;
+    use std::iter::FromIterator as _;
 
     use alloy_primitives::{hex, Address};
-    use gateway_common::utils::testing::bytes_from_id;
     use gateway_framework::blocks::Block;
 
     use super::*;
@@ -415,7 +414,8 @@ mod tests {
     #[test]
     fn tests() {
         use BlockConstraint::*;
-        let hash: BlockHash = bytes_from_id(54321).into();
+        let hash: BlockHash =
+            hex!("0000000000000000000000000000000000000000000000000000000000054321").into();
         let tests = [
             ("{ a }", Ok(vec![Unconstrained])),
             ("{ a(abc:true) }", Ok(vec![Unconstrained])),

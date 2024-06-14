@@ -1,6 +1,6 @@
 use alloy_primitives::Address;
 use anyhow::{anyhow, Context};
-use gateway_common::utils::timestamp::unix_timestamp;
+use gateway_common::timestamp::unix_timestamp;
 use gateway_framework::{errors, scalar::Receipt};
 use ordered_float::NotNan;
 use prost::Message;

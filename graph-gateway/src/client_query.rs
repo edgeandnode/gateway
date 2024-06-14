@@ -14,7 +14,7 @@ use axum::{
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use custom_debug::CustomDebug;
-use gateway_common::{ptr::Ptr, utils::http_ext::HttpBuilderExt as _};
+use gateway_common::{http_ext::HttpBuilderExt as _, ptr::Ptr};
 use gateway_framework::{
     auth::AuthSettings,
     budgets::USD,

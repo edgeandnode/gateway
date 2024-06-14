@@ -4,10 +4,6 @@ name = "gateway-common"
 version = "0.0.1"
 
 [dependencies]
-alloy-primitives.workspace = true
 by_address = "1.2.1"
 headers.workspace = true
 http = "1.1.0"
-siphasher.workspace = true
-thegraph-core.workspace = true
-tracing-subscriber.workspace = true
