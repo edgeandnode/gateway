@@ -198,7 +198,7 @@ impl PoiResolver {
 /// an error if the request failed.
 async fn send_requests(
     client: &reqwest::Client,
-    status_url: &Url,
+    url: &indexers::StatusUrl,
     poi_requests: &[(DeploymentId, BlockNumber)],
     batch_size: usize,
 ) -> HashMap<(DeploymentId, BlockNumber), Result<ProofOfIndexing, PublicPoiFetchError>> {
@@ -207,10 +207,9 @@ async fn send_requests(
 
     // Create a request for each batch
     let requests = batches.map(|batch| {
-        let status_url = status_url.clone();
         async move {
             // Request the indexings' POIs
-            let response = indexers::public_poi::send_request(client, status_url, batch).await;
+            let response = indexers::public_poi::send_request(client, url.clone(), batch).await;
 
             let result = match response {
                 Err(err) => {

@@ -5,6 +5,8 @@ use thegraph_graphql_http::{
     http_client::{RequestError, ReqwestExt, ResponseError},
 };
 
+use super::urls::CostUrl;
+
 const COST_MODEL_QUERY_DOCUMENT: &str = indoc::indoc! {r#"
     query costModels($deployments: [String!]!) {
         costModels(deployments: $deployments) {
@@ -36,11 +38,11 @@ pub enum Error {
 /// Send a request to the indexer to get the cost models of the given deployments.
 pub async fn send_request(
     client: &reqwest::Client,
-    cost_url: reqwest::Url,
+    url: CostUrl,
     deployments: impl IntoIterator<Item = &DeploymentId>,
 ) -> Result<Vec<CostModelSource>, Error> {
     let resp = client
-        .post(cost_url)
+        .post(url.into_inner())
         .send_graphql::<Response>(Request::new(deployments))
         .await
         .map_err(|err| match err {
