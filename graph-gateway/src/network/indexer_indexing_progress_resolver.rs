@@ -246,7 +246,7 @@ impl IndexingProgressResolver {
 /// as failed. The function returns a map of deployment IDs to the indexing progress information.
 async fn send_requests(
     client: &reqwest::Client,
-    status_url: &Url,
+    url: &indexers::StatusUrl,
     indexings: &[DeploymentId],
     batch_size: usize,
 ) -> HashMap<DeploymentId, Result<Vec<ChainStatus>, IndexingProgressFetchError>> {
@@ -256,11 +256,10 @@ async fn send_requests(
     let request_batches = indexings.chunks(batch_size);
 
     let requests = request_batches.map(|deployments| {
-        let status_url = status_url.clone();
         async move {
             // Request the indexing progress of the deployments in the batch
             let result =
-                indexers::indexing_progress::send_request(client, status_url, deployments).await;
+                indexers::indexing_progress::send_request(client, url.clone(), deployments).await;
 
             let result = match result {
                 Err(err) => {
