@@ -6,7 +6,6 @@ use gateway_framework::{
         IndexerError::{self, *},
         MissingBlockError, UnavailableReason,
     },
-    scalar::Receipt,
 };
 use serde::{Deserialize, Serialize};
 use thegraph_core::types::{
@@ -16,7 +15,7 @@ use thegraph_core::types::{
 use thegraph_graphql_http::http::response::{Error as GQLError, ResponseBody as GQLResponseBody};
 use url::Url;
 
-use crate::unattestable_errors::miscategorized_unattestable;
+use crate::{receipts::Receipt, unattestable_errors::miscategorized_unattestable};
 
 #[derive(Clone, Debug)]
 pub struct IndexerResponse {

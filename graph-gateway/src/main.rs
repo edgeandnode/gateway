@@ -31,7 +31,6 @@ use gateway_framework::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
     json, logging,
-    scalar::{self, ReceiptSigner},
 };
 use graph_gateway::{
     client_query::{self, context::Context},
@@ -42,7 +41,8 @@ use graph_gateway::{
         indexer_host_blocklist::load_ip_blocklist_conf,
         subgraph_client::Client as NetworkSubgraphClient, NetworkService, NetworkServiceBuilder,
     },
-    reports, subgraph_studio,
+    receipts::ReceiptSigner,
+    reports, subgraph_studio, vouchers,
 };
 use ordered_float::NotNan;
 use prometheus::{self, Encoder as _};
@@ -259,19 +259,19 @@ async fn main() {
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/collect-receipts",
-            routing::post(scalar::handle_collect_receipts)
+            routing::post(vouchers::handle_collect_receipts)
                 .with_state(legacy_signer)
                 .layer(DefaultBodyLimit::max(3_000_000)),
         )
         .route(
             "/partial-voucher",
-            routing::post(scalar::handle_partial_voucher)
+            routing::post(vouchers::handle_partial_voucher)
                 .with_state(legacy_signer)
                 .layer(DefaultBodyLimit::max(3_000_000)),
         )
         .route(
             "/voucher",
-            routing::post(scalar::handle_voucher).with_state(legacy_signer),
+            routing::post(vouchers::handle_voucher).with_state(legacy_signer),
         )
         .route(
             "/budget",

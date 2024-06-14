@@ -5,29 +5,34 @@ version = "21.2.3"
 
 [dependencies]
 alloy-primitives.workspace = true
-alloy-sol-types.workspace = true
+alloy-sol-types = "0.7.1"
 anyhow.workspace = true
 axum = { workspace = true, features = ["tokio", "http1"] }
 chrono = "0.4.38"
 cost-model.workspace = true
 custom_debug = "0.6.1"
+ethers = "2.0.14"
 futures.workspace = true
 gateway-common = { path = "../gateway-common" }
 gateway-framework = { path = "../gateway-framework" }
 graphql.workspace = true
 headers.workspace = true
+hex.workspace = true
 hickory-resolver = "0.24.0"
 indexer-selection.workspace = true
 indoc = "2.0.5"
 ipnetwork = { version = "0.20.0", default-features = false }
 itertools = "0.13.0"
+lazy_static = "1.4.0"
 num-traits = "0.2.18"
 ordered-float = "4.2.0"
 parking_lot.workspace = true
+primitive-types.workspace = true
 prometheus = { version = "0.13", default-features = false }
 prost = "0.12.4"
 rand.workspace = true
 rdkafka = { version = "0.36.2", features = ["gssapi", "tracing"] }
+receipts = { git = "https://github.com/edgeandnode/receipts", rev = "e94e0f1" }
 reqwest.workspace = true
 secp256k1.workspace = true
 semver.workspace = true
@@ -36,6 +41,7 @@ serde_json = { workspace = true, features = ["raw_value"] }
 serde_with.workspace = true
 simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "c179dfe" }
 thegraph-core = { workspace = true, features = [
     "subgraph-client",
     "subscriptions",

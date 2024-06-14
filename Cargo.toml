@@ -12,7 +12,6 @@ debug = true
 [workspace.dependencies]
 anyhow = "1.0"
 alloy-primitives = { version = "0.7.1", features = ["serde"] }
-alloy-sol-types = "0.7.1"
 axum = { git = "https://github.com/tokio-rs/axum", rev = "50c035c", default-features = false, features = [
     "json",
     "tokio",
@@ -27,7 +26,6 @@ indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection"
 parking_lot = "0.12.3"
 primitive-types = "0.12.2"
 rand = { version = "0.8", features = ["small_rng"] }
-receipts = { git = "https://github.com/edgeandnode/receipts", rev = "e94e0f1" }
 reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "default-tls",

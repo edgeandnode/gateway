@@ -12,5 +12,4 @@ pub mod indexing;
 pub mod json;
 pub mod logging;
 pub mod metrics;
-pub mod scalar;
 pub mod utils;

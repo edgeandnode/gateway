@@ -21,7 +21,6 @@ use gateway_framework::{
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     http::middleware::RequestId,
     metrics::{with_metric, METRICS},
-    scalar::ReceiptStatus,
 };
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
@@ -45,6 +44,7 @@ use crate::{
     indexer_client::IndexerResponse,
     indexing_performance,
     network::{self, DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
+    receipts::ReceiptStatus,
     reports,
 };
 
