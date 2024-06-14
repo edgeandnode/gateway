@@ -9,7 +9,6 @@ pub mod exchange_rate;
 pub mod graphql;
 pub mod http;
 pub mod indexing;
-pub mod ip_blocker;
 pub mod json;
 pub mod logging;
 pub mod metrics;
