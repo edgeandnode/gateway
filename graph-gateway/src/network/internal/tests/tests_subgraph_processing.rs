@@ -5,10 +5,10 @@ use assert_matches::assert_matches;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
-use crate::network::internal::subgraph_processing::{
-    self, AllocationInfo, DeploymentError, DeploymentRawInfo, SubgraphError, SubgraphRawInfo,
-    SubgraphVersionRawInfo,
+use super::subgraph_processing::{
+    self, AllocationInfo, DeploymentRawInfo, SubgraphRawInfo, SubgraphVersionRawInfo,
 };
+use crate::network::errors::{DeploymentError, SubgraphError};
 
 // Test method to initialize the tests tracing subscriber.
 fn init_test_tracing() {

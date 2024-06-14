@@ -11,9 +11,15 @@ use thegraph_core::types::DeploymentId;
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
 
+use super::{
+    indexer_processing::{self, IndexerRawInfo, IndexingRawInfo},
+    InternalState,
+};
 use crate::{
     indexers::public_poi::{ProofOfIndexing, ProofOfIndexingInfo},
     network::{
+        config::VersionRequirements as IndexerVersionRequirements,
+        errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
         indexer_addr_blocklist::AddrBlocklist,
         indexer_host_blocklist::HostBlocklist,
         indexer_host_resolver::HostResolver,
@@ -25,11 +31,6 @@ use crate::{
         indexer_version_resolver::{
             VersionResolver, DEFAULT_INDEXER_VERSION_CACHE_TTL,
             DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
-        },
-        internal::{
-            indexer_processing::{self, IndexerIndexingRawInfo, IndexerRawInfo},
-            IndexerError, IndexerIndexingError, InternalState,
-            VersionRequirements as IndexerVersionRequirements,
         },
     },
 };
@@ -195,7 +196,7 @@ async fn block_indexer_by_address() {
     assert!(
         matches!(
             indexer_processed_info,
-            Err(IndexerError::BlockedByAddrBlocklist)
+            Err(IndexerInfoResolutionError::BlockedByAddrBlocklist)
         ),
         "indexer not marked as blocked"
     );
@@ -236,7 +237,7 @@ async fn block_indexer_if_host_resolution_fails() {
     assert!(
         matches!(
             indexer_processed_info,
-            Err(IndexerError::HostResolutionFailed(_))
+            Err(IndexerInfoResolutionError::HostResolutionFailed(_))
         ),
         "indexer not marked as failed"
     );
@@ -282,7 +283,10 @@ async fn block_indexer_by_host_ip_network() {
 
     // Assert that the blocked indexer is not present in the indexers processed info
     assert!(
-        matches!(indexer_info, Err(IndexerError::BlockedByHostBlocklist)),
+        matches!(
+            indexer_info,
+            Err(IndexerInfoResolutionError::BlockedByHostBlocklist)
+        ),
         "indexer not marked as blocked"
     );
 }
@@ -329,7 +333,9 @@ async fn block_indexer_if_indexer_service_version_is_below_min() {
     assert!(
         matches!(
             indexer_info,
-            Err(IndexerError::IndexerServiceVersionBelowMin(..))
+            Err(IndexerInfoResolutionError::IndexerServiceVersionBelowMin(
+                ..
+            ))
         ),
         "indexer not marked as blocked due to service version below min"
     );
@@ -356,14 +362,14 @@ async fn block_indexing_if_blocked_by_pois_blocklist() {
         indexings: HashMap::from([
             (
                 deployment_1,
-                IndexerIndexingRawInfo {
+                IndexingRawInfo {
                     largest_allocation: Default::default(),
                     total_allocated_tokens: 0,
                 },
             ),
             (
                 deployment_2,
-                IndexerIndexingRawInfo {
+                IndexingRawInfo {
                     largest_allocation: Default::default(),
                     total_allocated_tokens: 0,
                 },
@@ -406,7 +412,7 @@ async fn block_indexing_if_blocked_by_pois_blocklist() {
 
     assert_matches!(
         indexing,
-        Err(IndexerIndexingError::BlockedByPoiBlocklist),
+        Err(IndexingInfoResolutionError::BlockedByPoiBlocklist),
         "indexing not marked as blocked due to POIs blocklist"
     );
 
@@ -442,14 +448,14 @@ async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
         indexings: HashMap::from([
             (
                 deployment_1,
-                IndexerIndexingRawInfo {
+                IndexingRawInfo {
                     largest_allocation: Default::default(),
                     total_allocated_tokens: 0,
                 },
             ),
             (
                 deployment_2,
-                IndexerIndexingRawInfo {
+                IndexingRawInfo {
                     largest_allocation: Default::default(),
                     total_allocated_tokens: 0,
                 },
@@ -519,14 +525,14 @@ async fn do_not_block_indexing_if_public_pois_resolution_fails() {
         indexings: HashMap::from([
             (
                 deployment_1,
-                IndexerIndexingRawInfo {
+                IndexingRawInfo {
                     largest_allocation: Default::default(),
                     total_allocated_tokens: 0,
                 },
             ),
             (
                 deployment_2,
-                IndexerIndexingRawInfo {
+                IndexingRawInfo {
                     largest_allocation: Default::default(),
                     total_allocated_tokens: 0,
                 },
@@ -592,7 +598,7 @@ async fn process_indexers_info_successfully() {
         staked_tokens: 100_000_000_000_000_000_000_000,
         indexings: HashMap::from([(
             indexing_id,
-            IndexerIndexingRawInfo {
+            IndexingRawInfo {
                 largest_allocation: indexing_largest_allocation,
                 total_allocated_tokens: 0,
             },

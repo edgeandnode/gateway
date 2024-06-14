@@ -9,19 +9,9 @@ use self::{
     subgraph_processing::{DeploymentRawInfo, SubgraphRawInfo},
 };
 pub use self::{
-    indexer_processing::{
-        IndexerError, IndexerIndexingError, IndexerIndexingInfo, IndexerInfo, IndexingProgressInfo,
-        VersionRequirements,
-    },
-    snapshot::{
-        Indexer, Indexing, IndexingError, IndexingId, IndexingProgress, NetworkTopologySnapshot,
-        UnavailableReason,
-    },
+    snapshot::{Indexer, Indexing, IndexingId, IndexingProgress, NetworkTopologySnapshot},
     state::InternalState,
-    subgraph_processing::{
-        AllocationInfo, DeploymentError, DeploymentInfo, SubgraphError, SubgraphInfo,
-        SubgraphVersionInfo,
-    },
+    subgraph_processing::{AllocationInfo, DeploymentInfo, SubgraphInfo, SubgraphVersionInfo},
 };
 use super::subgraph_client::Client as SubgraphClient;
 
@@ -101,7 +91,9 @@ async fn fetch_and_pre_process_subgraph_info(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    mod it_fetch_update;
     mod it_indexer_processing;
-    mod pre_processing;
-    mod subgraph_processing;
+    mod tests_pre_processing;
+    mod tests_subgraph_processing;
 }

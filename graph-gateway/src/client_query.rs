@@ -184,11 +184,7 @@ async fn resolve_subgraph_info(
                 return Err(Error::Auth(anyhow!("subgraph not authorized by user")));
             }
 
-            match ctx
-                .network
-                .resolve_with_subgraph_id(id)
-                .map_err(Error::Internal)?
-            {
+            match ctx.network.resolve_with_subgraph_id(id) {
                 Err(SubgraphError::TransferredToL2 { id_on_l2 }) => {
                     Ok(Err(ResolutionError::TransferredToL2 { id_on_l2 }))
                 }
@@ -206,11 +202,7 @@ async fn resolve_subgraph_info(
         QuerySelector::Deployment(ref id) => {
             // Authorization is based on the "authorized subgraphs" allowlist. We need to resolve
             // the subgraph deployments to check if any of the deployment's subgraphs are authorized
-            match ctx
-                .network
-                .resolve_with_deployment_id(id)
-                .map_err(Error::Internal)?
-            {
+            match ctx.network.resolve_with_deployment_id(id) {
                 Err(DeploymentError::TransferredToL2) => {
                     Ok(Err(ResolutionError::TransferredToL2 { id_on_l2: None }))
                 }
@@ -568,7 +560,7 @@ fn build_candidates_list(
     chain_head: BlockNumber,
     blocks_per_minute: u64,
     block_requirements: &BlockRequirements,
-    indexings: HashMap<IndexingId, Result<Indexing, network::IndexingError>>,
+    indexings: HashMap<IndexingId, Result<Indexing, network::ResolutionError>>,
 ) -> (
     Vec<Candidate<IndexingId, CandidateMetadata>>,
     BTreeMap<Address, IndexerError>,
@@ -600,7 +592,7 @@ fn build_candidates_list(
                 candidates_errors.insert(
                     indexing_id.indexer,
                     IndexerError::Unavailable(UnavailableReason::Internal(
-                        "no indexer performance info".to_string(),
+                        "no indexer performance info",
                     )),
                 );
                 continue;
@@ -736,31 +728,25 @@ pub fn indexer_fee(context: &AgoraContext, cost_model: &Option<Ptr<CostModel>>) 
     }
 }
 
-impl From<network::IndexingError> for IndexerError {
-    fn from(err: network::IndexingError) -> Self {
+impl From<network::ResolutionError> for IndexerError {
+    fn from(err: network::ResolutionError) -> Self {
         match err {
-            network::IndexingError::Unavailable(reason) => {
+            network::ResolutionError::Unavailable(reason) => {
                 let reason = match reason {
-                    network::UnavailableReason::BlockedByAddrBlocklist => {
-                        UnavailableReason::Blocked
+                    network::UnavailableReason::Blocked => UnavailableReason::Blocked,
+                    network::UnavailableReason::BlockedBadPOI => UnavailableReason::BlockedBadPOI,
+                    reason @ network::UnavailableReason::IndexerServiceVersionBelowMin
+                    | reason @ network::UnavailableReason::GraphNodeVersionBelowMin => {
+                        UnavailableReason::NotSupported(reason.to_string())
                     }
-                    network::UnavailableReason::BlockedByHostBlocklist => {
-                        UnavailableReason::Blocked
-                    }
-                    err @ network::UnavailableReason::IndexerServiceVersionBelowMin(_, _)
-                    | err @ network::UnavailableReason::GraphNodeVersionBelowMin(_, _) => {
-                        UnavailableReason::NotSupported(err.to_string())
-                    }
-                    network::UnavailableReason::IndexingBlockedByPoiBlocklist => {
-                        UnavailableReason::BlockedBadPOIs
-                    }
-                    network::UnavailableReason::StatusResolutionFailed(reason) => {
-                        UnavailableReason::NoStatus(reason)
+                    reason @ network::UnavailableReason::IndexerResolutionError { .. }
+                    | reason @ network::UnavailableReason::IndexingProgressNotFound => {
+                        UnavailableReason::NoStatus(reason.to_string())
                     }
                 };
                 IndexerError::Unavailable(reason)
             }
-            network::IndexingError::Internal(err) => {
+            network::ResolutionError::Internal(err) => {
                 tracing::error!(error = ?err, "internal error");
                 IndexerError::Unavailable(UnavailableReason::Internal(err))
             }

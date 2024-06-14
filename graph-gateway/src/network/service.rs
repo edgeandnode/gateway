@@ -8,15 +8,15 @@ use std::{
 };
 
 use alloy_primitives::{Address, BlockNumber};
-use anyhow::anyhow;
 use gateway_common::ttl_hash_map::DEFAULT_TTL;
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::{sync::watch, time::MissedTickBehavior};
-use vec1::{vec1, Vec1};
 
 use super::{
+    config::VersionRequirements as IndexerVersionRequirements,
+    errors::{DeploymentError, SubgraphError},
     indexer_addr_blocklist::AddrBlocklist,
     indexer_host_blocklist::HostBlocklist,
     indexer_host_resolver::{HostResolver, DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT},
@@ -32,11 +32,9 @@ use super::{
         IndexingProgressResolver, DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
     },
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
-    internal::{
-        fetch_update, DeploymentError, Indexing, IndexingError, IndexingId, InternalState,
-        NetworkTopologySnapshot, SubgraphError, VersionRequirements as IndexerVersionRequirements,
-    },
+    internal::{fetch_update, Indexing, IndexingId, InternalState, NetworkTopologySnapshot},
     subgraph_client::Client as SubgraphClient,
+    ResolutionError,
 };
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 
@@ -53,10 +51,10 @@ pub struct ResolvedSubgraphInfo {
     pub start_block: BlockNumber,
 
     /// The [`SubgraphId`]s associated with the query selector.
-    pub subgraphs: Vec1<SubgraphId>,
+    pub subgraphs: Vec<SubgraphId>,
 
     /// A list of [`Indexing`]s for the resolved subgraph versions.
-    pub indexings: HashMap<IndexingId, Result<Indexing, IndexingError>>,
+    pub indexings: HashMap<IndexingId, Result<Indexing, ResolutionError>>,
 }
 
 impl ResolvedSubgraphInfo {
@@ -93,6 +91,7 @@ impl NetworkService {
             .unwrap();
     }
 
+    /// Wait for the network topology information to change.
     pub async fn changed(&mut self) {
         self.network.changed().await.unwrap();
     }
@@ -103,28 +102,33 @@ impl NetworkService {
     pub fn resolve_with_subgraph_id(
         &self,
         id: &SubgraphId,
-    ) -> anyhow::Result<Result<Option<ResolvedSubgraphInfo>, SubgraphError>> {
+    ) -> Result<Option<ResolvedSubgraphInfo>, SubgraphError> {
         let network = self.network.borrow();
 
         // Resolve the subgraph information
         let subgraph = match network.get_subgraph_by_id(id) {
-            None => return Ok(Ok(None)),
-            Some(Err(err)) => return Ok(Err(err.to_owned())),
+            None => return Ok(None),
+            Some(Err(err)) => return Err(err.to_owned()),
             Some(Ok(subgraph)) => subgraph,
         };
 
         let subgraph_chain = subgraph.chain.clone();
         let subgraph_start_block = subgraph.start_block;
 
-        let subgraphs = vec1![subgraph.id];
-        let indexings = subgraph.indexings.clone();
+        let subgraphs = vec![subgraph.id];
+        let indexings = subgraph
+            .indexings
+            .clone()
+            .into_iter()
+            .map(|(id, res)| (id, res.map_err(|err| err.into())))
+            .collect();
 
-        Ok(Ok(Some(ResolvedSubgraphInfo {
+        Ok(Some(ResolvedSubgraphInfo {
             chain: subgraph_chain,
             start_block: subgraph_start_block,
             subgraphs,
             indexings,
-        })))
+        }))
     }
 
     /// Given a [`DeploymentId`], resolve the deployments associated with the subgraph.
@@ -133,36 +137,36 @@ impl NetworkService {
     pub fn resolve_with_deployment_id(
         &self,
         id: &DeploymentId,
-    ) -> anyhow::Result<Result<Option<ResolvedSubgraphInfo>, DeploymentError>> {
+    ) -> Result<Option<ResolvedSubgraphInfo>, DeploymentError> {
         let network = self.network.borrow();
 
         // Resolve the deployment information
         let deployment = match network.get_deployment_by_id(id) {
-            None => return Ok(Ok(None)),
-            Some(Err(err)) => return Ok(Err(err.to_owned())),
+            None => return Ok(None),
+            Some(Err(err)) => return Err(err.to_owned()),
             Some(Ok(deployment)) => deployment,
         };
 
         let deployment_chain = deployment.chain.clone();
         let deployment_start_block = deployment.start_block;
 
-        let subgraphs = deployment
-            .subgraphs
-            .iter()
-            .copied()
-            .collect::<Vec<_>>()
-            .try_into()
-            .map_err(|_| anyhow!("no subgraphs found for deployment {id}"))?;
-        let indexings = deployment.indexings.clone();
+        let subgraphs = deployment.subgraphs.iter().copied().collect::<Vec<_>>();
+        let indexings = deployment
+            .indexings
+            .clone()
+            .into_iter()
+            .map(|(id, res)| (id, res.map_err(|err| err.into())))
+            .collect();
 
-        Ok(Ok(Some(ResolvedSubgraphInfo {
+        Ok(Some(ResolvedSubgraphInfo {
             chain: deployment_chain,
             start_block: deployment_start_block,
             subgraphs,
             indexings,
-        })))
+        }))
     }
 
+    /// Get the latest indexed block number reported by the indexers.
     pub fn indexing_progress(&self) -> HashMap<IndexingId, BlockNumber> {
         self.network
             .borrow()
