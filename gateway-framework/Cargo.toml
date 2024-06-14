@@ -23,7 +23,6 @@ secp256k1.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 serde_with.workspace = true
-siphasher.workspace = true
 thegraph-core = { workspace = true, features = [
   "subgraph-client",
   "subscriptions",
