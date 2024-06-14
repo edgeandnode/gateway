@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use url::{Host, Url};
 
 /// The default timeout for the indexer host resolution.
-pub const DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(1_500);
+pub const DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Error that can occur during URL host resolution.
 #[derive(Clone, Debug, thiserror::Error)]

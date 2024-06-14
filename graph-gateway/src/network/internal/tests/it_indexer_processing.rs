@@ -423,63 +423,6 @@ async fn block_indexing_if_blocked_by_pois_blocklist() {
 
 #[test_with::env(IT_TEST_UPGRADE_INDEXER_ADDRESS, IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
-async fn block_indexer_if_all_indexings_blocked_by_pois_blocklist() {
-    init_test_tracing();
-
-    //* Given
-    // Network subgraph arbitrum v1.1.1
-    let deployment_1 = parse_deployment_id("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
-
-    // The indexer info
-    let indexer_url = upgrade_indexer_url();
-    let indexer_addr = upgrade_indexer_address();
-    let indexer = IndexerRawInfo {
-        id: indexer_addr,
-        url: indexer_url,
-        staked_tokens: Default::default(),
-        indexings: HashMap::from([(
-            deployment_1,
-            IndexerIndexingRawInfo {
-                largest_allocation: Default::default(),
-                total_allocated_tokens: 0,
-            },
-        )]),
-    };
-
-    // Set the POIs blocklist to block the network subgraph arbitrum v1.1.1 indexing only
-    // if the returned POI matches the faulty one
-    let faulty_poi = (
-        (deployment_1, 1337),
-        parse_poi("0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1"),
-    );
-
-    let service = test_service_state(
-        Default::default(), // No address blocklist
-        Default::default(), // No host blocklist
-        Default::default(), // No minimum version requirements
-        HashSet::from([faulty_poi]),
-    );
-
-    //* When
-    let res = tokio::time::timeout(
-        Duration::from_secs(20),
-        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
-    )
-    .await
-    .expect("topology processing did not complete in time (20s)");
-
-    //* Then
-    let indexer_info = res.get(&indexer_addr).expect("indexer not found");
-
-    assert_matches!(
-        indexer_info,
-        Err(IndexerError::AllIndexingsBlockedByPoiBlocklist),
-        "indexer not marked as blocked due to POIs blocklist"
-    );
-}
-
-#[test_with::env(IT_TEST_UPGRADE_INDEXER_ADDRESS, IT_TEST_UPGRADE_INDEXER_URL)]
-#[tokio::test]
 async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
     init_test_tracing();
 

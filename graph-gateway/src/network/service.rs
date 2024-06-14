@@ -194,24 +194,24 @@ impl NetworkServiceBuilder {
     /// Creates a new [`NetworkServiceBuilder`] instance.
     pub fn new(subgraph_client: SubgraphClient, indexer_client: reqwest::Client) -> Self {
         let indexer_host_resolver = HostResolver::with_timeout(
-            DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT, // 1500ms
+            DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT, // 5 seconds
         )
         .expect("failed to create host resolver");
         let indexer_version_resolver = VersionResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
             DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 5 seconds
-            DEFAULT_TTL,
+            DEFAULT_TTL,                                // Duration::MAX
         );
         let indexer_indexing_progress_resolver =
             IndexingProgressResolver::with_timeout_and_cache_ttl(
                 indexer_client.clone(),
                 DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 25 seconds
-                DEFAULT_TTL,
+                DEFAULT_TTL,                                          // Duration::MAX
             );
         let indexer_indexing_cost_model_resolver = CostModelResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
             DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT, // 5 seconds
-            DEFAULT_TTL,
+            DEFAULT_TTL,                                            // Duration::MAX
         );
         let indexer_indexing_cost_model_compiler = CostModelCompiler::default();
 
@@ -268,9 +268,10 @@ impl NetworkServiceBuilder {
 
     /// Sets the indexer POIs blocklist.
     pub fn with_indexer_pois_blocklist(mut self, blocklist: HashSet<ProofOfIndexingInfo>) -> Self {
-        let resolver = PoiResolver::with_timeout(
+        let resolver = PoiResolver::with_timeout_and_cache_ttl(
             self.indexer_client.clone(),
             DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT, // 5s
+            DEFAULT_TTL,                                      // Duration::MAX
         );
         let blocklist = PoiBlocklist::new(blocklist);
 

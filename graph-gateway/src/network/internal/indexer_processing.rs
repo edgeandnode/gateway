@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    convert::Infallible,
-};
+use std::collections::{HashMap, HashSet};
 
 use alloy_primitives::{Address, BlockNumber};
 use cost_model::CostModel;
@@ -19,10 +16,8 @@ use crate::network::{
     indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist,
-    indexer_indexing_poi_resolver::{PoiResolver, ResolutionError as PoisResolutionError},
-    indexer_indexing_progress_resolver::{
-        IndexingProgressResolver, ResolutionError as IndexingProgressResolutionError,
-    },
+    indexer_indexing_poi_resolver::PoiResolver,
+    indexer_indexing_progress_resolver::IndexingProgressResolver,
     indexer_version_resolver::{ResolutionError as VersionResolutionError, VersionResolver},
 };
 
@@ -42,85 +37,6 @@ impl Default for VersionRequirements {
             min_graph_node_version: Version::new(0, 0, 0),
         }
     }
-}
-
-/// Internal representation of the indexer pre-processed information.
-///
-/// This is not the final representation of the indexer.
-#[derive(Clone, CustomDebug)]
-pub(super) struct IndexerRawInfo {
-    /// The indexer's ID.
-    pub id: Address,
-    /// The indexer's URL.
-    ///
-    /// It is guaranteed that the URL scheme is either HTTP or HTTPS and the URL has a host.
-    #[debug(with = std::fmt::Display::fmt)]
-    pub url: Url,
-    /// The total amount of tokens staked by the indexer.
-    pub staked_tokens: u128,
-    /// The indexer's indexings information.
-    pub indexings: HashMap<DeploymentId, IndexerIndexingRawInfo>,
-}
-
-/// Internal representation of the indexer's indexing information.
-///
-/// This is not the final representation of the indexer's indexing information.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct IndexerIndexingRawInfo {
-    /// The largest allocation.
-    pub largest_allocation: Address,
-    /// The total amount of tokens allocated.
-    pub total_allocated_tokens: u128,
-}
-
-/// Internal representation of the fetched indexer information.
-///
-/// This is not the final representation of the indexer.
-#[derive(Clone, CustomDebug)]
-pub struct IndexerInfo {
-    /// The indexer's ID.
-    pub id: Address,
-    /// The indexer's URL.
-    ///
-    /// It is guaranteed that the URL scheme is either HTTP or HTTPS and the URL has a host.
-    #[debug(with = std::fmt::Display::fmt)]
-    pub url: Url,
-    /// The total amount of tokens staked by the indexer.
-    pub staked_tokens: u128,
-    /// The indexer's "indexer service" version.
-    pub indexer_service_version: Version,
-    /// The indexer's "graph node" version.
-    pub graph_node_version: Version,
-
-    /// The indexer's indexings information.
-    pub indexings: HashMap<DeploymentId, Result<IndexerIndexingInfo, IndexerIndexingError>>,
-}
-
-/// Internal representation of the fetched indexer's indexing information.
-#[derive(Clone, Debug)]
-pub struct IndexerIndexingInfo {
-    /// The largest allocation.
-    pub largest_allocation: Address,
-
-    /// The total amount of tokens allocated.
-    pub total_allocated_tokens: u128,
-
-    /// The indexing progress information
-    ///
-    /// See [`IndexingProgressInfo`] for more information.
-    pub progress: Freshness<IndexingProgressInfo>,
-
-    /// The cost model for this indexing.
-    pub cost_model: Option<Ptr<CostModel>>,
-}
-
-/// Internal representation of the indexing's progress information.
-#[derive(Clone, Debug)]
-pub struct IndexingProgressInfo {
-    /// The latest indexed block.
-    pub latest_block: BlockNumber,
-    /// The minimum indexed block.
-    pub min_block: Option<BlockNumber>,
 }
 
 /// Errors when processing the indexer information.
@@ -150,20 +66,48 @@ pub enum IndexerError {
     /// The indexer's graph node version is below the minimum required.
     #[error("graph node version {0} below the minimum required {1}")]
     GraphNodeVersionBelowMin(Version, Version),
+}
 
-    /// The indexer's indexing public POIs resolution failed.
-    #[error("indexing public POIs resolution failed: {0}")]
-    IndexingPoisResolutionFailed(#[from] PoisResolutionError),
-    /// All the indexer's indexings are blocked by the public POIs blocklist.
-    #[error("all indexings blocked due to blocked POIs")]
-    AllIndexingsBlockedByPoiBlocklist,
+/// Internal representation of the indexer pre-processed information.
+///
+/// This is not the final representation of the indexer.
+#[derive(Clone, CustomDebug)]
+pub(super) struct IndexerRawInfo {
+    /// The indexer's ID.
+    pub id: Address,
+    /// The indexer's URL.
+    ///
+    /// It is guaranteed that the URL scheme is either HTTP or HTTPS and the URL has a host.
+    #[debug(with = std::fmt::Display::fmt)]
+    pub url: Url,
+    /// The total amount of tokens staked by the indexer.
+    pub staked_tokens: u128,
+    /// The indexer's indexings information.
+    pub indexings: HashMap<DeploymentId, IndexerIndexingRawInfo>,
+}
 
-    /// The indexer's indexing progress resolution failed.
-    #[error("indexing progress resolution failed: {0}")]
-    IndexingProgressResolutionFailed(#[from] IndexingProgressResolutionError),
-    /// No indexing progress information was found for the indexer's deployments.
-    #[error("no indexing progress information found")]
-    IndexingProgressUnavailable,
+/// Internal representation of the fetched indexer information.
+///
+/// This is not the final representation of the indexer.
+#[derive(Clone, CustomDebug)]
+pub struct IndexerInfo {
+    /// The indexer's ID.
+    pub id: Address,
+    /// The indexer's URL.
+    ///
+    /// It is guaranteed that the URL scheme is either HTTP or HTTPS and the URL has a host.
+    #[debug(with = std::fmt::Display::fmt)]
+    pub url: Url,
+    /// The total amount of tokens staked by the indexer.
+    pub staked_tokens: u128,
+
+    /// The indexer's "indexer service" version.
+    pub indexer_service_version: Version,
+    /// The indexer's "graph node" version.
+    pub graph_node_version: Version,
+
+    /// The indexer's indexings information.
+    pub indexings: HashMap<DeploymentId, Result<IndexerIndexingInfo, IndexerIndexingError>>,
 }
 
 /// Error when processing the indexer's indexing information.
@@ -174,8 +118,46 @@ pub enum IndexerIndexingError {
     BlockedByPoiBlocklist,
 
     /// The indexing progress information was not found.
-    #[error("progress information not found")]
+    #[error("indexing progress information not found")]
     ProgressNotFound,
+}
+
+/// Internal representation of the indexer's indexing information.
+///
+/// This is not the final representation of the indexer's indexing information.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct IndexerIndexingRawInfo {
+    /// The largest allocation.
+    pub largest_allocation: Address,
+    /// The total amount of tokens allocated.
+    pub total_allocated_tokens: u128,
+}
+
+/// Internal representation of the fetched indexer's indexing information.
+#[derive(Clone, Debug)]
+pub struct IndexerIndexingInfo {
+    /// The largest allocation.
+    pub largest_allocation: Address,
+
+    /// The total amount of tokens allocated.
+    pub total_allocated_tokens: u128,
+
+    /// The indexing progress information
+    ///
+    /// See [`IndexingProgressInfo`] for more information.
+    pub progress: Freshness<IndexingProgressInfo>,
+
+    /// The cost model for this indexing.
+    pub cost_model: Option<Ptr<CostModel>>,
+}
+
+/// Internal representation of the indexing's progress information.
+#[derive(Clone, Debug)]
+pub struct IndexingProgressInfo {
+    /// The latest indexed block.
+    pub latest_block: BlockNumber,
+    /// The minimum indexed block.
+    pub min_block: Option<BlockNumber>,
 }
 
 /// Process the fetched network topology information.
@@ -222,7 +204,7 @@ where
                 if let Err(err) = resolve_and_check_indexer_blocked_by_host_blocklist(
                     state.as_ref(),
                     state.as_ref(),
-                    &indexer,
+                    &indexer.url,
                 )
                 .await
                 {
@@ -238,7 +220,7 @@ where
                     match resolve_and_check_indexer_blocked_by_version(
                         state.as_ref(),
                         state.as_ref(),
-                        &indexer,
+                        &indexer.url,
                     )
                     .await
                     {
@@ -260,65 +242,70 @@ where
                         tracing::field::display(&graph_node_version),
                     );
 
-                let mut indexer_indexings = indexer.indexings.keys().copied().collect::<Vec<_>>();
+                let mut indexer_indexings: HashMap<DeploymentId, Result<_, _>> = indexer
+                    .indexings
+                    .into_iter()
+                    .map(|(id, info)| (id, Ok(info)))
+                    .collect();
+                let mut healthy_indexer_indexings =
+                    indexer_indexings.keys().copied().collect::<Vec<_>>();
 
                 // Check if the indexer's indexings should be blocked by POI
-                let blocked_indexings_by_poi =
-                    match resolve_and_check_indexer_indexings_blocked_by_poi(
-                        state.as_ref(),
-                        &indexer_indexings,
-                        &indexer,
-                    )
-                    .await
-                    {
-                        Ok(blocked_indexings) => blocked_indexings,
-                        Err(err) => {
-                            tracing::debug!(%err);
-                            return (indexer_id, Err(err));
-                        }
-                    };
+                let blocked_indexings_by_poi = resolve_and_check_indexer_indexings_blocked_by_poi(
+                    state.as_ref(),
+                    &indexer.url,
+                    &healthy_indexer_indexings,
+                )
+                .await;
 
-                // Update the indexer indexings list to only include the deployments that
-                // are not blocked by POI. If all the indexer's indexings are blocked by POI,
-                // mark the indexer as unhealthy.
-                indexer_indexings.retain(|id| !blocked_indexings_by_poi.contains(id));
-                if indexer_indexings.is_empty() {
-                    return (
-                        indexer_id,
-                        Err(IndexerError::AllIndexingsBlockedByPoiBlocklist),
-                    );
-                }
+                // Mark the indexings blocked by the POI blocklist as unhealthy
+                healthy_indexer_indexings.retain(|id| !blocked_indexings_by_poi.contains(id));
+                indexer_indexings = indexer_indexings
+                    .into_iter()
+                    .map(|(id, res)| {
+                        let info = res.and_then(|info| {
+                            if blocked_indexings_by_poi.contains(&id) {
+                                Err(IndexerIndexingError::BlockedByPoiBlocklist)
+                            } else {
+                                Ok(info)
+                            }
+                        });
+
+                        (id, info)
+                    })
+                    .collect::<HashMap<_, _>>();
 
                 // Resolve the indexer's indexing progress information
-                // NOTE: At this point, the indexer's deployments list should contain only the
-                //       deployment IDs that were not blocked by any blocklist.
-                let mut indexer_progress =
-                    match resolve_indexer_progress(state.as_ref(), &indexer_indexings, &indexer)
-                        .await
-                    {
-                        Ok(progress) => progress,
-                        Err(err) => {
-                            tracing::debug!(%err);
-                            return (indexer_id, Err(err));
-                        }
-                    };
+                let mut indexing_progress = resolve_indexer_progress(
+                    state.as_ref(),
+                    &indexer.url,
+                    &healthy_indexer_indexings,
+                )
+                .await;
 
-                // Update the indexer indexings list to only keep the indexings that have reported
-                // successfully the progress information. If no progress information was found for
-                // any of the indexer's deployments, mark the indexer as unhealthy.
-                indexer_indexings.retain(|id| matches!(indexer_progress.get(id), Some(Ok(_))));
-                if indexer_indexings.is_empty() {
-                    return (indexer_id, Err(IndexerError::IndexingProgressUnavailable));
-                }
+                // Mark the indexings with no progress as unhealthy
+                healthy_indexer_indexings.retain(|id| indexing_progress.contains_key(id));
+                indexer_indexings = indexer_indexings
+                    .into_iter()
+                    .map(|(id, res)| {
+                        let info = res.and_then(|info| {
+                            if indexing_progress.contains_key(&id) {
+                                Ok(info)
+                            } else {
+                                Err(IndexerIndexingError::ProgressNotFound)
+                            }
+                        });
+                        (id, info)
+                    })
+                    .collect::<HashMap<_, _>>();
 
                 // Resolve the indexer's indexing cost models
-                let mut indexer_cost_models =
-                    match resolve_indexer_cost_models(state.as_ref(), &indexer_indexings, &indexer)
-                        .await
-                    {
-                        Ok(cost_models) => cost_models,
-                        Err(_) => unreachable!(),
-                    };
+                let mut indexer_cost_models = resolve_indexer_cost_models(
+                    state.as_ref(),
+                    &indexer.url,
+                    &healthy_indexer_indexings,
+                )
+                .await;
 
                 // Construct the indexer's information with the resolved information
                 let info = IndexerInfo {
@@ -327,17 +314,18 @@ where
                     staked_tokens: indexer.staked_tokens,
                     indexer_service_version,
                     graph_node_version,
-                    indexings: indexer
-                        .indexings
+                    indexings: indexer_indexings
                         .into_iter()
                         .map(|(id, info)| {
-                            // Check if the indexing is blocked by POI
-                            if blocked_indexings_by_poi.contains(&id) {
-                                return (id, Err(IndexerIndexingError::BlockedByPoiBlocklist));
-                            }
+                            let info = match info {
+                                Ok(info) => info,
+                                Err(err) => {
+                                    return (id, Err(err));
+                                }
+                            };
 
                             // Get the progress information
-                            let progress = match indexer_progress
+                            let progress = match indexing_progress
                                 .remove(&id)
                                 .expect("indexing progress not found")
                             {
@@ -402,10 +390,10 @@ fn check_indexer_blocked_by_addr_blocklist(
 async fn resolve_and_check_indexer_blocked_by_host_blocklist(
     resolver: &HostResolver,
     blocklist: &Option<HostBlocklist>,
-    indexer: &IndexerRawInfo,
+    url: &Url,
 ) -> Result<(), IndexerError> {
     // Resolve the indexer's URL, if it fails (or times out), the indexer must be BLOCKED
-    let resolution_result = resolver.resolve_url(&indexer.url).await?;
+    let resolution_result = resolver.resolve_url(url).await?;
 
     // If the host blocklist was not configured, the indexer must be ALLOWED
     let host_blocklist = match blocklist {
@@ -422,13 +410,13 @@ async fn resolve_and_check_indexer_blocked_by_host_blocklist(
 
 /// Resolve and check if the indexer's reported versions are supported.
 async fn resolve_and_check_indexer_blocked_by_version(
-    version_requirements: &VersionRequirements,
     resolver: &VersionResolver,
-    indexer: &IndexerRawInfo,
+    version_requirements: &VersionRequirements,
+    url: &Url,
 ) -> Result<(Version, Version), IndexerError> {
     // Resolve the indexer's service version
     let indexer_service_version = resolver
-        .resolve_indexer_service_version(&indexer.url)
+        .resolve_indexer_service_version(url)
         .await
         .map_err(IndexerError::IndexerServiceVersionResolutionFailed)?;
 
@@ -441,7 +429,7 @@ async fn resolve_and_check_indexer_blocked_by_version(
     }
 
     // Resolve the indexer's graph node version, with a timeout
-    let graph_node_version = match resolver.resolve_graph_node_version(&indexer.url).await {
+    let graph_node_version = match resolver.resolve_graph_node_version(url).await {
         Err(err) => {
             // TODO: After more graph nodes support reporting their version,
             //  we should assume they are on the minimum version if we can't
@@ -463,60 +451,50 @@ async fn resolve_and_check_indexer_blocked_by_version(
     Ok((indexer_service_version, graph_node_version))
 }
 
-/// Resolve and check if any of the indexer's deployments should be blocked by POI.
+/// Resolve and check if any of the indexer's indexings should be blocked by POI.
 async fn resolve_and_check_indexer_indexings_blocked_by_poi(
     blocklist: &Option<(PoiResolver, PoiBlocklist)>,
+    url: &Url,
     indexings: &[DeploymentId],
-    indexer: &IndexerRawInfo,
-) -> Result<HashSet<DeploymentId>, IndexerError> {
-    // If the POI blocklist was not configured, the indexer must be ALLOWED
+) -> HashSet<DeploymentId> {
+    // If the POI blocklist was not configured, all indexings must be ALLOWED
     let (pois_resolver, pois_blocklist) = match blocklist {
         Some((blocklist, resolver)) => (blocklist, resolver),
-        _ => return Ok(HashSet::new()),
+        _ => return HashSet::new(),
     };
 
     // Get the list of affected POIs to resolve for the indexer's deployments
     // If none of the deployments are affected, the indexer must be ALLOWED
     let indexer_affected_pois = pois_blocklist.affected_pois_metadata(indexings);
     if indexer_affected_pois.is_empty() {
-        return Ok(HashSet::new());
+        return HashSet::new();
     }
 
     // Resolve the indexer public POIs for the affected deployments
-    let poi_result = pois_resolver
-        .resolve(&indexer.url, &indexer_affected_pois)
-        .await?;
+    let poi_result = pois_resolver.resolve(url, &indexer_affected_pois).await;
 
     // Check if any of the reported POIs are in the blocklist
     let blocklist_check_result = pois_blocklist.check(poi_result);
-    let blocked_indexings = indexings
+
+    indexings
         .iter()
         .filter_map(|id| match blocklist_check_result.get(id) {
             Some(state) if state.is_blocked() => Some(*id),
             _ => None,
         })
-        .collect::<HashSet<_>>();
-
-    Ok(blocked_indexings)
+        .collect::<HashSet<_>>()
 }
 
 /// Resolve the indexer's progress information.
 async fn resolve_indexer_progress(
     resolver: &IndexingProgressResolver,
+    url: &Url,
     indexings: &[DeploymentId],
-    indexer: &IndexerRawInfo,
-) -> Result<
-    HashMap<DeploymentId, Result<Freshness<IndexingProgressInfo>, IndexerIndexingError>>,
-    IndexerError,
-> {
-    let mut progress_info = resolver.resolve(&indexer.url, indexings).await?;
-    tracing::trace!(
-        indexings_requested = %indexings.len(),
-        indexings_resolved = %progress_info.len(),
-        "progress resolved"
-    );
+) -> HashMap<DeploymentId, Result<Freshness<IndexingProgressInfo>, IndexerIndexingError>> {
+    let mut progress_info = resolver.resolve(url, indexings).await;
 
-    let progress = indexings
+    // Get the progress information for each indexing
+    indexings
         .iter()
         .map(|id| {
             (
@@ -532,27 +510,25 @@ async fn resolve_indexer_progress(
                     .ok_or(IndexerIndexingError::ProgressNotFound),
             )
         })
-        .collect::<HashMap<_, _>>();
-
-    Ok(progress)
+        .collect::<HashMap<_, _>>()
 }
 
 /// Resolve the indexer's cost models.
 async fn resolve_indexer_cost_models(
     (resolver, compiler): &(CostModelResolver, CostModelCompiler),
+    url: &Url,
     indexings: &[DeploymentId],
-    indexer: &IndexerRawInfo,
-) -> Result<HashMap<DeploymentId, Ptr<CostModel>>, Infallible> {
+) -> HashMap<DeploymentId, Ptr<CostModel>> {
     // Resolve the indexer's cost model sources
-    let cost_model_sources = match resolver.resolve(&indexer.url, indexings).await {
+    let cost_model_sources = match resolver.resolve(url, indexings).await {
         Err(err) => {
             // If the resolution failed, return early
             tracing::trace!("cost model resolution failed: {err}");
-            return Ok(HashMap::new());
+            return HashMap::new();
         }
         Ok(result) if result.is_empty() => {
             // If the resolution is empty, return early
-            return Ok(HashMap::new());
+            return HashMap::new();
         }
         Ok(result) => result,
     };
@@ -571,5 +547,5 @@ async fn resolve_indexer_cost_models(
         )
         .collect();
 
-    Ok(cost_models)
+    cost_models
 }

@@ -22,8 +22,6 @@ use super::{
 };
 use crate::network::{
     indexer_host_resolver::ResolutionError as HostResolutionError,
-    indexer_indexing_poi_resolver::ResolutionError as PoisResolutionError,
-    indexer_indexing_progress_resolver::ResolutionError as IndexingProgressResolutionError,
     indexer_version_resolver::ResolutionError as VersionResolutionError,
 };
 
@@ -229,31 +227,6 @@ impl From<InternalIndexerError> for IndexingError {
             }
             IndexerError::GraphNodeVersionBelowMin(cur, min) => {
                 UnavailableReason::GraphNodeVersionBelowMin(cur, min)
-            }
-            IndexerError::IndexingPoisResolutionFailed(err) => {
-                tracing::debug!(error=?err, "indexing pois resolution failed");
-                let reason = match err {
-                    PoisResolutionError::Timeout => "indexing pois resolution timeout",
-                };
-                UnavailableReason::StatusResolutionFailed(reason.to_string())
-            }
-            IndexerError::AllIndexingsBlockedByPoiBlocklist => {
-                UnavailableReason::IndexingBlockedByPoiBlocklist
-            }
-            IndexerError::IndexingProgressResolutionFailed(err) => {
-                tracing::debug!(error=?err, "indexing progress resolution failed");
-                let reason = match err {
-                    IndexingProgressResolutionError::FetchError(_) => {
-                        "indexing progress resolution failed"
-                    }
-                    IndexingProgressResolutionError::Timeout => {
-                        "indexing progress resolution timeout"
-                    }
-                };
-                UnavailableReason::StatusResolutionFailed(reason.to_string())
-            }
-            IndexerError::IndexingProgressUnavailable => {
-                UnavailableReason::StatusResolutionFailed(err.to_string())
             }
         })
     }
