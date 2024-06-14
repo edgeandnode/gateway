@@ -6,7 +6,7 @@ use std::{
 use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail};
 use cost_model::Context;
-use gateway_common::timestamp::unix_timestamp;
+use gateway_common::time::unix_timestamp;
 use gateway_framework::{
     blocks::{Block, BlockConstraint, UnresolvedBlock},
     chain::Chain,
