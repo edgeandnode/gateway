@@ -4,7 +4,6 @@ use std::{
 };
 
 use alloy_primitives::Address;
-use itertools::Itertools as _;
 
 use crate::blocks::{Block, UnresolvedBlock};
 
@@ -26,22 +25,17 @@ impl Chain {
     /// Return the average block production rate, based on the consensus blocks. The result will
     /// be greater than 0.
     pub fn blocks_per_minute(&self) -> u64 {
-        let mut bpm_sum = 0.0;
-        let mut count: usize = 0;
-        for (b, a) in self.consensus_blocks().tuple_windows() {
-            debug_assert!(b.number >= a.number);
-            let seconds = b.timestamp.saturating_sub(a.timestamp);
-            let blocks = b.number.saturating_sub(a.number) as f64;
-            if seconds == 0 {
-                continue;
-            }
-            bpm_sum += blocks / (seconds as f64 / 60.0);
-            count += 1;
-        }
-        if count == 0 {
-            return DEFAULT_BLOCKS_PER_MINUTE;
-        }
-        ((bpm_sum / count as f64) as u64).max(1)
+        let mut blocks = self.consensus_blocks();
+        let last = blocks.next();
+        let first = blocks.last();
+        let (first, last) = match (first, last) {
+            (Some(first), Some(last)) => (first, last),
+            _ => return DEFAULT_BLOCKS_PER_MINUTE,
+        };
+        let b = last.number.saturating_sub(first.number).max(1);
+        let t = last.timestamp.saturating_sub(first.timestamp).max(1);
+        let bps = b as f64 / t as f64;
+        (bps * 60.0) as u64
     }
 
     pub fn should_insert(&self, block: &Block, indexer: &Address) -> bool {
@@ -79,7 +73,7 @@ impl Chain {
     }
 
     /// Return blocks with simple majority consensus, starting from the latest block.
-    fn consensus_blocks(&self) -> impl Iterator<Item = &Block> {
+    pub fn consensus_blocks(&self) -> impl Iterator<Item = &Block> {
         struct ConsensusBlocks<Iter> {
             blocks: Iter,
         }
