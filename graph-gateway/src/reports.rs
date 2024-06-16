@@ -70,8 +70,7 @@ impl Reporter {
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         tokio::spawn(async move {
-            loop {
-                let msg = rx.recv().await.expect("channel closed");
+            while let Some(msg) = rx.recv().await {
                 if let Err(report_err) = reporter.report(msg) {
                     tracing::error!(%report_err);
                 }
