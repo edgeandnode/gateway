@@ -701,8 +701,16 @@ fn perf(
             as u32
     };
 
+    let mut response = snapshot.response.expected_performance();
+    // Since our gateway is specialized for frontends, add an additional penalty for candidates
+    // far behind chain head. This compensates for the impacts of information decay and the sharp
+    // dropoff of our `seconds_behind` curve.
+    if (seconds_behind as u64) > (blocks_per_minute * 60 * 30) {
+        response.success_rate = Normalized::ZERO;
+    }
+
     Some(Perf {
-        response: snapshot.response.expected_performance(),
+        response,
         latest_block,
         seconds_behind,
     })
