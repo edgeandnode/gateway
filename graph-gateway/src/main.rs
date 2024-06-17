@@ -357,7 +357,7 @@ fn graphql_error_response<S: ToString>(message: S) -> json::JsonResponse {
 
 /// Creates a new [`AuthContext`] from the given configuration.
 ///
-/// This functions awaits the completion of the initial API keys and subscriptions fetches.
+/// This functions awaits the completion of the initial API keys fetch.
 async fn init_auth_service(
     http: reqwest::Client,
     config: Option<ApiKeys>,

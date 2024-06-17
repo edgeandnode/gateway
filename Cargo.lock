@@ -48,17 +48,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alloy-chains"
-version = "0.1.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24ceb48af11349cd7fbd12aa739800be3c4b3965f640b7ae26666907f3bdf091"
-dependencies = [
- "num_enum 0.7.2",
- "serde",
- "strum 0.26.2",
-]
-
-[[package]]
 name = "alloy-primitives"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2043,12 +2032,6 @@ dependencies = [
  "tokio-util",
  "tracing",
 ]
-
-[[package]]
-name = "half"
-version = "1.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b43ede17f21864e81be2fa654110bf1e793774238d86ef8555c37e6519c0403"
 
 [[package]]
 name = "hashbrown"
@@ -4368,16 +4351,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_cbor_2"
-version = "0.12.0-dev"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b46d75f449e01f1eddbe9b00f432d616fbbd899b809c837d0fbc380496a0dd55"
-dependencies = [
- "half",
- "serde",
-]
-
-[[package]]
 name = "serde_derive"
 version = "1.0.203"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4894,18 +4867,14 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0aafbdb88afae23b3813cc2ea02340f4f628673df17ac7a44deb65f95f3f2a1a"
 dependencies = [
- "alloy-chains",
  "alloy-primitives",
  "alloy-sol-types",
- "base64 0.22.1",
  "bs58",
- "ethers",
  "ethers-core",
  "indoc",
  "lazy_static",
  "reqwest 0.12.4",
  "serde",
- "serde_cbor_2",
  "serde_json",
  "serde_with",
  "thegraph-graphql-http",

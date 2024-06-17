@@ -42,10 +42,7 @@ serde_with.workspace = true
 simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "c179dfe" }
-thegraph-core = { workspace = true, features = [
-    "subgraph-client",
-    "subscriptions",
-] }
+thegraph-core = { workspace = true, features = ["subgraph-client"] }
 thegraph-graphql-http.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
