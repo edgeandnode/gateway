@@ -1,5 +1,5 @@
-use super::indexer_processing::VersionRequirements as IndexerVersionRequirements;
 use crate::network::{
+    config::VersionRequirements as IndexerVersionRequirements,
     indexer_addr_blocklist::AddrBlocklist, indexer_host_blocklist::HostBlocklist,
     indexer_host_resolver::HostResolver, indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,

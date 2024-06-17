@@ -15,14 +15,10 @@ use semver::Version;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use url::Url;
 
-use super::{
-    DeploymentError, DeploymentInfo, IndexerError as InternalIndexerError, IndexerError,
-    IndexerIndexingError as InternalIndexerIndexingError, IndexerIndexingError, IndexerInfo,
-    SubgraphError, SubgraphInfo,
-};
+use super::{DeploymentInfo, SubgraphInfo};
 use crate::network::{
-    indexer_host_resolver::ResolutionError as HostResolutionError,
-    indexer_version_resolver::ResolutionError as VersionResolutionError,
+    errors::{DeploymentError, IndexerInfoResolutionError, IndexingError, SubgraphError},
+    internal::indexer_processing::ResolvedIndexerInfo,
 };
 
 /// The minimum indexer service version required to support Scalar TAP.
@@ -114,11 +110,6 @@ pub struct Indexer {
     /// Whether the indexer supports TAP payments.
     pub tap_support: bool,
 
-    /// The indexer's indexings set.
-    ///
-    /// It is a set of deployment IDs that the indexer is indexing.
-    pub indexings: HashSet<DeploymentId>,
-
     /// The indexer's staked tokens.
     pub staked_tokens: u128,
 }
@@ -138,11 +129,6 @@ pub struct Subgraph {
     /// This information is extracted from the highest version of the subgraph deployment's
     /// manifest.
     pub start_block: BlockNumber,
-
-    /// The subgraph's deployments.
-    ///
-    /// A list of deployment IDs known to be healthy and currently serving queries.
-    pub deployments: HashSet<DeploymentId>,
 
     /// The subgraph's indexings.
     ///
@@ -173,100 +159,6 @@ pub struct Deployment {
     ///
     /// A table holding all the known indexings for the deployment.
     pub indexings: HashMap<IndexingId, Result<Indexing, IndexingError>>,
-}
-
-// TODO: Review these errors when the network module gets integrated
-//  Copied from gateway-framework/src/errors.rs
-#[derive(Debug, Clone, thiserror::Error)]
-pub enum IndexingError {
-    /// The indexer is considered unavailable.
-    #[error("Unavailable({0})")]
-    Unavailable(UnavailableReason),
-
-    /// Errors that should only occur in exceptional conditions.
-    #[error("internal error: {0}")]
-    Internal(String),
-}
-
-impl From<InternalIndexerError> for IndexingError {
-    fn from(err: InternalIndexerError) -> Self {
-        IndexingError::Unavailable(match err {
-            IndexerError::BlockedByAddrBlocklist => UnavailableReason::BlockedByAddrBlocklist,
-            IndexerError::HostResolutionFailed(err) => {
-                tracing::debug!(error=?err, "host resolution failed");
-                let reason = match err {
-                    HostResolutionError::InvalidUrl(_) => "invalid indexer url",
-                    HostResolutionError::DnsResolutionError(_) => {
-                        "indexer url dns resolution failed"
-                    }
-                    HostResolutionError::Timeout => "indexer url dns resolution timeout",
-                };
-                UnavailableReason::StatusResolutionFailed(reason.to_string())
-            }
-            IndexerError::BlockedByHostBlocklist => UnavailableReason::BlockedByHostBlocklist,
-            IndexerError::IndexerServiceVersionResolutionFailed(err) => {
-                tracing::debug!(error=?err, "indexer service version resolution failed");
-                let reason = match err {
-                    VersionResolutionError::FetchError(_) => {
-                        "indexer service version resolution failed"
-                    }
-                    VersionResolutionError::Timeout => "indexer service version resolution timeout",
-                };
-                UnavailableReason::StatusResolutionFailed(reason.to_string())
-            }
-            IndexerError::IndexerServiceVersionBelowMin(cur, min) => {
-                UnavailableReason::IndexerServiceVersionBelowMin(cur, min)
-            }
-            IndexerError::GraphNodeVersionResolutionFailed(err) => {
-                tracing::debug!(error=?err, "graph node version resolution failed");
-                let reason = match err {
-                    VersionResolutionError::FetchError(_) => "graph node version resolution failed",
-                    VersionResolutionError::Timeout => "graph node version resolution timeout",
-                };
-                UnavailableReason::StatusResolutionFailed(reason.to_string())
-            }
-            IndexerError::GraphNodeVersionBelowMin(cur, min) => {
-                UnavailableReason::GraphNodeVersionBelowMin(cur, min)
-            }
-        })
-    }
-}
-
-impl From<InternalIndexerIndexingError> for IndexingError {
-    fn from(err: InternalIndexerIndexingError) -> Self {
-        IndexingError::Unavailable(match err {
-            IndexerIndexingError::BlockedByPoiBlocklist => {
-                UnavailableReason::IndexingBlockedByPoiBlocklist
-            }
-            IndexerIndexingError::ProgressNotFound => {
-                UnavailableReason::StatusResolutionFailed(err.to_string())
-            }
-        })
-    }
-}
-
-// TODO: Review these errors when the network module gets integrated
-//  Copied from gateway-framework/src/errors.rs
-#[derive(Debug, Clone, thiserror::Error)]
-pub enum UnavailableReason {
-    /// Blocked by address blocklist.
-    #[error("blocked by address blocklist")]
-    BlockedByAddrBlocklist,
-    /// Blocked by host blocklist.
-    #[error("blocked by host blocklist")]
-    BlockedByHostBlocklist,
-    /// Indexer service version is below the minimum required.
-    #[error("indexer service version below the minimum required")]
-    IndexerServiceVersionBelowMin(Version, Version),
-    /// Graph node version is below the minimum required.
-    #[error("graph node version below the minimum required")]
-    GraphNodeVersionBelowMin(Version, Version),
-    /// All indexings are blocked by the POI blocklist.
-    #[error("indexing blocked by POI blocklist")]
-    IndexingBlockedByPoiBlocklist,
-    /// Failed to resolve indexer status information
-    #[error("status info resolution failed: {0}")]
-    StatusResolutionFailed(String),
 }
 
 /// A snapshot of the network topology.
@@ -315,7 +207,7 @@ impl NetworkTopologySnapshot {
 
 /// Construct the [`NetworkTopologySnapshot`] from the indexers and subgraphs information.
 pub fn new_from(
-    indexers_info: HashMap<Address, Result<IndexerInfo, InternalIndexerError>>,
+    indexers_info: HashMap<Address, Result<ResolvedIndexerInfo, IndexerInfoResolutionError>>,
     subgraphs_info: HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>>,
     deployments_info: HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>>,
 ) -> NetworkTopologySnapshot {
@@ -337,7 +229,6 @@ pub fn new_from(
                         indexer_service_version: info.indexer_service_version.clone(),
                         graph_node_version: info.graph_node_version.clone(),
                         tap_support: indexer_tap_support,
-                        indexings: info.indexings.keys().copied().collect(),
                         staked_tokens: info.staked_tokens,
                     };
 
@@ -378,7 +269,10 @@ pub fn new_from(
 /// Construct the subgraphs table row.
 fn construct_subgraphs_table_row(
     subgraph_info: SubgraphInfo,
-    indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
+    indexers: &HashMap<
+        Address,
+        Result<(ResolvedIndexerInfo, Arc<Indexer>), IndexerInfoResolutionError>,
+    >,
 ) -> Result<Subgraph, SubgraphError> {
     let versions = subgraph_info.versions;
 
@@ -463,16 +357,10 @@ fn construct_subgraphs_table_row(
         return Err(SubgraphError::NoValidVersions);
     }
 
-    let subgraph_deployments = subgraph_indexings
-        .keys()
-        .map(|indexing_id| indexing_id.deployment)
-        .collect::<HashSet<_>>();
-
     Ok(Subgraph {
         id: subgraph_info.id,
         chain: highest_version_deployment_manifest_chain,
         start_block: highest_version_deployment_manifest_start_block,
-        deployments: subgraph_deployments,
         indexings: subgraph_indexings,
     })
 }
@@ -480,7 +368,10 @@ fn construct_subgraphs_table_row(
 /// Construct the subgraphs table row.
 fn construct_deployments_table_row(
     deployment_info: DeploymentInfo,
-    indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
+    indexers: &HashMap<
+        Address,
+        Result<(ResolvedIndexerInfo, Arc<Indexer>), IndexerInfoResolutionError>,
+    >,
 ) -> Result<Deployment, DeploymentError> {
     let deployment_id = deployment_info.id;
     let deployment_versions_behind = 0;
@@ -526,7 +417,10 @@ fn construct_indexings_table_row(
     indexing_id: IndexingId,
     indexing_deployment_chain: &str,
     indexing_deployment_versions_behind: u8,
-    indexers: &HashMap<Address, Result<(IndexerInfo, Arc<Indexer>), InternalIndexerError>>,
+    indexers: &HashMap<
+        Address,
+        Result<(ResolvedIndexerInfo, Arc<Indexer>), IndexerInfoResolutionError>,
+    >,
 ) -> (IndexingId, Result<Indexing, IndexingError>) {
     // If the indexer reported an error, bail out.
     let (indexer_info, indexer) = match indexers.get(&indexing_id.indexer).as_ref() {
@@ -542,7 +436,7 @@ fn construct_indexings_table_row(
 
             return (
                 indexing_id,
-                Err(IndexingError::Internal("indexer not found".to_string())),
+                Err(IndexingError::Internal("indexer not found")),
             );
         }
     };
@@ -561,9 +455,7 @@ fn construct_indexings_table_row(
 
             return (
                 indexing_id,
-                Err(IndexingError::Internal(
-                    "indexing info not found".to_string(),
-                )),
+                Err(IndexingError::Internal("indexing info not found")),
             );
         }
     };

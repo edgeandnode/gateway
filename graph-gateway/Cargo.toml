@@ -55,7 +55,6 @@ tower-http = { version = "0.5.2", features = ["cors"] }
 tracing.workspace = true
 url = "2.5.0"
 uuid = { version = "1.8", default-features = false, features = ["v4"] }
-vec1 = "1.12.0"
 
 [dev-dependencies]
 assert_matches = "1.5.0"

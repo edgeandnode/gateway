@@ -3,10 +3,8 @@ use serde_json::json;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
-use crate::network::{
-    internal::{indexer_processing::IndexerIndexingRawInfo, pre_processing},
-    subgraph_client::types::Subgraph as SubgraphData,
-};
+use super::{indexer_processing::IndexingRawInfo, pre_processing};
+use crate::network::subgraph_client::types::Subgraph as SubgraphData;
 
 /// Test method to initialize the tests tracing subscriber.
 fn init_test_tracing() {
@@ -260,19 +258,19 @@ fn indexers_data_pre_processing() {
         .get(&deployment_id_4)
         .expect("indexing info not found");
 
-    let expected_indexer_1_indexing_1_info = IndexerIndexingRawInfo {
+    let expected_indexer_1_indexing_1_info = IndexingRawInfo {
         largest_allocation: parse_address("0xcc3f326bdbfcb6fc730e04d859e6103f31cd691c"),
         total_allocated_tokens: 0,
     };
-    let expected_indexer_1_indexing_2_info = IndexerIndexingRawInfo {
+    let expected_indexer_1_indexing_2_info = IndexingRawInfo {
         largest_allocation: parse_address("0xa51c172268db23b0ec7bcf36b60d4cec374c1783"),
         total_allocated_tokens: 0,
     };
-    let expected_indexer_1_indexing_3_info = IndexerIndexingRawInfo {
+    let expected_indexer_1_indexing_3_info = IndexingRawInfo {
         largest_allocation: parse_address("0x28220d396bf2c22717b07f4d767429b7d5b72b03"),
         total_allocated_tokens: 0,
     };
-    let expected_indexer_1_indexing_4_info = IndexerIndexingRawInfo {
+    let expected_indexer_1_indexing_4_info = IndexingRawInfo {
         largest_allocation: parse_address("0x070b3036035489055d59f93efb63b80c7031ebca"),
         total_allocated_tokens: 0,
     };
@@ -300,7 +298,7 @@ fn indexers_data_pre_processing() {
         .get(&deployment_id_1)
         .expect("indexing info not found");
 
-    let expected_indexer_2_indexing_1_info = IndexerIndexingRawInfo {
+    let expected_indexer_2_indexing_1_info = IndexingRawInfo {
         largest_allocation: parse_address("0x8de241c35f8bc02ae9ad635e273372dd083f6520"),
         total_allocated_tokens: 3000000000000000000,
     };

@@ -34,7 +34,7 @@ jobs:
         run: sudo apt-get install -y lld librdkafka-dev libsasl2-dev
 
       - run: cargo check
-      - run: cargo clippy -- -D warnings
+      - run: cargo clippy -- -Dwarnings --force-warn deprecated --force-warn dead-code
 
       ## Tests
       # Install sops (needed for decrypting tests .env file)

@@ -10,68 +10,23 @@ use tracing::Instrument;
 use url::Url;
 
 use crate::network::{
+    config::VersionRequirements,
+    errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
     indexer_addr_blocklist::AddrBlocklist,
     indexer_host_blocklist::HostBlocklist,
-    indexer_host_resolver::{HostResolver, ResolutionError as HostResolutionError},
+    indexer_host_resolver::HostResolver,
     indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist,
     indexer_indexing_poi_resolver::PoiResolver,
     indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::{ResolutionError as VersionResolutionError, VersionResolver},
+    indexer_version_resolver::VersionResolver,
 };
-
-/// The minimum version requirements for the indexer.
-#[derive(Debug, Clone)]
-pub struct VersionRequirements {
-    /// The minimum indexer  version.
-    pub min_indexer_service_version: Version,
-    /// The minimum graph node version.
-    pub min_graph_node_version: Version,
-}
-
-impl Default for VersionRequirements {
-    fn default() -> Self {
-        Self {
-            min_indexer_service_version: Version::new(0, 0, 0),
-            min_graph_node_version: Version::new(0, 0, 0),
-        }
-    }
-}
-
-/// Errors when processing the indexer information.
-#[derive(Clone, Debug, thiserror::Error)]
-pub enum IndexerError {
-    /// The indexer was blocked by the address blocklist.
-    #[error("indexer address blocked by blocklist")]
-    BlockedByAddrBlocklist,
-
-    /// The indexer's host resolution failed.
-    #[error("indexer host resolution failed: {0}")]
-    HostResolutionFailed(#[from] HostResolutionError),
-    /// The indexer was blocked by the host blocklist.
-    #[error("indexer host blocked by blocklist")]
-    BlockedByHostBlocklist,
-
-    /// The indexer's service version resolution failed.
-    #[error("indexer service version resolution failed: {0}")]
-    IndexerServiceVersionResolutionFailed(VersionResolutionError),
-    /// The indexer's service version is below the minimum required.
-    #[error("service version {0} below the minimum required {1}")]
-    IndexerServiceVersionBelowMin(Version, Version),
-
-    /// The indexer's graph node version resolution failed.
-    #[error("graph-node version resolution failed: {0}")]
-    GraphNodeVersionResolutionFailed(VersionResolutionError),
-    /// The indexer's graph node version is below the minimum required.
-    #[error("graph node version {0} below the minimum required {1}")]
-    GraphNodeVersionBelowMin(Version, Version),
-}
 
 /// Internal representation of the indexer pre-processed information.
 ///
 /// This is not the final representation of the indexer.
-#[derive(Clone, CustomDebug)]
+#[derive(CustomDebug)]
 pub(super) struct IndexerRawInfo {
     /// The indexer's ID.
     pub id: Address,
@@ -83,14 +38,14 @@ pub(super) struct IndexerRawInfo {
     /// The total amount of tokens staked by the indexer.
     pub staked_tokens: u128,
     /// The indexer's indexings information.
-    pub indexings: HashMap<DeploymentId, IndexerIndexingRawInfo>,
+    pub indexings: HashMap<DeploymentId, IndexingRawInfo>,
 }
 
 /// Internal representation of the fetched indexer information.
 ///
 /// This is not the final representation of the indexer.
-#[derive(Clone, CustomDebug)]
-pub struct IndexerInfo {
+#[derive(CustomDebug)]
+pub(super) struct IndexerInfo<I> {
     /// The indexer's ID.
     pub id: Address,
     /// The indexer's URL.
@@ -107,26 +62,14 @@ pub struct IndexerInfo {
     pub graph_node_version: Version,
 
     /// The indexer's indexings information.
-    pub indexings: HashMap<DeploymentId, Result<IndexerIndexingInfo, IndexerIndexingError>>,
-}
-
-/// Error when processing the indexer's indexing information.
-#[derive(Clone, Debug, thiserror::Error)]
-pub enum IndexerIndexingError {
-    /// The indexing has been blocked by the public POIs blocklist.
-    #[error("indexing blocked by POIs blocklist")]
-    BlockedByPoiBlocklist,
-
-    /// The indexing progress information was not found.
-    #[error("indexing progress information not found")]
-    ProgressNotFound,
+    pub indexings: HashMap<DeploymentId, Result<I, IndexingInfoResolutionError>>,
 }
 
 /// Internal representation of the indexer's indexing information.
 ///
 /// This is not the final representation of the indexer's indexing information.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct IndexerIndexingRawInfo {
+pub(super) struct IndexingRawInfo {
     /// The largest allocation.
     pub largest_allocation: Address,
     /// The total amount of tokens allocated.
@@ -134,8 +77,11 @@ pub(super) struct IndexerIndexingRawInfo {
 }
 
 /// Internal representation of the fetched indexer's indexing information.
-#[derive(Clone, Debug)]
-pub struct IndexerIndexingInfo {
+///
+/// This type uses the "type-state" pattern to represent the different states of the indexing
+/// information: unresolved, partially resolved (with indexing progress) and completely resolved.
+#[derive(Debug)]
+pub(super) struct IndexingInfo<P, C> {
     /// The largest allocation.
     pub largest_allocation: Address,
 
@@ -144,16 +90,64 @@ pub struct IndexerIndexingInfo {
 
     /// The indexing progress information
     ///
-    /// See [`IndexingProgressInfo`] for more information.
-    pub progress: Freshness<IndexingProgressInfo>,
+    /// See [`IndexingProgress`] for more information.
+    pub progress: P, // Freshness<IndexingProgressInfo>,
 
     /// The cost model for this indexing.
-    pub cost_model: Option<Ptr<CostModel>>,
+    pub cost_model: C, // Option<Ptr<CostModel>>,
 }
+
+impl From<IndexingRawInfo> for IndexingInfo<(), ()> {
+    fn from(raw: IndexingRawInfo) -> Self {
+        Self {
+            largest_allocation: raw.largest_allocation,
+            total_allocated_tokens: raw.total_allocated_tokens,
+            progress: (),
+            cost_model: (),
+        }
+    }
+}
+
+impl IndexingInfo<(), ()> {
+    /// Move the type-state-machine from the unresolved state to the partially resolved state by
+    /// adding the indexing progress information.
+    fn with_indexing_progress(
+        self,
+        progress: Freshness<IndexingProgress>,
+    ) -> IndexingInfo<Freshness<IndexingProgress>, ()> {
+        IndexingInfo {
+            largest_allocation: self.largest_allocation,
+            total_allocated_tokens: self.total_allocated_tokens,
+            progress,
+            cost_model: self.cost_model,
+        }
+    }
+}
+
+impl IndexingInfo<Freshness<IndexingProgress>, ()> {
+    /// Move the type-state-machine from the partially resolved state to the completely resolved
+    /// state by adding the cost model to the indexing information.
+    fn with_cost_model(
+        self,
+        cost_model: Option<Ptr<CostModel>>,
+    ) -> IndexingInfo<Freshness<IndexingProgress>, Option<Ptr<CostModel>>> {
+        IndexingInfo {
+            largest_allocation: self.largest_allocation,
+            total_allocated_tokens: self.total_allocated_tokens,
+            progress: self.progress,
+            cost_model,
+        }
+    }
+}
+
+pub(super) type ResolvedIndexingInfo =
+    IndexingInfo<Freshness<IndexingProgress>, Option<Ptr<CostModel>>>;
+
+pub(super) type ResolvedIndexerInfo = IndexerInfo<ResolvedIndexingInfo>;
 
 /// Internal representation of the indexing's progress information.
 #[derive(Clone, Debug)]
-pub struct IndexingProgressInfo {
+pub(super) struct IndexingProgress {
     /// The latest indexed block.
     pub latest_block: BlockNumber,
     /// The minimum indexed block.
@@ -164,7 +158,7 @@ pub struct IndexingProgressInfo {
 pub(super) async fn process_info<S>(
     state: &S,
     indexers: HashMap<Address, IndexerRawInfo>,
-) -> HashMap<Address, Result<IndexerInfo, IndexerError>>
+) -> HashMap<Address, Result<ResolvedIndexerInfo, IndexerInfoResolutionError>>
 where
     S: AsRef<Option<AddrBlocklist>>
         + AsRef<HostResolver>
@@ -242,114 +236,21 @@ where
                         tracing::field::display(&graph_node_version),
                     );
 
-                let mut indexer_indexings: HashMap<DeploymentId, Result<_, _>> = indexer
-                    .indexings
-                    .into_iter()
-                    .map(|(id, info)| (id, Ok(info)))
-                    .collect();
-                let mut healthy_indexer_indexings =
-                    indexer_indexings.keys().copied().collect::<Vec<_>>();
+                // Resolve the indexer's indexings information
+                let indexings =
+                    process_indexer_indexings(state, &indexer.url, indexer.indexings).await;
 
-                // Check if the indexer's indexings should be blocked by POI
-                let blocked_indexings_by_poi = resolve_and_check_indexer_indexings_blocked_by_poi(
-                    state.as_ref(),
-                    &indexer.url,
-                    &healthy_indexer_indexings,
+                (
+                    indexer_id,
+                    Ok(IndexerInfo {
+                        id: indexer.id,
+                        url: indexer.url,
+                        staked_tokens: indexer.staked_tokens,
+                        indexer_service_version,
+                        graph_node_version,
+                        indexings,
+                    }),
                 )
-                .await;
-
-                // Mark the indexings blocked by the POI blocklist as unhealthy
-                healthy_indexer_indexings.retain(|id| !blocked_indexings_by_poi.contains(id));
-                indexer_indexings = indexer_indexings
-                    .into_iter()
-                    .map(|(id, res)| {
-                        let info = res.and_then(|info| {
-                            if blocked_indexings_by_poi.contains(&id) {
-                                Err(IndexerIndexingError::BlockedByPoiBlocklist)
-                            } else {
-                                Ok(info)
-                            }
-                        });
-
-                        (id, info)
-                    })
-                    .collect::<HashMap<_, _>>();
-
-                // Resolve the indexer's indexing progress information
-                let mut indexing_progress = resolve_indexer_progress(
-                    state.as_ref(),
-                    &indexer.url,
-                    &healthy_indexer_indexings,
-                )
-                .await;
-
-                // Mark the indexings with no progress as unhealthy
-                healthy_indexer_indexings.retain(|id| indexing_progress.contains_key(id));
-                indexer_indexings = indexer_indexings
-                    .into_iter()
-                    .map(|(id, res)| {
-                        let info = res.and_then(|info| {
-                            if indexing_progress.contains_key(&id) {
-                                Ok(info)
-                            } else {
-                                Err(IndexerIndexingError::ProgressNotFound)
-                            }
-                        });
-                        (id, info)
-                    })
-                    .collect::<HashMap<_, _>>();
-
-                // Resolve the indexer's indexing cost models
-                let mut indexer_cost_models = resolve_indexer_cost_models(
-                    state.as_ref(),
-                    &indexer.url,
-                    &healthy_indexer_indexings,
-                )
-                .await;
-
-                // Construct the indexer's information with the resolved information
-                let info = IndexerInfo {
-                    id: indexer.id,
-                    url: indexer.url,
-                    staked_tokens: indexer.staked_tokens,
-                    indexer_service_version,
-                    graph_node_version,
-                    indexings: indexer_indexings
-                        .into_iter()
-                        .map(|(id, info)| {
-                            let info = match info {
-                                Ok(info) => info,
-                                Err(err) => {
-                                    return (id, Err(err));
-                                }
-                            };
-
-                            // Get the progress information
-                            let progress = match indexing_progress
-                                .remove(&id)
-                                .expect("indexing progress not found")
-                            {
-                                Ok(progress) => progress,
-                                Err(err) => return (id, Err(err)),
-                            };
-
-                            // Get the cost model
-                            let cost_model = indexer_cost_models.remove(&id);
-
-                            (
-                                id,
-                                Ok(IndexerIndexingInfo {
-                                    largest_allocation: info.largest_allocation,
-                                    total_allocated_tokens: info.total_allocated_tokens,
-                                    progress,
-                                    cost_model,
-                                }),
-                            )
-                        })
-                        .collect(),
-                };
-
-                (indexer_id, Ok(info))
             }
             .instrument(indexer_span)
         });
@@ -368,7 +269,7 @@ where
 fn check_indexer_blocked_by_addr_blocklist(
     blocklist: &Option<AddrBlocklist>,
     indexer: &IndexerRawInfo,
-) -> Result<(), IndexerError> {
+) -> Result<(), IndexerInfoResolutionError> {
     let blocklist = match blocklist {
         Some(blocklist) => blocklist,
         None => return Ok(()),
@@ -376,7 +277,7 @@ fn check_indexer_blocked_by_addr_blocklist(
 
     // Check if the indexer's address is in the blocklist
     if blocklist.check(&indexer.id).is_blocked() {
-        return Err(IndexerError::BlockedByAddrBlocklist);
+        return Err(IndexerInfoResolutionError::BlockedByAddrBlocklist);
     }
 
     Ok(())
@@ -391,7 +292,7 @@ async fn resolve_and_check_indexer_blocked_by_host_blocklist(
     resolver: &HostResolver,
     blocklist: &Option<HostBlocklist>,
     url: &Url,
-) -> Result<(), IndexerError> {
+) -> Result<(), IndexerInfoResolutionError> {
     // Resolve the indexer's URL, if it fails (or times out), the indexer must be BLOCKED
     let resolution_result = resolver.resolve_url(url).await?;
 
@@ -402,7 +303,7 @@ async fn resolve_and_check_indexer_blocked_by_host_blocklist(
     };
 
     if host_blocklist.check(&resolution_result).is_blocked() {
-        return Err(IndexerError::BlockedByHostBlocklist);
+        return Err(IndexerInfoResolutionError::BlockedByHostBlocklist);
     }
 
     Ok(())
@@ -413,16 +314,16 @@ async fn resolve_and_check_indexer_blocked_by_version(
     resolver: &VersionResolver,
     version_requirements: &VersionRequirements,
     url: &Url,
-) -> Result<(Version, Version), IndexerError> {
+) -> Result<(Version, Version), IndexerInfoResolutionError> {
     // Resolve the indexer's service version
     let indexer_service_version = resolver
         .resolve_indexer_service_version(url)
         .await
-        .map_err(IndexerError::IndexerServiceVersionResolutionFailed)?;
+        .map_err(IndexerInfoResolutionError::IndexerServiceVersionResolutionFailed)?;
 
     // Check if the indexer's service version is supported
     if indexer_service_version < version_requirements.min_indexer_service_version {
-        return Err(IndexerError::IndexerServiceVersionBelowMin(
+        return Err(IndexerInfoResolutionError::IndexerServiceVersionBelowMin(
             indexer_service_version,
             version_requirements.min_indexer_service_version.clone(),
         ));
@@ -442,13 +343,115 @@ async fn resolve_and_check_indexer_blocked_by_version(
 
     // Check if the indexer's graph node version is supported
     if graph_node_version < version_requirements.min_graph_node_version {
-        return Err(IndexerError::GraphNodeVersionBelowMin(
+        return Err(IndexerInfoResolutionError::GraphNodeVersionBelowMin(
             graph_node_version,
             version_requirements.min_graph_node_version.clone(),
         ));
     }
 
     Ok((indexer_service_version, graph_node_version))
+}
+
+/// Process the indexer's indexings information.
+async fn process_indexer_indexings<S>(
+    state: &S,
+    url: &Url,
+    indexings: HashMap<DeploymentId, IndexingRawInfo>,
+) -> HashMap<DeploymentId, Result<ResolvedIndexingInfo, IndexingInfoResolutionError>>
+where
+    S: AsRef<Option<(PoiResolver, PoiBlocklist)>>
+        + AsRef<IndexingProgressResolver>
+        + AsRef<(CostModelResolver, CostModelCompiler)>,
+{
+    let indexer_indexings: HashMap<DeploymentId, Result<IndexingInfo<(), ()>, _>> = indexings
+        .into_iter()
+        .map(|(id, info)| (id, Ok(info.into())))
+        .collect();
+
+    // Keep track of the healthy indexers, so we efficiently resolve the indexer's indexings thar
+    // are not marked as unhealthy in a previous resolution step
+    let mut healthy_indexer_indexings = indexer_indexings.keys().copied().collect::<Vec<_>>();
+
+    // Check if the indexer's indexings should be blocked by POI
+    let blocked_indexings_by_poi = resolve_and_check_indexer_indexings_blocked_by_poi(
+        state.as_ref(),
+        url,
+        &healthy_indexer_indexings,
+    )
+    .await;
+
+    // Remove the blocked indexings from the healthy indexers list
+    healthy_indexer_indexings.retain(|id| !blocked_indexings_by_poi.contains(id));
+
+    // Mark the indexings blocked by the POI blocklist as unhealthy
+    let indexer_indexings = indexer_indexings
+        .into_iter()
+        .map(|(id, res)| {
+            let info = res.and_then(|info| {
+                if blocked_indexings_by_poi.contains(&id) {
+                    Err(IndexingInfoResolutionError::BlockedByPoiBlocklist)
+                } else {
+                    Ok(info)
+                }
+            });
+
+            (id, info)
+        })
+        .collect::<HashMap<_, _>>();
+
+    // Resolve the indexer's indexing progress information
+    let mut indexing_progress =
+        resolve_indexer_progress(state.as_ref(), url, &healthy_indexer_indexings).await;
+
+    // Remove the indexings with no indexing progress information from the healthy indexers list
+    healthy_indexer_indexings.retain(|id| indexing_progress.contains_key(id));
+
+    // Update the indexer's indexings with the progress information. If the progress information
+    // is not found, the indexer must be marked as unhealthy
+    let indexer_indexings = indexer_indexings
+        .into_iter()
+        .map(|(id, res)| {
+            let info = match res {
+                Ok(info) => info,
+                Err(err) => return (id, Err(err)),
+            };
+
+            let progress = match indexing_progress.remove(&id) {
+                Some(Ok(progress)) => progress,
+                _ => {
+                    return (
+                        id,
+                        Err(IndexingInfoResolutionError::IndexingProgressNotFound),
+                    );
+                }
+            };
+
+            (id, Ok(info.with_indexing_progress(progress)))
+        })
+        .collect::<HashMap<_, _>>();
+
+    // Resolve the indexer's indexing cost models
+    let mut indexer_cost_models =
+        resolve_indexer_cost_models(state.as_ref(), url, &healthy_indexer_indexings).await;
+
+    // Update the indexer's indexings info with the cost models
+    let indexer_indexings = indexer_indexings
+        .into_iter()
+        .map(|(id, res)| {
+            let info = match res {
+                Ok(info) => info,
+                Err(err) => return (id, Err(err)),
+            };
+
+            let cost_model = indexer_cost_models.remove(&id);
+
+            (id, Ok(info.with_cost_model(cost_model)))
+        })
+        .collect::<HashMap<_, _>>();
+
+    // Return the processed indexer's indexings
+    #[allow(clippy::let_and_return)]
+    indexer_indexings
 }
 
 /// Resolve and check if any of the indexer's indexings should be blocked by POI.
@@ -490,7 +493,7 @@ async fn resolve_indexer_progress(
     resolver: &IndexingProgressResolver,
     url: &Url,
     indexings: &[DeploymentId],
-) -> HashMap<DeploymentId, Result<Freshness<IndexingProgressInfo>, IndexerIndexingError>> {
+) -> HashMap<DeploymentId, Result<Freshness<IndexingProgress>, IndexingInfoResolutionError>> {
     let mut progress_info = resolver.resolve(url, indexings).await;
 
     // Get the progress information for each indexing
@@ -502,12 +505,12 @@ async fn resolve_indexer_progress(
                 progress_info
                     .remove(id)
                     .map(|res| {
-                        res.map(|data| IndexingProgressInfo {
+                        res.map(|data| IndexingProgress {
                             latest_block: data.latest_block,
                             min_block: data.min_block,
                         })
                     })
-                    .ok_or(IndexerIndexingError::ProgressNotFound),
+                    .ok_or(IndexingInfoResolutionError::IndexingProgressNotFound),
             )
         })
         .collect::<HashMap<_, _>>()

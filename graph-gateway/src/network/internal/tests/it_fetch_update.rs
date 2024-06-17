@@ -1,25 +1,20 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use alloy_primitives::Address;
-use graph_gateway::network::{
-    indexer_addr_blocklist::AddrBlocklist,
-    indexer_host_blocklist::HostBlocklist,
-    indexer_host_resolver::HostResolver,
-    indexer_indexing_cost_model_compiler::CostModelCompiler,
-    indexer_indexing_cost_model_resolver::CostModelResolver,
-    indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::VersionResolver,
-    internal::{
-        fetch_update as internal_fetch_update, IndexingError, InternalState,
-        NetworkTopologySnapshot,
-    },
-    subgraph_client::Client,
-};
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::client::Client as SubgraphClient;
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
+
+use super::{fetch_update as internal_fetch_update, InternalState, NetworkTopologySnapshot};
+use crate::network::{
+    indexer_addr_blocklist::AddrBlocklist, indexer_host_blocklist::HostBlocklist,
+    indexer_host_resolver::HostResolver, indexer_indexing_cost_model_compiler::CostModelCompiler,
+    indexer_indexing_cost_model_resolver::CostModelResolver,
+    indexer_indexing_progress_resolver::IndexingProgressResolver,
+    indexer_version_resolver::VersionResolver, subgraph_client::Client, IndexingError,
+};
 
 // Test method to initialize the tests tracing subscriber.
 fn init_test_tracing() {
@@ -177,16 +172,6 @@ async fn fetch_a_network_topology_update() {
         "Subgraph has no indexings associated"
     );
 
-    //- Assert the associated deployments' list is not empty.
-    assert!(
-        network
-            .subgraphs()
-            .values()
-            .filter_map(|value| value.as_ref().ok())
-            .all(|subgraph| !subgraph.deployments.is_empty()),
-        "Subgraph has no deployments associated"
-    );
-
     //- Assert that all the associated indexings are indexing the same chain
     assert!(
         network
@@ -201,49 +186,6 @@ async fn fetch_a_network_topology_update() {
                     .all(|indexing| indexing.chain == subgraph.chain)
             }),
         "Some subgraph indexings are not indexing the same chain"
-    );
-
-    //- Assert that all the indexings' deployments are contained in its deployments list.
-    assert!(
-        network
-            .subgraphs()
-            .values()
-            .filter_map(|value| value.as_ref().ok())
-            .all(|subgraph| {
-                subgraph
-                    .indexings
-                    .iter()
-                    .filter_map(|(id, indexing)| {
-                        indexing.as_ref().ok().map(|indexing| (id, indexing))
-                    })
-                    .all(|(indexing_id, indexing)| {
-                        indexing.id.deployment == indexing_id.deployment
-                            && subgraph.deployments.contains(&indexing_id.deployment)
-                    })
-            }),
-        "Subgraph indexings deployments are not contained in the subgraph's deployments list"
-    );
-
-    //- Assert that all the associated indexings' indexers contain the indexing deployment ID in
-    //  their indexings list.
-    assert!(
-        network
-            .subgraphs()
-            .values()
-            .filter_map(|value| value.as_ref().ok())
-            .all(|subgraph| {
-                subgraph
-                    .indexings
-                    .iter()
-                    .filter_map(|(id, indexing)| {
-                        indexing.as_ref().ok().map(|indexing| (id, indexing))
-                    })
-                    .all(|(indexing_id, indexing)| {
-                        indexing.id.deployment == indexing_id.deployment
-                            && indexing.indexer.indexings.contains(&indexing_id.deployment)
-                    })
-            }),
-        "Subgraph indexings deployment ID not found in the indexer's indexings list"
     );
 
     //- Assert that all the associated indexings' indexers versions are set.
@@ -348,28 +290,6 @@ async fn fetch_a_network_topology_update() {
         "Some deployment indexings are not indexing the same chain"
     );
 
-    //- Assert that all the associated indexings' indexers contain the indexing deployment ID in
-    //  their indexings list.
-    assert!(
-        network
-            .deployments()
-            .values()
-            .filter_map(|value| value.as_ref().ok())
-            .all(|deployment| {
-                deployment
-                    .indexings
-                    .iter()
-                    .filter_map(|(id, indexing)| {
-                        indexing.as_ref().ok().map(|indexing| (id, indexing))
-                    })
-                    .all(|(indexing_id, indexing)| {
-                        indexing.indexer.indexings.contains(&indexing_id.deployment)
-                            && indexing.indexer.indexings.contains(&indexing.id.deployment)
-                    })
-            }),
-        "Deployment indexings deployment ID not found in the indexer's indexings list"
-    );
-
     //- Assert that some of the associated indexings' have reported a valid cost model.
     assert!(
         network
@@ -395,17 +315,21 @@ async fn fetch_a_network_topology_update() {
             .values()
             .filter_map(|value| value.as_ref().ok())
             .all(|subgraph| {
-                subgraph.deployments.iter().all(|deployment_id| {
-                    network
-                        .deployments()
-                        .get(deployment_id)
-                        .as_ref()
-                        .expect("Deployment not found")
-                        .as_ref()
-                        .expect("Invalid deployment")
-                        .subgraphs
-                        .contains(&subgraph.id)
-                })
+                subgraph
+                    .indexings
+                    .keys()
+                    .map(|id| &id.deployment)
+                    .all(|deployment_id| {
+                        network
+                            .deployments()
+                            .get(deployment_id)
+                            .as_ref()
+                            .expect("Deployment not found")
+                            .as_ref()
+                            .expect("Invalid deployment")
+                            .subgraphs
+                            .contains(&subgraph.id)
+                    })
             }),
         "Subgraph associated deployment not found in the network deployments list"
     );
