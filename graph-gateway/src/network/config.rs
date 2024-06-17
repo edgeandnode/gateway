@@ -3,7 +3,7 @@ use semver::Version;
 /// The minimum version requirements for the indexer.
 #[derive(Debug, Clone)]
 pub struct VersionRequirements {
-    /// The minimum indexer  version.
+    /// The minimum indexer version.
     pub min_indexer_service_version: Version,
     /// The minimum graph node version.
     pub min_graph_node_version: Version,

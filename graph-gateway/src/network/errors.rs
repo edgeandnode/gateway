@@ -51,7 +51,7 @@ pub enum UnavailableReason {
     #[error("blocked")]
     Blocked,
     /// The indexing was blocked since it reported a bad POI blocked by the gateway.
-    #[error("blocked (bad poi)")]
+    #[error("blocked (bad POI)")]
     BlockedBadPOI,
 
     /// The indexing is unavailable due to an [`IndexerInfoResolutionError`].
@@ -84,12 +84,12 @@ impl From<IndexingError> for ResolutionError {
                         tracing::debug!(error=?err, "host resolution failed");
 
                         let reason = match err {
-                            HostResolutionError::InvalidUrl(_) => "invalid indexer url",
+                            HostResolutionError::InvalidUrl(_) => "invalid indexer URL",
                             HostResolutionError::DnsResolutionError(_) => {
-                                "indexer url dns resolution failed"
+                                "indexer URL DNS resolution failed"
                             }
                             HostResolutionError::Timeout => {
-                                "indexer url dns resolution failed (timeout)"
+                                "indexer URL DNS resolution failed (timeout)"
                             }
                         };
                         UnavailableReason::IndexerResolutionError(reason)
@@ -195,7 +195,7 @@ pub enum IndexerInfoResolutionError {
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum IndexingInfoResolutionError {
     /// The indexing has been blocked by the public POIs blocklist.
-    #[error("indexing blocked by POIs blocklist")]
+    #[error("indexing blocked by POI blocklist")]
     BlockedByPoiBlocklist,
 
     /// The indexing progress information was not found.

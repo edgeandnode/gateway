@@ -87,7 +87,7 @@ pub enum UnavailableReason {
     #[error("blocked")]
     Blocked,
     /// The indexer deployment was blocked since it reported a POI blocked by the gateway (bad POI).
-    #[error("blocked (bad poi)")]
+    #[error("blocked (bad POI)")]
     BlockedBadPOI,
 
     /// The indexer version is not supported (e.g., the indexer service version is below the minimum
