@@ -28,9 +28,7 @@ use super::{
     indexer_indexing_poi_resolver::{
         PoiResolver, DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT,
     },
-    indexer_indexing_progress_resolver::{
-        IndexingProgressResolver, DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
-    },
+    indexer_indexing_progress_resolver::IndexingProgressResolver,
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{
         fetch_and_preprocess_subgraph_info, fetch_update, Indexing, IndexingId, InternalState,
@@ -68,14 +66,16 @@ impl ResolvedSubgraphInfo {
     /// Get the latest block number reported.
     ///
     /// The latest block number is the highest block number among all the reported progress of
-    /// the indexings associated with the resolved subgraph. Ignore errored or stale indexings'
-    /// progress information.
+    /// the indexings associated with the resolved subgraph.
     pub fn latest_reported_block(&self) -> Option<BlockNumber> {
         self.indexings
             .values()
-            .filter_map(|indexing| indexing.as_ref().ok())
-            .filter_map(|indexing| indexing.progress.as_fresh())
-            .map(|progress| progress.latest_block)
+            .filter_map(|indexing| {
+                indexing
+                    .as_ref()
+                    .ok()
+                    .map(|indexing| indexing.progress.latest_block)
+            })
             .max()
     }
 }
@@ -214,11 +214,7 @@ impl NetworkServiceBuilder {
             DEFAULT_TTL,                                // Duration::MAX
         );
         let indexer_indexing_progress_resolver =
-            IndexingProgressResolver::with_timeout_and_cache_ttl(
-                indexer_client.clone(),
-                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT, // 25 seconds
-                DEFAULT_TTL,                                          // Duration::MAX
-            );
+            IndexingProgressResolver::new(indexer_client.clone(), Duration::from_secs(25));
         let indexer_indexing_cost_model_resolver = CostModelResolver::with_timeout_and_cache_ttl(
             indexer_client.clone(),
             DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT, // 5 seconds

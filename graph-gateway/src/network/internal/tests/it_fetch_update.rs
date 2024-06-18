@@ -63,7 +63,7 @@ fn test_service_state(
     let indexer_host_resolver = HostResolver::new().expect("Failed to create host resolver");
     let indexer_version_resolver = VersionResolver::new(indexers_http_client.clone());
     let indexer_indexing_progress_resolver =
-        IndexingProgressResolver::new(indexers_http_client.clone());
+        IndexingProgressResolver::new(indexers_http_client.clone(), Duration::from_secs(60));
     let indexer_indexing_cost_model_resolver = (
         CostModelResolver::new(indexers_http_client.clone()),
         CostModelCompiler::default(),

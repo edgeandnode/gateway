@@ -9,7 +9,7 @@ use std::{
 use alloy_primitives::{Address, BlockNumber};
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
-use gateway_common::{caching::Freshness, ptr::Ptr};
+use gateway_common::ptr::Ptr;
 use semver::Version;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 use url::Url;
@@ -61,7 +61,7 @@ pub struct Indexing {
     /// The indexing progress.
     ///
     /// See [`IndexingProgress`] for more information.
-    pub progress: Freshness<IndexingProgress>,
+    pub progress: IndexingProgress,
     /// The indexer's indexing cost model
     pub cost_model: Option<Ptr<CostModel>>,
 }
@@ -437,10 +437,10 @@ fn construct_indexings_table_row(
         largest_allocation: indexing_largest_allocation_addr,
         total_allocated_tokens: indexing_total_allocated_tokens,
         indexer: Arc::clone(indexer),
-        progress: indexing_progress.map(|data| IndexingProgress {
-            latest_block: data.latest_block,
-            min_block: data.min_block,
-        }),
+        progress: IndexingProgress {
+            latest_block: indexing_progress.latest_block,
+            min_block: indexing_progress.min_block,
+        },
         cost_model: indexing_cost_model,
     };
 

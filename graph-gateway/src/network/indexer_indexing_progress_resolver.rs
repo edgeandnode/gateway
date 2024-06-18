@@ -3,8 +3,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::BlockNumber;
-use gateway_common::{caching::Freshness, ttl_hash_map::TtlHashMap};
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 use thegraph_core::types::DeploymentId;
 use url::Url;
 
@@ -12,15 +11,6 @@ use crate::{
     indexers,
     indexers::indexing_progress::{ChainStatus, Error as IndexingProgressFetchError},
 };
-
-/// The default timeout for the indexer's indexing progress resolution.
-pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(25);
-
-/// The default TTL (time-to-live) for the cached indexer's indexing progress information: 30 minutes.
-///
-/// The cache TTL is the time that the indexer's indexing progress resolution is cached for.
-pub const DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL: Duration =
-    Duration::from_secs(60 * 30);
 
 /// The number of deployments indexing progress to query in a single request.
 const INDEXINGS_PER_REQUEST_BATCH_SIZE: usize = 100;
@@ -54,31 +44,15 @@ pub struct IndexingProgressInfo {
 pub struct IndexingProgressResolver {
     client: reqwest::Client,
     timeout: Duration,
-    cache: RwLock<TtlHashMap<(String, DeploymentId), IndexingProgressInfo>>,
+    cache: Mutex<HashMap<DeploymentId, IndexingProgressInfo>>,
 }
 
 impl IndexingProgressResolver {
-    /// Creates a new [`IndexingProgressResolver`].
-    pub fn new(client: reqwest::Client) -> Self {
-        Self {
-            client,
-            timeout: DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
-            cache: RwLock::new(TtlHashMap::with_ttl(
-                DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_CACHE_TTL,
-            )),
-        }
-    }
-
-    /// Creates a new [`IndexingProgressResolver`] with the given timeout and cache TTL.
-    pub fn with_timeout_and_cache_ttl(
-        client: reqwest::Client,
-        timeout: Duration,
-        cache_ttl: Duration,
-    ) -> Self {
+    pub fn new(client: reqwest::Client, timeout: Duration) -> Self {
         Self {
             client,
             timeout,
-            cache: RwLock::new(TtlHashMap::with_ttl(cache_ttl)),
+            cache: Mutex::default(),
         }
     }
 
@@ -113,45 +87,6 @@ impl IndexingProgressResolver {
         }
     }
 
-    /// Gets the cached progress information for the given indexings.
-    ///
-    /// This method locks the cache in read mode and returns the cached progress information for the
-    /// given indexings.
-    fn get_from_cache<'a>(
-        &self,
-        url: &str,
-        keys: impl IntoIterator<Item = &'a DeploymentId>,
-    ) -> HashMap<DeploymentId, IndexingProgressInfo> {
-        let read_cache = self.cache.read();
-        let mut result = HashMap::new();
-
-        for key in keys {
-            match read_cache.get(&(url.to_owned(), *key)) {
-                Some(data) => {
-                    result.insert(*key, data.clone());
-                }
-                None => continue,
-            }
-        }
-
-        result
-    }
-
-    /// Updates the cache with the given progress information.
-    ///
-    /// This method locks the cache in write mode and updates the cache with the given progress
-    /// information.
-    fn update_cache<'a>(
-        &self,
-        url: &str,
-        data: impl IntoIterator<Item = (&'a DeploymentId, &'a IndexingProgressInfo)>,
-    ) {
-        let mut write_cache = self.cache.write();
-        for (key, value) in data {
-            write_cache.insert((url.to_owned(), *key), value.to_owned());
-        }
-    }
-
     /// Resolves the indexing progress of the given deployments.
     ///
     /// The function fetches the indexing progress of the given deployments from the indexer's
@@ -163,63 +98,23 @@ impl IndexingProgressResolver {
         &self,
         url: &Url,
         indexer_deployments: &[DeploymentId],
-    ) -> HashMap<DeploymentId, Freshness<IndexingProgressInfo>> {
-        let url_string = url.to_string();
-
-        // Fetch the indexings' indexing progress
-        let fetched = self.fetch_indexing_progress(url, indexer_deployments).await;
-
-        // Filter out the failures
-        let fresh_data = fetched
-            .into_iter()
-            .filter_map(|(deployment_id, result)| {
-                // TODO: Report the errors instead of filtering them out
-                Some((deployment_id, result.ok()?))
-            })
-            .filter_map(|(deployment_id, chains)| {
-                // Only consider the first chain status
+    ) -> HashMap<DeploymentId, IndexingProgressInfo> {
+        let results = self.fetch_indexing_progress(url, indexer_deployments).await;
+        let mut cache = self.cache.lock();
+        for (deployment, result) in results {
+            let status = result.ok().and_then(|chains| {
                 let chain = chains.first()?;
-
-                // If the status has no chains or no latest block, skip it
-                let info_chain = chain.network.to_owned();
-                let info_latest_block = chain.latest_block.as_ref().map(|block| block.number)?;
-                let info_min_block = chain.earliest_block.as_ref().map(|block| block.number);
-
-                Some((
-                    deployment_id,
-                    IndexingProgressInfo {
-                        chain: info_chain,
-                        latest_block: info_latest_block,
-                        min_block: info_min_block,
-                    },
-                ))
-            })
-            .collect::<HashMap<_, _>>();
-
-        // Update the cache with the fetched data, if any
-        if !fresh_data.is_empty() {
-            self.update_cache(&url_string, &fresh_data);
+                Some(IndexingProgressInfo {
+                    chain: chain.network.clone(),
+                    latest_block: chain.latest_block.as_ref().map(|block| block.number)?,
+                    min_block: chain.earliest_block.as_ref().map(|block| block.number),
+                })
+            });
+            if let Some(status) = status {
+                cache.insert(deployment, status);
+            }
         }
-
-        // Get the cached data for the missing deployments
-        let cached_data = {
-            // Get the list of deployments that are missing from the fetched data
-            let missing_indexings = fresh_data
-                .keys()
-                .filter(|deployment| !indexer_deployments.contains(deployment));
-
-            // Get the cached data for the missing deployments
-            self.get_from_cache(&url_string, missing_indexings)
-        };
-
-        // Merge the fetched and cached data
-        let fresh_data = fresh_data
-            .into_iter()
-            .map(|(k, v)| (k, Freshness::Fresh(v)));
-        let cached_data = cached_data
-            .into_iter()
-            .map(|(k, v)| (k, Freshness::Cached(v)));
-        HashMap::from_iter(cached_data.chain(fresh_data))
+        cache.clone()
     }
 }
 
