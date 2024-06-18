@@ -84,7 +84,6 @@ pub struct AllocationInfo {
 /// - If the subgraph was transferred to L2 and has no allocations,
 /// [`SubgraphError::TransferredToL2`] error is returned.
 /// - If the subgraph has no allocations, [`SubgraphError::NoAllocations`] is returned.
-#[allow(clippy::type_complexity)]
 pub(super) fn process_subgraph_info(
     subgraphs: HashMap<SubgraphId, SubgraphRawInfo>,
 ) -> HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>> {

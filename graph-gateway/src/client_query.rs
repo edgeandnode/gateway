@@ -552,7 +552,6 @@ struct CandidateMetadata {
 
 /// Given a list of indexings, build a list of candidates that are within the required block range
 /// and have the required performance.
-#[allow(clippy::type_complexity)]
 fn build_candidates_list(
     ctx: &Context,
     context: &AgoraContext,
