@@ -22,13 +22,16 @@ pub struct PoiBlocklist {
 
 impl PoiBlocklist {
     /// Create a new indexer POI blocklist with the given configuration.
-    pub fn new(conf: HashSet<ProofOfIndexingInfo>) -> Self {
+    pub fn new<TInfo>(conf: impl IntoIterator<Item = TInfo>) -> Self
+    where
+        TInfo: Into<ProofOfIndexingInfo>,
+    {
         // Group the blocked POI info by deployment ID
         let mut conf_map = HashMap::new();
         for info in conf {
-            let deployment_id = info.deployment_id;
+            let info = info.into();
             conf_map
-                .entry(deployment_id)
+                .entry(info.deployment_id)
                 .or_insert_with(HashSet::new)
                 .insert(info);
         }

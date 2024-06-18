@@ -11,7 +11,7 @@ use alloy_primitives::{Address, BlockNumber};
 use gateway_common::ttl_hash_map::DEFAULT_TTL;
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{DeploymentId, ProofOfIndexing, SubgraphId};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{
@@ -36,7 +36,6 @@ use super::{
     subgraph_client::Client as SubgraphClient,
     ResolutionError,
 };
-use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 /// Default update interval for the network topology information.
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(60);
@@ -271,7 +270,10 @@ impl NetworkServiceBuilder {
     }
 
     /// Sets the indexer POIs blocklist.
-    pub fn with_indexer_pois_blocklist(mut self, blocklist: HashSet<ProofOfIndexingInfo>) -> Self {
+    pub fn with_indexer_pois_blocklist(
+        mut self,
+        blocklist: HashSet<((DeploymentId, BlockNumber), ProofOfIndexing)>,
+    ) -> Self {
         let resolver = PoiResolver::with_timeout_and_cache_ttl(
             self.indexer_client.clone(),
             DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT, // 5s
