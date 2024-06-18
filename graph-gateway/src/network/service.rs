@@ -37,6 +37,7 @@ use super::{
     subgraph_client::Client as SubgraphClient,
     ResolutionError,
 };
+use crate::network::subgraph_client::paginated_client::PaginatedClient;
 
 /// Default update interval for the network topology information.
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(60);
@@ -184,8 +185,8 @@ impl NetworkService {
 }
 
 /// The [`NetworkService`] builder.
-pub struct NetworkServiceBuilder {
-    subgraph_client: SubgraphClient,
+pub struct NetworkServiceBuilder<C> {
+    subgraph_client: SubgraphClient<C>,
     indexer_client: reqwest::Client,
     indexer_addr_blocklist: Option<AddrBlocklist>,
     indexer_host_resolver: HostResolver,
@@ -199,9 +200,9 @@ pub struct NetworkServiceBuilder {
     update_interval: Duration,
 }
 
-impl NetworkServiceBuilder {
+impl<C> NetworkServiceBuilder<C> {
     /// Creates a new [`NetworkServiceBuilder`] instance.
-    pub fn new(subgraph_client: SubgraphClient, indexer_client: reqwest::Client) -> Self {
+    pub fn new(subgraph_client: SubgraphClient<C>, indexer_client: reqwest::Client) -> Self {
         let indexer_host_resolver = HostResolver::with_timeout(
             DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT, // 5 seconds
         )
@@ -290,7 +291,7 @@ impl NetworkServiceBuilder {
     /// Builds the [`NetworkService`] instance ready for spawning.
     ///
     /// To spawn the [`NetworkService`] instance, call the [`NetworkServicePending::spawn`] method.
-    pub fn build(self) -> NetworkServicePending {
+    pub fn build(self) -> NetworkServicePending<C> {
         let internal_state = InternalState {
             indexer_addr_blocklist: self.indexer_addr_blocklist,
             indexer_host_resolver: self.indexer_host_resolver,
@@ -317,13 +318,16 @@ impl NetworkServiceBuilder {
 ///
 /// This struct represents the [`NetworkService`] instance that is pending spawning. To spawn the
 /// [`NetworkService`] instance, call the [`NetworkServicePending::spawn`] method.
-pub struct NetworkServicePending {
+pub struct NetworkServicePending<C> {
     update_interval: Duration,
-    subgraph_client: SubgraphClient,
+    subgraph_client: SubgraphClient<C>,
     internal_state: InternalState,
 }
 
-impl NetworkServicePending {
+impl<C> NetworkServicePending<C>
+where
+    C: PaginatedClient + Send + Sync + 'static,
+{
     /// Spawns the [`NetworkService`] instance's background task and returns the service
     /// instance.
     pub fn spawn(self) -> NetworkService {
@@ -339,11 +343,14 @@ impl NetworkServicePending {
 
 /// Spawn a background task to fetch the network topology information from the graph network
 /// subgraph at regular intervals
-fn spawn_updater_task(
-    subgraph_client: SubgraphClient,
+fn spawn_updater_task<C>(
+    subgraph_client: SubgraphClient<C>,
     state: InternalState,
     update_interval: Duration,
-) -> watch::Receiver<NetworkTopologySnapshot> {
+) -> watch::Receiver<NetworkTopologySnapshot>
+where
+    C: PaginatedClient + Send + Sync + 'static,
+{
     let (tx, rx) = watch::channel(Default::default());
 
     tokio::spawn(async move {

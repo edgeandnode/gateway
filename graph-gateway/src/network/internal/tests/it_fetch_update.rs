@@ -3,7 +3,6 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 use alloy_primitives::Address;
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::client::Client as SubgraphClient;
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
 
@@ -12,11 +11,15 @@ use super::{
     NetworkTopologySnapshot,
 };
 use crate::network::{
-    indexer_addr_blocklist::AddrBlocklist, indexer_host_blocklist::HostBlocklist,
-    indexer_host_resolver::HostResolver, indexer_indexing_cost_model_compiler::CostModelCompiler,
+    indexer_addr_blocklist::AddrBlocklist,
+    indexer_host_blocklist::HostBlocklist,
+    indexer_host_resolver::HostResolver,
+    indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::VersionResolver, subgraph_client::Client, IndexingError,
+    indexer_version_resolver::VersionResolver,
+    subgraph_client::{core_paginated_client::Client as SubgraphClient, Client},
+    IndexingError,
 };
 
 // Test method to initialize the tests tracing subscriber.
@@ -107,9 +110,7 @@ async fn fetch_update(service: &InternalState) -> anyhow::Result<NetworkTopology
 
     let client = {
         let http_client = reqwest::Client::new();
-        let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
-            .with_auth_token(Some(auth_token))
-            .build();
+        let subgraph_client = SubgraphClient::new(http_client, subgraph_url, Some(auth_token));
         Client::new(subgraph_client, true)
     };
 
