@@ -40,7 +40,7 @@ pub(super) struct DeploymentRawInfo {
 /// Internal representation of the processed subgraph information.
 ///
 /// This is not the final representation of the subgraph.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SubgraphInfo {
     pub id: SubgraphId,
     pub versions: Vec<SubgraphVersionInfo>,
@@ -49,7 +49,7 @@ pub struct SubgraphInfo {
 /// Internal representation of the processed subgraph version information.
 ///
 /// This is not the final representation of the subgraph version.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SubgraphVersionInfo {
     pub version: u32,
     pub deployment_id: DeploymentId,

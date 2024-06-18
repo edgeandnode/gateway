@@ -14,6 +14,8 @@ use semver::Version;
 use thegraph_core::types::{DeploymentId, ProofOfIndexing, SubgraphId};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
+use crate::network::internal::fetch_and_preprocess_subgraph_info;
+
 use super::{
     config::VersionRequirements as IndexerVersionRequirements,
     errors::{DeploymentError, SubgraphError},
@@ -32,13 +34,21 @@ use super::{
         IndexingProgressResolver, DEFAULT_INDEXER_INDEXING_PROGRESS_RESOLUTION_TIMEOUT,
     },
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
-    internal::{fetch_update, Indexing, IndexingId, InternalState, NetworkTopologySnapshot},
+    internal::{
+        fetch_update, Indexing, IndexingId, InternalState, NetworkTopologySnapshot,
+        PreprocessedNetworkInfo,
+    },
     subgraph_client::Client as SubgraphClient,
     ResolutionError,
 };
 
 /// Default update interval for the network topology information.
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(60);
+
+/// The network topology fetch timeout.
+///
+/// This timeout is applied independently to the indexers and subgraphs information fetches.
+const NETWORK_TOPOLOGY_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
@@ -345,6 +355,8 @@ fn spawn_updater_task(
     let (tx, rx) = watch::channel(Default::default());
 
     tokio::spawn(async move {
+        let mut network_info: Option<PreprocessedNetworkInfo> = None;
+
         let mut timer = tokio::time::interval(update_interval);
         timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -353,33 +365,40 @@ fn spawn_updater_task(
         loop {
             timer.tick().await;
 
-            tokio::select! { biased;
-                update = fetch_update(&subgraph_client, &state) => {
-                    match update {
-                        Ok(network) => {
-                            tracing::info!(
-                                subgraphs = network.subgraphs.len(),
-                                deployments = network.deployments.len(),
-                                indexings = network.deployments
-                                    .values()
-                                    .filter_map(|d| d.as_ref().ok())
-                                    .map(|d| d.indexings.len())
-                                    .sum::<usize>(),
-                            );
-
-                            let _ = tx.send(network);
-                        }
-                        // If the fetch fails, log a warning and skip the update
-                        Err(network_update_err) => {
-                            tracing::warn!(%network_update_err);
-                        }
+            match fetch_and_preprocess_subgraph_info(
+                &subgraph_client,
+                NETWORK_TOPOLOGY_FETCH_TIMEOUT,
+            )
+            .await
+            {
+                Ok(info) => network_info = Some(info),
+                Err(network_subgraph_update_err) => tracing::error!(%network_subgraph_update_err),
+            };
+            let network_info = match &network_info {
+                Some(info) => info,
+                None => continue,
+            };
+            let snapshot =
+                match fetch_update(network_info, &state, NETWORK_TOPOLOGY_FETCH_TIMEOUT).await {
+                    Ok(snapshot) => snapshot,
+                    Err(topology_update_err) => {
+                        tracing::error!(%topology_update_err);
+                        continue;
                     }
-                }
-                _ = tokio::time::sleep(update_interval) => {
-                    // Skip the update if the fetch is taking too long
-                    tracing::warn!("network update fetch taking too long");
-                }
-            }
+                };
+
+            tracing::info!(
+                subgraphs = snapshot.subgraphs.len(),
+                deployments = snapshot.deployments.len(),
+                indexings = snapshot
+                    .deployments
+                    .values()
+                    .filter_map(|d| d.as_ref().ok())
+                    .map(|d| d.indexings.len())
+                    .sum::<usize>(),
+            );
+
+            let _ = tx.send(snapshot);
         }
     });
 

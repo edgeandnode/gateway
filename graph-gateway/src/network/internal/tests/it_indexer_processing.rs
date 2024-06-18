@@ -173,7 +173,7 @@ async fn block_indexer_by_address() {
     //* When
     let res = tokio::time::timeout(
         Duration::from_secs(20),
-        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+        indexer_processing::process_info(&service, &HashMap::from([(indexer_addr, indexer)])),
     )
     .await
     .expect("topology processing did not complete in time (20s)");
@@ -216,7 +216,7 @@ async fn block_indexer_if_host_resolution_fails() {
     //* When
     let res = tokio::time::timeout(
         Duration::from_secs(20),
-        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+        indexer_processing::process_info(&service, &HashMap::from([(indexer_addr, indexer)])),
     )
     .await
     .expect("topology processing did not complete in time (20s)");
@@ -262,7 +262,7 @@ async fn block_indexer_by_host_ip_network() {
     //* When
     let res = tokio::time::timeout(
         Duration::from_secs(20),
-        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+        indexer_processing::process_info(&service, &HashMap::from([(indexer_addr, indexer)])),
     )
     .await
     .expect("Topology processing did not complete in time (20s)");
@@ -310,7 +310,7 @@ async fn block_indexer_if_indexer_service_version_is_below_min() {
     //* When
     let res = tokio::time::timeout(
         Duration::from_secs(20),
-        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+        indexer_processing::process_info(&service, &HashMap::from([(indexer_addr, indexer)])),
     )
     .await
     .expect("topology processing did not complete in time (20s)");
@@ -383,7 +383,7 @@ async fn block_indexing_if_blocked_by_pois_blocklist() {
     //* When
     let res = tokio::time::timeout(
         Duration::from_secs(20),
-        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+        indexer_processing::process_info(&service, &HashMap::from([(indexer_addr, indexer)])),
     )
     .await
     .expect("topology processing did not complete in time (20s)");
@@ -474,7 +474,7 @@ async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
     //* When
     let res = tokio::time::timeout(
         Duration::from_secs(20),
-        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+        indexer_processing::process_info(&service, &HashMap::from([(indexer_addr, indexer)])),
     )
     .await
     .expect("topology processing did not complete in time (20s)");
@@ -550,7 +550,7 @@ async fn do_not_block_indexing_if_public_pois_resolution_fails() {
     //* When
     let res = tokio::time::timeout(
         Duration::from_secs(20),
-        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+        indexer_processing::process_info(&service, &HashMap::from([(indexer_addr, indexer)])),
     )
     .await
     .expect("topology processing did not complete in time (20s)");
@@ -605,7 +605,7 @@ async fn process_indexers_info_successfully() {
     //* When
     let res = tokio::time::timeout(
         Duration::from_secs(20),
-        indexer_processing::process_info(&service, HashMap::from([(indexer_addr, indexer)])),
+        indexer_processing::process_info(&service, &HashMap::from([(indexer_addr, indexer)])),
     )
     .await
     .expect("topology processing did not complete in time (20s)");

@@ -7,7 +7,10 @@ use thegraph_core::client::Client as SubgraphClient;
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
 
-use super::{fetch_update as internal_fetch_update, InternalState, NetworkTopologySnapshot};
+use super::{
+    fetch_and_preprocess_subgraph_info, fetch_update as internal_fetch_update, InternalState,
+    NetworkTopologySnapshot,
+};
 use crate::network::{
     indexer_addr_blocklist::AddrBlocklist, indexer_host_blocklist::HostBlocklist,
     indexer_host_resolver::HostResolver, indexer_indexing_cost_model_compiler::CostModelCompiler,
@@ -110,7 +113,9 @@ async fn fetch_update(service: &InternalState) -> anyhow::Result<NetworkTopology
         Client::new(subgraph_client, true)
     };
 
-    internal_fetch_update(&client, service).await
+    let timeout = Duration::from_secs(60);
+    let network = fetch_and_preprocess_subgraph_info(&client, timeout).await?;
+    internal_fetch_update(&network, service, timeout).await
 }
 
 #[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]
