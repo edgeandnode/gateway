@@ -157,7 +157,7 @@ pub(super) struct IndexingProgress {
 /// Process the fetched network topology information.
 pub(super) async fn process_info<S>(
     state: &S,
-    indexers: HashMap<Address, IndexerRawInfo>,
+    indexers: &HashMap<Address, IndexerRawInfo>,
 ) -> HashMap<Address, Result<ResolvedIndexerInfo, IndexerInfoResolutionError>>
 where
     S: AsRef<Option<AddrBlocklist>>
@@ -170,7 +170,7 @@ where
         + AsRef<(CostModelResolver, CostModelCompiler)>,
 {
     let processed_info = {
-        let indexers_iter_fut = indexers.into_iter().map(move |(indexer_id, indexer)| {
+        let indexers_iter_fut = indexers.iter().map(move |(indexer_id, indexer)| {
             // Instrument the indexer processing span
             let indexer_span = tracing::debug_span!(
                 "indexer processing",
@@ -182,13 +182,10 @@ where
             tracing::trace!(parent: &indexer_span, "processing");
 
             async move {
-                let indexer = indexer;
-
                 // Check if the indexer's address is in the address blocklist
-                if let Err(err) = check_indexer_blocked_by_addr_blocklist(state.as_ref(), &indexer)
-                {
+                if let Err(err) = check_indexer_blocked_by_addr_blocklist(state.as_ref(), indexer) {
                     tracing::debug!(%err);
-                    return (indexer_id, Err(err));
+                    return (*indexer_id, Err(err));
                 }
 
                 // Check if the indexer's host is in the host blocklist
@@ -203,7 +200,7 @@ where
                 .await
                 {
                     tracing::debug!(%err);
-                    return (indexer_id, Err(err));
+                    return (*indexer_id, Err(err));
                 }
 
                 // Check if the indexer's reported versions are supported
@@ -221,7 +218,7 @@ where
                         Ok(versions) => versions,
                         Err(err) => {
                             tracing::debug!(%err);
-                            return (indexer_id, Err(err));
+                            return (*indexer_id, Err(err));
                         }
                     };
 
@@ -238,13 +235,13 @@ where
 
                 // Resolve the indexer's indexings information
                 let indexings =
-                    process_indexer_indexings(state, &indexer.url, indexer.indexings).await;
+                    process_indexer_indexings(state, &indexer.url, indexer.indexings.clone()).await;
 
                 (
-                    indexer_id,
+                    *indexer_id,
                     Ok(IndexerInfo {
                         id: indexer.id,
-                        url: indexer.url,
+                        url: indexer.url.clone(),
                         staked_tokens: indexer.staked_tokens,
                         indexer_service_version,
                         graph_node_version,

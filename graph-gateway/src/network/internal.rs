@@ -1,19 +1,15 @@
 use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::Address;
-use anyhow::anyhow;
 use thegraph_core::types::{DeploymentId, SubgraphId};
 
-use self::{
-    indexer_processing::IndexerRawInfo,
-    subgraph_processing::{DeploymentRawInfo, SubgraphRawInfo},
-};
+use self::indexer_processing::IndexerRawInfo;
 pub use self::{
     snapshot::{Indexer, Indexing, IndexingId, IndexingProgress, NetworkTopologySnapshot},
     state::InternalState,
     subgraph_processing::{AllocationInfo, DeploymentInfo, SubgraphInfo, SubgraphVersionInfo},
 };
-use super::subgraph_client::Client as SubgraphClient;
+use super::{subgraph_client::Client as SubgraphClient, DeploymentError, SubgraphError};
 
 mod indexer_processing;
 mod pre_processing;
@@ -21,42 +17,29 @@ mod snapshot;
 mod state;
 mod subgraph_processing;
 
-/// The network topology fetch timeout.
-///
-/// This timeout is applied independently to the indexers and subgraphs information fetches.
-const NETWORK_TOPOLOGY_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
-
 /// Fetch the network topology information from the graph network subgraph.
 pub async fn fetch_update(
-    client: &SubgraphClient,
+    network: &PreprocessedNetworkInfo,
     state: &InternalState,
+    timeout: Duration,
 ) -> anyhow::Result<NetworkTopologySnapshot> {
-    // Fetch and process the network topology information
-    let (subgraphs_info, deployments_info, indexers_info) = match tokio::time::timeout(
-        NETWORK_TOPOLOGY_FETCH_TIMEOUT,
-        fetch_and_pre_process_subgraph_info(client),
-    )
-    .await
-    {
-        // If the fetch timed out, return an error
-        Err(_) => Err(anyhow!("info fetch timed out")),
-        Ok(resp) => match resp {
-            // If the fetch failed, return an error
-            Err(err) => Err(anyhow!("info fetch failed: {err}")),
-            Ok(resp) => Ok(resp),
-        },
-    }?;
-
     // Process network topology information
-    let indexers_info = indexer_processing::process_info(state, indexers_info).await;
-    let subgraphs_info = subgraph_processing::process_subgraph_info(subgraphs_info);
-    let deployments_info = subgraph_processing::process_deployments_info(deployments_info);
-
+    let indexers_info = tokio::time::timeout(
+        timeout,
+        indexer_processing::process_info(state, &network.indexers),
+    )
+    .await?;
     Ok(snapshot::new_from(
         indexers_info,
-        subgraphs_info,
-        deployments_info,
+        network.subgraphs.clone(),
+        network.deployments.clone(),
     ))
+}
+
+pub struct PreprocessedNetworkInfo {
+    subgraphs: HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>>,
+    deployments: HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>>,
+    indexers: HashMap<Address, IndexerRawInfo>,
 }
 
 /// Fetch the subgraphs information from the graph network subgraph and performs pre-processing
@@ -68,25 +51,27 @@ pub async fn fetch_update(
 /// If the fetch fails or the response is empty, an error is returned.
 ///
 /// Invalid info is filtered out before converting into the internal representation.
-async fn fetch_and_pre_process_subgraph_info(
+pub async fn fetch_and_preprocess_subgraph_info(
     client: &SubgraphClient,
-) -> anyhow::Result<(
-    HashMap<SubgraphId, SubgraphRawInfo>,
-    HashMap<DeploymentId, DeploymentRawInfo>,
-    HashMap<Address, IndexerRawInfo>,
-)> {
+    timeout: Duration,
+) -> anyhow::Result<PreprocessedNetworkInfo> {
     // Fetch the subgraphs information from the graph network subgraph
-    let data = client.fetch().await?;
-    if data.is_empty() {
-        return Err(anyhow!("empty subgraph fetch"));
-    }
+    let data = tokio::time::timeout(timeout, client.fetch()).await??;
+    anyhow::ensure!(!data.is_empty(), "empty subgraph response");
 
     // Pre-process (validate and convert) the fetched subgraphs information
     let indexers = pre_processing::into_internal_indexers_raw_info(data.iter());
     let subgraphs = pre_processing::into_internal_subgraphs_raw_info(data.into_iter());
     let deployments = pre_processing::into_internal_deployments_raw_info(subgraphs.values());
 
-    Ok((subgraphs, deployments, indexers))
+    let subgraphs = subgraph_processing::process_subgraph_info(subgraphs);
+    let deployments = subgraph_processing::process_deployments_info(deployments);
+
+    Ok(PreprocessedNetworkInfo {
+        subgraphs,
+        deployments,
+        indexers,
+    })
 }
 
 #[cfg(test)]
