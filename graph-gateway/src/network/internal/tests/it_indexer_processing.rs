@@ -100,7 +100,7 @@ fn test_service_state(
         DEFAULT_INDEXER_VERSION_CACHE_TTL,          // 20 minutes
     );
     let indexer_indexing_progress_resolver =
-        IndexingProgressResolver::new(indexers_http_client.clone());
+        IndexingProgressResolver::new(indexers_http_client.clone(), Duration::from_secs(60));
     let indexer_indexing_cost_model_resolver = (
         CostModelResolver::new(indexers_http_client.clone()),
         CostModelCompiler::default(),
