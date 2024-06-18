@@ -35,7 +35,11 @@ use graph_gateway::{
     indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance,
     network::{
-        subgraph_client::Client as NetworkSubgraphClient, NetworkService, NetworkServiceBuilder,
+        subgraph_client::{
+            indexers_list_paginated_client::Client as SubgraphClient,
+            Client as NetworkSubgraphClient,
+        },
+        NetworkService, NetworkServiceBuilder,
     },
     receipts::ReceiptSigner,
     reports, subgraph_studio, vouchers,
@@ -45,7 +49,7 @@ use secp256k1::SecretKey;
 use semver::Version;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
-use thegraph_core::{client::Client as SubgraphClient, types::attestation};
+use thegraph_core::types::{attestation, DeploymentId};
 use tokio::{
     net::TcpListener,
     signal::unix::SignalKind,
@@ -99,8 +103,11 @@ async fn main() {
         )));
 
     // Initialize the network service and wait for the initial network state synchronization
-    let network_subgraph_client =
-        SubgraphClient::new(http_client.clone(), conf.network_subgraph.clone());
+    let network_subgraph_client = init_subgraph_client(
+        http_client.clone(),
+        conf.network.deployment_id,
+        conf.network.indexers,
+    );
     let mut network = match init_network_service(
         network_subgraph_client,
         conf.l2_gateway.is_some(),
@@ -410,4 +417,17 @@ fn init_network_service(
     }
 
     Ok(builder.build().spawn())
+}
+
+/// Construct the indexers' list based network subgraph client
+fn init_subgraph_client(
+    indexer_http_client: reqwest::Client,
+    subgraph: DeploymentId,
+    candidates: Vec<config::NetworkSubgraphIndexer>,
+) -> SubgraphClient {
+    let candidates = candidates
+        .into_iter()
+        .map(|indexer| (indexer.id, (indexer.url, indexer.auth)))
+        .collect::<Vec<_>>();
+    SubgraphClient::new(indexer_http_client, subgraph, candidates)
 }

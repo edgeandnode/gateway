@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use graph_gateway::network::subgraph_client::Client;
-use thegraph_core::client::Client as SubgraphClient;
 use url::Url;
+
+use super::{core_paginated_client::Client as SubgraphClient, Client};
 
 /// Test helper to get the test url from the environment.
 fn test_base_url() -> Url {
@@ -39,14 +39,12 @@ async fn fetch_subgraphs_and_deserialize() {
 
     let network_subgraph_client = {
         let http_client = reqwest::Client::new();
-        let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
-            .with_auth_token(Some(auth_token))
-            .build();
+        let subgraph_client = SubgraphClient::new(http_client, subgraph_url, Some(auth_token));
         Client::new(subgraph_client, true)
     };
 
     //* When
-    let subgraphs = tokio::time::timeout(Duration::from_secs(10), network_subgraph_client.fetch())
+    let subgraphs = tokio::time::timeout(Duration::from_secs(60), network_subgraph_client.fetch())
         .await
         .expect("Fetching subgraphs timed out");
 
@@ -65,14 +63,12 @@ async fn fetch_subgraph_no_l2_transfer_support_and_deserialize() {
 
     let network_subgraph_client = {
         let http_client = reqwest::Client::new();
-        let subgraph_client = SubgraphClient::builder(http_client, subgraph_url)
-            .with_auth_token(Some(auth_token))
-            .build();
+        let subgraph_client = SubgraphClient::new(http_client, subgraph_url, Some(auth_token));
         Client::new(subgraph_client, false)
     };
 
     //* When
-    let subgraphs = tokio::time::timeout(Duration::from_secs(10), network_subgraph_client.fetch())
+    let subgraphs = tokio::time::timeout(Duration::from_secs(60), network_subgraph_client.fetch())
         .await
         .expect("Fetching subgraphs timed out");
 
