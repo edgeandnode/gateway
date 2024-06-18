@@ -41,9 +41,6 @@ use super::{
 /// Default update interval for the network topology information.
 pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(60);
 
-/// The network topology fetch timeout.
-///
-/// This timeout is applied independently to the indexers and subgraphs information fetches.
 const NETWORK_TOPOLOGY_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Subgraph resolution information returned by the [`NetworkService`].
@@ -372,15 +369,7 @@ fn spawn_updater_task(
                 Some(info) => info,
                 None => continue,
             };
-            let snapshot =
-                match fetch_update(network_info, &state, NETWORK_TOPOLOGY_FETCH_TIMEOUT).await {
-                    Ok(snapshot) => snapshot,
-                    Err(topology_update_err) => {
-                        tracing::error!(%topology_update_err);
-                        continue;
-                    }
-                };
-
+            let snapshot = fetch_update(network_info, &state).await;
             tracing::info!(
                 subgraphs = snapshot.subgraphs.len(),
                 deployments = snapshot.deployments.len(),

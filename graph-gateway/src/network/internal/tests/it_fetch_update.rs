@@ -113,9 +113,8 @@ async fn fetch_update(service: &InternalState) -> anyhow::Result<NetworkTopology
         Client::new(subgraph_client, true)
     };
 
-    let timeout = Duration::from_secs(60);
-    let network = fetch_and_preprocess_subgraph_info(&client, timeout).await?;
-    internal_fetch_update(&network, service, timeout).await
+    let network = fetch_and_preprocess_subgraph_info(&client, Duration::from_secs(60)).await?;
+    Ok(internal_fetch_update(&network, service).await)
 }
 
 #[test_with::env(IT_TEST_ARBITRUM_GATEWAY_URL, IT_TEST_ARBITRUM_GATEWAY_AUTH)]

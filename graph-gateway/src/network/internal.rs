@@ -21,19 +21,14 @@ mod subgraph_processing;
 pub async fn fetch_update(
     network: &PreprocessedNetworkInfo,
     state: &InternalState,
-    timeout: Duration,
-) -> anyhow::Result<NetworkTopologySnapshot> {
+) -> NetworkTopologySnapshot {
     // Process network topology information
-    let indexers_info = tokio::time::timeout(
-        timeout,
-        indexer_processing::process_info(state, &network.indexers),
-    )
-    .await?;
-    Ok(snapshot::new_from(
+    let indexers_info = indexer_processing::process_info(state, &network.indexers).await;
+    snapshot::new_from(
         indexers_info,
         network.subgraphs.clone(),
         network.deployments.clone(),
-    ))
+    )
 }
 
 pub struct PreprocessedNetworkInfo {
