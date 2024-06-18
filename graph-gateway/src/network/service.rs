@@ -68,14 +68,16 @@ impl ResolvedSubgraphInfo {
     /// Get the latest block number reported.
     ///
     /// The latest block number is the highest block number among all the reported progress of
-    /// the indexings associated with the resolved subgraph. Ignore errored or stale indexings'
-    /// progress information.
+    /// the indexings associated with the resolved subgraph.
     pub fn latest_reported_block(&self) -> Option<BlockNumber> {
         self.indexings
             .values()
-            .filter_map(|indexing| indexing.as_ref().ok())
-            .filter_map(|indexing| indexing.progress.as_fresh())
-            .map(|progress| progress.latest_block)
+            .filter_map(|indexing| {
+                indexing
+                    .as_ref()
+                    .ok()
+                    .map(|indexing| indexing.progress.latest_block)
+            })
             .max()
     }
 }

@@ -3,7 +3,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::BlockNumber;
-use gateway_common::{caching::Freshness, ttl_hash_map::TtlHashMap};
+use gateway_common::ttl_hash_map::TtlHashMap;
 use parking_lot::RwLock;
 use thegraph_core::types::DeploymentId;
 use url::Url;
@@ -163,7 +163,7 @@ impl IndexingProgressResolver {
         &self,
         url: &Url,
         indexer_deployments: &[DeploymentId],
-    ) -> HashMap<DeploymentId, Freshness<IndexingProgressInfo>> {
+    ) -> HashMap<DeploymentId, IndexingProgressInfo> {
         let url_string = url.to_string();
 
         // Fetch the indexings' indexing progress
@@ -213,12 +213,8 @@ impl IndexingProgressResolver {
         };
 
         // Merge the fetched and cached data
-        let fresh_data = fresh_data
-            .into_iter()
-            .map(|(k, v)| (k, Freshness::Fresh(v)));
-        let cached_data = cached_data
-            .into_iter()
-            .map(|(k, v)| (k, Freshness::Cached(v)));
+        let fresh_data = fresh_data.into_iter();
+        let cached_data = cached_data.into_iter();
         HashMap::from_iter(cached_data.chain(fresh_data))
     }
 }

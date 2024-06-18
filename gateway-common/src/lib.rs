@@ -1,5 +1,4 @@
 pub mod blocklist;
-pub mod caching;
 pub mod http_ext;
 pub mod ptr;
 pub mod time;

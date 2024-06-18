@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use alloy_primitives::{Address, BlockNumber};
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
-use gateway_common::{blocklist::Blocklist as _, caching::Freshness, ptr::Ptr};
+use gateway_common::{blocklist::Blocklist as _, ptr::Ptr};
 use semver::Version;
 use thegraph_core::types::DeploymentId;
 use tracing::Instrument;
@@ -113,8 +113,8 @@ impl IndexingInfo<(), ()> {
     /// adding the indexing progress information.
     fn with_indexing_progress(
         self,
-        progress: Freshness<IndexingProgress>,
-    ) -> IndexingInfo<Freshness<IndexingProgress>, ()> {
+        progress: IndexingProgress,
+    ) -> IndexingInfo<IndexingProgress, ()> {
         IndexingInfo {
             largest_allocation: self.largest_allocation,
             total_allocated_tokens: self.total_allocated_tokens,
@@ -124,13 +124,13 @@ impl IndexingInfo<(), ()> {
     }
 }
 
-impl IndexingInfo<Freshness<IndexingProgress>, ()> {
+impl IndexingInfo<IndexingProgress, ()> {
     /// Move the type-state-machine from the partially resolved state to the completely resolved
     /// state by adding the cost model to the indexing information.
     fn with_cost_model(
         self,
         cost_model: Option<Ptr<CostModel>>,
-    ) -> IndexingInfo<Freshness<IndexingProgress>, Option<Ptr<CostModel>>> {
+    ) -> IndexingInfo<IndexingProgress, Option<Ptr<CostModel>>> {
         IndexingInfo {
             largest_allocation: self.largest_allocation,
             total_allocated_tokens: self.total_allocated_tokens,
@@ -140,8 +140,7 @@ impl IndexingInfo<Freshness<IndexingProgress>, ()> {
     }
 }
 
-pub(super) type ResolvedIndexingInfo =
-    IndexingInfo<Freshness<IndexingProgress>, Option<Ptr<CostModel>>>;
+pub(super) type ResolvedIndexingInfo = IndexingInfo<IndexingProgress, Option<Ptr<CostModel>>>;
 
 pub(super) type ResolvedIndexerInfo = IndexerInfo<ResolvedIndexingInfo>;
 
@@ -490,7 +489,7 @@ async fn resolve_indexer_progress(
     resolver: &IndexingProgressResolver,
     url: &Url,
     indexings: &[DeploymentId],
-) -> HashMap<DeploymentId, Result<Freshness<IndexingProgress>, IndexingInfoResolutionError>> {
+) -> HashMap<DeploymentId, Result<IndexingProgress, IndexingInfoResolutionError>> {
     let mut progress_info = resolver.resolve(url, indexings).await;
 
     // Get the progress information for each indexing
@@ -501,11 +500,9 @@ async fn resolve_indexer_progress(
                 *id,
                 progress_info
                     .remove(id)
-                    .map(|res| {
-                        res.map(|data| IndexingProgress {
-                            latest_block: data.latest_block,
-                            min_block: data.min_block,
-                        })
+                    .map(|info| IndexingProgress {
+                        latest_block: info.latest_block,
+                        min_block: info.min_block,
                     })
                     .ok_or(IndexingInfoResolutionError::IndexingProgressNotFound),
             )
