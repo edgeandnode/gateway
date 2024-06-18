@@ -85,7 +85,7 @@ impl NetworkService {
     /// Wait for the network topology information to be available.
     pub async fn wait_until_ready(&mut self) {
         self.network
-            .wait_for(|n| !n.subgraphs().is_empty())
+            .wait_for(|n| !n.subgraphs.is_empty())
             .await
             .unwrap();
     }
@@ -105,7 +105,7 @@ impl NetworkService {
         let network = self.network.borrow();
 
         // Resolve the subgraph information
-        let subgraph = match network.get_subgraph_by_id(id) {
+        let subgraph = match network.subgraphs.get(id) {
             None => return Ok(None),
             Some(Err(err)) => return Err(err.to_owned()),
             Some(Ok(subgraph)) => subgraph,
@@ -140,7 +140,7 @@ impl NetworkService {
         let network = self.network.borrow();
 
         // Resolve the deployment information
-        let deployment = match network.get_deployment_by_id(id) {
+        let deployment = match network.deployments.get(id) {
             None => return Ok(None),
             Some(Err(err)) => return Err(err.to_owned()),
             Some(Ok(deployment)) => deployment,
@@ -169,7 +169,7 @@ impl NetworkService {
     pub fn indexing_progress(&self) -> HashMap<IndexingId, BlockNumber> {
         self.network
             .borrow()
-            .deployments()
+            .deployments
             .iter()
             .flat_map(|(_, result)| result.iter().flat_map(|d| &d.indexings))
             .flat_map(|(id, indexing)| indexing.iter().map(|i| (*id, i.progress.latest_block)))
@@ -358,9 +358,9 @@ fn spawn_updater_task(
                     match update {
                         Ok(network) => {
                             tracing::info!(
-                                subgraphs = network.subgraphs().len(),
-                                deployments = network.deployments().len(),
-                                indexings = network.deployments()
+                                subgraphs = network.subgraphs.len(),
+                                deployments = network.deployments.len(),
+                                indexings = network.deployments
                                     .values()
                                     .filter_map(|d| d.as_ref().ok())
                                     .map(|d| d.indexings.len())

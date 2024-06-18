@@ -137,19 +137,16 @@ async fn fetch_a_network_topology_update() {
 
     //* Then
     // Assert that the network topology is not empty.
+    assert!(!network.subgraphs.is_empty(), "Network subgraphs are empty");
     assert!(
-        !network.subgraphs().is_empty(),
-        "Network subgraphs are empty"
-    );
-    assert!(
-        !network.deployments().is_empty(),
+        !network.deployments.is_empty(),
         "Network deployments are empty"
     );
 
     // Assert no internal indexing errors are present
     assert!(
         network
-            .subgraphs()
+            .subgraphs
             .values()
             .filter_map(|value| value.as_ref().ok())
             .all(|subgraph| {
@@ -165,7 +162,7 @@ async fn fetch_a_network_topology_update() {
     //- Assert that it has at least one indexing associated.
     assert!(
         network
-            .subgraphs()
+            .subgraphs
             .values()
             .filter_map(|value| value.as_ref().ok())
             .all(|subgraph| !subgraph.indexings.is_empty()),
@@ -175,7 +172,7 @@ async fn fetch_a_network_topology_update() {
     //- Assert that all the associated indexings are indexing the same chain
     assert!(
         network
-            .subgraphs()
+            .subgraphs
             .values()
             .filter_map(|value| value.as_ref().ok())
             .all(|subgraph| {
@@ -191,7 +188,7 @@ async fn fetch_a_network_topology_update() {
     //- Assert that all the associated indexings' indexers versions are set.
     assert!(
         network
-            .subgraphs()
+            .subgraphs
             .values()
             .filter_map(|value| value.as_ref().ok())
             .all(|subgraph| {
@@ -210,7 +207,7 @@ async fn fetch_a_network_topology_update() {
     //- Assert that some of the associated indexings' have reported a valid cost model.
     assert!(
         network
-            .subgraphs()
+            .subgraphs
             .values()
             .filter_map(|value| value.as_ref().ok())
             .any(|subgraph| {
@@ -226,7 +223,7 @@ async fn fetch_a_network_topology_update() {
     //- Assert that all the associated indexings' indexers versions are set.
     assert!(
         network
-            .subgraphs()
+            .subgraphs
             .values()
             .filter_map(|value| value.as_ref().ok())
             .all(|subgraph| {
@@ -246,7 +243,7 @@ async fn fetch_a_network_topology_update() {
     //- Assert that it has at least one indexing associated.
     assert!(
         network
-            .deployments()
+            .deployments
             .values()
             .filter_map(|value| value.as_ref().ok())
             .all(|deployment| !deployment.indexings.is_empty()),
@@ -256,7 +253,7 @@ async fn fetch_a_network_topology_update() {
     //- Assert that all the indexings' are correctly associated with the deployment.
     assert!(
         network
-            .deployments()
+            .deployments
             .values()
             .filter_map(|value| value.as_ref().ok())
             .all(|deployment| {
@@ -277,7 +274,7 @@ async fn fetch_a_network_topology_update() {
     //- Assert that all indexings' chain match the deployment chain.
     assert!(
         network
-            .deployments()
+            .deployments
             .values()
             .filter_map(|value| value.as_ref().ok())
             .all(|deployment| {
@@ -293,7 +290,7 @@ async fn fetch_a_network_topology_update() {
     //- Assert that some of the associated indexings' have reported a valid cost model.
     assert!(
         network
-            .deployments()
+            .deployments
             .values()
             .filter_map(|value| value.as_ref().ok())
             .any(|deployment| {
@@ -311,7 +308,7 @@ async fn fetch_a_network_topology_update() {
     //  their subgraphs list.
     assert!(
         network
-            .subgraphs()
+            .subgraphs
             .values()
             .filter_map(|value| value.as_ref().ok())
             .all(|subgraph| {
@@ -321,7 +318,7 @@ async fn fetch_a_network_topology_update() {
                     .map(|id| &id.deployment)
                     .all(|deployment_id| {
                         network
-                            .deployments()
+                            .deployments
                             .get(deployment_id)
                             .as_ref()
                             .expect("Deployment not found")

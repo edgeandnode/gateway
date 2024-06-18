@@ -3,7 +3,6 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    ops::Deref,
     sync::{Arc, OnceLock},
 };
 
@@ -165,44 +164,9 @@ pub struct Deployment {
 #[derive(Default)]
 pub struct NetworkTopologySnapshot {
     /// Subgraphs network topology table.
-    subgraphs: HashMap<SubgraphId, Result<Subgraph, SubgraphError>>,
+    pub subgraphs: HashMap<SubgraphId, Result<Subgraph, SubgraphError>>,
     /// Deployments network topology table.
-    deployments: HashMap<DeploymentId, Result<Deployment, DeploymentError>>,
-}
-
-impl NetworkTopologySnapshot {
-    /// Get the [`Subgraph`] by [`SubgraphId`].
-    ///
-    /// If the subgraph is not found, it returns `None`.
-    pub fn get_subgraph_by_id(&self, id: &SubgraphId) -> Option<Result<&Subgraph, &SubgraphError>> {
-        self.subgraphs.get(id).map(|res| res.as_ref())
-    }
-
-    /// Get the [`Deployment`] by [`DeploymentId`].
-    ///
-    /// If the deployment is not found, it returns `None`.
-    pub fn get_deployment_by_id(
-        &self,
-        id: &DeploymentId,
-    ) -> Option<Result<&Deployment, &DeploymentError>> {
-        self.deployments.get(id).map(|res| res.as_ref())
-    }
-
-    /// Get the snapshot subgraphs.
-    pub fn subgraphs(
-        &self,
-    ) -> impl Deref<Target = HashMap<SubgraphId, Result<Subgraph, SubgraphError>>> + Debug + '_
-    {
-        &self.subgraphs
-    }
-
-    /// Get the snapshot deployments.
-    pub fn deployments(
-        &self,
-    ) -> impl Deref<Target = HashMap<DeploymentId, Result<Deployment, DeploymentError>>> + Debug + '_
-    {
-        &self.deployments
-    }
+    pub deployments: HashMap<DeploymentId, Result<Deployment, DeploymentError>>,
 }
 
 /// Construct the [`NetworkTopologySnapshot`] from the indexers and subgraphs information.
