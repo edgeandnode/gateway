@@ -14,8 +14,6 @@ use semver::Version;
 use thegraph_core::types::{DeploymentId, ProofOfIndexing, SubgraphId};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
-use crate::network::internal::fetch_and_preprocess_subgraph_info;
-
 use super::{
     config::VersionRequirements as IndexerVersionRequirements,
     errors::{DeploymentError, SubgraphError},
@@ -35,8 +33,8 @@ use super::{
     },
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{
-        fetch_update, Indexing, IndexingId, InternalState, NetworkTopologySnapshot,
-        PreprocessedNetworkInfo,
+        fetch_and_preprocess_subgraph_info, fetch_update, Indexing, IndexingId, InternalState,
+        NetworkTopologySnapshot, PreprocessedNetworkInfo,
     },
     subgraph_client::Client as SubgraphClient,
     ResolutionError,
