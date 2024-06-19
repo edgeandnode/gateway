@@ -36,6 +36,7 @@ pub enum Error {
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
+        tracing::info!(response_err = %self);
         graphql::error_response(self).into_response()
     }
 }
