@@ -3,7 +3,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::BlockNumber;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use thegraph_core::types::DeploymentId;
 use url::Url;
 
@@ -44,7 +44,7 @@ pub struct IndexingProgressInfo {
 pub struct IndexingProgressResolver {
     client: reqwest::Client,
     timeout: Duration,
-    cache: Mutex<HashMap<DeploymentId, IndexingProgressInfo>>,
+    cache: RwLock<HashMap<String, Mutex<HashMap<DeploymentId, IndexingProgressInfo>>>>,
 }
 
 impl IndexingProgressResolver {
@@ -52,7 +52,7 @@ impl IndexingProgressResolver {
         Self {
             client,
             timeout,
-            cache: Mutex::default(),
+            cache: Default::default(),
         }
     }
 
@@ -99,8 +99,19 @@ impl IndexingProgressResolver {
         url: &Url,
         indexer_deployments: &[DeploymentId],
     ) -> HashMap<DeploymentId, IndexingProgressInfo> {
+        let url_string = url.to_string();
         let results = self.fetch_indexing_progress(url, indexer_deployments).await;
-        let mut cache = self.cache.lock();
+
+        let mut outer_cache = self.cache.read();
+        if !outer_cache.contains_key(&url_string) {
+            drop(outer_cache);
+            self.cache
+                .write()
+                .insert(url_string.clone(), Default::default());
+            outer_cache = self.cache.read();
+        }
+
+        let mut cache = outer_cache.get(&url_string).unwrap().lock();
         for (deployment, result) in results {
             let status = result.ok().and_then(|chains| {
                 let chain = chains.first()?;
