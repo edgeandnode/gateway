@@ -51,10 +51,10 @@ pub struct ResolvedSubgraphInfo {
     pub chain: String,
     /// Subgraph start block number.
     pub start_block: BlockNumber,
-
     /// The [`SubgraphId`]s associated with the query selector.
     pub subgraphs: Vec<SubgraphId>,
-
+    /// Subgraph versions, in descending order.
+    pub versions: Vec<DeploymentId>,
     /// A list of [`Indexing`]s for the resolved subgraph versions.
     pub indexings: HashMap<IndexingId, Result<Indexing, ResolutionError>>,
 }
@@ -119,7 +119,6 @@ impl NetworkService {
         let subgraph_chain = subgraph.chain.clone();
         let subgraph_start_block = subgraph.start_block;
 
-        let subgraphs = vec![subgraph.id];
         let indexings = subgraph
             .indexings
             .clone()
@@ -130,7 +129,8 @@ impl NetworkService {
         Ok(Some(ResolvedSubgraphInfo {
             chain: subgraph_chain,
             start_block: subgraph_start_block,
-            subgraphs,
+            subgraphs: vec![subgraph.id],
+            versions: subgraph.versions.clone(),
             indexings,
         }))
     }
@@ -166,6 +166,7 @@ impl NetworkService {
             chain: deployment_chain,
             start_block: deployment_start_block,
             subgraphs,
+            versions: vec![*id],
             indexings,
         }))
     }

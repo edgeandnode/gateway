@@ -30,7 +30,7 @@ use prost::bytes::Buf;
 use rand::{thread_rng, Rng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::types::SubgraphId;
+use thegraph_core::types::{DeploymentId, SubgraphId};
 use tokio::sync::mpsc;
 use tracing::{info_span, Instrument as _};
 use url::Url;
@@ -298,6 +298,7 @@ async fn run_indexer_queries(
         chain_head,
         blocks_per_minute,
         &block_requirements,
+        &subgraph.versions,
         subgraph.indexings,
     );
     indexer_errors.extend(errors);
@@ -330,8 +331,8 @@ async fn run_indexer_queries(
         let (tx, mut rx) = mpsc::channel(SELECTION_LIMIT);
         let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
         for &selection in &selections {
-            let indexer = selection.id.indexer;
-            let deployment = selection.id.deployment;
+            let indexer = selection.id;
+            let deployment = selection.data.deployment;
             let largest_allocation = selection.data.largest_allocation;
             let url = selection.data.url.clone();
             let seconds_behind = selection.seconds_behind;
@@ -442,8 +443,8 @@ async fn run_indexer_queries(
         }
 
         let selected_indexers: ArrayVec<Address, SELECTION_LIMIT> =
-            selections.into_iter().map(|s| s.id.indexer).collect();
-        candidates.retain(|c| !selected_indexers.contains(&c.id.indexer));
+            selections.into_iter().map(|s| s.id).collect();
+        candidates.retain(|c| !selected_indexers.contains(&c.id));
     }
     tracing::info!(?indexer_errors);
 
@@ -544,6 +545,7 @@ async fn run_indexer_queries(
 
 #[derive(CustomDebug)]
 struct CandidateMetadata {
+    deployment: DeploymentId,
     #[debug(with = std::fmt::Display::fmt)]
     url: Url,
     largest_allocation: Address,
@@ -552,6 +554,7 @@ struct CandidateMetadata {
 
 /// Given a list of indexings, build a list of candidates that are within the required block range
 /// and have the required performance.
+#[allow(clippy::too_many_arguments)]
 fn build_candidates_list(
     ctx: &Context,
     context: &AgoraContext,
@@ -559,13 +562,26 @@ fn build_candidates_list(
     chain_head: BlockNumber,
     blocks_per_minute: u64,
     block_requirements: &BlockRequirements,
+    subgraph_versions: &[DeploymentId],
     indexings: HashMap<IndexingId, Result<Indexing, network::ResolutionError>>,
 ) -> (
-    Vec<Candidate<IndexingId, CandidateMetadata>>,
+    Vec<Candidate<Address, CandidateMetadata>>,
     BTreeMap<Address, IndexerError>,
 ) {
     let mut candidates_list = Vec::new();
     let mut candidates_errors = BTreeMap::default();
+
+    // Select the latest subgraph version where indexers are near chain head, or else the latest.
+    let cutoff = chain_head.saturating_sub(blocks_per_minute * 30);
+    let deployment = *subgraph_versions
+        .iter()
+        .find(|v| {
+            indexings
+                .iter()
+                .filter_map(|(_, result)| result.as_ref().ok())
+                .any(|i| (i.id.deployment == **v) && (i.progress.latest_block > cutoff))
+        })
+        .unwrap_or(&subgraph_versions[0]);
 
     // Lock the indexing performance and get access to the latest performance snapshots
     let perf_snapshots = ctx.indexing_perf.latest();
@@ -579,6 +595,10 @@ fn build_candidates_list(
                 continue;
             }
         };
+
+        if indexing_id.deployment != deployment {
+            continue;
+        }
 
         // Get the performance snapshot for the indexer and calculate the expected performance.
         // If the indexer is not available, register an error and continue to the next indexer
@@ -646,8 +666,20 @@ fn build_candidates_list(
             }
         };
 
-        // Construct the ISA candidate
-        candidates_list.push(prepare_candidate(indexing_id, indexing, perf, fee));
+        candidates_list.push(Candidate {
+            id: indexing_id.indexer,
+            data: CandidateMetadata {
+                deployment,
+                url: indexing.indexer.url.clone(),
+                largest_allocation: indexing.largest_allocation,
+                tap_support: indexing.indexer.tap_support,
+            },
+            perf: perf.response,
+            fee,
+            seconds_behind: perf.seconds_behind,
+            slashable_grt: (indexing.indexer.staked_tokens as f64 * 1e-18) as u64,
+            zero_allocation: indexing.total_allocated_tokens == 0,
+        });
     }
 
     let seconds_behind_cutoff = 60 * 30;
@@ -659,7 +691,7 @@ fn build_candidates_list(
         candidates_list.retain(|c| {
             if c.seconds_behind > seconds_behind_cutoff {
                 candidates_errors.insert(
-                    c.id.indexer,
+                    c.id,
                     IndexerError::Unavailable(UnavailableReason::TooFarBehind),
                 );
                 return false;
@@ -669,33 +701,6 @@ fn build_candidates_list(
     }
 
     (candidates_list, candidates_errors)
-}
-
-/// Construct a candidate from an indexing and its performance.
-fn prepare_candidate(
-    id: IndexingId,
-    indexing: Indexing,
-    perf: Perf,
-    fee: Normalized,
-) -> Candidate<IndexingId, CandidateMetadata> {
-    let versions_behind = indexing.versions_behind;
-    let zero_allocation = indexing.total_allocated_tokens == 0;
-    let slashable_grt = (indexing.indexer.staked_tokens as f64 * 1e-18) as u64;
-
-    Candidate {
-        id,
-        data: CandidateMetadata {
-            url: indexing.indexer.url.clone(),
-            largest_allocation: indexing.largest_allocation,
-            tap_support: indexing.indexer.tap_support,
-        },
-        perf: perf.response,
-        fee,
-        seconds_behind: perf.seconds_behind,
-        slashable_grt,
-        versions_behind,
-        zero_allocation,
-    }
 }
 
 struct Perf {

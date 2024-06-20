@@ -39,12 +39,8 @@ pub struct IndexingId {
 pub struct Indexing {
     /// The indexing unique identifier.
     pub id: IndexingId,
-
-    /// The versions behind the highest version of the subgraph being indexed.
-    pub versions_behind: u8,
     /// The indexing chain.
     pub chain: String,
-
     /// The largest allocation address.
     ///
     /// This is, among all allocations associated with the indexer and deployment, the address
@@ -54,10 +50,8 @@ pub struct Indexing {
     ///
     /// This is, the sum of all allocated tokens associated with the indexer and deployment.
     pub total_allocated_tokens: u128,
-
     /// The indexer
     pub indexer: Arc<Indexer>,
-
     /// The indexing progress.
     ///
     /// See [`IndexingProgress`] for more information.
@@ -117,7 +111,6 @@ pub struct Indexer {
 pub struct Subgraph {
     /// Subgraph ID
     pub id: SubgraphId,
-
     /// The subgraph's chain name.
     ///
     /// This information is extracted from the highest version of the subgraph deployment's
@@ -128,7 +121,8 @@ pub struct Subgraph {
     /// This information is extracted from the highest version of the subgraph deployment's
     /// manifest.
     pub start_block: BlockNumber,
-
+    /// Subgraph versions, in descending order.
+    pub versions: Vec<DeploymentId>,
     /// The subgraph's indexings.
     ///
     /// A table holding all the known indexings for the subgraph.
@@ -239,6 +233,7 @@ fn construct_subgraphs_table_row(
     >,
 ) -> Result<Subgraph, SubgraphError> {
     let versions = subgraph_info.versions;
+    let version_ids = versions.iter().map(|v| v.deployment_id).collect();
 
     // As versions are ordered in descending order, the first version is the highest
     // If all the subgraph's versions are invalid, exclude the subgraph.
@@ -248,7 +243,6 @@ fn construct_subgraphs_table_row(
         .expect("no valid versions found");
 
     let (
-        highest_version_number,
         highest_version_deployment_manifest_chain,
         highest_version_deployment_manifest_start_block,
     ) = {
@@ -258,25 +252,10 @@ fn construct_subgraphs_table_row(
             .expect("invalid deployment");
 
         (
-            highest_version.version,
             deployment.manifest_network.to_owned(),
             deployment.manifest_start_block,
         )
     };
-
-    // Construct the versions behind table. This includes the versions behind even if the
-    // deployment is invalid.
-    let versions_behind_table = versions
-        .iter()
-        .map(|version| {
-            let deployment_id = version.deployment_id;
-            let deployment_versions_behind = highest_version_number
-                .saturating_sub(version.version)
-                .try_into()
-                .unwrap_or(u8::MAX);
-            (deployment_id, deployment_versions_behind)
-        })
-        .collect::<HashMap<_, _>>();
 
     // Construct the subgraph's indexings table
     // Invalid versions are excluded from the indexings table, i.e., if the version deployment is
@@ -294,21 +273,13 @@ fn construct_subgraphs_table_row(
                 .allocations
                 .into_iter()
                 .map(|alloc| {
-                    let deployment_id = deployment.id;
-                    let indexing_deployment_versions_behind = versions_behind_table
-                        .get(&deployment_id)
-                        .copied()
-                        .unwrap_or(u8::MAX);
-
                     let indexing_id = IndexingId {
                         indexer: alloc.indexer,
-                        deployment: deployment_id,
+                        deployment: deployment.id,
                     };
-
                     construct_indexings_table_row(
                         indexing_id,
                         &deployment.manifest_network,
-                        indexing_deployment_versions_behind,
                         indexers,
                     )
                 })
@@ -325,6 +296,7 @@ fn construct_subgraphs_table_row(
         id: subgraph_info.id,
         chain: highest_version_deployment_manifest_chain,
         start_block: highest_version_deployment_manifest_start_block,
+        versions: version_ids,
         indexings: subgraph_indexings,
     })
 }
@@ -338,7 +310,6 @@ fn construct_deployments_table_row(
     >,
 ) -> Result<Deployment, DeploymentError> {
     let deployment_id = deployment_info.id;
-    let deployment_versions_behind = 0;
     let deployment_manifest_chain = deployment_info.manifest_network;
     let deployment_manifest_start_block = deployment_info.manifest_start_block;
 
@@ -351,12 +322,7 @@ fn construct_deployments_table_row(
                 deployment: deployment_id,
             };
 
-            construct_indexings_table_row(
-                indexing_id,
-                &deployment_manifest_chain,
-                deployment_versions_behind,
-                indexers,
-            )
+            construct_indexings_table_row(indexing_id, &deployment_manifest_chain, indexers)
         })
         .collect::<HashMap<_, _>>();
     if deployment_indexings.is_empty() {
@@ -380,7 +346,6 @@ fn construct_deployments_table_row(
 fn construct_indexings_table_row(
     indexing_id: IndexingId,
     indexing_deployment_chain: &str,
-    indexing_deployment_versions_behind: u8,
     indexers: &HashMap<
         Address,
         Result<(ResolvedIndexerInfo, Arc<Indexer>), IndexerInfoResolutionError>,
@@ -432,7 +397,6 @@ fn construct_indexings_table_row(
 
     let indexing = Indexing {
         id: indexing_id,
-        versions_behind: indexing_deployment_versions_behind,
         chain: indexing_deployment_chain.to_owned(),
         largest_allocation: indexing_largest_allocation_addr,
         total_allocated_tokens: indexing_total_allocated_tokens,
