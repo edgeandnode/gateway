@@ -598,14 +598,6 @@ fn build_candidates_list(
             }
         };
 
-        if block_requirements.latest && (perf.seconds_behind > (60 * 30)) {
-            candidates_errors.insert(
-                indexing_id.indexer,
-                IndexerError::Unavailable(UnavailableReason::TooFarBehind),
-            );
-            continue;
-        }
-
         // Check if the indexer is within the required block range
         if let Some((min_block, max_block)) = &block_requirements.range {
             // Allow indexers if their last reported block is "close enough" to the required block
@@ -656,6 +648,24 @@ fn build_candidates_list(
 
         // Construct the ISA candidate
         candidates_list.push(prepare_candidate(indexing_id, indexing, perf, fee));
+    }
+
+    let seconds_behind_cutoff = 60 * 30;
+    if block_requirements.latest
+        && candidates_list
+            .iter()
+            .any(|c| c.seconds_behind <= seconds_behind_cutoff)
+    {
+        candidates_list.retain(|c| {
+            if c.seconds_behind > seconds_behind_cutoff {
+                candidates_errors.insert(
+                    c.id.indexer,
+                    IndexerError::Unavailable(UnavailableReason::TooFarBehind),
+                );
+                return false;
+            }
+            true
+        });
     }
 
     (candidates_list, candidates_errors)
