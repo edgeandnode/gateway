@@ -132,7 +132,11 @@ fn test_service_state(
 
     if !pois_blocklist.is_empty() {
         let pois_blocklist = PoiBlocklist::new(pois_blocklist);
-        let pois_resolver = PoiResolver::new(indexers_http_client.clone());
+        let pois_resolver = PoiResolver::new(
+            indexers_http_client.clone(),
+            Duration::from_secs(30),
+            Duration::MAX,
+        );
         state.indexer_indexing_pois_blocklist = Some((pois_resolver, pois_blocklist));
     }
 

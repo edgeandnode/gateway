@@ -16,12 +16,6 @@ use url::Url;
 
 use crate::{indexers, indexers::public_poi::Error as PublicPoiFetchError};
 
-/// The default TTL for cache entries is 20 minutes. Entries are considered expired after this time.
-pub const DEFAULT_CACHE_TLL: Duration = Duration::from_secs(20 * 60); // 20 minutes
-
-/// The timeout for the indexer indexings' POI resolution.
-pub const DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
-
 /// The number of Public POI queries in a single request.
 const POIS_PER_REQUEST_BATCH_SIZE: usize = 10;
 
@@ -39,7 +33,8 @@ pub enum ResolutionError {
     Timeout,
 }
 
-/// A resolver for the Proof of Indexing (POI) of indexers.
+/// A resolver for the Proof of Indexing (POI) of indexers. Results are cached for some TTL to avoid
+/// making the same request multiple times.
 #[allow(clippy::type_complexity)]
 pub struct PoiResolver {
     client: reqwest::Client,
@@ -48,27 +43,8 @@ pub struct PoiResolver {
 }
 
 impl PoiResolver {
-    /// Create a new [`PoiResolver`] with the given client.
-    ///
-    /// The client is used to make requests to indexers. The resolver caches the results of these
-    /// requests to avoid making the same request multiple times.
-    ///
-    /// By default, the cache has a TTL of 20 minutes, [`DEFAULT_CACHE_TLL`]. Entries are considered
-    /// expired after this time causing the resolver to make a new requests to the indexer.
-    pub fn new(client: reqwest::Client) -> Self {
-        Self {
-            client,
-            timeout: DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT,
-            cache: RwLock::new(TtlHashMap::with_ttl(DEFAULT_CACHE_TLL)),
-        }
-    }
-
     /// Create a new [`PoiResolver`] with the given timeout and cache TTL.
-    pub fn with_timeout_and_cache_ttl(
-        client: reqwest::Client,
-        timeout: Duration,
-        cache_ttl: Duration,
-    ) -> Self {
+    pub fn new(client: reqwest::Client, timeout: Duration, cache_ttl: Duration) -> Self {
         Self {
             client,
             timeout,
@@ -149,37 +125,31 @@ impl PoiResolver {
         poi_requests: &[(DeploymentId, BlockNumber)],
     ) -> HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> {
         let url_string = url.to_string();
-
-        // Fetch the indexings' indexing progress
-        let fetched = self.fetch_indexer_public_pois(url, poi_requests).await;
-
-        // Filter out the failures
-        let fresh_data = fetched
-            .into_iter()
-            .filter_map(|(meta, result)| {
-                // TODO: Report the errors instead of filtering them out
-                Some((meta, result.ok()?))
-            })
-            .collect::<HashMap<_, _>>();
-
-        // Update the cache with the fetched data, if any
-        if !fresh_data.is_empty() {
-            self.update_cache(&url_string, &fresh_data);
+        let mut results = self.get_from_cache(&url_string, poi_requests);
+        let missing_requests: Vec<(DeploymentId, BlockNumber)> = poi_requests
+            .iter()
+            .filter(|r| !results.contains_key(r))
+            .cloned()
+            .collect();
+        if missing_requests.is_empty() {
+            return results;
         }
 
-        // Get the cached data for the missing deployments
-        let cached_info = {
-            // Get the list of deployments that are missing from the fetched data
-            let missing_indexings = fresh_data
-                .keys()
-                .filter(|meta| !poi_requests.contains(meta));
-
-            // Get the cached data for the missing deployments
-            self.get_from_cache(&url_string, missing_indexings)
-        };
-
-        // Merge the fetched and cached data
-        cached_info.into_iter().chain(fresh_data).collect()
+        let fetched: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> = self
+            .fetch_indexer_public_pois(url, &missing_requests)
+            .await
+            .into_iter()
+            .filter_map(|(key, result)| match result {
+                Ok(poi) => Some((key, poi)),
+                Err(poi_fetch_err) => {
+                    tracing::warn!(%poi_fetch_err);
+                    None
+                }
+            })
+            .collect();
+        self.update_cache(&url_string, &fetched);
+        results.extend(fetched);
+        results
     }
 }
 
