@@ -5,7 +5,7 @@ use gateway_framework::errors;
 use ordered_float::NotNan;
 use prost::Message;
 use serde_json::json;
-use thegraph_core::types::DeploymentId;
+use thegraph_core::types::{AllocationId, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 use toolshed::concat_bytes;
 
@@ -22,9 +22,9 @@ pub struct ClientRequest {
 }
 
 pub struct IndexerRequest {
-    pub indexer: Address,
+    pub indexer: IndexerId,
     pub deployment: DeploymentId,
-    pub largest_allocation: Address,
+    pub largest_allocation: AllocationId,
     pub url: String,
     pub receipt: Receipt,
     pub subgraph_chain: String,

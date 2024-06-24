@@ -3,9 +3,10 @@ use std::{
     fmt::{self, Write as _},
 };
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::BlockNumber;
 use axum::response::{IntoResponse, Response};
 use itertools::Itertools as _;
+use thegraph_core::types::IndexerId;
 
 use crate::{blocks::UnresolvedBlock, graphql};
 
@@ -42,10 +43,10 @@ impl IntoResponse for Error {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct IndexerErrors(BTreeMap<Address, IndexerError>);
+pub struct IndexerErrors(BTreeMap<IndexerId, IndexerError>);
 
 impl std::ops::Deref for IndexerErrors {
-    type Target = BTreeMap<Address, IndexerError>;
+    type Target = BTreeMap<IndexerId, IndexerError>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

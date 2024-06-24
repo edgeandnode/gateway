@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::BlockNumber;
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
 use gateway_common::{blocklist::Blocklist as _, ptr::Ptr};
 use semver::Version;
-use thegraph_core::types::DeploymentId;
+use thegraph_core::types::{AllocationId, DeploymentId, IndexerId};
 use tracing::Instrument;
 use url::Url;
 
@@ -29,7 +29,7 @@ use crate::network::{
 #[derive(CustomDebug)]
 pub(super) struct IndexerRawInfo {
     /// The indexer's ID.
-    pub id: Address,
+    pub id: IndexerId,
     /// The indexer's URL.
     ///
     /// It is guaranteed that the URL scheme is either HTTP or HTTPS and the URL has a host.
@@ -47,7 +47,7 @@ pub(super) struct IndexerRawInfo {
 #[derive(CustomDebug)]
 pub(super) struct IndexerInfo<I> {
     /// The indexer's ID.
-    pub id: Address,
+    pub id: IndexerId,
     /// The indexer's URL.
     ///
     /// It is guaranteed that the URL scheme is either HTTP or HTTPS and the URL has a host.
@@ -71,7 +71,7 @@ pub(super) struct IndexerInfo<I> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct IndexingRawInfo {
     /// The largest allocation.
-    pub largest_allocation: Address,
+    pub largest_allocation: AllocationId,
     /// The total amount of tokens allocated.
     pub total_allocated_tokens: u128,
 }
@@ -83,7 +83,7 @@ pub(super) struct IndexingRawInfo {
 #[derive(Debug)]
 pub(super) struct IndexingInfo<P, C> {
     /// The largest allocation.
-    pub largest_allocation: Address,
+    pub largest_allocation: AllocationId,
 
     /// The total amount of tokens allocated.
     pub total_allocated_tokens: u128,
@@ -156,8 +156,8 @@ pub(super) struct IndexingProgress {
 /// Process the fetched network topology information.
 pub(super) async fn process_info<S>(
     state: &S,
-    indexers: &HashMap<Address, IndexerRawInfo>,
-) -> HashMap<Address, Result<ResolvedIndexerInfo, IndexerInfoResolutionError>>
+    indexers: &HashMap<IndexerId, IndexerRawInfo>,
+) -> HashMap<IndexerId, Result<ResolvedIndexerInfo, IndexerInfoResolutionError>>
 where
     S: AsRef<Option<AddrBlocklist>>
         + AsRef<HostResolver>

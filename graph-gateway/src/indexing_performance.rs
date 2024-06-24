@@ -1,8 +1,8 @@
 use std::{collections::HashMap, ops::Deref, time::Duration};
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::BlockNumber;
 use parking_lot::RwLock;
-use thegraph_core::types::DeploymentId;
+use thegraph_core::types::{DeploymentId, IndexerId};
 use tokio::{self, sync::mpsc, time::MissedTickBehavior};
 
 use crate::network::NetworkService;
@@ -20,7 +20,7 @@ pub struct IndexingPerformance {
 }
 
 struct Feedback {
-    indexer: Address,
+    indexer: IndexerId,
     deployment: DeploymentId,
     success: bool,
     latency_ms: u16,
@@ -35,7 +35,7 @@ impl IndexingPerformance {
         Self { data, msgs: tx }
     }
 
-    pub fn latest(&self) -> impl Deref<Target = HashMap<(Address, DeploymentId), Snapshot>> + '_ {
+    pub fn latest(&self) -> impl Deref<Target = HashMap<(IndexerId, DeploymentId), Snapshot>> + '_ {
         loop {
             // This is guaranteed to only move forward in time, and is almost guaranteed to acquire
             // the lock "immediately". These guarantees come from the invariant that there is a
@@ -50,7 +50,7 @@ impl IndexingPerformance {
 
     pub fn feedback(
         &self,
-        indexer: Address,
+        indexer: IndexerId,
         deployment: DeploymentId,
         success: bool,
         latency_ms: u16,
@@ -69,7 +69,7 @@ impl IndexingPerformance {
 }
 
 #[derive(Default)]
-struct DoubleBuffer([RwLock<HashMap<(Address, DeploymentId), Snapshot>>; 2]);
+struct DoubleBuffer([RwLock<HashMap<(IndexerId, DeploymentId), Snapshot>>; 2]);
 
 struct Actor {
     data: &'static DoubleBuffer,
