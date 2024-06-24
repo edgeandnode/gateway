@@ -1,6 +1,5 @@
-use alloy_primitives::Address;
 use serde_json::json;
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
 use super::{indexer_processing::IndexingRawInfo, pre_processing};
@@ -15,9 +14,14 @@ fn init_test_tracing() {
         .try_init();
 }
 
-/// Get an [`Address`] from a given string.
-fn parse_address(addr: impl AsRef<str>) -> Address {
-    addr.as_ref().parse().expect("Invalid address")
+/// Get an [`IndexerId`] from a given string.
+fn parse_indexer_id(addr: impl AsRef<str>) -> IndexerId {
+    addr.as_ref().parse().expect("Invalid indexer ID")
+}
+
+/// Get an [`AllocationId`] from a given string.
+fn parse_allocation_id(addr: impl AsRef<str>) -> AllocationId {
+    addr.as_ref().parse().expect("Invalid allocation ID")
 }
 
 /// Get a [`DeploymentId`] from a given string.
@@ -180,8 +184,8 @@ fn indexers_data_pre_processing() {
     let info = pre_processing::into_internal_indexers_raw_info(data.iter());
 
     //* Then
-    let indexer_1_address = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
-    let indexer_2_address = parse_address("0xedca8740873152ff30a2696add66d1ab41882beb");
+    let indexer_1_address = parse_indexer_id("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
+    let indexer_2_address = parse_indexer_id("0xedca8740873152ff30a2696add66d1ab41882beb");
 
     let deployment_id_1 = parse_deployment_id("QmaiXMTFDFPRKoXQceXwzuFYhAYDkUXHLmBVxLUQs4ZKsN");
     let deployment_id_2 = parse_deployment_id("QmaqcZxm6gcgWhWpQ88YKDm1keJDMpNxNGwtEDvjrjjNKh");
@@ -259,19 +263,19 @@ fn indexers_data_pre_processing() {
         .expect("indexing info not found");
 
     let expected_indexer_1_indexing_1_info = IndexingRawInfo {
-        largest_allocation: parse_address("0xcc3f326bdbfcb6fc730e04d859e6103f31cd691c"),
+        largest_allocation: parse_allocation_id("0xcc3f326bdbfcb6fc730e04d859e6103f31cd691c"),
         total_allocated_tokens: 0,
     };
     let expected_indexer_1_indexing_2_info = IndexingRawInfo {
-        largest_allocation: parse_address("0xa51c172268db23b0ec7bcf36b60d4cec374c1783"),
+        largest_allocation: parse_allocation_id("0xa51c172268db23b0ec7bcf36b60d4cec374c1783"),
         total_allocated_tokens: 0,
     };
     let expected_indexer_1_indexing_3_info = IndexingRawInfo {
-        largest_allocation: parse_address("0x28220d396bf2c22717b07f4d767429b7d5b72b03"),
+        largest_allocation: parse_allocation_id("0x28220d396bf2c22717b07f4d767429b7d5b72b03"),
         total_allocated_tokens: 0,
     };
     let expected_indexer_1_indexing_4_info = IndexingRawInfo {
-        largest_allocation: parse_address("0x070b3036035489055d59f93efb63b80c7031ebca"),
+        largest_allocation: parse_allocation_id("0x070b3036035489055d59f93efb63b80c7031ebca"),
         total_allocated_tokens: 0,
     };
 
@@ -299,7 +303,7 @@ fn indexers_data_pre_processing() {
         .expect("indexing info not found");
 
     let expected_indexer_2_indexing_1_info = IndexingRawInfo {
-        largest_allocation: parse_address("0x8de241c35f8bc02ae9ad635e273372dd083f6520"),
+        largest_allocation: parse_allocation_id("0x8de241c35f8bc02ae9ad635e273372dd083f6520"),
         total_allocated_tokens: 3000000000000000000,
     };
 
@@ -751,8 +755,8 @@ fn deployments_data_pre_processing() {
     //- Assert deployments' allocations are aggregated
     // QmaiXMTFDFPRKoXQceXwzuFYhAYDkUXHLmBVxLUQs4ZKsN
     let deployment_1_expected_allocations = [
-        parse_address("0xcc3f326bdbfcb6fc730e04d859e6103f31cd691c"),
-        parse_address("0x3afbf91a22d264d2d6fb46fa828ecc3dce687e72"),
+        parse_allocation_id("0xcc3f326bdbfcb6fc730e04d859e6103f31cd691c"),
+        parse_allocation_id("0x3afbf91a22d264d2d6fb46fa828ecc3dce687e72"),
     ];
     assert_eq!(
         deployment_1_info.allocations.len(),
@@ -764,8 +768,9 @@ fn deployments_data_pre_processing() {
         .all(|a| deployment_1_expected_allocations.contains(&a.id)));
 
     // QmaqcZxm6gcgWhWpQ88YKDm1keJDMpNxNGwtEDvjrjjNKh
-    let expected_deployment_2_allocations =
-        [parse_address("0xa51c172268db23b0ec7bcf36b60d4cec374c1783")];
+    let expected_deployment_2_allocations = [parse_allocation_id(
+        "0xa51c172268db23b0ec7bcf36b60d4cec374c1783",
+    )];
     assert_eq!(
         deployment_2_info.allocations.len(),
         expected_deployment_2_allocations.len()
@@ -776,8 +781,9 @@ fn deployments_data_pre_processing() {
         .all(|a| expected_deployment_2_allocations.contains(&a.id)));
 
     // QmboQC3YgcxwqtmaV71bFxEvepbsq7fmSWgBARifcyJkj9
-    let expected_deployment_3_allocations =
-        [parse_address("0x28220d396bf2c22717b07f4d767429b7d5b72b03")];
+    let expected_deployment_3_allocations = [parse_allocation_id(
+        "0x28220d396bf2c22717b07f4d767429b7d5b72b03",
+    )];
     assert_eq!(
         deployment_3_info.allocations.len(),
         expected_deployment_3_allocations.len()

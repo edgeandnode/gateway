@@ -1,8 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
 
-use alloy_primitives::Address;
 use anyhow::anyhow;
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 use url::Url;
 
 use crate::network::{
@@ -17,9 +16,11 @@ use crate::network::{
 
 pub fn into_internal_indexers_raw_info<'a>(
     data: impl Iterator<Item = &'a subgraph_client::types::Subgraph>,
-) -> HashMap<Address, IndexerRawInfo> {
-    let mut indexer_indexing_largest_allocation: HashMap<(Address, DeploymentId), (Address, u128)> =
-        HashMap::new();
+) -> HashMap<IndexerId, IndexerRawInfo> {
+    let mut indexer_indexing_largest_allocation: HashMap<
+        (IndexerId, DeploymentId),
+        (AllocationId, u128),
+    > = HashMap::new();
 
     data.flat_map(|subgraph| {
         subgraph

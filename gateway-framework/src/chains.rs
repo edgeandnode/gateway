@@ -3,8 +3,8 @@ use std::{
     time::Duration,
 };
 
-use alloy_primitives::Address;
 use parking_lot::{RwLock, RwLockReadGuard};
+use thegraph_core::types::IndexerId;
 use tokio::{
     select, spawn,
     sync::mpsc,
@@ -24,7 +24,7 @@ impl ChainReader {
         self.chain.read()
     }
 
-    pub fn notify(&self, block: Block, indexer: Address) {
+    pub fn notify(&self, block: Block, indexer: IndexerId) {
         let _ = self.tx.send(Msg { block, indexer });
     }
 }
@@ -62,7 +62,7 @@ impl Chains {
 
 struct Msg {
     block: Block,
-    indexer: Address,
+    indexer: IndexerId,
 }
 
 struct Actor;

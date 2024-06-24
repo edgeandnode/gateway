@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::BlockNumber;
 use anyhow::anyhow;
 use axum::{
     body::Bytes,
@@ -30,7 +30,7 @@ use prost::bytes::Buf;
 use rand::{thread_rng, Rng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 use tokio::sync::mpsc;
 use tracing::{info_span, Instrument as _};
 use url::Url;
@@ -442,7 +442,7 @@ async fn run_indexer_queries(
             break;
         }
 
-        let selected_indexers: ArrayVec<Address, SELECTION_LIMIT> =
+        let selected_indexers: ArrayVec<IndexerId, SELECTION_LIMIT> =
             selections.into_iter().map(|s| s.id).collect();
         candidates.retain(|c| !selected_indexers.contains(&c.id));
     }
@@ -548,7 +548,7 @@ struct CandidateMetadata {
     deployment: DeploymentId,
     #[debug(with = std::fmt::Display::fmt)]
     url: Url,
-    largest_allocation: Address,
+    largest_allocation: AllocationId,
     tap_support: bool,
 }
 
@@ -565,8 +565,8 @@ fn build_candidates_list(
     subgraph_versions: &[DeploymentId],
     indexings: HashMap<IndexingId, Result<Indexing, network::ResolutionError>>,
 ) -> (
-    Vec<Candidate<Address, CandidateMetadata>>,
-    BTreeMap<Address, IndexerError>,
+    Vec<Candidate<IndexerId, CandidateMetadata>>,
+    BTreeMap<IndexerId, IndexerError>,
 ) {
     let mut candidates_list = Vec::new();
     let mut candidates_errors = BTreeMap::default();

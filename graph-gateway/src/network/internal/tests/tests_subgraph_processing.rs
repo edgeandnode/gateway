@@ -1,8 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use alloy_primitives::Address;
 use assert_matches::assert_matches;
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
 use super::subgraph_processing::{
@@ -19,9 +18,14 @@ fn init_test_tracing() {
         .try_init();
 }
 
-/// Test helper to get an [`Address`] from a given string.
-fn parse_address(addr: impl AsRef<str>) -> Address {
-    addr.as_ref().parse().expect("Invalid address")
+/// Test helper to get an [`IndexerId`] from a given string.
+fn parse_indexer_id(addr: impl AsRef<str>) -> IndexerId {
+    addr.as_ref().parse().expect("Invalid indexer ID")
+}
+
+/// Test helper to get an [`AllocationId`] from a given string.
+fn parse_allocation_id(addr: impl AsRef<str>) -> AllocationId {
+    addr.as_ref().parse().expect("Invalid allocation ID")
 }
 
 /// Test helper to get a [`DeploymentId`] from a given string.
@@ -53,16 +57,16 @@ fn process_deployment_info_successfully() {
                 id: deployment_v110,
                 allocations: vec![
                     AllocationInfo {
-                        id: parse_address("0x177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
-                        indexer: parse_address("0x4e5c87772c29381bcabc58c3f182b6633b5a274a"),
+                        id: parse_allocation_id("0x177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
+                        indexer: parse_indexer_id("0x4e5c87772c29381bcabc58c3f182b6633b5a274a"),
                     },
                     AllocationInfo {
-                        id: parse_address("0x2e9e707f8dfea2f03ef194c1b6478845377e6246"),
-                        indexer: parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491"),
+                        id: parse_allocation_id("0x2e9e707f8dfea2f03ef194c1b6478845377e6246"),
+                        indexer: parse_indexer_id("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491"),
                     },
                     AllocationInfo {
-                        id: parse_address("0x3c4a845623182c6cffe0da2c8f6d9e9128f34208"),
-                        indexer: parse_address("0x269ebeee083ce6f70486a67dc8036a889bf322a9"),
+                        id: parse_allocation_id("0x3c4a845623182c6cffe0da2c8f6d9e9128f34208"),
+                        indexer: parse_indexer_id("0x269ebeee083ce6f70486a67dc8036a889bf322a9"),
                     },
                 ],
                 manifest_network: "arbitrum-one".to_string(),
@@ -76,8 +80,8 @@ fn process_deployment_info_successfully() {
             DeploymentRawInfo {
                 id: deployment_v100,
                 allocations: vec![AllocationInfo {
-                    id: parse_address("0x89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2"),
-                    indexer: parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491"),
+                    id: parse_allocation_id("0x89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2"),
+                    indexer: parse_indexer_id("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491"),
                 }],
                 manifest_network: "arbitrum-one".to_string(),
                 manifest_start_block: 42440000,
@@ -182,20 +186,26 @@ fn process_subgraph_info_successfully() {
                         id: deployment_v110,
                         allocations: vec![
                             AllocationInfo {
-                                id: parse_address("0x177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
-                                indexer: parse_address(
+                                id: parse_allocation_id(
+                                    "0x177b557b12f22bb17a9d73dcc994d978dd6f5f89",
+                                ),
+                                indexer: parse_indexer_id(
                                     "0x4e5c87772c29381bcabc58c3f182b6633b5a274a",
                                 ),
                             },
                             AllocationInfo {
-                                id: parse_address("0x2e9e707f8dfea2f03ef194c1b6478845377e6246"),
-                                indexer: parse_address(
+                                id: parse_allocation_id(
+                                    "0x2e9e707f8dfea2f03ef194c1b6478845377e6246",
+                                ),
+                                indexer: parse_indexer_id(
                                     "0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491",
                                 ),
                             },
                             AllocationInfo {
-                                id: parse_address("0x3c4a845623182c6cffe0da2c8f6d9e9128f34208"),
-                                indexer: parse_address(
+                                id: parse_allocation_id(
+                                    "0x3c4a845623182c6cffe0da2c8f6d9e9128f34208",
+                                ),
+                                indexer: parse_indexer_id(
                                     "0x269ebeee083ce6f70486a67dc8036a889bf322a9",
                                 ),
                             },
@@ -211,8 +221,8 @@ fn process_subgraph_info_successfully() {
                     deployment: DeploymentRawInfo {
                         id: deployment_v100,
                         allocations: vec![AllocationInfo {
-                            id: parse_address("0x89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2"),
-                            indexer: parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491"),
+                            id: parse_allocation_id("0x89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2"),
+                            indexer: parse_indexer_id("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491"),
                         }],
                         manifest_network: "arbitrum-one".to_string(),
                         manifest_start_block: 42440000,
@@ -417,8 +427,8 @@ fn block_subgraph_deployment_if_marked_as_transferred_to_l2() {
                         subgraphs: Default::default(),
                         transferred_to_l2: false,
                         allocations: vec![AllocationInfo {
-                            id: parse_address("0x177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
-                            indexer: parse_address("0x4e5c87772c29381bcabc58c3f182b6633b5a274a"),
+                            id: parse_allocation_id("0x177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
+                            indexer: parse_indexer_id("0x4e5c87772c29381bcabc58c3f182b6633b5a274a"),
                         }],
                     },
                 },
@@ -487,8 +497,8 @@ fn block_subgraph_deployment_if_has_no_allocations() {
                         subgraphs: Default::default(),
                         transferred_to_l2: false,
                         allocations: vec![AllocationInfo {
-                            id: parse_address("0x177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
-                            indexer: parse_address("0x4e5c87772c29381bcabc58c3f182b6633b5a274a"),
+                            id: parse_allocation_id("0x177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
+                            indexer: parse_indexer_id("0x4e5c87772c29381bcabc58c3f182b6633b5a274a"),
                         }],
                     },
                 },
