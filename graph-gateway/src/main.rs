@@ -70,6 +70,7 @@ async fn main() {
     let conf = config::load_from_file(&conf_path).expect("Failed to load config");
 
     // Get the gateway ID from the config or generate a new one.
+    // Might need to make it required on the config and unique across decentralized gateways ?
     let gateway_id = conf
         .gateway_id
         .clone()
@@ -141,6 +142,7 @@ async fn main() {
         Box::leak(Box::new(Budgeter::new(USD(conf.query_fees_target))));
 
     let reporter = reports::Reporter::create(
+        gateway_id,
         conf.graph_env_id,
         conf.query_fees_target,
         "gateway_client_query_results",
