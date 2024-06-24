@@ -3,12 +3,12 @@ use std::{
     iter,
 };
 
-use alloy_primitives::Address;
+use thegraph_core::types::IndexerId;
 
 use crate::blocks::{Block, UnresolvedBlock};
 
 #[derive(Default)]
-pub struct Chain(BTreeMap<Block, BTreeSet<Address>>);
+pub struct Chain(BTreeMap<Block, BTreeSet<IndexerId>>);
 
 const MAX_LEN: usize = 512;
 const DEFAULT_BLOCKS_PER_MINUTE: u64 = 6;
@@ -38,7 +38,7 @@ impl Chain {
         (bps * 60.0) as u64
     }
 
-    pub fn should_insert(&self, block: &Block, indexer: &Address) -> bool {
+    pub fn should_insert(&self, block: &Block, indexer: &IndexerId) -> bool {
         let redundant = self
             .0
             .get(block)
@@ -49,7 +49,7 @@ impl Chain {
         !redundant && has_space
     }
 
-    pub fn insert(&mut self, block: Block, indexer: Address) {
+    pub fn insert(&mut self, block: Block, indexer: IndexerId) {
         tracing::trace!(%indexer, ?block);
         debug_assert!(self.should_insert(&block, &indexer));
         if self.0.len() >= MAX_LEN {
@@ -79,7 +79,7 @@ impl Chain {
         }
         impl<'c, Iter> Iterator for ConsensusBlocks<iter::Peekable<Iter>>
         where
-            Iter: Iterator<Item = (&'c Block, &'c BTreeSet<Address>)> + Clone,
+            Iter: Iterator<Item = (&'c Block, &'c BTreeSet<IndexerId>)> + Clone,
         {
             type Item = &'c Block;
             fn next(&mut self) -> Option<Self::Item> {
@@ -111,6 +111,7 @@ mod tests {
     use rand::{
         rngs::SmallRng, seq::SliceRandom as _, thread_rng, Rng as _, RngCore as _, SeedableRng,
     };
+    use thegraph_core::types::IndexerId;
     use toolshed::concat_bytes;
 
     use super::{Block, Chain, MAX_LEN};
@@ -118,8 +119,8 @@ mod tests {
     #[test]
     fn chain() {
         let mut chain: Chain = Default::default();
-        let indexers: Vec<Address> = (1..=3)
-            .map(|n| Address::from(concat_bytes!(20, [&[0; 19], &[n]])))
+        let indexers: Vec<IndexerId> = (1..=3)
+            .map(|n| Address::from(concat_bytes!(20, [&[0; 19], &[n]])).into())
             .collect();
         let seed = thread_rng().next_u64();
         println!("seed: {seed}");

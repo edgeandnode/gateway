@@ -171,14 +171,9 @@ pub struct PartialBlockPtr {
 
 #[cfg(test)]
 mod tests {
-    use thegraph_core::types::DeploymentId;
+    use thegraph_core::deployment_id;
 
     use super::{ProofOfIndexing, Response};
-
-    /// Test helper to create a valid `DeploymentId` instance from an arbitrary string.
-    fn parse_deployment_id(id: impl AsRef<str>) -> DeploymentId {
-        id.as_ref().parse().expect("invalid deployment id")
-    }
 
     /// Test helper to create a valid `ProofOfIndexing` instance from an arbitrary string.
     fn parse_poi(poi: impl AsRef<str>) -> ProofOfIndexing {
@@ -217,7 +212,7 @@ mod tests {
         assert_eq!(response.public_proofs_of_indexing.len(), 2);
         assert_eq!(
             response.public_proofs_of_indexing[0].deployment,
-            parse_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH")
+            deployment_id!("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH")
         );
         assert_eq!(
             response.public_proofs_of_indexing[0].proof_of_indexing,
@@ -228,7 +223,7 @@ mod tests {
         assert_eq!(response.public_proofs_of_indexing[0].block.number, 123);
         assert_eq!(
             response.public_proofs_of_indexing[1].deployment,
-            parse_deployment_id("QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw")
+            deployment_id!("QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw")
         );
         assert_eq!(
             response.public_proofs_of_indexing[1].proof_of_indexing,

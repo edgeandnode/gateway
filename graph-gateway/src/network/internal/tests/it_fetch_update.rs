@@ -1,8 +1,8 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use alloy_primitives::Address;
 use ipnetwork::IpNetwork;
 use semver::Version;
+use thegraph_core::types::IndexerId;
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
 
@@ -58,7 +58,7 @@ const GRAPH_NETWORK_ARBITRUM_DEPLOYMENT_ID: &str = "QmZtNN8NbxjJ1KD5uKBYa7Gj29CT
 
 /// Test helper to build the service config for the tests.
 fn test_service_state(
-    addr_blocklist: HashSet<Address>,
+    addr_blocklist: HashSet<IndexerId>,
     host_blocklist: HashSet<IpNetwork>,
     min_versions: Option<(Version, Version)>,
 ) -> Arc<InternalState> {

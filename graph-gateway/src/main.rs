@@ -398,7 +398,7 @@ fn init_network_service(
 
     // Configure the address-based blocklist for indexers
     if !indexer_addr_blocklist.is_empty() {
-        let indexer_addr_blocklist = indexer_addr_blocklist.into_iter().collect();
+        let indexer_addr_blocklist = indexer_addr_blocklist.into_iter().map(Into::into).collect();
         builder = builder.with_indexer_addr_blocklist(indexer_addr_blocklist);
     }
 

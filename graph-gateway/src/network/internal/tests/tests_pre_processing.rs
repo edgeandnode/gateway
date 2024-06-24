@@ -1,6 +1,5 @@
-use alloy_primitives::Address;
 use serde_json::json;
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::{allocation_id, deployment_id, indexer_id, subgraph_id};
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
 use super::{indexer_processing::IndexingRawInfo, pre_processing};
@@ -13,24 +12,6 @@ fn init_test_tracing() {
         .compact()
         .with_writer(TestWriter::default())
         .try_init();
-}
-
-/// Get an [`Address`] from a given string.
-fn parse_address(addr: impl AsRef<str>) -> Address {
-    addr.as_ref().parse().expect("Invalid address")
-}
-
-/// Get a [`DeploymentId`] from a given string.
-fn parse_deployment_id(deployment_id: impl AsRef<str>) -> DeploymentId {
-    deployment_id
-        .as_ref()
-        .parse()
-        .expect("Invalid deployment ID")
-}
-
-/// Get a [`SubgraphId`] from a given string.
-fn parse_subgraph_id(subgraph_id: impl AsRef<str>) -> SubgraphId {
-    subgraph_id.as_ref().parse().expect("Invalid subgraph ID")
 }
 
 /// De-serialize the given JSON data as it was fetched from the network.
@@ -180,13 +161,13 @@ fn indexers_data_pre_processing() {
     let info = pre_processing::into_internal_indexers_raw_info(data.iter());
 
     //* Then
-    let indexer_1_address = parse_address("0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
-    let indexer_2_address = parse_address("0xedca8740873152ff30a2696add66d1ab41882beb");
+    let indexer_1_address = indexer_id!("bdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491");
+    let indexer_2_address = indexer_id!("edca8740873152ff30a2696add66d1ab41882beb");
 
-    let deployment_id_1 = parse_deployment_id("QmaiXMTFDFPRKoXQceXwzuFYhAYDkUXHLmBVxLUQs4ZKsN");
-    let deployment_id_2 = parse_deployment_id("QmaqcZxm6gcgWhWpQ88YKDm1keJDMpNxNGwtEDvjrjjNKh");
-    let deployment_id_3 = parse_deployment_id("QmboQC3YgcxwqtmaV71bFxEvepbsq7fmSWgBARifcyJkj9");
-    let deployment_id_4 = parse_deployment_id("QmWs3jKfZDhFp5Hrq4qhxsSo46DkCnJJsaUqn2MggKcNfz");
+    let deployment_id_1 = deployment_id!("QmaiXMTFDFPRKoXQceXwzuFYhAYDkUXHLmBVxLUQs4ZKsN");
+    let deployment_id_2 = deployment_id!("QmaqcZxm6gcgWhWpQ88YKDm1keJDMpNxNGwtEDvjrjjNKh");
+    let deployment_id_3 = deployment_id!("QmboQC3YgcxwqtmaV71bFxEvepbsq7fmSWgBARifcyJkj9");
+    let deployment_id_4 = deployment_id!("QmWs3jKfZDhFp5Hrq4qhxsSo46DkCnJJsaUqn2MggKcNfz");
 
     //- Assert indexers' info aggregation
     assert_eq!(info.len(), 2);
@@ -259,19 +240,19 @@ fn indexers_data_pre_processing() {
         .expect("indexing info not found");
 
     let expected_indexer_1_indexing_1_info = IndexingRawInfo {
-        largest_allocation: parse_address("0xcc3f326bdbfcb6fc730e04d859e6103f31cd691c"),
+        largest_allocation: allocation_id!("cc3f326bdbfcb6fc730e04d859e6103f31cd691c"),
         total_allocated_tokens: 0,
     };
     let expected_indexer_1_indexing_2_info = IndexingRawInfo {
-        largest_allocation: parse_address("0xa51c172268db23b0ec7bcf36b60d4cec374c1783"),
+        largest_allocation: allocation_id!("a51c172268db23b0ec7bcf36b60d4cec374c1783"),
         total_allocated_tokens: 0,
     };
     let expected_indexer_1_indexing_3_info = IndexingRawInfo {
-        largest_allocation: parse_address("0x28220d396bf2c22717b07f4d767429b7d5b72b03"),
+        largest_allocation: allocation_id!("28220d396bf2c22717b07f4d767429b7d5b72b03"),
         total_allocated_tokens: 0,
     };
     let expected_indexer_1_indexing_4_info = IndexingRawInfo {
-        largest_allocation: parse_address("0x070b3036035489055d59f93efb63b80c7031ebca"),
+        largest_allocation: allocation_id!("070b3036035489055d59f93efb63b80c7031ebca"),
         total_allocated_tokens: 0,
     };
 
@@ -299,7 +280,7 @@ fn indexers_data_pre_processing() {
         .expect("indexing info not found");
 
     let expected_indexer_2_indexing_1_info = IndexingRawInfo {
-        largest_allocation: parse_address("0x8de241c35f8bc02ae9ad635e273372dd083f6520"),
+        largest_allocation: allocation_id!("8de241c35f8bc02ae9ad635e273372dd083f6520"),
         total_allocated_tokens: 3000000000000000000,
     };
 
@@ -465,14 +446,14 @@ fn subgraphs_data_pre_processing() {
     let info = pre_processing::into_internal_subgraphs_raw_info(data.into_iter());
 
     //* Then
-    let subgraph_1 = parse_subgraph_id("21dvLGCdpj4TNQXt7azhjc2sZhj2j5fWXuYCYG6z3mjP");
-    let subgraph_2 = parse_subgraph_id("223LR19dRLKChVVy8xH4bXvG9gjnFvmm73M6qDh8BFLf");
-    let subgraph_3 = parse_subgraph_id("2gWLd9Aw4VRCPQHcXrxBSVGWEdBu3VL8arCckxRUbeAA");
+    let subgraph_1 = subgraph_id!("21dvLGCdpj4TNQXt7azhjc2sZhj2j5fWXuYCYG6z3mjP");
+    let subgraph_2 = subgraph_id!("223LR19dRLKChVVy8xH4bXvG9gjnFvmm73M6qDh8BFLf");
+    let subgraph_3 = subgraph_id!("2gWLd9Aw4VRCPQHcXrxBSVGWEdBu3VL8arCckxRUbeAA");
 
-    let deployment_id_1 = parse_deployment_id("QmaiXMTFDFPRKoXQceXwzuFYhAYDkUXHLmBVxLUQs4ZKsN");
-    let deployment_id_2 = parse_deployment_id("QmaqcZxm6gcgWhWpQ88YKDm1keJDMpNxNGwtEDvjrjjNKh");
-    let deployment_id_3 = parse_deployment_id("QmboQC3YgcxwqtmaV71bFxEvepbsq7fmSWgBARifcyJkj9");
-    let deployment_id_4 = parse_deployment_id("QmWs3jKfZDhFp5Hrq4qhxsSo46DkCnJJsaUqn2MggKcNfz");
+    let deployment_id_1 = deployment_id!("QmaiXMTFDFPRKoXQceXwzuFYhAYDkUXHLmBVxLUQs4ZKsN");
+    let deployment_id_2 = deployment_id!("QmaqcZxm6gcgWhWpQ88YKDm1keJDMpNxNGwtEDvjrjjNKh");
+    let deployment_id_3 = deployment_id!("QmboQC3YgcxwqtmaV71bFxEvepbsq7fmSWgBARifcyJkj9");
+    let deployment_id_4 = deployment_id!("QmWs3jKfZDhFp5Hrq4qhxsSo46DkCnJJsaUqn2MggKcNfz");
 
     //- Assert subgraphs' info deduplication: The first subgraph occurrence prevails.
     assert_eq!(info.len(), 3);
@@ -705,13 +686,13 @@ fn deployments_data_pre_processing() {
     let info = pre_processing::into_internal_deployments_raw_info(subgraphs_info.values());
 
     //* Then
-    let subgraph_1 = parse_subgraph_id("21dvLGCdpj4TNQXt7azhjc2sZhj2j5fWXuYCYG6z3mjP");
-    let subgraph_2 = parse_subgraph_id("223LR19dRLKChVVy8xH4bXvG9gjnFvmm73M6qDh8BFLf");
-    let subgraph_3 = parse_subgraph_id("2gWLd9Aw4VRCPQHcXrxBSVGWEdBu3VL8arCckxRUbeAA");
+    let subgraph_1 = subgraph_id!("21dvLGCdpj4TNQXt7azhjc2sZhj2j5fWXuYCYG6z3mjP");
+    let subgraph_2 = subgraph_id!("223LR19dRLKChVVy8xH4bXvG9gjnFvmm73M6qDh8BFLf");
+    let subgraph_3 = subgraph_id!("2gWLd9Aw4VRCPQHcXrxBSVGWEdBu3VL8arCckxRUbeAA");
 
-    let deployment_id_1 = parse_deployment_id("QmaiXMTFDFPRKoXQceXwzuFYhAYDkUXHLmBVxLUQs4ZKsN");
-    let deployment_id_2 = parse_deployment_id("QmaqcZxm6gcgWhWpQ88YKDm1keJDMpNxNGwtEDvjrjjNKh");
-    let deployment_id_3 = parse_deployment_id("QmboQC3YgcxwqtmaV71bFxEvepbsq7fmSWgBARifcyJkj9");
+    let deployment_id_1 = deployment_id!("QmaiXMTFDFPRKoXQceXwzuFYhAYDkUXHLmBVxLUQs4ZKsN");
+    let deployment_id_2 = deployment_id!("QmaqcZxm6gcgWhWpQ88YKDm1keJDMpNxNGwtEDvjrjjNKh");
+    let deployment_id_3 = deployment_id!("QmboQC3YgcxwqtmaV71bFxEvepbsq7fmSWgBARifcyJkj9");
 
     //- Assert deployments' info aggregation
     assert_eq!(info.len(), 3);
@@ -751,8 +732,8 @@ fn deployments_data_pre_processing() {
     //- Assert deployments' allocations are aggregated
     // QmaiXMTFDFPRKoXQceXwzuFYhAYDkUXHLmBVxLUQs4ZKsN
     let deployment_1_expected_allocations = [
-        parse_address("0xcc3f326bdbfcb6fc730e04d859e6103f31cd691c"),
-        parse_address("0x3afbf91a22d264d2d6fb46fa828ecc3dce687e72"),
+        allocation_id!("cc3f326bdbfcb6fc730e04d859e6103f31cd691c"),
+        allocation_id!("3afbf91a22d264d2d6fb46fa828ecc3dce687e72"),
     ];
     assert_eq!(
         deployment_1_info.allocations.len(),
@@ -765,7 +746,7 @@ fn deployments_data_pre_processing() {
 
     // QmaqcZxm6gcgWhWpQ88YKDm1keJDMpNxNGwtEDvjrjjNKh
     let expected_deployment_2_allocations =
-        [parse_address("0xa51c172268db23b0ec7bcf36b60d4cec374c1783")];
+        [allocation_id!("a51c172268db23b0ec7bcf36b60d4cec374c1783")];
     assert_eq!(
         deployment_2_info.allocations.len(),
         expected_deployment_2_allocations.len()
@@ -777,7 +758,7 @@ fn deployments_data_pre_processing() {
 
     // QmboQC3YgcxwqtmaV71bFxEvepbsq7fmSWgBARifcyJkj9
     let expected_deployment_3_allocations =
-        [parse_address("0x28220d396bf2c22717b07f4d767429b7d5b72b03")];
+        [allocation_id!("28220d396bf2c22717b07f4d767429b7d5b72b03")];
     assert_eq!(
         deployment_3_info.allocations.len(),
         expected_deployment_3_allocations.len()

@@ -1,7 +1,6 @@
 use std::{collections::HashMap, time::Duration};
 
-use alloy_primitives::Address;
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{DeploymentId, IndexerId, SubgraphId};
 
 use self::indexer_processing::IndexerRawInfo;
 pub use self::{
@@ -35,7 +34,7 @@ pub async fn fetch_update(
 pub struct PreprocessedNetworkInfo {
     subgraphs: HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>>,
     deployments: HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>>,
-    indexers: HashMap<Address, IndexerRawInfo>,
+    indexers: HashMap<IndexerId, IndexerRawInfo>,
 }
 
 /// Fetch the subgraphs information from the graph network subgraph and performs pre-processing
