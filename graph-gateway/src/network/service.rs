@@ -25,9 +25,7 @@ use super::{
         CostModelResolver, DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
     },
     indexer_indexing_poi_blocklist::PoiBlocklist,
-    indexer_indexing_poi_resolver::{
-        PoiResolver, DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT,
-    },
+    indexer_indexing_poi_resolver::PoiResolver,
     indexer_indexing_progress_resolver::IndexingProgressResolver,
     indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
     internal::{
@@ -276,10 +274,10 @@ impl NetworkServiceBuilder {
         mut self,
         blocklist: HashSet<((DeploymentId, BlockNumber), ProofOfIndexing)>,
     ) -> Self {
-        let resolver = PoiResolver::with_timeout_and_cache_ttl(
+        let resolver = PoiResolver::new(
             self.indexer_client.clone(),
-            DEFAULT_INDEXER_INDEXING_POIS_RESOLUTION_TIMEOUT, // 5s
-            DEFAULT_TTL,                                      // Duration::MAX
+            Duration::from_secs(5),
+            Duration::from_secs(20 * 60),
         );
         let blocklist = PoiBlocklist::new(blocklist);
 
