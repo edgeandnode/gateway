@@ -36,6 +36,7 @@ pub struct IndexerRequest {
 }
 
 pub struct Reporter {
+    pub gateway_id: String,
     pub graph_env: String,
     pub budget: String,
     pub client_request_topic: &'static str,
@@ -50,6 +51,7 @@ pub struct Reporter {
 
 impl Reporter {
     pub fn create(
+        gateway_id: String,
         graph_env: String,
         budget: NotNan<f64>,
         client_request_topic: &'static str,
@@ -62,6 +64,7 @@ impl Reporter {
             .create()
             .context("kafka producer error")?;
         let mut reporter = Self {
+            gateway_id,
             graph_env,
             budget: budget.to_string(),
             client_request_topic,
@@ -113,14 +116,17 @@ impl Reporter {
             };
 
         let client_request_payload = json!({
+            "gateway_id": &self.gateway_id,
             "query_id": &client_request.id,
             "ray_id": &client_request.id,
-            "graph_env": &self.graph_env,
+            "graph_env": &self.graph_env, // kept old one for backwards comp
+            "network_chain": &self.graph_env,
             "timestamp": timestamp,
             "api_key": &client_request.api_key,
             "user": &client_request.user_address,
             "deployment": client_request.indexer_requests.first().map(|i| i.deployment.to_string()).unwrap_or_default(),
-            "network": client_request.indexer_requests.first().map(|i| i.subgraph_chain.as_str()).unwrap_or(""),
+            "network": client_request.indexer_requests.first().map(|i| i.subgraph_chain.as_str()).unwrap_or(""), // kept old one for backwards comp
+            "indexed_chain": client_request.indexer_requests.first().map(|i| i.subgraph_chain.as_str()).unwrap_or(""),
             "response_time_ms": client_request.response_time_ms,
             "budget": self.budget.to_string(),
             "query_count": 1,
@@ -209,19 +215,23 @@ impl Reporter {
             );
 
             let indexer_request_payload = json!({
+                "gateway_id": &self.gateway_id,
                 "query_id": &client_request.id,
                 "ray_id": &client_request.id,
-                "graph_env": &self.graph_env,
+                "graph_env": &self.graph_env, // kept old one for backwards comp
+                "network_chain": &self.graph_env,
                 "timestamp": timestamp,
                 "api_key": &client_request.api_key,
                 "user_address": &client_request.user_address,
                 "deployment": &indexer_request.deployment,
-                "network": &indexer_request.subgraph_chain,
+                "network": &indexer_request.subgraph_chain, // kept old one for backwards comp
+                "indexed_chain": &indexer_request.subgraph_chain,
                 "indexer": &indexer_request.indexer,
                 "url": &indexer_request.url,
                 "fee": (indexer_request.receipt.grt_value() as f64 * 1e-18) as f32,
                 "legacy_scalar": matches!(&indexer_request.receipt, Receipt::Legacy(_, _)),
                 "utility": 1.0,
+                "time_behind": indexer_request.seconds_behind,
                 "blocks_behind": indexer_request.blocks_behind,
                 "response_time_ms": indexer_request.response_time_ms,
                 "allocation": &indexer_request.receipt.allocation(),

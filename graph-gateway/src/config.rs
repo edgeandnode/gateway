@@ -42,6 +42,7 @@ pub struct Config {
     /// and traceability purposes.
     ///
     /// If not provided a UUID is generated.
+    /// Might need to make sure it remains unique across the decentralized gateways, potentially also require it here
     #[serde(default)]
     pub gateway_id: Option<String>,
     /// Graph network environment identifier, inserted into Kafka messages
