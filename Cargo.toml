@@ -11,14 +11,17 @@ debug = true
 
 [workspace.dependencies]
 anyhow = "1.0"
-alloy-primitives = { version = "0.7.1", features = ["serde"] }
+alloy-primitives = { version = "0.7.2", features = ["serde"] }
 alloy-sol-types = "0.7.1"
 axum = { git = "https://github.com/tokio-rs/axum", rev = "50c035c", default-features = false, features = [
+    "http1",
     "json",
-    "tokio",
     "original-uri",
+    "tokio",
 ] }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "deacb09" }
+candidate-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "ce9de97" }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures = "0.3"
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
 headers = "0.4.0"
@@ -58,4 +61,9 @@ tracing-subscriber = { version = "0.3", features = [
     "env-filter",
     "parking_lot",
     "json",
+] }
+uuid = { version = "1.7", default-features = false, features = [
+    "v4",
+    "v7",
+    "std",
 ] }

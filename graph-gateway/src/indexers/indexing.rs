@@ -5,23 +5,24 @@ use anyhow::{anyhow, ensure};
 use cost_model::CostModel;
 use eventuals::{Eventual, EventualExt as _, EventualWriter, Ptr};
 use futures::future::join_all;
-use gateway_framework::{
-    indexing::Indexing, network::discovery::Status, topology::network::Deployment,
-};
+use gateway_framework::{indexing::Indexing, topology::network::Deployment};
 use semver::Version;
 use thegraph_core::types::DeploymentId;
 use tokio::sync::Mutex;
 use toolshed::epoch_cache::EpochCache;
 use url::Url;
 
-use crate::indexers::{cost_models, indexing_statuses, version};
+use crate::{
+    gateway::SubgraphIndexingStatus,
+    indexers::{cost_models, indexing_statuses, version},
+};
 
 pub async fn statuses(
     deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
     client: reqwest::Client,
     min_graph_node_version: Version,
     min_indexer_service_version: Version,
-) -> Eventual<Ptr<HashMap<Indexing, Status>>> {
+) -> Eventual<Ptr<HashMap<Indexing, SubgraphIndexingStatus>>> {
     let (indexing_statuses_tx, indexing_statuses_rx) = Eventual::new();
     let actor: &'static Mutex<Actor> = Box::leak(Box::new(Mutex::new(Actor {
         min_graph_node_version,
@@ -52,8 +53,8 @@ struct Actor {
     min_graph_node_version: Version,
     min_indexer_service_version: Version,
     cost_model_cache: EpochCache<CostModelSource, Result<Ptr<CostModel>, String>, 2>,
-    indexing_statuses: HashMap<Indexing, Status>,
-    indexing_statuses_tx: EventualWriter<Ptr<HashMap<Indexing, Status>>>,
+    indexing_statuses: HashMap<Indexing, SubgraphIndexingStatus>,
+    indexing_statuses_tx: EventualWriter<Ptr<HashMap<Indexing, SubgraphIndexingStatus>>>,
 }
 
 async fn update_statuses(
@@ -108,7 +109,7 @@ async fn update_indexer(
     indexer: Address,
     url: Url,
     deployments: Vec<DeploymentId>,
-) -> anyhow::Result<Vec<(Indexing, Status)>> {
+) -> anyhow::Result<Vec<(Indexing, SubgraphIndexingStatus)>> {
     let version_url = url
         .join("version")
         .map_err(|err| anyhow!("IndexerVersionError({err})"))?;
@@ -145,7 +146,7 @@ async fn query_status(
     url: Url,
     deployments: Vec<DeploymentId>,
     version: Version,
-) -> anyhow::Result<Vec<(Indexing, Status)>> {
+) -> anyhow::Result<Vec<(Indexing, SubgraphIndexingStatus)>> {
     let status_url = url.join("status")?;
     let statuses = indexing_statuses::query(client, status_url, &deployments).await?;
 
@@ -190,7 +191,7 @@ async fn query_status(
             let chain = &status.chains.first()?;
             let cost_model = cost_models.remove(&indexing.deployment);
             let block_status = chain.latest_block.as_ref()?;
-            let status = Status {
+            let status = SubgraphIndexingStatus {
                 block: block_status.number,
                 min_block: chain.earliest_block.as_ref().map(|b| b.number),
                 cost_model,

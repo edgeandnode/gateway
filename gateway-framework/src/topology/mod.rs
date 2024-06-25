@@ -5,16 +5,16 @@ use eventuals::{Eventual, EventualExt, Ptr};
 use thegraph_core::types::DeploymentId;
 
 use self::network::Deployment;
-use crate::{indexing::Indexing, network::discovery::Status, scalar::ReceiptSigner};
+use crate::{gateway::http::IndexingStatus, indexing::Indexing, scalar::ReceiptSigner};
 
 pub mod network;
 
 pub fn keep_allocations_up_to_date(
     receipt_signer: &'static ReceiptSigner,
     deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
-    indexing_statuses: Eventual<Ptr<HashMap<Indexing, Status>>>,
+    indexing_statuses: Eventual<Ptr<HashMap<Indexing, impl IndexingStatus>>>,
 ) {
-    eventuals::join((deployments, indexing_statuses.clone()))
+    eventuals::join((deployments.clone(), indexing_statuses.clone()))
         .pipe_async(move |(deployments, indexing_statuses)| async move {
             update_allocations(receipt_signer, &deployments, &indexing_statuses).await;
         })
@@ -24,7 +24,7 @@ pub fn keep_allocations_up_to_date(
 async fn update_allocations(
     receipt_signer: &ReceiptSigner,
     deployments: &HashMap<DeploymentId, Arc<Deployment>>,
-    indexing_statuses: &HashMap<Indexing, Status>,
+    indexing_statuses: &HashMap<Indexing, impl IndexingStatus>,
 ) {
     tracing::info!(
         deployments = deployments.len(),

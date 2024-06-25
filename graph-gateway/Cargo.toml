@@ -7,7 +7,7 @@ version = "21.0.0"
 alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 anyhow.workspace = true
-axum = { workspace = true, features = ["tokio", "http1"] }
+axum.workspace = true
 cost-model.workspace = true
 custom_debug = "0.6.1"
 eventuals = "0.6.7"
@@ -33,7 +33,6 @@ semver.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 serde_with.workspace = true
-simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
 thegraph-core = { workspace = true, features = [
     "subgraph-client",
@@ -43,13 +42,11 @@ thegraph-graphql-http.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toolshed.workspace = true
-tower = "0.4.13"
-tower-http = { version = "0.5.2", features = ["cors"] }
+tower.workspace = true
 tracing.workspace = true
 url = "2.5.0"
-uuid = { version = "1.8", default-features = false, features = ["v4"] }
 vec1 = "1.12.0"
-
+uuid.workspace = true
 [dev-dependencies]
 assert_matches = "1.5.0"
 http-body-util = "0.1.1"
