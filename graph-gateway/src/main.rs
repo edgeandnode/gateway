@@ -21,12 +21,13 @@ use axum::{
     response::Response,
     routing, Router,
 };
-use config::{ApiKeys, Config, ExchangeRateProvider};
+use config::Config;
 use eventuals::{Eventual, EventualExt as _, Ptr};
 use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
     chains::Chains,
+    config::{ApiKeys, ExchangeRateProvider},
     http::middleware::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
@@ -66,7 +67,6 @@ use tokio::{
     time::{interval, MissedTickBehavior},
 };
 use tower_http::cors::{self, CorsLayer};
-use uuid::Uuid;
 
 mod config;
 
@@ -86,14 +86,11 @@ async fn main() {
         .unwrap();
 
     // Get the gateway ID from the config or generate a new one.
-    let gateway_id = config
-        .gateway_id
-        .clone()
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let gateway_id = config.common.gateway_details.id.clone();
 
     let config_repr = format!("{config:?}");
 
-    logging::init("graph-gateway".into(), config.log_json);
+    logging::init("graph-gateway".into(), config.common.log_json);
     tracing::info!("gateway ID: {}", gateway_id);
     tracing::debug!(config = %config_repr);
 
@@ -102,36 +99,42 @@ async fn main() {
         .build()
         .unwrap();
 
-    let grt_per_usd: watch::Receiver<NotNan<f64>> = match config.exchange_rate_provider {
-        ExchangeRateProvider::Fixed(grt_per_usd) => {
-            watch::channel(NotNan::new(grt_per_usd).expect("NAN exchange rate")).1
-        }
-        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await.unwrap(),
-    };
+    let grt_per_usd: watch::Receiver<NotNan<f64>> =
+        match config.common.payments.exchange_rate_provider {
+            ExchangeRateProvider::Fixed(grt_per_usd) => {
+                watch::channel(NotNan::new(grt_per_usd).expect("NAN exchange rate")).1
+            }
+            ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await.unwrap(),
+        };
 
-    let network_subgraph_client =
-        subgraph_client::Client::new(http_client.clone(), config.network_subgraph.clone());
-    let subgraphs =
-        network_subgraph::Client::create(network_subgraph_client, config.l2_gateway.is_some())
-            .await;
+    let network_subgraph_client = subgraph_client::Client::new(
+        http_client.clone(),
+        config.common.network.network_subgraph.clone(),
+    );
+    let subgraphs = network_subgraph::Client::create(
+        network_subgraph_client,
+        config.common.gateway_details.l2_gateway.is_some(),
+    )
+    .await;
 
     let attestation_domain: &'static Eip712Domain =
         Box::leak(Box::new(attestation::eip712_domain(
-            U256::from_str_radix(&config.attestations.chain_id, 10)
+            U256::from_str_radix(&config.common.network.attestations.chain_id, 10)
                 .expect("failed to parse attestation domain chain_id"),
-            config.attestations.dispute_manager,
+            config.common.network.attestations.dispute_manager,
         )));
 
-    let ip_blocker = IpBlocker::new(config.ip_blocker_db.as_deref()).unwrap();
+    let ip_blocker =
+        IpBlocker::new(config.common.indexer_selection.ip_blocker_db.as_deref()).unwrap();
     let network = GraphNetwork::new(subgraphs, ip_blocker).await;
 
     // Indexer blocklist
     // Periodically check the defective POIs list against the network indexers and update the
     // indexers blocklist accordingly.
-    let indexings_blocklist = if !config.poi_blocklist.is_empty() {
-        let pois = config.poi_blocklist.into_iter().map(Into::into).collect();
-        let update_interval = config
-            .poi_blocklist_update_interval
+    let indexings_blocklist = if let Some(poi_blocklist) = config.poi_blocklist {
+        let pois = poi_blocklist.pois.into_iter().map(Into::into).collect();
+        let update_interval = poi_blocklist
+            .update_interval
             .map_or(indexings_blocklist::DEFAULT_UPDATE_INTERVAL, |min| {
                 Duration::from_secs(min * 60)
             });
@@ -148,8 +151,9 @@ async fn main() {
         Eventual::from_value(Ptr::default())
     };
 
-    let bad_indexers: &'static HashSet<Address> =
-        Box::leak(Box::new(FromIterator::from_iter(config.bad_indexers)));
+    let bad_indexers: &'static HashSet<Address> = Box::leak(Box::new(FromIterator::from_iter(
+        config.common.indexer_selection.bad_indexers,
+    )));
 
     let indexing_statuses = indexing::statuses(
         network.deployments.clone(),
@@ -175,16 +179,18 @@ async fn main() {
 
     let legacy_signer: &'static SecretKey = Box::leak(Box::new(
         config
+            .common
+            .payments
             .scalar
             .legacy_signer
             .map(|s| s.0)
-            .unwrap_or(config.scalar.signer.0),
+            .unwrap_or(config.common.payments.scalar.signer.0),
     ));
     let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(
         ReceiptSigner::new(
-            config.scalar.signer.0,
-            config.scalar.chain_id,
-            config.scalar.verifier,
+            config.common.payments.scalar.signer.0,
+            config.common.payments.scalar.chain_id,
+            config.common.payments.scalar.verifier,
             legacy_signer,
         )
         .await,
@@ -198,21 +204,22 @@ async fn main() {
 
     let auth_service = init_auth_service(
         http_client.clone(),
-        config.api_keys,
-        config.payment_required,
+        config.common.api_keys,
+        config.common.payments.payment_required,
     )
     .await;
 
     let query_fees_target =
-        USD(NotNan::new(config.query_fees_target).expect("invalid query_fees_target"));
+        USD(NotNan::new(config.common.payments.query_fees_target)
+            .expect("invalid query_fees_target"));
     let budgeter: &'static Budgeter = Box::leak(Box::new(Budgeter::new(query_fees_target)));
 
     let reporter = reports::Reporter::create(
-        config.graph_env_id.clone(),
+        config.common.network.id.clone(),
         "gateway_client_query_results".into(),
         "gateway_indexer_attempts".into(),
         "gateway_attestations".into(),
-        &config.kafka.into(),
+        &config.common.kafka.into(),
     )
     .unwrap();
 
@@ -222,8 +229,8 @@ async fn main() {
         },
         receipt_signer,
         budgeter,
-        l2_gateway: config.l2_gateway,
-        chains: Box::leak(Box::new(Chains::new(config.chain_aliases))),
+        l2_gateway: config.common.gateway_details.l2_gateway,
+        chains: Box::leak(Box::new(Chains::new(config.common.chains.aliases))),
         grt_per_usd,
         network,
         indexing_perf: IndexingPerformance::new(latest_indexed_block_statuses),
@@ -235,7 +242,7 @@ async fn main() {
     };
 
     // Host metrics on a separate server with a port that isn't open to public requests.
-    let metrics_port = config.port_metrics;
+    let metrics_port = config.common.metrics_port;
     tokio::spawn(async move {
         let router = Router::new().route("/metrics", routing::get(handle_metrics));
 
@@ -255,7 +262,7 @@ async fn main() {
     let rate_limiter_slots = 10;
     let rate_limiter: &'static RateLimiter<String> =
         Box::leak(Box::new(RateLimiter::<String>::new(
-            rate_limiter_slots * config.ip_rate_limit as usize,
+            rate_limiter_slots * config.common.ip_rate_limit as usize,
             rate_limiter_slots,
         )));
     tokio::spawn(async move {
@@ -334,7 +341,7 @@ async fn main() {
 
     let app_listener = TcpListener::bind(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        config.port_api,
+        config.common.api_port,
     ))
     .await
     .expect("Failed to bind API server");
@@ -461,16 +468,5 @@ async fn init_auth_service(
         payment_required,
         api_keys,
         special_api_keys,
-    }
-}
-
-// Mapping between config and internal types
-impl From<config::ProofOfIndexingInfo> for indexers::public_poi::ProofOfIndexingInfo {
-    fn from(value: config::ProofOfIndexingInfo) -> Self {
-        indexers::public_poi::ProofOfIndexingInfo {
-            proof_of_indexing: value.proof_of_indexing,
-            deployment_id: value.deployment_id,
-            block_number: value.block_number,
-        }
     }
 }
