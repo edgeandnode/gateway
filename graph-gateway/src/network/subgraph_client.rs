@@ -4,7 +4,12 @@
 //! This module contains the logic necessary to query the Graph to get the latest state of the
 //! network subgraph.
 
-use thegraph_core::client as subgraph_client;
+use paginated_client::PaginatedClient;
+use thegraph_graphql_http::graphql::IntoDocument;
+
+pub mod core_paginated_client;
+pub mod indexers_list_paginated_client;
+pub mod paginated_client;
 
 /// The Graph network subgraph types.
 ///
@@ -80,14 +85,17 @@ pub mod types {
 }
 
 /// The Graph network subgraph client.
-pub struct Client {
-    client: subgraph_client::Client,
+pub struct Client<C> {
+    client: C,
     l2_transfer_support: bool,
 }
 
-impl Client {
+impl<C> Client<C>
+where
+    C: PaginatedClient + Send + Sync + 'static,
+{
     /// Creates a new [`Client`] instance.
-    pub fn new(client: subgraph_client::Client, l2_transfer_support: bool) -> Self {
+    pub fn new(client: C, l2_transfer_support: bool) -> Self {
         Self {
             client,
             l2_transfer_support,
@@ -113,9 +121,8 @@ impl Client {
         //   order; the largest allocation must be the first one.
         //
         // ref#: 9936786a-e286-45f3-9190-8409d8389e88
-        let query = format!(
-            r#"
-            subgraphs(
+        let query = indoc::formatdoc! {
+            r#" subgraphs(
                 block: $block
                 orderBy: id, orderDirection: asc
                 first: $first
@@ -152,8 +159,7 @@ impl Client {
                         {}
                     }}
                 }}
-            }}
-        "#,
+            }}"#,
             self.l2_transfer_support
                 .then_some("")
                 .unwrap_or("active: true"),
@@ -161,11 +167,18 @@ impl Client {
             self.l2_transfer_support
                 .then_some("transferredToL2")
                 .unwrap_or(""),
-        );
+        };
 
         self.client
-            .paginated_query(query, 1000)
+            .paginated_query(query.into_document(), 1000)
             .await
             .map_err(|err| anyhow::anyhow!(err))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod it_fetch_and_deserialize;
 }
