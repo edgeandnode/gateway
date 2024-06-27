@@ -42,7 +42,7 @@ impl IntoResponse for Error {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct IndexerErrors(BTreeMap<Address, IndexerError>);
+pub struct IndexerErrors(pub BTreeMap<Address, IndexerError>);
 
 impl std::ops::Deref for IndexerErrors {
     type Target = BTreeMap<Address, IndexerError>;

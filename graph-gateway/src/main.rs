@@ -204,11 +204,15 @@ async fn main() {
             routing::post(client_query::handle_query),
         )
         .route(
-            "/:api_key/deployments/id/:deployment_id",
-            routing::post(client_query::handle_query),
+            "/deployments/id/:deployment_id/indexers/id/:indexer",
+            routing::post(client_query::handle_indexer_query),
         )
         .route(
             "/subgraphs/id/:subgraph_id",
+            routing::post(client_query::handle_query),
+        )
+        .route(
+            "/:api_key/deployments/id/:deployment_id",
             routing::post(client_query::handle_query),
         )
         .route(
