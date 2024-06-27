@@ -20,6 +20,7 @@ use axum::{
     routing, Router,
 };
 use config::{ApiKeys, ExchangeRateProvider};
+use ethers::signers::{Signer, Wallet};
 use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
@@ -53,7 +54,6 @@ use tokio::{
     time::{interval, MissedTickBehavior},
 };
 use tower_http::cors::{self, CorsLayer};
-use uuid::Uuid;
 
 mod config;
 
@@ -69,11 +69,9 @@ async fn main() {
         .unwrap();
     let conf = config::load_from_file(&conf_path).expect("Failed to load config");
 
-    // Get the gateway ID from the config or generate a new one.
-    let gateway_id = conf
-        .gateway_id
-        .clone()
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let signer_address = Wallet::from_bytes(conf.scalar.signer.0.as_ref())
+        .expect("failed to prepare receipt wallet");
+    let gateway_id = format!("{:?}", Address::from(signer_address.address().0));
 
     let conf_repr = format!("{conf:?}");
 
