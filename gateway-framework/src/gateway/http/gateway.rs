@@ -143,9 +143,11 @@ pub trait GatewayImpl: Send + Sync + 'static {
     /// the scenes.
     async fn indexings_blocklist(
         &self,
-        deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
-        indexers: Eventual<Ptr<HashMap<Address, Arc<Indexer>>>>,
-    ) -> Eventual<Ptr<HashSet<Indexing>>>;
+        _deployments: Eventual<Ptr<HashMap<DeploymentId, Arc<Deployment>>>>,
+        _indexers: Eventual<Ptr<HashMap<Address, Arc<Indexer>>>>,
+    ) -> Eventual<Ptr<HashSet<Indexing>>> {
+        Eventual::from_value(Ptr::new(HashSet::new()))
+    }
 
     /// Provide a live view of all API keys the gateway knows.
     ///
