@@ -338,7 +338,9 @@ where
         };
 
         let network_subgraph_client =
-            subgraph_client::Client::new(http_client.clone(), network.network_subgraph);
+            subgraph_client::Client::builder(http_client.clone(), network.network_subgraph)
+                .with_auth_token(network.network_subgraph_auth_token)
+                .build();
         let subgraphs = gateway_impl
             .datasets(
                 network_subgraph_client,

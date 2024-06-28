@@ -122,6 +122,7 @@ pub struct NetworkConfig {
     #[debug(with = Display::fmt)]
     #[serde_as(as = "DisplayFromStr")]
     pub network_subgraph: Url,
+    pub network_subgraph_auth_token: Option<String>,
     // Attestation configuration
     pub attestations: AttestationConfig,
 }
