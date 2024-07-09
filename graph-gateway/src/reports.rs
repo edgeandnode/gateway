@@ -231,7 +231,7 @@ impl Reporter {
                 "fee": (indexer_request.receipt.grt_value() as f64 * 1e-18) as f32,
                 "legacy_scalar": matches!(&indexer_request.receipt, Receipt::Legacy(_, _)),
                 "utility": 1.0,
-                "time_behind": indexer_request.seconds_behind,
+                "seconds_behind": indexer_request.seconds_behind,
                 "blocks_behind": indexer_request.blocks_behind,
                 "response_time_ms": indexer_request.response_time_ms,
                 "allocation": &indexer_request.receipt.allocation(),
