@@ -38,12 +38,6 @@ pub struct Config {
     pub chain_aliases: BTreeMap<String, String>,
     /// Ethereum RPC provider, or fixed exchange rate for testing
     pub exchange_rate_provider: ExchangeRateProvider,
-    /// The Gateway unique identifier. This ID is used to identify the Gateway in the network
-    /// and traceability purposes.
-    ///
-    /// If not provided a UUID is generated.
-    #[serde(default)]
-    pub gateway_id: Option<String>,
     /// Graph network environment identifier, inserted into Kafka messages
     pub graph_env_id: String,
     /// File path of CSV containing rows of `IpNetwork,Country`
