@@ -2,7 +2,7 @@
 
 use std::{
     collections::{BTreeMap, HashSet},
-    fmt::{self, Display},
+    fmt,
     path::{Path, PathBuf},
 };
 
@@ -59,10 +59,8 @@ pub struct Config {
     /// Minimum indexer-service version that will receive queries
     #[serde_as(as = "DisplayFromStr")]
     pub min_indexer_version: Version,
-    /// Network subgraph query path
-    #[debug(with = Display::fmt)]
-    #[serde_as(as = "DisplayFromStr")]
-    pub network_subgraph: Url,
+    /// Network subgraph discovery service configuration
+    pub network: NetworkSubgraphServiceConfig,
     /// Check payment state of client (disable for testnets)
     pub payment_required: bool,
     /// POI blocklist
@@ -198,7 +196,7 @@ pub struct Scalar {
 /// Proof of indexing info for the POI blocklist.
 ///
 /// See [`Config`]'s [`poi_blocklist`](struct.Config.html#structfield.poi_blocklist).
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ProofOfIndexingInfo {
     /// POI deployment ID (the IPFS Hash in the Graph Network Subgraph).
     pub deployment_id: DeploymentId,
@@ -215,6 +213,29 @@ impl From<ProofOfIndexingInfo> for ((DeploymentId, BlockNumber), ProofOfIndexing
             info.proof_of_indexing,
         )
     }
+}
+
+/// Network service configuration.
+#[derive(Debug, Deserialize)]
+pub struct NetworkSubgraphServiceConfig {
+    /// Deployment ID of the network subgraph.
+    pub deployment_id: DeploymentId,
+    /// List of network subgraph update candidates.
+    pub indexers: Vec<NetworkSubgraphIndexer>,
+}
+
+/// Network subgraph update candidate.
+#[serde_as]
+#[derive(CustomDebug, Deserialize)]
+pub struct NetworkSubgraphIndexer {
+    /// The indexer's ID.
+    pub id: Address,
+    /// The indexer base URL.
+    #[debug(with = std::fmt::Display::fmt)]
+    #[serde_as(as = "DisplayFromStr")]
+    pub url: Url,
+    /// The indexer's free query auth token.
+    pub auth: String,
 }
 
 /// Load the configuration from a JSON file.
