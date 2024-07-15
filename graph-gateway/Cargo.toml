@@ -28,7 +28,7 @@ ordered-float = "4.2.0"
 parking_lot.workspace = true
 primitive-types.workspace = true
 prometheus = { version = "0.13", default-features = false }
-prost = "0.12.4"
+prost = "0.13.0"
 rand.workspace = true
 rdkafka = { version = "0.36.2", features = ["gssapi", "tracing"] }
 receipts = { git = "https://github.com/edgeandnode/receipts", rev = "e94e0f1" }
