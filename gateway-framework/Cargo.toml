@@ -38,6 +38,6 @@ parking_lot.workspace = true
 assert_matches = "1.5.0"
 http-body-util = "0.1.1"
 hyper = "1.3.1"
-test-with = { version = "0.12.6", default-features = false }
+test-with = { version = "0.13.0", default-features = false }
 tokio-test = "0.4.4"
 tower-test = "0.4.0"
