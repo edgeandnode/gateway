@@ -13,6 +13,7 @@ use gateway_framework::{
     auth::api_keys::APIKey,
     config::{Hidden, HiddenSecretKey},
 };
+use graph_gateway::network::subgraph_client::indexers_list_paginated_client::TrustedIndexer;
 use ipnetwork::IpNetwork;
 use ordered_float::NotNan;
 use secp256k1::SecretKey;
@@ -59,8 +60,8 @@ pub struct Config {
     /// Minimum indexer-service version that will receive queries
     #[serde_as(as = "DisplayFromStr")]
     pub min_indexer_version: Version,
-    /// Network subgraph discovery service configuration
-    pub network: NetworkSubgraphServiceConfig,
+    /// Indexers used to query the network subgraph
+    pub trusted_indexers: Vec<TrustedIndexer>,
     /// Check payment state of client (disable for testnets)
     pub payment_required: bool,
     /// POI blocklist
@@ -213,29 +214,6 @@ impl From<ProofOfIndexingInfo> for ((DeploymentId, BlockNumber), ProofOfIndexing
             info.proof_of_indexing,
         )
     }
-}
-
-/// Network service configuration.
-#[derive(Debug, Deserialize)]
-pub struct NetworkSubgraphServiceConfig {
-    /// Deployment ID of the network subgraph.
-    pub deployment_id: DeploymentId,
-    /// List of network subgraph update candidates.
-    pub indexers: Vec<NetworkSubgraphIndexer>,
-}
-
-/// Network subgraph update candidate.
-#[serde_as]
-#[derive(CustomDebug, Deserialize)]
-pub struct NetworkSubgraphIndexer {
-    /// The indexer's ID.
-    pub id: Address,
-    /// The indexer base URL.
-    #[debug(with = std::fmt::Display::fmt)]
-    #[serde_as(as = "DisplayFromStr")]
-    pub url: Url,
-    /// The indexer's free query auth token.
-    pub auth: String,
 }
 
 /// Load the configuration from a JSON file.
