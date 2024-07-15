@@ -19,7 +19,6 @@ use axum::{
     response::Response,
     routing, Router,
 };
-use config::{ApiKeys, ExchangeRateProvider};
 use ethers::signers::{Signer, Wallet};
 use gateway_framework::{
     auth::AuthContext,
@@ -33,6 +32,7 @@ use gateway_framework::{
 };
 use graph_gateway::{
     client_query::{self, context::Context},
+    config::{self, ApiKeys, ExchangeRateProvider},
     indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance,
     network::{
@@ -50,7 +50,7 @@ use secp256k1::SecretKey;
 use semver::Version;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
-use thegraph_core::types::{attestation, DeploymentId};
+use thegraph_core::types::attestation;
 use tokio::{
     net::TcpListener,
     signal::unix::SignalKind,
@@ -58,8 +58,6 @@ use tokio::{
     time::{interval, MissedTickBehavior},
 };
 use tower_http::cors::{self, CorsLayer};
-
-mod config;
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
@@ -100,12 +98,7 @@ async fn main() {
             conf.attestations.dispute_manager,
         )));
 
-    // Initialize the network service and wait for the initial network state synchronization
-    let network_subgraph_client = init_subgraph_client(
-        http_client.clone(),
-        conf.network.deployment_id,
-        conf.network.indexers,
-    );
+    let network_subgraph_client = SubgraphClient::new(http_client.clone(), conf.trusted_indexers);
     let mut network = match init_network_service(
         network_subgraph_client,
         conf.l2_gateway.is_some(),
@@ -415,17 +408,4 @@ fn init_network_service(
     }
 
     Ok(builder.build().spawn())
-}
-
-/// Construct the indexers' list based network subgraph client
-fn init_subgraph_client(
-    indexer_http_client: reqwest::Client,
-    subgraph: DeploymentId,
-    candidates: Vec<config::NetworkSubgraphIndexer>,
-) -> SubgraphClient {
-    let candidates = candidates
-        .into_iter()
-        .map(|indexer| (indexer.id, (indexer.url, indexer.auth)))
-        .collect::<Vec<_>>();
-    SubgraphClient::new(indexer_http_client, subgraph, candidates)
 }

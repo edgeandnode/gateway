@@ -3,52 +3,29 @@
 //! The client inserts an `Authorization` header with the indexer's free query auth token to
 //! authenticate the request with the indexer.
 
-use alloy_primitives::Address;
 use inner_client::Client as PaginatedIndexerSubgraphClient;
 use serde::Deserialize;
-use thegraph_core::types::DeploymentId;
 use thegraph_graphql_http::graphql::Document;
-use url::Url;
 
 use super::paginated_client::PaginatedClient;
+use crate::config::TrustedIndexer;
 
 mod inner_client;
 mod queries;
 
-/// Builds a URL to query an indexer's subgraph.
-fn indexer_subgraph_url(base: &Url, deployment: &DeploymentId) -> anyhow::Result<Url> {
-    base.join(&format!("subgraphs/id/{}", deployment))
-        .map_err(Into::into)
-}
-
-/// A client that fetches data from a list of candidate indexers.
+/// A client that fetches data from a list of trusted indexers.
 ///
-/// The client will try to fetch data from each candidate in the order they were
-/// provided. If a candidate fails to fetch the data, the client will try the
-/// next candidate in the list.
-///
-/// The client will return an error if all candidates fail to fetch the data.
+/// The client will try to fetch data from each indexer in the order they are
+/// provided. The client will return an error if requests to all idnexers fail.
 pub struct Client {
     inner: PaginatedIndexerSubgraphClient,
-    candidates: Vec<SubgraphCandidate>,
+    indexers: Vec<TrustedIndexer>,
 }
 
 impl Client {
-    pub fn new(
-        client: reqwest::Client,
-        subgraph: DeploymentId,
-        candidates: impl IntoIterator<Item = (Address, (Url, String))>,
-    ) -> Self {
+    pub fn new(client: reqwest::Client, indexers: Vec<TrustedIndexer>) -> Self {
         let inner = PaginatedIndexerSubgraphClient::new(client);
-        let candidates = candidates
-            .into_iter()
-            .filter_map(|(id, (url, auth))| {
-                let url = indexer_subgraph_url(&url, &subgraph).ok()?;
-                Some(SubgraphCandidate { id, url, auth })
-            })
-            .collect();
-
-        Self { inner, candidates }
+        Self { inner, indexers }
     }
 }
 
@@ -57,7 +34,7 @@ impl PaginatedClient for Client {
     where
         T: for<'de> Deserialize<'de> + Send,
     {
-        for indexer in self.candidates.iter() {
+        for indexer in self.indexers.iter() {
             let result = self
                 .inner
                 .paginated_query(indexer.url.clone(), &indexer.auth, query.clone(), page_size)
@@ -66,14 +43,14 @@ impl PaginatedClient for Client {
             match result {
                 Err(err) => {
                     tracing::warn!(
-                        indexer=%indexer.id,
+                        indexer_url=%indexer.url,
                         error=?err,
                         "Failed to fetch network subgraph from indexer",
                     );
                 }
                 Ok(result) if result.is_empty() => {
                     tracing::warn!(
-                        indexer=%indexer.id,
+                        indexer_url=%indexer.url,
                         "Indexer returned an empty response",
                     );
                 }
@@ -83,11 +60,4 @@ impl PaginatedClient for Client {
 
         Err("no candidate indexers left".to_string())
     }
-}
-
-#[derive(Debug, Clone)]
-struct SubgraphCandidate {
-    id: Address,
-    url: Url,
-    auth: String,
 }

@@ -59,8 +59,8 @@ pub struct Config {
     /// Minimum indexer-service version that will receive queries
     #[serde_as(as = "DisplayFromStr")]
     pub min_indexer_version: Version,
-    /// Network subgraph discovery service configuration
-    pub network: NetworkSubgraphServiceConfig,
+    /// Indexers used to query the network subgraph
+    pub trusted_indexers: Vec<TrustedIndexer>,
     /// Check payment state of client (disable for testnets)
     pub payment_required: bool,
     /// POI blocklist
@@ -215,27 +215,15 @@ impl From<ProofOfIndexingInfo> for ((DeploymentId, BlockNumber), ProofOfIndexing
     }
 }
 
-/// Network service configuration.
-#[derive(Debug, Deserialize)]
-pub struct NetworkSubgraphServiceConfig {
-    /// Deployment ID of the network subgraph.
-    pub deployment_id: DeploymentId,
-    /// List of network subgraph update candidates.
-    pub indexers: Vec<NetworkSubgraphIndexer>,
-}
-
-/// Network subgraph update candidate.
 #[serde_as]
 #[derive(CustomDebug, Deserialize)]
-pub struct NetworkSubgraphIndexer {
-    /// The indexer's ID.
-    pub id: Address,
-    /// The indexer base URL.
+pub struct TrustedIndexer {
+    /// network subgraph endpoint
     #[debug(with = std::fmt::Display::fmt)]
     #[serde_as(as = "DisplayFromStr")]
     pub url: Url,
-    /// The indexer's free query auth token.
-    pub auth: String,
+    /// free query auth token
+    pub auth: Hidden<String>,
 }
 
 /// Load the configuration from a JSON file.

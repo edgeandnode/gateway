@@ -1,5 +1,6 @@
 pub mod block_constraints;
 pub mod client_query;
+pub mod config;
 pub mod indexer_client;
 pub mod indexers;
 pub mod indexing_performance;
