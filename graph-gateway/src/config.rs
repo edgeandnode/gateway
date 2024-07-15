@@ -13,6 +13,7 @@ use gateway_framework::{
     auth::api_keys::APIKey,
     config::{Hidden, HiddenSecretKey},
 };
+use graph_gateway::network::subgraph_client::indexers_list_paginated_client::TrustedIndexer;
 use ipnetwork::IpNetwork;
 use ordered_float::NotNan;
 use secp256k1::SecretKey;
@@ -213,17 +214,6 @@ impl From<ProofOfIndexingInfo> for ((DeploymentId, BlockNumber), ProofOfIndexing
             info.proof_of_indexing,
         )
     }
-}
-
-#[serde_as]
-#[derive(CustomDebug, Deserialize)]
-pub struct TrustedIndexer {
-    /// network subgraph endpoint
-    #[debug(with = std::fmt::Display::fmt)]
-    #[serde_as(as = "DisplayFromStr")]
-    pub url: Url,
-    /// free query auth token
-    pub auth: Hidden<String>,
 }
 
 /// Load the configuration from a JSON file.

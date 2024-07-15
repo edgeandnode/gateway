@@ -19,6 +19,7 @@ use axum::{
     response::Response,
     routing, Router,
 };
+use config::{ApiKeys, ExchangeRateProvider};
 use ethers::signers::{Signer, Wallet};
 use gateway_framework::{
     auth::AuthContext,
@@ -32,7 +33,6 @@ use gateway_framework::{
 };
 use graph_gateway::{
     client_query::{self, context::Context},
-    config::{self, ApiKeys, ExchangeRateProvider},
     indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance,
     network::{
@@ -58,6 +58,8 @@ use tokio::{
     time::{interval, MissedTickBehavior},
 };
 use tower_http::cors::{self, CorsLayer};
+
+mod config;
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
