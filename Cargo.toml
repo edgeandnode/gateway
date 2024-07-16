@@ -3,7 +3,8 @@ members = ["graph-gateway", "gateway-common", "gateway-framework"]
 resolver = "2"
 
 [profile.release]
-lto = "thin"
+lto = true
+codegen-units = 1
 
 [profile.perf]
 inherits = "release"
