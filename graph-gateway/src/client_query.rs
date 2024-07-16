@@ -644,7 +644,7 @@ fn build_candidates_list(
                     indexing_id.indexer,
                     IndexerError::Unavailable(UnavailableReason::MissingBlock(MissingBlockError {
                         missing: Some(missing),
-                        latest: None,
+                        latest: Some(max(indexing.progress.latest_block, perf.latest_block)),
                     })),
                 );
                 continue;
