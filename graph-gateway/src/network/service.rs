@@ -7,11 +7,11 @@ use std::{
     time::Duration,
 };
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::BlockNumber;
 use gateway_common::ttl_hash_map::DEFAULT_TTL;
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::types::{DeploymentId, ProofOfIndexing, SubgraphId};
+use thegraph_core::types::{DeploymentId, IndexerId, ProofOfIndexing, SubgraphId};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{
@@ -255,7 +255,7 @@ impl<C> NetworkServiceBuilder<C> {
     }
 
     /// Sets the indexer address blocklist.
-    pub fn with_indexer_addr_blocklist(mut self, blocklist: HashSet<Address>) -> Self {
+    pub fn with_indexer_addr_blocklist(mut self, blocklist: HashSet<IndexerId>) -> Self {
         let blocklist = AddrBlocklist::new(blocklist);
 
         self.indexer_addr_blocklist = Some(blocklist);

@@ -22,10 +22,10 @@ pub mod paginated_client;
 ///
 /// See: https://github.com/graphprotocol/graph-network-subgraph/blob/master/schema.graphql
 pub mod types {
-    use alloy_primitives::{Address, BlockNumber};
+    use alloy_primitives::BlockNumber;
     use serde::Deserialize;
     use serde_with::serde_as;
-    use thegraph_core::types::{DeploymentId, SubgraphId};
+    use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -67,7 +67,7 @@ pub mod types {
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct Allocation {
-        pub id: Address,
+        pub id: AllocationId,
         #[serde_as(as = "serde_with::DisplayFromStr")]
         pub allocated_tokens: u128,
         pub indexer: Indexer,
@@ -77,7 +77,7 @@ pub mod types {
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct Indexer {
-        pub id: Address,
+        pub id: IndexerId,
         pub url: Option<String>,
         #[serde_as(as = "serde_with::DisplayFromStr")]
         pub staked_tokens: u128,

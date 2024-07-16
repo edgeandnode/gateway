@@ -234,19 +234,14 @@ impl<S> tower::layer::Layer<S> for AddRateLimiterLayer {
 mod tests {
     use std::{sync::atomic, time::Duration};
 
-    use alloy_primitives::Address;
     use assert_matches::assert_matches;
     use axum::{body::Body, http};
     use headers::{ContentType, HeaderMapExt};
     use http_body_util::BodyExt;
+    use thegraph_core::address;
     use tokio_test::assert_ready_ok;
 
     use super::{AddRateLimiterLayer, RateLimitSettings};
-
-    /// Helper function to parse an address string into an `Address`.
-    fn test_address(addr: &str) -> Address {
-        addr.parse().expect("valid address")
-    }
 
     /// Create a test request with no `RateLimitSettings` extension.
     fn test_req_no_rate_limit_extension() -> http::Request<()> {
@@ -313,7 +308,7 @@ mod tests {
     async fn rate_limited_request_within_limit() {
         //* Given
         let settings = RateLimitSettings {
-            key: test_address("0x7e85cd2be319b777be2dd77942b9471a7e0c9b25"),
+            key: address!("7e85cd2be319b777be2dd77942b9471a7e0c9b25"),
             queries_per_minute: 5,
         };
 
@@ -370,7 +365,7 @@ mod tests {
     async fn rate_limited_request_exceeds_limit() {
         //* Given
         let settings = RateLimitSettings {
-            key: test_address("0x7e85cd2be319b777be2dd77942b9471a7e0c9b25"),
+            key: address!("7e85cd2be319b777be2dd77942b9471a7e0c9b25"),
             queries_per_minute: 4,
         };
 
@@ -437,11 +432,11 @@ mod tests {
     async fn different_rate_limits_should_be_handled() {
         //* Given
         let settings_1_max = RateLimitSettings {
-            key: test_address("0xbe2A4049c53d8919b0605354Ad7aE8ce6e22717c"),
+            key: address!("be2A4049c53d8919b0605354Ad7aE8ce6e22717c"),
             queries_per_minute: 1,
         };
         let settings_3_max = RateLimitSettings {
-            key: test_address("0x7e85cd2be319b777be2dd77942b9471a7e0c9b25"),
+            key: address!("7e85cd2be319b777be2dd77942b9471a7e0c9b25"),
             queries_per_minute: 3,
         };
 
@@ -512,7 +507,7 @@ mod tests {
     async fn request_counters_should_be_reset() {
         //* Given
         let settings = RateLimitSettings {
-            key: test_address("0x7e85cd2be319b777be2dd77942b9471a7e0c9b25"),
+            key: address!("7e85cd2be319b777be2dd77942b9471a7e0c9b25"),
             queries_per_minute: 3,
         };
 
@@ -593,7 +588,7 @@ mod tests {
     async fn request_counters_should_be_removed() {
         //* Given
         let settings = RateLimitSettings {
-            key: test_address("0x7e85cd2be319b777be2dd77942b9471a7e0c9b25"),
+            key: address!("7e85cd2be319b777be2dd77942b9471a7e0c9b25"),
             queries_per_minute: 3,
         };
 

@@ -3,7 +3,7 @@ use std::time::Duration;
 use alloy_primitives::BlockNumber;
 use assert_matches::assert_matches;
 use graph_gateway::indexers;
-use thegraph_core::types::DeploymentId;
+use thegraph_core::deployment_id;
 use url::Url;
 
 /// Test helper to get the testnet indexer url from the environment.
@@ -14,11 +14,6 @@ fn test_indexer_url() -> Url {
         .expect("Invalid IT_TEST_TESTNET_INDEXER_URL")
 }
 
-/// Test utility function to create a valid `DeploymentId` with an arbitrary deployment id/ipfs hash.
-fn test_deployment_id(deployment: &str) -> DeploymentId {
-    deployment.parse().expect("invalid deployment id/ipfs hash")
-}
-
 #[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
 #[tokio::test]
 async fn query_indexer_public_pois() {
@@ -26,8 +21,8 @@ async fn query_indexer_public_pois() {
     let client = reqwest::Client::new();
     let status_url = indexers::status_url(test_indexer_url());
 
-    let deployment0 = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
-    let deployment1 = test_deployment_id("QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw");
+    let deployment0 = deployment_id!("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
+    let deployment1 = deployment_id!("QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw");
     let query = [(deployment0, 123), (deployment1, 456)];
 
     //* When
@@ -60,7 +55,7 @@ async fn requests_over_max_requests_per_query_should_fail() {
     let client = reqwest::Client::new();
     let status_url = indexers::status_url(test_indexer_url());
 
-    let deployment = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
+    let deployment = deployment_id!("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
     let query = (1..=11)
         .map(|i| (deployment, i as BlockNumber))
         .collect::<Vec<_>>();

@@ -3,9 +3,10 @@ use std::{
     fmt::{self, Write as _},
 };
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::BlockNumber;
 use axum::response::{IntoResponse, Response};
 use itertools::Itertools as _;
+use thegraph_core::types::IndexerId;
 
 use crate::{blocks::UnresolvedBlock, graphql};
 
@@ -42,10 +43,34 @@ impl IntoResponse for Error {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct IndexerErrors(pub BTreeMap<Address, IndexerError>);
+pub struct IndexerErrors(BTreeMap<IndexerId, IndexerError>);
+
+impl FromIterator<(IndexerId, IndexerError)> for IndexerErrors {
+    /// Create an `IndexerErrors` from an iterator of `(IndexerId, IndexerError)` tuples.
+    ///
+    /// ### Example
+    ///
+    /// ```rust
+    /// use std::iter::FromIterator;
+    /// use thegraph_core::indexer_id;
+    /// use thegraph_core::types::IndexerId;
+    /// use gateway_framework::errors::{IndexerError, IndexerErrors};
+    ///
+    /// let indexer = indexer_id!("0002c67268fb8c8917f36f865a0cbdf5292fa68d");
+    /// let error = IndexerError::Timeout;
+    ///
+    /// let errors = IndexerErrors::from_iter([(indexer, error)]);
+    ///
+    /// assert_eq!(errors.len(), 1);
+    /// assert!(errors.contains_key(&indexer));
+    /// ```
+    fn from_iter<T: IntoIterator<Item = (IndexerId, IndexerError)>>(iter: T) -> Self {
+        Self(FromIterator::from_iter(iter))
+    }
+}
 
 impl std::ops::Deref for IndexerErrors {
-    type Target = BTreeMap<Address, IndexerError>;
+    type Target = BTreeMap<IndexerId, IndexerError>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

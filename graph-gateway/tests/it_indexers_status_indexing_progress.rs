@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use assert_matches::assert_matches;
 use graph_gateway::indexers;
-use thegraph_core::types::DeploymentId;
+use thegraph_core::deployment_id;
 use tokio::time::timeout;
 
 /// Test helper to get the testnet indexer url from the environment.
@@ -13,11 +13,6 @@ fn test_indexer_url() -> reqwest::Url {
         .expect("Invalid IT_TEST_TESTNET_INDEXER_URL")
 }
 
-/// Parse a deployment id from a string.
-fn parse_deployment_id(deployment: &str) -> DeploymentId {
-    deployment.parse().expect("invalid deployment id")
-}
-
 #[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
 #[tokio::test]
 async fn fetch_indexer_indexing_progress() {
@@ -26,8 +21,8 @@ async fn fetch_indexer_indexing_progress() {
     let status_url = indexers::status_url(test_indexer_url());
 
     let test_deployments = [
-        parse_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH"),
-        parse_deployment_id("QmSqxfDGyGenGFPkqw9sqnYar4XgzaioVWNvhw5QQ3RB1U"),
+        deployment_id!("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH"),
+        deployment_id!("QmSqxfDGyGenGFPkqw9sqnYar4XgzaioVWNvhw5QQ3RB1U"),
     ];
 
     //* When

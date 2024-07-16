@@ -7,7 +7,10 @@ use alloy_primitives::{Address, BlockNumber};
 use assert_matches::assert_matches;
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::types::{DeploymentId, ProofOfIndexing};
+use thegraph_core::{
+    allocation_id, deployment_id, indexer_id,
+    types::{DeploymentId, IndexerId, ProofOfIndexing},
+};
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
 
@@ -42,7 +45,7 @@ fn init_test_tracing() {
 }
 
 /// Load the upgrade indexer address from the environment.
-fn upgrade_indexer_address() -> Address {
+fn upgrade_indexer_address() -> IndexerId {
     std::env::var("IT_TEST_UPGRADE_INDEXER_ADDRESS")
         .expect("Missing IT_TEST_UPGRADE_INDEXER_ADDRESS")
         .parse()
@@ -57,22 +60,9 @@ fn upgrade_indexer_url() -> Url {
         .expect("Invalid IT_TEST_UPGRADE_INDEXER_URL")
 }
 
-/// Test helper to get an [`Address`] from a given string.
-fn parse_address(addr: impl AsRef<str>) -> Address {
-    addr.as_ref().parse().expect("Invalid address")
-}
-
 /// Test helper to get a [`Url`] from a given string.
 fn parse_url(url: impl AsRef<str>) -> Url {
     url.as_ref().parse().expect("Invalid URL")
-}
-
-/// Test helper to get a [`DeploymentId`] from a given string.
-fn parse_deployment_id(deployment_id: impl AsRef<str>) -> DeploymentId {
-    deployment_id
-        .as_ref()
-        .parse()
-        .expect("Invalid deployment ID")
 }
 
 /// Test helper to get an [`IpNetwork`] from a given string.
@@ -87,7 +77,7 @@ fn parse_poi(poi: impl AsRef<str>) -> ProofOfIndexing {
 
 /// Test helper to build the service config for the tests.
 fn test_service_state(
-    addr_blocklist: HashSet<Address>,
+    addr_blocklist: HashSet<IndexerId>,
     host_blocklist: HashSet<IpNetwork>,
     min_versions: Option<(Version, Version)>,
     pois_blocklist: HashSet<((DeploymentId, BlockNumber), ProofOfIndexing)>,
@@ -201,7 +191,7 @@ async fn block_indexer_if_host_resolution_fails() {
 
     //* Given
     // A random indexer info with a non-resolvable host
-    let indexer_addr = parse_address("0x0000000000000000000000000000000000000000");
+    let indexer_addr = indexer_id!("0000000000000000000000000000000000000000");
     let indexer_url = parse_url("https://non-resolvable-host-29155238.com/");
     let indexer = IndexerRawInfo {
         id: indexer_addr,
@@ -341,9 +331,9 @@ async fn block_indexing_if_blocked_by_pois_blocklist() {
 
     //* Given
     // Network subgraph arbitrum v1.1.1
-    let deployment_1 = parse_deployment_id("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
+    let deployment_1 = deployment_id!("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
     // Network subgraph ethereum v1.1.1
-    let deployment_2 = parse_deployment_id("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
+    let deployment_2 = deployment_id!("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
 
     // The indexer info
     let indexer_url = upgrade_indexer_url();
@@ -356,14 +346,14 @@ async fn block_indexing_if_blocked_by_pois_blocklist() {
             (
                 deployment_1,
                 IndexingRawInfo {
-                    largest_allocation: Default::default(),
+                    largest_allocation: Address::default().into(),
                     total_allocated_tokens: 0,
                 },
             ),
             (
                 deployment_2,
                 IndexingRawInfo {
-                    largest_allocation: Default::default(),
+                    largest_allocation: Address::default().into(),
                     total_allocated_tokens: 0,
                 },
             ),
@@ -427,9 +417,9 @@ async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
 
     //* Given
     // Network subgraph arbitrum v1.1.1
-    let deployment_1 = parse_deployment_id("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
+    let deployment_1 = deployment_id!("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
     // Network subgraph ethereum v1.1.1
-    let deployment_2 = parse_deployment_id("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
+    let deployment_2 = deployment_id!("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
 
     // The indexer info
     let indexer_url = upgrade_indexer_url();
@@ -442,14 +432,14 @@ async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
             (
                 deployment_1,
                 IndexingRawInfo {
-                    largest_allocation: Default::default(),
+                    largest_allocation: Address::default().into(),
                     total_allocated_tokens: 0,
                 },
             ),
             (
                 deployment_2,
                 IndexingRawInfo {
-                    largest_allocation: Default::default(),
+                    largest_allocation: Address::default().into(),
                     total_allocated_tokens: 0,
                 },
             ),
@@ -504,9 +494,9 @@ async fn do_not_block_indexing_if_public_pois_resolution_fails() {
 
     //* Given
     // Network subgraph arbitrum v1.1.1
-    let deployment_1 = parse_deployment_id("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
+    let deployment_1 = deployment_id!("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
     // Network subgraph ethereum v1.1.1
-    let deployment_2 = parse_deployment_id("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
+    let deployment_2 = deployment_id!("QmWaCrvdyepm1Pe6RPkJFT3u8KmaZahAvJEFCt27HRWyK4");
 
     // The indexer info
     let indexer_url = upgrade_indexer_url();
@@ -519,14 +509,14 @@ async fn do_not_block_indexing_if_public_pois_resolution_fails() {
             (
                 deployment_1,
                 IndexingRawInfo {
-                    largest_allocation: Default::default(),
+                    largest_allocation: Address::default().into(),
                     total_allocated_tokens: 0,
                 },
             ),
             (
                 deployment_2,
                 IndexingRawInfo {
-                    largest_allocation: Default::default(),
+                    largest_allocation: Address::default().into(),
                     total_allocated_tokens: 0,
                 },
             ),
@@ -582,8 +572,8 @@ async fn process_indexers_info_successfully() {
     // The indexer info
     let indexer_url = upgrade_indexer_url();
     let indexer_addr = upgrade_indexer_address();
-    let indexing_id = parse_deployment_id("QmZtNN8NbxjJ1KD5uKBYa7Gj29CT8xypSXnAmXbrLNTQgX"); // Network subgraph v1.1.0
-    let indexing_largest_allocation = parse_address("0xffe9642282d9ead2db93ddb95cc3772a0ac8707c");
+    let indexing_id = deployment_id!("QmZtNN8NbxjJ1KD5uKBYa7Gj29CT8xypSXnAmXbrLNTQgX"); // Network subgraph v1.1.0
+    let indexing_largest_allocation = allocation_id!("ffe9642282d9ead2db93ddb95cc3772a0ac8707c");
 
     let indexer = IndexerRawInfo {
         id: indexer_addr,

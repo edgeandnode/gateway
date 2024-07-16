@@ -490,7 +490,7 @@ mod tests {
                 number: 123,
                 timestamp: now - 1,
             },
-            Address::default(),
+            Address::default().into(),
         );
         chain.insert(
             Block {
@@ -499,7 +499,7 @@ mod tests {
                 number: 124,
                 timestamp: now,
             },
-            Address::default(),
+            Address::default().into(),
         );
 
         let tests = [

@@ -68,21 +68,15 @@ fn l2_request_path(original_path: &Uri, l2_subgraph_id: Option<SubgraphId>) -> S
 
 #[cfg(test)]
 mod tests {
-    use thegraph_core::types::{DeploymentId, SubgraphId};
+    use thegraph_core::{deployment_id, subgraph_id};
 
     use super::l2_request_path;
 
     #[test]
     fn test_l2_request_path() {
-        let deployment: DeploymentId = "QmdveVMs7nAvdBPxNoaMMAYgNcuSroneMctZDnZUgbPPP3"
-            .parse()
-            .unwrap();
-        let l1_subgraph: SubgraphId = "EMRitnR1t3drKrDQSmJMSmHBPB2sGotgZE12DzWNezDn"
-            .parse()
-            .unwrap();
-        let l2_subgraph: SubgraphId = "CVHoVSrdiiYvLcH4wocDCazJ1YuixHZ1SKt34UWmnQcC"
-            .parse()
-            .unwrap();
+        let deployment = deployment_id!("QmdveVMs7nAvdBPxNoaMMAYgNcuSroneMctZDnZUgbPPP3");
+        let l1_subgraph = subgraph_id!("EMRitnR1t3drKrDQSmJMSmHBPB2sGotgZE12DzWNezDn");
+        let l2_subgraph = subgraph_id!("CVHoVSrdiiYvLcH4wocDCazJ1YuixHZ1SKt34UWmnQcC");
 
         // test deployment route
         let mut original = format!("/api/deployments/id/{deployment}").parse().unwrap();

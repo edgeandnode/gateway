@@ -6,12 +6,12 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::BlockNumber;
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
 use gateway_common::ptr::Ptr;
 use semver::Version;
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 use url::Url;
 
 use super::{DeploymentInfo, SubgraphInfo};
@@ -30,7 +30,7 @@ fn min_required_indexer_service_version_tap_support() -> &'static Version {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct IndexingId {
     /// The indexer's ID indexing the subgraph's deployment.
-    pub indexer: Address,
+    pub indexer: IndexerId,
     /// The subgraph's deployment ID indexed by the indexer.
     pub deployment: DeploymentId,
 }
@@ -45,7 +45,7 @@ pub struct Indexing {
     ///
     /// This is, among all allocations associated with the indexer and deployment, the address
     /// with the largest amount of allocated tokens.
-    pub largest_allocation: Address,
+    pub largest_allocation: AllocationId,
     /// The indexer's indexing total allocated tokens.
     ///
     /// This is, the sum of all allocated tokens associated with the indexer and deployment.
@@ -87,7 +87,7 @@ impl IndexingProgress {
 #[derive(CustomDebug, Clone)]
 pub struct Indexer {
     /// The indexer's ID.
-    pub id: Address,
+    pub id: IndexerId,
 
     /// The indexer's URL.
     ///
@@ -165,7 +165,7 @@ pub struct NetworkTopologySnapshot {
 
 /// Construct the [`NetworkTopologySnapshot`] from the indexers and subgraphs information.
 pub fn new_from(
-    indexers_info: HashMap<Address, Result<ResolvedIndexerInfo, IndexerInfoResolutionError>>,
+    indexers_info: HashMap<IndexerId, Result<ResolvedIndexerInfo, IndexerInfoResolutionError>>,
     subgraphs_info: HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>>,
     deployments_info: HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>>,
 ) -> NetworkTopologySnapshot {
@@ -228,7 +228,7 @@ pub fn new_from(
 fn construct_subgraphs_table_row(
     subgraph_info: SubgraphInfo,
     indexers: &HashMap<
-        Address,
+        IndexerId,
         Result<(ResolvedIndexerInfo, Arc<Indexer>), IndexerInfoResolutionError>,
     >,
 ) -> Result<Subgraph, SubgraphError> {
@@ -305,7 +305,7 @@ fn construct_subgraphs_table_row(
 fn construct_deployments_table_row(
     deployment_info: DeploymentInfo,
     indexers: &HashMap<
-        Address,
+        IndexerId,
         Result<(ResolvedIndexerInfo, Arc<Indexer>), IndexerInfoResolutionError>,
     >,
 ) -> Result<Deployment, DeploymentError> {
@@ -347,7 +347,7 @@ fn construct_indexings_table_row(
     indexing_id: IndexingId,
     indexing_deployment_chain: &str,
     indexers: &HashMap<
-        Address,
+        IndexerId,
         Result<(ResolvedIndexerInfo, Arc<Indexer>), IndexerInfoResolutionError>,
     >,
 ) -> (IndexingId, Result<Indexing, IndexingError>) {

@@ -96,7 +96,7 @@ mod tests {
         Router,
     };
     use http_body_util::BodyExt;
-    use thegraph_core::types::{DeploymentId, SubgraphId};
+    use thegraph_core::{deployment_id, subgraph_id};
     use tower::ServiceExt;
 
     use super::QuerySelector;
@@ -116,16 +116,6 @@ mod tests {
                 "/subgraphs/id/:subgraph_id",
                 axum::routing::post(handle_query),
             )
-    }
-
-    /// Test utility function to create a valid `DeploymentId` with an arbitrary deployment id/ipfs hash.
-    fn test_deployment_id(deployment: &str) -> DeploymentId {
-        deployment.parse().expect("invalid deployment id/ipfs hash")
-    }
-
-    /// Test utility function to create a valid `SubgraphId` with an arbitrary address.
-    fn test_subgraph_id(address: &str) -> SubgraphId {
-        address.parse().expect("invalid subgraph id")
     }
 
     /// Deserialize a GraphQL response body.
@@ -151,7 +141,7 @@ mod tests {
         //* Given
         let app = test_router();
 
-        let deployment_id = test_deployment_id("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
+        let deployment_id = deployment_id!("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
 
         let req = Request::builder()
             .method(Method::POST)
@@ -196,7 +186,7 @@ mod tests {
         //* Given
         let app = test_router();
 
-        let subgraph_id = test_subgraph_id("184ba627DB853244c9f17f3Cb4378cB8B39bf147");
+        let subgraph_id = subgraph_id!("184ba627DB853244c9f17f3Cb4378cB8B39bf147");
 
         let req = Request::builder()
             .method(Method::POST)

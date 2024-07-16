@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use alloy_primitives::{Address, BlockNumber};
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use alloy_primitives::BlockNumber;
+use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 
 use crate::network::errors::{DeploymentError, SubgraphError};
 
@@ -74,9 +74,9 @@ pub struct DeploymentInfo {
 #[derive(Debug, Clone)]
 pub struct AllocationInfo {
     // The allocation ID.
-    pub id: Address,
+    pub id: AllocationId,
     // The indexer ID.
-    pub indexer: Address,
+    pub indexer: IndexerId,
 }
 
 /// Process the fetched subgraphs' information.
