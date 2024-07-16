@@ -625,7 +625,7 @@ fn build_candidates_list(
             // Infer the indexed range from the indexing progress information
             let range = {
                 let (start, end) = indexing.progress.as_range();
-                start.unwrap_or(0)..=max(end, perf.latest_block + blocks_per_minute)
+                start.unwrap_or(0)..=(max(end, perf.latest_block) + blocks_per_minute)
             };
 
             let number_gte = block_requirements.number_gte.unwrap_or(0);
