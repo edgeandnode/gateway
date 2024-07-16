@@ -141,6 +141,7 @@ async fn main() {
         Box::leak(Box::new(Budgeter::new(USD(conf.query_fees_target))));
 
     let reporter = reports::Reporter::create(
+        gateway_id.clone(),
         conf.graph_env_id,
         conf.query_fees_target,
         "gateway_client_query_results",
