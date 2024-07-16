@@ -55,7 +55,7 @@ impl AuthContext {
 
         if let Some(rate_limiter) = &self.rate_limiter {
             if rate_limiter.above_limit(token) {
-                bail!("rate limit exceeded");
+                bail!("Rate limit exceeded. Querying L1 subgraphs is deprecated and will be removed soon.");
             }
             rate_limiter.increment(token);
         }
