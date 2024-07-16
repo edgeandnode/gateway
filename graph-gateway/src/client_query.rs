@@ -966,6 +966,7 @@ mod tests {
                 payment_required: false,
                 api_keys: watch::channel(Default::default()).1,
                 special_api_keys: Default::default(),
+                rate_limiter: None,
             };
             if let Some(key) = key {
                 ctx.api_keys = watch::channel(HashMap::from([(
