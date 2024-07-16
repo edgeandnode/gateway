@@ -41,7 +41,7 @@ impl IndexerClient {
         query: &str,
     ) -> Result<IndexerResponse, IndexerError> {
         let url = url
-            .join(&format!("subgraphs/id/{:?}", deployment))
+            .join(&format!("subgraphs/id/{}", deployment))
             .map_err(|_| Unavailable(UnavailableReason::Internal("bad indexer url")))?;
 
         let result = self
