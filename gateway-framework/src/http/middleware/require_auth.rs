@@ -179,7 +179,7 @@ mod tests {
     use tokio_test::assert_ready_ok;
 
     use super::{AuthContext, RequireAuthorizationLayer};
-    use crate::auth::{api_keys::APIKey, AuthSettings};
+    use crate::auth::{APIKey, AuthSettings};
 
     fn test_auth_ctx(key: Option<&str>) -> AuthContext {
         let mut ctx = AuthContext {

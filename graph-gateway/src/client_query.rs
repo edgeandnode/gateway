@@ -952,7 +952,7 @@ mod tests {
             Extension, Router,
         };
         use gateway_framework::{
-            auth::{api_keys::APIKey, AuthContext, AuthSettings},
+            auth::{APIKey, AuthContext, AuthSettings},
             http::middleware::{legacy_auth_adapter, RequireAuthorizationLayer},
         };
         use headers::{Authorization, ContentType, HeaderMapExt};

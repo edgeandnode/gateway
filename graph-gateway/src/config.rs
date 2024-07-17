@@ -10,7 +10,7 @@ use alloy_primitives::{Address, BlockNumber, U256};
 use anyhow::Context;
 use custom_debug::CustomDebug;
 use gateway_framework::{
-    auth::api_keys::APIKey,
+    auth::APIKey,
     config::{Hidden, HiddenSecretKey},
 };
 use graph_gateway::network::subgraph_client::indexers_list_paginated_client::TrustedIndexer;
