@@ -186,6 +186,7 @@ mod tests {
             payment_required: false,
             api_keys: watch::channel(Default::default()).1,
             special_api_keys: Default::default(),
+            rate_limiter: None,
         };
         if let Some(key) = key {
             ctx.api_keys = watch::channel(HashMap::from([(
@@ -342,7 +343,7 @@ mod tests {
             assert_eq!(res.headers().typed_get(), Some(ContentType::json()));
             assert_matches!(deserialize_graphql_response_body::<()>(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body.errors.len(), 1);
-                assert_eq!(res_body.errors[0].message, "auth error: missing bearer token");
+                assert_eq!(res_body.errors[0].message, "auth error: missing API key");
             });
         });
     }
