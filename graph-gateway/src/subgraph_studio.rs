@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use alloy_primitives::Address;
-use gateway_framework::auth::api_keys::{APIKey, QueryStatus};
+use gateway_framework::auth::{APIKey, QueryStatus};
 use serde::Deserialize;
 use tokio::{
     sync::watch,
