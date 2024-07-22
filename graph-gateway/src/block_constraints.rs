@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
+};
 
 use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail};
@@ -9,11 +12,11 @@ use gateway_framework::{
     errors::Error,
 };
 use graphql::{
-    graphql_parser::query::{OperationDefinition, Selection, Text, Value},
+    graphql_parser::query::{OperationDefinition, Selection, SelectionSet, Text, Value},
     IntoStaticValue as _, StaticValue,
 };
 use itertools::Itertools as _;
-use serde_json::{self, json, value::RawValue};
+use serde_json::{self, json};
 
 #[derive(Debug)]
 pub struct BlockRequirements {
@@ -128,23 +131,79 @@ fn block_constraints(context: &Context) -> Result<BTreeSet<BlockConstraint>, Err
     Ok(constraints)
 }
 
-pub fn rewrite_query(document: &str, variables: &Option<Box<RawValue>>) -> String {
-    // Don't insert block data probe if we suspect the query contains introspection. `_meta` queries
-    // and introspection do not mix.
-    // Examples of introspection queries:
-    // - `{ __schema { queryType { name } } }`
-    // - `{ __type(name: "Droid") { name description } }`
-    let contains_introspection = document.contains("__");
+pub fn rewrite_query<'q>(ctx: &Context<'q>) -> String {
+    let mut buf: String = Default::default();
+    for fragment in &ctx.fragments {
+        write!(&mut buf, "{}", fragment).unwrap();
+    }
+    if contains_introspection(ctx) {
+        for operation in &ctx.operations {
+            write!(&mut buf, "{}", operation).unwrap();
+        }
+    } else {
+        let serialize_selection_set =
+            |buf: &mut String, selection_set: &SelectionSet<'q, &'q str>| {
+                buf.push_str("{\n");
+                for selection in &selection_set.items {
+                    match selection {
+                        Selection::Field(field) => {
+                            write!(buf, "  {}", field).unwrap();
+                        }
+                        Selection::FragmentSpread(spread) => {
+                            write!(buf, "  {}", spread).unwrap();
+                        }
+                        Selection::InlineFragment(fragment) => {
+                            write!(buf, "  {}", fragment).unwrap();
+                        }
+                    };
+                }
+                buf.push_str("  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n");
+            };
+        let serialize_operation =
+            |buf: &mut String, operation: &OperationDefinition<'q, &'q str>| {
+                match operation {
+                    OperationDefinition::SelectionSet(selection_set) => {
+                        serialize_selection_set(buf, selection_set);
+                    }
+                    OperationDefinition::Query(query) => {
+                        buf.push_str("query");
+                        if let Some(name) = query.name {
+                            write!(buf, " {name}").unwrap();
+                        }
+                        if !query.variable_definitions.is_empty() {
+                            write!(buf, "({}", query.variable_definitions[0]).unwrap();
+                            for var in &query.variable_definitions[1..] {
+                                write!(buf, ", {var}").unwrap();
+                            }
+                            buf.push(')');
+                        }
+                        debug_assert!(query.directives.is_empty());
+                        buf.push(' ');
+                        serialize_selection_set(buf, &query.selection_set);
+                    }
+                    OperationDefinition::Mutation(_) | OperationDefinition::Subscription(_) => (),
+                };
+            };
+        for operation in &ctx.operations {
+            serialize_operation(&mut buf, operation);
+        }
+    }
 
-    let query = match document.rfind('}') {
-        Some(end) if !contains_introspection => format!(
-            "{}  _gateway_probe_: _meta {{ block {{ hash number timestamp }} }}\n}}\n",
-            &document[..end],
-        ),
-        _ => document.to_string(),
-    };
+    serde_json::to_string(&json!({ "query": buf, "variables": ctx.variables })).unwrap()
+}
 
-    serde_json::to_string(&json!({ "query": query, "variables": variables })).unwrap()
+fn contains_introspection(ctx: &Context<'_>) -> bool {
+    fn selection_set_has_introspection<'q>(s: &SelectionSet<'q, &'q str>) -> bool {
+        s.items.iter().any(|selection| match selection {
+            Selection::Field(f) => f.name.starts_with("__"), // only check top level
+            Selection::InlineFragment(_) | Selection::FragmentSpread(_) => false,
+        })
+    }
+    ctx.operations.iter().any(|op| match op {
+        OperationDefinition::Query(q) => selection_set_has_introspection(&q.selection_set),
+        OperationDefinition::SelectionSet(s) => selection_set_has_introspection(s),
+        OperationDefinition::Mutation(_) | OperationDefinition::Subscription(_) => false,
+    })
 }
 
 fn field_constraint<'c, T: Text<'c>>(
@@ -301,6 +360,18 @@ mod tests {
                 .map(|v| BTreeSet::from_iter(v.iter().cloned()))
                 .map_err(ToString::to_string);
             assert_eq!(constraints, expected);
+        }
+    }
+
+    #[test]
+    fn query_contains_introspection() {
+        let examples = [
+            "{ __schema { queryType { name } } }",
+            "{ __type(name:\"Droid\") { name description } }",
+        ];
+        for example in examples {
+            let context = Context::new(example, "").unwrap();
+            assert!(super::contains_introspection(&context));
         }
     }
 }

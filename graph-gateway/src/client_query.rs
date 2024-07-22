@@ -312,8 +312,7 @@ async fn run_indexer_queries(
         tracing::debug!(?candidates);
     }
 
-    let indexer_query = rewrite_query(&client_request.query, &client_request.variables);
-
+    let indexer_query = rewrite_query(&agora_context);
     let mut indexer_requests: Vec<reports::IndexerRequest> = Default::default();
     let mut client_response_time: Option<Duration> = None;
 
