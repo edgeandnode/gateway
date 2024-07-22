@@ -349,7 +349,7 @@ async fn run_indexer_queries(
             } {
                 Ok(receipt) => receipt,
                 Err(err) => {
-                    tracing::error!(%indexer, %deployment, error=?err, "failed to create receipt");
+                    tracing::error!(?indexer, %deployment, error=?err, "failed to create receipt");
                     continue;
                 }
             };
@@ -859,7 +859,7 @@ pub async fn handle_indexer_query(
     let result = result.map_err(bad_indexers);
 
     let deployment = indexing_id.deployment.to_string();
-    let indexer = indexing_id.indexer.to_string();
+    let indexer = format!("{:?}", indexing_id.indexer);
     let labels = [deployment.as_str(), indexer.as_str()];
     METRICS
         .indexer_query
