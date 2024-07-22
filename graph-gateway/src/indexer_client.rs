@@ -12,7 +12,7 @@ use thegraph_core::types::{
     attestation::{self, Attestation},
     DeploymentId,
 };
-use thegraph_graphql_http::http::response::{Error as GQLError, ResponseBody as GQLResponseBody};
+use thegraph_graphql_http::http::response::Error as GQLError;
 use url::Url;
 
 use crate::{receipts::Receipt, unattestable_errors::miscategorized_unattestable};
@@ -152,6 +152,17 @@ fn rewrite_response(
     response: &str,
 ) -> Result<(String, Vec<GQLError>, Option<Block>), IndexerError> {
     #[derive(Deserialize, Serialize)]
+    struct Response {
+        data: Option<ProbedData>,
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        errors: Vec<GQLError>,
+        // indexer-service sometimes returns errors in this form, which isn't ideal
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    }
+    #[derive(Deserialize, Serialize)]
     struct ProbedData {
         #[serde(rename = "_gateway_probe_", skip_serializing)]
         probe: Option<Meta>,
@@ -168,8 +179,16 @@ fn rewrite_response(
         hash: BlockHash,
         timestamp: Option<u64>,
     }
-    let mut payload: GQLResponseBody<ProbedData> =
+    let mut payload: Response =
         serde_json::from_str(response).map_err(|err| BadResponse(err.to_string()))?;
+
+    if let Some(err) = payload.error.take() {
+        payload.errors.push(GQLError {
+            message: err,
+            locations: Default::default(),
+            path: Default::default(),
+        });
+    }
 
     // Avoid processing oversized errors.
     for err in &mut payload.errors {
