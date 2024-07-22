@@ -78,7 +78,7 @@ impl AuthContext {
 
         if let Some(rate_limiter) = &self.rate_limiter {
             if rate_limiter.above_limit(token) {
-                bail!("Rate limit exceeded. Querying L1 subgraphs is deprecated and will be removed soon.");
+                bail!("Rate limit exceeded. This endpoint, along with all other endpoints querying subgraphs on L1, will soon be unavailable. Reach out to support@edgeandnode.com for help transferring to L2, or read the L2 Transfer Tools guide: https://thegraph.com/docs/en/arbitrum/l2-transfer-tools-guide/");
             }
             rate_limiter.increment(token);
         }
