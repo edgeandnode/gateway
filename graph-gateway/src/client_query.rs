@@ -312,8 +312,9 @@ async fn run_indexer_queries(
         tracing::debug!(?candidates);
     }
 
+    let indexer_query = rewrite_query(&client_request.query, &client_request.variables);
+
     let mut indexer_requests: Vec<reports::IndexerRequest> = Default::default();
-    let mut indexer_request_rewrites: BTreeMap<u32, String> = Default::default();
     let mut client_response_time: Option<Duration> = None;
 
     // If a client query cannot be handled by the available indexers, we should give a reason for
@@ -356,24 +357,8 @@ async fn run_indexer_queries(
             debug_assert!(fee == receipt.grt_value());
 
             let blocks_behind = blocks_behind(seconds_behind, blocks_per_minute);
-            let indexer_query = match indexer_request_rewrites.get(&seconds_behind) {
-                Some(indexer_query) => indexer_query.clone(),
-                None => {
-                    let chain = chain.read();
-                    let indexer_query =
-                        rewrite_query(&chain, &agora_context, &block_requirements, blocks_behind);
-                    if selections
-                        .iter()
-                        .filter(|s| s.seconds_behind == seconds_behind)
-                        .count()
-                        > 1
-                    {
-                        indexer_request_rewrites.insert(seconds_behind, indexer_query.clone());
-                    }
-                    indexer_query
-                }
-            };
             let indexer_client = ctx.indexer_client.clone();
+            let indexer_query = indexer_query.clone();
             let tx = tx.clone();
             tokio::spawn(
                 async move {
