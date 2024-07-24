@@ -19,6 +19,8 @@ pub struct ClientRequest {
     pub user_address: Address,
     pub grt_per_usd: NotNan<f64>,
     pub indexer_requests: Vec<IndexerRequest>,
+    pub request_bytes: u32,
+    pub response_bytes: Option<u32>,
 }
 
 pub struct IndexerRequest {
@@ -133,6 +135,8 @@ impl Reporter {
             "indexed_chain": indexed_chain,
             "network": indexed_chain,
             "response_time_ms": client_request.response_time_ms,
+            "request_bytes": client_request.request_bytes,
+            "response_bytes": client_request.response_bytes,
             "budget": self.budget.to_string(),
             "query_count": 1,
             "fee": total_fees_grt as f32,

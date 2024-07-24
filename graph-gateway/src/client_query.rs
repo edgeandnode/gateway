@@ -312,9 +312,11 @@ async fn run_indexer_queries(
         tracing::debug!(?candidates);
     }
 
+    let client_request_bytes = client_request.query.len() as u32;
     let indexer_query = rewrite_query(&agora_context);
     let mut indexer_requests: Vec<reports::IndexerRequest> = Default::default();
     let mut client_response_time: Option<Duration> = None;
+    let mut client_response_bytes: Option<u32> = None;
 
     // If a client query cannot be handled by the available indexers, we should give a reason for
     // all the available indexers in the `bad indexers` response.
@@ -398,6 +400,7 @@ async fn run_indexer_queries(
                 Ok(response) if client_response_time.is_none() => {
                     let _ = client_response.try_send(Ok(response.clone()));
                     client_response_time = Some(start_time.elapsed());
+                    client_response_bytes = Some(response.client_response.len() as u32);
                 }
                 Ok(_) => (),
                 Err(err) => {
@@ -521,6 +524,8 @@ async fn run_indexer_queries(
         user_address: auth.user,
         grt_per_usd,
         indexer_requests,
+        request_bytes: client_request_bytes,
+        response_bytes: client_response_bytes,
     });
 }
 
@@ -903,6 +908,8 @@ pub async fn handle_indexer_query(
         api_key: auth.key,
         user_address: auth.user,
         grt_per_usd,
+        request_bytes: indexer_request.request.len() as u32,
+        response_bytes: result.as_ref().map(|r| r.client_response.len() as u32).ok(),
         indexer_requests: vec![indexer_request],
     });
 
