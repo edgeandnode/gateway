@@ -1,13 +1,14 @@
 use std::sync::{atomic::AtomicU64, Arc};
 
 use alloy_primitives::aliases::BlockNumber;
+use anyhow::bail;
+use gateway_common::time::unix_timestamp;
 use serde::de::Deserialize;
-use thegraph_core::types::BlockPointer;
 use thegraph_graphql_http::{graphql::Document, http_client::ResponseError};
 use url::Url;
 
 use super::queries::{
-    meta::send_bootstrap_meta_query,
+    meta::{send_bootstrap_meta_query, Block},
     page::{send_subgraph_page_query, BlockHeight, SubgraphPageQueryResponseOpaqueEntry},
 };
 
@@ -60,14 +61,14 @@ async fn send_paginated_query<T>(
     query: Document,
     page_size: usize,
     mut block_height: BlockHeight,
-) -> anyhow::Result<(Vec<T>, Option<BlockPointer>)>
+) -> anyhow::Result<(Vec<T>, Option<Block>)>
 where
     T: for<'de> Deserialize<'de> + Send,
 {
     debug_assert_ne!(page_size, 0, "page size must be greater than 0");
 
     // Block at which the query is executed.
-    let mut block_pointer: Option<BlockPointer> = None;
+    let mut block_pointer: Option<Block> = None;
 
     // The last id of the previous batch.
     let mut last_id: Option<String> = None;
@@ -256,6 +257,10 @@ impl Client {
 
         // Update the latest block number
         if let Some(block) = block {
+            if (unix_timestamp() / 1_000).saturating_sub(block.timestamp) > 120 {
+                bail!("timestamp too far behind");
+            }
+
             self.update_latest_block(block.number);
         }
 

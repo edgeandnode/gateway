@@ -126,13 +126,14 @@ where
 /// The `_meta` field can now be added to any query so that it is possible to determine against
 /// which block the query was effectively executed.
 pub mod meta {
+    use alloy_primitives::{BlockHash, BlockNumber};
     use serde::Deserialize;
-    use thegraph_core::types::BlockPointer;
     use url::Url;
 
     use super::send_query;
 
-    const SUBGRAPH_META_QUERY_DOCUMENT: &str = r#"{ meta: _meta { block { number hash } } }"#;
+    const SUBGRAPH_META_QUERY_DOCUMENT: &str =
+        r#"{ meta: _meta { block { number hash timestamp } } }"#;
 
     #[derive(Debug, Deserialize)]
     pub struct SubgraphMetaQueryResponse {
@@ -141,7 +142,14 @@ pub mod meta {
 
     #[derive(Debug, Deserialize)]
     pub struct Meta {
-        pub block: BlockPointer,
+        pub block: Block,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Block {
+        pub number: BlockNumber,
+        pub hash: BlockHash,
+        pub timestamp: u64,
     }
 
     pub async fn send_bootstrap_meta_query(
