@@ -4,12 +4,19 @@
 //! This module contains the logic necessary to query the Graph to get the latest state of the
 //! network subgraph.
 
-use paginated_client::PaginatedClient;
-use thegraph_graphql_http::graphql::IntoDocument;
+use anyhow::{anyhow, bail, ensure, Context};
+use custom_debug::CustomDebug;
+use gateway_common::time::unix_timestamp;
+use gateway_framework::{blocks::Block, config::Hidden};
+use serde::Deserialize;
+use serde_json::json;
+use serde_with::serde_as;
+use thegraph_core::client::queries::page::BlockHeight;
+use thegraph_graphql_http::http::response::Error as GqlError;
+use types::Subgraph;
+use url::Url;
 
-pub mod core_paginated_client;
-pub mod indexers_list_paginated_client;
-pub mod paginated_client;
+use crate::indexer_client::{IndexerAuth, IndexerClient};
 
 /// The Graph network subgraph types.
 ///
@@ -84,79 +91,85 @@ pub mod types {
     }
 }
 
-/// The Graph network subgraph client.
-pub struct Client<C> {
-    client: C,
-    l2_transfer_support: bool,
+#[serde_as]
+#[derive(Clone, CustomDebug, Deserialize)]
+pub struct TrustedIndexer {
+    /// network subgraph endpoint
+    #[debug(with = std::fmt::Display::fmt)]
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    pub url: Url,
+    /// free query auth token
+    pub auth: Hidden<String>,
 }
 
-impl<C> Client<C>
-where
-    C: PaginatedClient + Send + Sync + 'static,
-{
-    /// Creates a new [`Client`] instance.
-    pub fn new(client: C, l2_transfer_support: bool) -> Self {
-        Self {
-            client,
-            l2_transfer_support,
+/// The Graph network subgraph client.
+pub struct Client {
+    pub client: IndexerClient,
+    pub indexers: Vec<TrustedIndexer>,
+    pub page_size: usize,
+    pub latest_block: Option<Block>,
+    pub l2_transfer_support: bool,
+}
+
+impl Client {
+    /// Fetch the list of subgraphs (and deployments) from the network subgraph.
+    pub async fn fetch(&mut self) -> anyhow::Result<Vec<types::Subgraph>> {
+        for indexer in &self.indexers.clone() {
+            match self.fetch_from_indexer(indexer).await {
+                Ok(results) => return Ok(results),
+                Err(network_subgraph_query_err) => {
+                    tracing::error!(indexer = %indexer.url, %network_subgraph_query_err);
+                }
+            };
         }
+        bail!("trusted indexers exhausted");
     }
 
-    /// Fetch the list of subgraphs (and deployments) from the network subgraph.
-    ///
-    /// Performs a paginated query to fetch the latest state of the network subgraph:
-    /// > Get all subgraphs ordered by `id` in ascending order, filtering out subgraphs with no
-    /// > versions and with all its `versions` ordered by `version` in ascending order, and all
-    /// > its `indexerAllocations` ordered by `allocatedTokens` in descending order; laying the
-    /// > largest allocation first.
-    #[allow(clippy::obfuscated_if_else)]
-    pub async fn fetch(&self) -> anyhow::Result<Vec<types::Subgraph>> {
-        // The following query's response must fulfill the following assumptions:
-        // - Perform a paginated query based on the subgraph's ID. All subgraphs are ordered by ID.
-        //   The next query must start from the last subgraph ID fetched in the previous query.
-        // - Get all subgraphs with at least one version.
-        // - All the subgraph's versions are ordered by `version` in descending order. We assume
-        //   that the newest deployment version is the one with the highest version number.
-        // - All the subgraph's `indexerAllocations` are ordered by `allocatedTokens` in descending
-        //   order; the largest allocation must be the first one.
-        //
-        // ref#: 9936786a-e286-45f3-9190-8409d8389e88
+    async fn fetch_from_indexer(
+        &mut self,
+        indexer: &TrustedIndexer,
+    ) -> anyhow::Result<Vec<types::Subgraph>> {
+        // ref: 9936786a-e286-45f3-9190-8409d8389e88
+        #[allow(clippy::obfuscated_if_else)]
         let query = indoc::formatdoc! {
-            r#" subgraphs(
-                block: $block
-                orderBy: id, orderDirection: asc
-                first: $first
-                where: {{
-                    id_gt: $last
-                    entityVersion: 2
-                    versionCount_gte: 1
-                    {}
-                }}
-            ) {{
-                id
-                {}
-                versions(orderBy: version, orderDirection: desc) {{
-                    version
-                    subgraphDeployment {{
-                        ipfsHash
-                        manifest {{
-                            network
-                            startBlock
-                        }}
-                        indexerAllocations(
-                            first: 100
-                            orderBy: allocatedTokens, orderDirection: desc
-                            where: {{ status: Active }}
-                        ) {{
-                            id
-                            allocatedTokens
-                            indexer {{
-                                id
-                                url
-                                stakedTokens
-                            }}
-                        }}
+            r#"query ($block: Block_height!, $first: Int!, $last: String!) {{
+                meta: _meta(block: $block) {{ block {{ number hash timestamp }} }}
+                results: subgraphs(
+                    block: $block
+                    orderBy: id, orderDirection: asc
+                    first: $first
+                    where: {{
+                        id_gt: $last
+                        entityVersion: 2
+                        versionCount_gte: 1
                         {}
+                    }}
+                ) {{
+                    id
+                    {}
+                    versions(orderBy: version, orderDirection: desc) {{
+                        version
+                        subgraphDeployment {{
+                            ipfsHash
+                            manifest {{
+                                network
+                                startBlock
+                            }}
+                            indexerAllocations(
+                                first: 100
+                                orderBy: allocatedTokens, orderDirection: desc
+                                where: {{ status: Active }}
+                            ) {{
+                                id
+                                allocatedTokens
+                                indexer {{
+                                    id
+                                    url
+                                    stakedTokens
+                                }}
+                            }}
+                            {}
+                        }}
                     }}
                 }}
             }}"#,
@@ -169,16 +182,82 @@ where
                 .unwrap_or(""),
         };
 
-        self.client
-            .paginated_query(query.into_document(), 1000)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))
+        #[derive(Debug, Deserialize)]
+        pub struct QueryResponse {
+            data: Option<QueryData>,
+            #[serde(default)]
+            errors: Vec<GqlError>,
+        }
+        #[derive(Debug, Deserialize)]
+        pub struct QueryData {
+            meta: Meta,
+            results: Vec<Subgraph>,
+        }
+        #[derive(Debug, Deserialize)]
+        pub struct Meta {
+            block: Block,
+        }
+
+        debug_assert!(self.page_size > 0);
+        let mut query_block: Option<Block> = None;
+        let mut last_id: Option<String> = None;
+        let mut results: Vec<Subgraph> = Default::default();
+
+        loop {
+            let block_height = match &query_block {
+                Some(block) => BlockHeight::Hash(block.hash),
+                None => BlockHeight::NumberGte(
+                    self.latest_block.as_ref().map(|b| b.number).unwrap_or(0),
+                ),
+            };
+            let page_query = json!({
+                "query": query,
+                "variables": {
+                    "block": block_height,
+                    "first": self.page_size,
+                    "last": last_id.unwrap_or_default(),
+                },
+            });
+            let response = self
+                .client
+                .query_indexer(
+                    indexer.url.clone(),
+                    IndexerAuth::Free(&indexer.auth),
+                    &page_query.to_string(),
+                )
+                .await?;
+            let response: QueryResponse =
+                serde_json::from_str(&response.client_response).context("parse body")?;
+            if !response.errors.is_empty() {
+                bail!("{:?}", response.errors);
+            }
+            let mut data = response
+                .data
+                .ok_or_else(|| anyhow!("response missing data"))?;
+            if let Some(block) = &query_block {
+                ensure!(block == &data.meta.block);
+            } else {
+                ensure!(
+                    data.meta.block.number
+                        >= self.latest_block.as_ref().map(|b| b.number).unwrap_or(0),
+                    "response block before latest",
+                );
+                ensure!(
+                    (unix_timestamp() / 1_000).saturating_sub(data.meta.block.timestamp) < 120,
+                    "response too far behind",
+                );
+                query_block = Some(data.meta.block);
+            }
+            let last_entry_id = data.results.last().map(|entry| entry.id.to_string());
+            results.append(&mut data.results);
+            last_id = match last_entry_id {
+                Some(last_id) => Some(last_id),
+                None => break,
+            };
+        }
+
+        self.latest_block = Some(query_block.unwrap());
+
+        Ok(results)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    mod it_fetch_and_deserialize;
 }

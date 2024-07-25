@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, ensure};
 use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 use url::Url;
 
@@ -232,15 +232,16 @@ fn try_into_indexer_raw_info(
     let indexer_url = indexer.url.as_ref().ok_or_else(|| anyhow!("missing URL"))?;
 
     // Parse the URL. It must have an HTTP (or HTTPS) scheme and a valid host
-    let indexer_url = indexer_url
-        .parse::<Url>()
-        .map_err(|err| anyhow!("invalid URL: parsing failed: {err}"))?;
-    if !indexer_url.scheme().starts_with("http") {
-        return Err(anyhow!("invalid URL: invalid scheme"));
-    }
-    if indexer_url.host().is_none() {
-        return Err(anyhow!("invalid URL: missing host"));
-    }
+    let indexer_url: Url = indexer_url
+        .parse()
+        .map_err(|err| anyhow!("invalid URL: {err}"))?;
+    ensure!(
+        indexer_url.scheme().starts_with("http"),
+        "invalid URL: invalid scheme"
+    );
+    ensure!(indexer_url.host().is_some(), "invalid URL: missing host");
+    // ref: df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
+    ensure!(!indexer_url.cannot_be_a_base(), "invalid URL: invalid base");
 
     Ok(IndexerRawInfo {
         id: indexer.id,

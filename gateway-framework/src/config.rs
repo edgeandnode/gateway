@@ -5,7 +5,7 @@ use secp256k1::SecretKey;
 use serde::Deserialize;
 use serde_with::DeserializeAs;
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(transparent)]
 pub struct Hidden<T>(pub T);
 

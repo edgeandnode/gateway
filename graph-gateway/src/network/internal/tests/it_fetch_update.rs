@@ -1,5 +1,6 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
+use gateway_framework::config::Hidden;
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::types::IndexerId;
@@ -10,16 +11,19 @@ use super::{
     fetch_and_preprocess_subgraph_info, fetch_update as internal_fetch_update, InternalState,
     NetworkTopologySnapshot,
 };
-use crate::network::{
-    indexer_addr_blocklist::AddrBlocklist,
-    indexer_host_blocklist::HostBlocklist,
-    indexer_host_resolver::HostResolver,
-    indexer_indexing_cost_model_compiler::CostModelCompiler,
-    indexer_indexing_cost_model_resolver::CostModelResolver,
-    indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::VersionResolver,
-    subgraph_client::{core_paginated_client::Client as SubgraphClient, Client},
-    IndexingError,
+use crate::{
+    indexer_client::IndexerClient,
+    network::{
+        indexer_addr_blocklist::AddrBlocklist,
+        indexer_host_blocklist::HostBlocklist,
+        indexer_host_resolver::HostResolver,
+        indexer_indexing_cost_model_compiler::CostModelCompiler,
+        indexer_indexing_cost_model_resolver::CostModelResolver,
+        indexer_indexing_progress_resolver::IndexingProgressResolver,
+        indexer_version_resolver::VersionResolver,
+        subgraph_client::{Client as SubgraphClient, TrustedIndexer},
+        IndexingError,
+    },
 };
 
 // Test method to initialize the tests tracing subscriber.
@@ -105,16 +109,19 @@ fn test_service_state(
 
 /// Test helper to fetch, process and construct the network topology snapshot.
 async fn fetch_update(service: &InternalState) -> anyhow::Result<NetworkTopologySnapshot> {
-    let subgraph_url = url_with_deployment_id(GRAPH_NETWORK_ARBITRUM_DEPLOYMENT_ID);
-    let auth_token = test_auth_token();
-
-    let client = {
-        let http_client = reqwest::Client::new();
-        let subgraph_client = SubgraphClient::new(http_client, subgraph_url, Some(auth_token));
-        Client::new(subgraph_client, true)
+    let mut client = SubgraphClient {
+        client: IndexerClient {
+            client: reqwest::Client::new(),
+        },
+        indexers: vec![TrustedIndexer {
+            url: url_with_deployment_id(GRAPH_NETWORK_ARBITRUM_DEPLOYMENT_ID),
+            auth: Hidden(test_auth_token()),
+        }],
+        latest_block: None,
+        page_size: 200,
+        l2_transfer_support: false,
     };
-
-    let network = fetch_and_preprocess_subgraph_info(&client, Duration::from_secs(60)).await?;
+    let network = fetch_and_preprocess_subgraph_info(&mut client, Duration::from_secs(60)).await?;
     Ok(internal_fetch_update(&network, service).await)
 }
 

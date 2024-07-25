@@ -7,11 +7,9 @@ use gateway_framework::{
         MissingBlockError, UnavailableReason,
     },
 };
+use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
-use thegraph_core::types::{
-    attestation::{self, Attestation},
-    DeploymentId,
-};
+use thegraph_core::types::attestation::{self, Attestation};
 use thegraph_graphql_http::http::response::Error as GQLError;
 use url::Url;
 
@@ -31,28 +29,31 @@ pub struct IndexerClient {
     pub client: reqwest::Client,
 }
 
+pub enum IndexerAuth<'a> {
+    Paid(&'a Receipt, &'a Eip712Domain),
+    Free(&'a str),
+}
+
 impl IndexerClient {
-    pub async fn query_indexer(
+    pub async fn query_indexer<'a>(
         &self,
-        deployment: &DeploymentId,
-        url: &Url,
-        receipt: &Receipt,
-        attestation_domain: &Eip712Domain,
+        deployment_url: Url,
+        auth: IndexerAuth<'a>,
         query: &str,
     ) -> Result<IndexerResponse, IndexerError> {
-        let url = url
-            .join(&format!("subgraphs/id/{}", deployment))
-            .map_err(|_| Unavailable(UnavailableReason::Internal("bad indexer url")))?;
+        let (auth_key, auth_value) = match auth {
+            IndexerAuth::Paid(receipt, _) => (receipt.header_name(), receipt.serialize()),
+            IndexerAuth::Free(token) => (AUTHORIZATION.as_str(), format!("Bearer {token}")),
+        };
 
         let result = self
             .client
-            .post(url)
+            .post(deployment_url)
             .header("Content-Type", "application/json")
-            .header(receipt.header_name(), receipt.serialize())
+            .header(auth_key, auth_value)
             .body(query.to_string())
             .send()
-            .await
-            .and_then(|response| response.error_for_status());
+            .await;
 
         if result
             .as_ref()
@@ -108,35 +109,37 @@ impl IndexerClient {
             return Err(BadResponse(format!("unattestable response: {error}")));
         }
 
-        match &payload.attestation {
-            Some(attestation) => {
-                let allocation = receipt.allocation();
-                if let Err(err) = attestation::verify(
-                    attestation_domain,
-                    attestation,
-                    &allocation,
-                    query,
-                    &original_response,
-                ) {
-                    return Err(BadResponse(format!("bad attestation: {err}")));
+        if let IndexerAuth::Paid(receipt, attestation_domain) = auth {
+            match &payload.attestation {
+                Some(attestation) => {
+                    let allocation = receipt.allocation();
+                    if let Err(err) = attestation::verify(
+                        attestation_domain,
+                        attestation,
+                        &allocation,
+                        query,
+                        &original_response,
+                    ) {
+                        return Err(BadResponse(format!("bad attestation: {err}")));
+                    }
                 }
-            }
-            None => {
-                let message = if !errors.is_empty() {
-                    format!(
-                        "no attestation: {}",
-                        errors
-                            .iter()
-                            .map(|err| err.as_str())
-                            .collect::<Vec<&str>>()
-                            .join("; ")
-                    )
-                } else {
-                    "no attestation".to_string()
-                };
-                return Err(BadResponse(message));
-            }
-        };
+                None => {
+                    let message = if !errors.is_empty() {
+                        format!(
+                            "no attestation: {}",
+                            errors
+                                .iter()
+                                .map(|err| err.as_str())
+                                .collect::<Vec<&str>>()
+                                .join("; ")
+                        )
+                    } else {
+                        "no attestation".to_string()
+                    };
+                    return Err(BadResponse(message));
+                }
+            };
+        }
 
         Ok(IndexerResponse {
             original_response,

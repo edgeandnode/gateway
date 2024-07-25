@@ -9,7 +9,6 @@ pub use self::{
     subgraph_processing::{AllocationInfo, DeploymentInfo, SubgraphInfo, SubgraphVersionInfo},
 };
 use super::{subgraph_client::Client as SubgraphClient, DeploymentError, SubgraphError};
-use crate::network::subgraph_client::paginated_client::PaginatedClient;
 
 mod indexer_processing;
 mod pre_processing;
@@ -46,13 +45,10 @@ pub struct PreprocessedNetworkInfo {
 /// If the fetch fails or the response is empty, an error is returned.
 ///
 /// Invalid info is filtered out before converting into the internal representation.
-pub async fn fetch_and_preprocess_subgraph_info<C>(
-    client: &SubgraphClient<C>,
+pub async fn fetch_and_preprocess_subgraph_info(
+    client: &mut SubgraphClient,
     timeout: Duration,
-) -> anyhow::Result<PreprocessedNetworkInfo>
-where
-    C: PaginatedClient + Send + Sync + 'static,
-{
+) -> anyhow::Result<PreprocessedNetworkInfo> {
     // Fetch the subgraphs information from the graph network subgraph
     let data = tokio::time::timeout(timeout, client.fetch()).await??;
     anyhow::ensure!(!data.is_empty(), "empty subgraph response");
