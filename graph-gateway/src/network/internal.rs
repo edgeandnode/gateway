@@ -72,7 +72,6 @@ pub async fn fetch_and_preprocess_subgraph_info(
 mod tests {
     use super::*;
 
-    mod it_fetch_update;
     mod it_indexer_processing;
     mod tests_pre_processing;
     mod tests_subgraph_processing;
