@@ -1,13 +1,13 @@
 use std::fmt;
 
-use alloy_primitives::{BlockHash, BlockNumber};
+use alloy_primitives::{BlockHash, BlockNumber, BlockTimestamp};
 use serde::Deserialize;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 pub struct Block {
     pub number: BlockNumber,
     pub hash: BlockHash,
-    pub timestamp: u64,
+    pub timestamp: BlockTimestamp,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]

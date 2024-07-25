@@ -82,7 +82,7 @@ pub struct AllocationInfo {
 /// Process the fetched subgraphs' information.
 ///
 /// - If the subgraph was transferred to L2 and has no allocations,
-/// [`SubgraphError::TransferredToL2`] error is returned.
+///   [`SubgraphError::TransferredToL2`] error is returned.
 /// - If the subgraph has no allocations, [`SubgraphError::NoAllocations`] is returned.
 pub(super) fn process_subgraph_info(
     subgraphs: HashMap<SubgraphId, SubgraphRawInfo>,
@@ -177,7 +177,7 @@ fn check_subgraph_has_allocations(subgraph: &SubgraphRawInfo) -> Result<(), Subg
 /// Process the fetched deployments' information.
 ///
 /// - If the deployment was transferred to L2 and has no allocations,
-/// [`DeploymentError::TransferredToL2`] error is returned.
+///   [`DeploymentError::TransferredToL2`] error is returned.
 /// - If the deployment has no allocations, [`DeploymentError::NoAllocations`] is returned.
 pub(super) fn process_deployments_info(
     deployments: HashMap<DeploymentId, DeploymentRawInfo>,
@@ -194,7 +194,7 @@ pub(super) fn process_deployments_info(
 /// Try to convert the deployment raw information into processed deployment information.
 ///
 /// - If the deployment was marked as transferred to L2 and has no allocations,
-/// [`DeploymentError::TransferredToL2`] error is returned.
+///   [`DeploymentError::TransferredToL2`] error is returned.
 /// - If the deployment has no allocations, [`DeploymentError::NoAllocations`] is returned.
 fn try_into_deployment_info(
     deployment: &DeploymentRawInfo,

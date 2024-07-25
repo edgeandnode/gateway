@@ -36,11 +36,7 @@ use graph_gateway::{
     indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance,
     network::{
-        subgraph_client::{
-            indexers_list_paginated_client::Client as SubgraphClient,
-            Client as NetworkSubgraphClient,
-        },
-        NetworkService, NetworkServiceBuilder,
+        subgraph_client::Client as NetworkSubgraphClient, NetworkService, NetworkServiceBuilder,
     },
     receipts::ReceiptSigner,
     reports, subgraph_studio, vouchers,
@@ -100,10 +96,18 @@ async fn main() {
             conf.attestations.dispute_manager,
         )));
 
-    let network_subgraph_client = SubgraphClient::new(http_client.clone(), conf.trusted_indexers);
+    let indexer_client = IndexerClient {
+        client: http_client.clone(),
+    };
+    let network_subgraph_client = NetworkSubgraphClient {
+        client: indexer_client.clone(),
+        indexers: conf.trusted_indexers,
+        latest_block: None,
+        page_size: 500,
+        l2_transfer_support: conf.l2_gateway.is_some(),
+    };
     let mut network = match init_network_service(
         network_subgraph_client,
-        conf.l2_gateway.is_some(),
         http_client.clone(),
         conf.min_indexer_version,
         conf.min_graph_node_version,
@@ -157,9 +161,7 @@ async fn main() {
     .unwrap();
 
     let ctx = Context {
-        indexer_client: IndexerClient {
-            client: http_client.clone(),
-        },
+        indexer_client,
         receipt_signer,
         budgeter,
         l2_gateway: conf.l2_gateway,
@@ -385,8 +387,7 @@ async fn init_auth_service(
 /// necessary background tasks.
 #[allow(clippy::too_many_arguments)]
 fn init_network_service(
-    subgraph_client: SubgraphClient,
-    subgraph_client_l2_transfer_support: bool,
+    subgraph_client: NetworkSubgraphClient,
     indexer_http_client: reqwest::Client,
     indexer_min_indexer_service_version: Version,
     indexer_min_graph_node_version: Version,
@@ -394,9 +395,6 @@ fn init_network_service(
     indexer_host_blocklist: Option<&Path>,
     indexer_pois_blocklist: Vec<config::ProofOfIndexingInfo>,
 ) -> anyhow::Result<NetworkService> {
-    let subgraph_client =
-        NetworkSubgraphClient::new(subgraph_client, subgraph_client_l2_transfer_support);
-
     let mut builder = NetworkServiceBuilder::new(subgraph_client, indexer_http_client);
 
     // Configure the minimum  and graph node versions required by indexers

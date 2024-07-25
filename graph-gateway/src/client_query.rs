@@ -41,7 +41,7 @@ use self::{
 };
 use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
-    indexer_client::IndexerResponse,
+    indexer_client::{IndexerAuth, IndexerResponse},
     indexing_performance,
     network::{self, DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
     receipts::ReceiptStatus,
@@ -364,14 +364,11 @@ async fn run_indexer_queries(
             tokio::spawn(
                 async move {
                     let start_time = Instant::now();
+                    // URL checked: ref df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
+                    let deployment_url = url.join(&format!("subgraphs/id/{}", deployment)).unwrap();
+                    let auth = IndexerAuth::Paid(&receipt, ctx.attestation_domain);
                     let result = indexer_client
-                        .query_indexer(
-                            &deployment,
-                            &url,
-                            &receipt,
-                            ctx.attestation_domain,
-                            &indexer_query,
-                        )
+                        .query_indexer(deployment_url, auth, &indexer_query)
                         .in_current_span()
                         .await;
                     let response_time_ms = start_time.elapsed().as_millis() as u16;
@@ -830,16 +827,18 @@ pub async fn handle_indexer_query(
         }
     };
 
+    // URL checked: ref df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
+    let deployment_url = indexing
+        .indexer
+        .url
+        .join(&format!("subgraphs/id/{}", deployment))
+        .unwrap();
+    let indexer_auth = IndexerAuth::Paid(&receipt, ctx.attestation_domain);
+
     let indexer_start_time = Instant::now();
     let result = ctx
         .indexer_client
-        .query_indexer(
-            &deployment,
-            &indexing.indexer.url,
-            &receipt,
-            ctx.attestation_domain,
-            &payload,
-        )
+        .query_indexer(deployment_url, indexer_auth, &payload)
         .in_current_span()
         .await;
     let response_time_ms = start_time.elapsed().as_millis() as u16;

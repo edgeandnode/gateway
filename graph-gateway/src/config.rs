@@ -13,7 +13,7 @@ use gateway_framework::{
     auth::APIKey,
     config::{Hidden, HiddenSecretKey},
 };
-use graph_gateway::network::subgraph_client::indexers_list_paginated_client::TrustedIndexer;
+use graph_gateway::network::subgraph_client::TrustedIndexer;
 use ipnetwork::IpNetwork;
 use ordered_float::NotNan;
 use secp256k1::SecretKey;
