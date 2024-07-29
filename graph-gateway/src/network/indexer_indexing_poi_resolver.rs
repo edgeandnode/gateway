@@ -142,7 +142,7 @@ impl PoiResolver {
             .filter_map(|(key, result)| match result {
                 Ok(poi) => Some((key, poi)),
                 Err(poi_fetch_err) => {
-                    tracing::warn!(%poi_fetch_err);
+                    tracing::warn!(%poi_fetch_err, ?key);
                     None
                 }
             })
