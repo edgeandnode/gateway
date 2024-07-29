@@ -4760,8 +4760,8 @@ dependencies = [
 
 [[package]]
 name = "thegraph-core"
-version = "0.5.6"
-source = "git+https://github.com/edgeandnode/toolshed?rev=16e22a8#16e22a8821db083fea92932da2c6fb173aabcd4c"
+version = "0.5.7"
+source = "git+https://github.com/edgeandnode/toolshed?rev=db1ab45#db1ab45ccf9d049782bb98fc94f8a068d2ae4d69"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
