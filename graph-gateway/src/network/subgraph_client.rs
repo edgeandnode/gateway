@@ -248,12 +248,12 @@ impl Client {
                 );
                 query_block = Some(data.meta.block);
             }
-            let last_entry_id = data.results.last().map(|entry| entry.id.to_string());
+            last_id = data.results.last().map(|entry| entry.id.to_string());
+            let page_len = data.results.len();
             results.append(&mut data.results);
-            last_id = match last_entry_id {
-                Some(last_id) => Some(last_id),
-                None => break,
-            };
+            if page_len < self.page_size {
+                break;
+            }
         }
 
         self.latest_block = Some(query_block.unwrap());

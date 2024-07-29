@@ -36,11 +36,6 @@ use super::{
     ResolutionError,
 };
 
-/// Default update interval for the network topology information.
-pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(60);
-
-const NETWORK_TOPOLOGY_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
-
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
     /// Subgraph chain name.
@@ -230,7 +225,7 @@ impl NetworkServiceBuilder {
             indexer_indexing_progress_resolver,
             indexer_indexing_cost_model_resolver,
             indexer_indexing_cost_model_compiler,
-            update_interval: DEFAULT_UPDATE_INTERVAL,
+            update_interval: Duration::from_secs(60),
         }
     }
 
@@ -349,17 +344,11 @@ fn spawn_updater_task(
 
         let mut timer = tokio::time::interval(update_interval);
         timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-        // Fetch the network topology information every `update_interval` duration
-        // If the fetch fails or takes too long, log a warning and skip the update
         loop {
             timer.tick().await;
 
-            match fetch_and_preprocess_subgraph_info(
-                &mut subgraph_client,
-                NETWORK_TOPOLOGY_FETCH_TIMEOUT,
-            )
-            .await
+            match fetch_and_preprocess_subgraph_info(&mut subgraph_client, Duration::from_secs(30))
+                .await
             {
                 Ok(info) => network_info = Some(info),
                 Err(network_subgraph_update_err) => tracing::error!(%network_subgraph_update_err),

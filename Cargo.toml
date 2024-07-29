@@ -37,7 +37,7 @@ semver = { version = "1.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.116", features = ["raw_value"] }
 serde_with = "3.8.1"
-thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "16e22a8" }
+thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "db1ab45" }
 thegraph-graphql-http = "0.2.1"
 thiserror = "1.0.59"
 tokio = { version = "1.38.0", features = [
