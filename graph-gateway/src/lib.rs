@@ -3,6 +3,7 @@ pub mod client_query;
 pub mod indexer_client;
 pub mod indexers;
 pub mod indexing_performance;
+pub mod middleware;
 pub mod network;
 pub mod receipts;
 pub mod reports;

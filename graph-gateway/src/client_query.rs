@@ -19,7 +19,6 @@ use gateway_framework::{
     auth::AuthSettings,
     budgets::USD,
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
-    http::middleware::RequestId,
     metrics::{with_metric, METRICS},
 };
 use headers::ContentType;
@@ -43,6 +42,7 @@ use crate::{
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     indexer_client::{IndexerAuth, IndexerResponse},
     indexing_performance,
+    middleware::RequestId,
     network::{self, DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
     receipts::ReceiptStatus,
     reports,
@@ -941,14 +941,13 @@ mod tests {
             routing::post,
             Extension, Router,
         };
-        use gateway_framework::{
-            auth::{APIKey, AuthContext, AuthSettings},
-            http::middleware::{legacy_auth_adapter, RequireAuthorizationLayer},
-        };
+        use gateway_framework::auth::{APIKey, AuthContext, AuthSettings};
         use headers::{Authorization, ContentType, HeaderMapExt};
         use http_body_util::BodyExt;
         use tokio::sync::watch;
         use tower::ServiceExt;
+
+        use crate::middleware::{legacy_auth_adapter, RequireAuthorizationLayer};
 
         /// Create a test authorization context.
         fn test_auth_ctx(key: Option<&str>) -> AuthContext {
