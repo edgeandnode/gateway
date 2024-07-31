@@ -10,6 +10,7 @@ use thegraph_core::types::{AllocationId, DeploymentId, IndexerId};
 use tracing::Instrument;
 use url::Url;
 
+use super::InternalState;
 use crate::network::{
     config::VersionRequirements,
     errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
@@ -21,8 +22,6 @@ use crate::network::{
     indexer_indexing_progress_resolver::IndexingProgressResolver,
     indexer_version_resolver::VersionResolver,
 };
-
-use super::InternalState;
 
 /// Internal representation of the indexer pre-processed information.
 ///
@@ -333,7 +332,8 @@ async fn process_indexer_indexings(
 
     // Check if the indexer's indexings should be blocked by POI
     let blocked_indexings_by_poi = resolve_and_check_indexer_indexings_blocked_by_poi(
-        &state.indexer_indexing_pois_blocklist,
+        &state.poi_blocklist,
+        &state.poi_resolver,
         url,
         &healthy_indexer_indexings,
     )
@@ -360,7 +360,7 @@ async fn process_indexer_indexings(
 
     // Resolve the indexer's indexing progress information
     let mut indexing_progress = resolve_indexer_progress(
-        &state.indexer_indexing_progress_resolver,
+        &state.indexing_progress_resolver,
         url,
         &healthy_indexer_indexings,
     )
@@ -395,7 +395,8 @@ async fn process_indexer_indexings(
 
     // Resolve the indexer's indexing cost models
     let mut indexer_cost_models = resolve_indexer_cost_models(
-        &state.indexer_indexing_cost_model_resolver,
+        &state.cost_model_resolver,
+        &state.cost_model_compiler,
         url,
         &healthy_indexer_indexings,
     )
@@ -423,27 +424,26 @@ async fn process_indexer_indexings(
 
 /// Resolve and check if any of the indexer's indexings should be blocked by POI.
 async fn resolve_and_check_indexer_indexings_blocked_by_poi(
-    blocklist: &Option<(PoiResolver, PoiBlocklist)>,
+    blocklist: &PoiBlocklist,
+    resolver: &PoiResolver,
     url: &Url,
     indexings: &[DeploymentId],
 ) -> HashSet<DeploymentId> {
-    // If the POI blocklist was not configured, all indexings must be ALLOWED
-    let (pois_resolver, pois_blocklist) = match blocklist {
-        Some((blocklist, resolver)) => (blocklist, resolver),
-        _ => return HashSet::new(),
-    };
+    if blocklist.is_empty() {
+        return Default::default();
+    }
 
     // Get the list of affected POIs to resolve for the indexer's deployments
     // If none of the deployments are affected, the indexer must be ALLOWED
-    let indexer_affected_pois = pois_blocklist.affected_pois_metadata(indexings);
+    let indexer_affected_pois = blocklist.affected_pois_metadata(indexings);
     if indexer_affected_pois.is_empty() {
-        return HashSet::new();
+        return Default::default();
     }
 
     // Resolve the indexer public POIs for the affected deployments
-    let poi_result = pois_resolver.resolve(url, &indexer_affected_pois).await;
+    let poi_result = resolver.resolve(url, &indexer_affected_pois).await;
 
-    pois_blocklist.check(poi_result)
+    blocklist.check(poi_result)
 }
 
 /// Resolve the indexer's progress information.
@@ -474,7 +474,8 @@ async fn resolve_indexer_progress(
 
 /// Resolve the indexer's cost models.
 async fn resolve_indexer_cost_models(
-    (resolver, compiler): &(CostModelResolver, CostModelCompiler),
+    resolver: &CostModelResolver,
+    compiler: &CostModelCompiler,
     url: &Url,
     indexings: &[DeploymentId],
 ) -> HashMap<DeploymentId, Ptr<CostModel>> {

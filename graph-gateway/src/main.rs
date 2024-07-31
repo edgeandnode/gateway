@@ -3,7 +3,7 @@ use std::{
     env,
     io::Write as _,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
     time::Duration,
 };
@@ -34,15 +34,12 @@ use graph_gateway::{
     middleware::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
-    network::{
-        subgraph_client::Client as NetworkSubgraphClient, NetworkService, NetworkServiceBuilder,
-    },
+    network::{self, subgraph_client::Client as SubgraphClient},
     receipts::ReceiptSigner,
     reports, subgraph_studio, vouchers,
 };
 use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
-use semver::Version;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
 use thegraph_core::types::attestation;
@@ -98,28 +95,29 @@ async fn main() {
     let indexer_client = IndexerClient {
         client: http_client.clone(),
     };
-    let network_subgraph_client = NetworkSubgraphClient {
+    let network_subgraph_client = SubgraphClient {
         client: indexer_client.clone(),
         indexers: conf.trusted_indexers,
         latest_block: None,
         page_size: 500,
         l2_transfer_support: conf.l2_gateway.is_some(),
     };
-    let mut network = match init_network_service(
-        network_subgraph_client,
+    let indexer_host_blocklist = match &conf.ip_blocker_db {
+        Some(path) => {
+            config::load_ip_blocklist_from_file(path).expect("failed to load IP blocker DB")
+        }
+        None => Default::default(),
+    };
+    let indexer_blocklist = conf.bad_indexers.into_iter().map(Into::into).collect();
+    let mut network = network::service::spawn(
         http_client.clone(),
+        network_subgraph_client,
         conf.min_indexer_version,
         conf.min_graph_node_version,
-        conf.bad_indexers,
-        conf.ip_blocker_db.as_deref(),
+        indexer_blocklist,
+        indexer_host_blocklist,
         conf.poi_blocklist,
-    ) {
-        Ok(network) => network,
-        Err(err) => {
-            tracing::error!(%err);
-            panic!("Failed to initialize the network service: {err}");
-        }
-    };
+    );
     let indexing_perf = IndexingPerformance::new(network.clone());
     network.wait_until_ready().await;
 
@@ -380,43 +378,4 @@ async fn init_auth_service(
         special_api_keys,
         rate_limiter: api_key_rate_limit.map(gateway_framework::auth::RateLimiter::new),
     }
-}
-
-/// Creates a new network service instance based on the provided configuration, spawning the
-/// necessary background tasks.
-#[allow(clippy::too_many_arguments)]
-fn init_network_service(
-    subgraph_client: NetworkSubgraphClient,
-    indexer_http_client: reqwest::Client,
-    indexer_min_indexer_service_version: Version,
-    indexer_min_graph_node_version: Version,
-    indexer_addr_blocklist: Vec<Address>,
-    indexer_host_blocklist: Option<&Path>,
-    indexer_pois_blocklist: Vec<config::ProofOfIndexingInfo>,
-) -> anyhow::Result<NetworkService> {
-    let mut builder = NetworkServiceBuilder::new(subgraph_client, indexer_http_client);
-
-    // Configure the minimum  and graph node versions required by indexers
-    builder = builder.with_indexer_min_indexer_service_version(indexer_min_indexer_service_version);
-    builder = builder.with_indexer_min_graph_node_version(indexer_min_graph_node_version);
-
-    // Configure the address-based blocklist for indexers
-    if !indexer_addr_blocklist.is_empty() {
-        let indexer_addr_blocklist = indexer_addr_blocklist.into_iter().map(Into::into).collect();
-        builder = builder.with_indexer_addr_blocklist(indexer_addr_blocklist);
-    }
-
-    // Load and configure the host-based blocklist for indexers
-    if let Some(indexer_host_blocklist) = indexer_host_blocklist {
-        let indexer_host_blocklist = config::load_ip_blocklist_from_file(indexer_host_blocklist)?;
-        builder = builder.with_indexer_host_blocklist(indexer_host_blocklist);
-    }
-
-    // Load and configure the POI-based blocklist for indexers
-    if !indexer_pois_blocklist.is_empty() {
-        let indexer_pois_blocklist = indexer_pois_blocklist.into_iter().map(Into::into).collect();
-        builder = builder.with_indexer_pois_blocklist(indexer_pois_blocklist);
-    }
-
-    Ok(builder.build().spawn())
 }

@@ -3,13 +3,13 @@ use std::{
     time::Duration,
 };
 
-use alloy_primitives::{Address, BlockNumber};
+use alloy_primitives::Address;
 use assert_matches::assert_matches;
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::{
     allocation_id, deployment_id, indexer_id,
-    types::{DeploymentId, IndexerId, ProofOfIndexing},
+    types::{IndexerId, ProofOfIndexing},
 };
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
@@ -18,18 +18,19 @@ use super::{
     indexer_processing::{self, IndexerRawInfo, IndexingRawInfo},
     InternalState,
 };
-use crate::network::{
-    config::VersionRequirements as IndexerVersionRequirements,
-    errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
-    indexer_host_resolver::HostResolver,
-    indexer_indexing_cost_model_compiler::CostModelCompiler,
-    indexer_indexing_cost_model_resolver::{
-        CostModelResolver, DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
+use crate::{
+    indexers::public_poi::ProofOfIndexingInfo,
+    network::{
+        config::VersionRequirements as IndexerVersionRequirements,
+        errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
+        indexer_host_resolver::HostResolver,
+        indexer_indexing_cost_model_compiler::CostModelCompiler,
+        indexer_indexing_cost_model_resolver::CostModelResolver,
+        indexer_indexing_poi_blocklist::PoiBlocklist,
+        indexer_indexing_poi_resolver::PoiResolver,
+        indexer_indexing_progress_resolver::IndexingProgressResolver,
+        indexer_version_resolver::VersionResolver,
     },
-    indexer_indexing_poi_blocklist::PoiBlocklist,
-    indexer_indexing_poi_resolver::PoiResolver,
-    indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
 };
 
 // Test method to initialize the tests tracing subscriber.
@@ -77,47 +78,28 @@ fn test_service_state(
     addr_blocklist: HashSet<IndexerId>,
     host_blocklist: HashSet<IpNetwork>,
     min_versions: Option<(Version, Version)>,
-    pois_blocklist: HashSet<((DeploymentId, BlockNumber), ProofOfIndexing)>,
+    poi_blocklist: PoiBlocklist,
 ) -> InternalState {
-    let indexers_http_client = reqwest::Client::new();
-    let indexer_host_resolver = HostResolver::new().expect("Failed to create host resolver");
-    let indexer_version_resolver = VersionResolver::new(
-        indexers_http_client.clone(),
-        DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 1500 ms
-    );
-    let indexer_indexing_progress_resolver =
-        IndexingProgressResolver::new(indexers_http_client.clone(), Duration::from_secs(60));
-    let indexer_indexing_cost_model_resolver = (
-        CostModelResolver::new(
-            indexers_http_client.clone(),
-            DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
-        ),
-        CostModelCompiler::default(),
-    );
-
+    let http_client = reqwest::Client::new();
     let mut state = InternalState {
         indexer_addr_blocklist: addr_blocklist,
-        indexer_host_resolver,
+        indexer_host_resolver: HostResolver::new(Duration::from_secs(5))
+            .expect("Failed to create host resolver"),
         indexer_host_blocklist: host_blocklist,
-        indexer_version_resolver,
+        indexer_version_resolver: VersionResolver::new(http_client.clone(), Duration::from_secs(5)),
         indexer_version_requirements: IndexerVersionRequirements {
             min_indexer_service_version: Version::new(0, 0, 0),
             min_graph_node_version: Version::new(0, 0, 0),
         },
-        indexer_indexing_pois_blocklist: None,
-        indexer_indexing_progress_resolver,
-        indexer_indexing_cost_model_resolver,
-    };
-
-    if !pois_blocklist.is_empty() {
-        let pois_blocklist = PoiBlocklist::new(pois_blocklist);
-        let pois_resolver = PoiResolver::new(
-            indexers_http_client.clone(),
+        poi_blocklist,
+        poi_resolver: PoiResolver::new(http_client.clone(), Duration::from_secs(30), Duration::MAX),
+        indexing_progress_resolver: IndexingProgressResolver::new(
+            http_client.clone(),
             Duration::from_secs(30),
-            Duration::MAX,
-        );
-        state.indexer_indexing_pois_blocklist = Some((pois_resolver, pois_blocklist));
-    }
+        ),
+        cost_model_compiler: CostModelCompiler::default(),
+        cost_model_resolver: CostModelResolver::new(http_client.clone(), Duration::from_secs(5)),
+    };
 
     if let Some((min_indexer_service_version, min_graph_node_version)) = min_versions {
         state
@@ -351,16 +333,19 @@ async fn block_indexing_if_blocked_by_pois_blocklist() {
 
     // Set the POIs blocklist to block the network subgraph arbitrum v1.1.1 indexing only
     // if the returned POI matches the faulty one
-    let faulty_poi = (
-        (deployment_1, 1337),
-        parse_poi("0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1"),
-    );
+    let faulty_poi = ProofOfIndexingInfo {
+        block_number: 1337,
+        deployment_id: deployment_1,
+        proof_of_indexing: parse_poi(
+            "0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1",
+        ),
+    };
 
     let service = test_service_state(
         Default::default(), // No address blocklist
         Default::default(), // No host blocklist
         Default::default(), // No minimum version requirements
-        HashSet::from([faulty_poi]),
+        PoiBlocklist::new(vec![faulty_poi]),
     );
 
     //* When
@@ -438,20 +423,21 @@ async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
     // Set the POIs blocklist to block the network subgraph arbitrum v1.1.1 indexing only
     // if the returned POI matches the faulty one.
     //
-    let faulty_poi = (
-        (deployment_1, 1337),
-        // A random POI that does not match the faulty one.
-        //
+    let faulty_poi = ProofOfIndexingInfo {
+        block_number: 1337,
+        deployment_id: deployment_1,
         // The POI for block 1337 of  the network subgraph arbitrum v1.1.1 is:
         // 0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1
-        parse_poi("0x2b7a6d4ed9fbef02c8aa817dfd9bafb126cadc0f8ebcab736e627ef6d5aab060"),
-    );
+        proof_of_indexing: parse_poi(
+            "0x2b7a6d4ed9fbef02c8aa817dfd9bafb126cadc0f8ebcab736e627ef6d5aab060",
+        ),
+    };
 
     let service = test_service_state(
         Default::default(), // No address blocklist
         Default::default(), // No host blocklist
         Default::default(), // No minimum version requirements
-        HashSet::from([faulty_poi]),
+        PoiBlocklist::new(vec![faulty_poi]),
     );
 
     //* When
@@ -515,19 +501,19 @@ async fn do_not_block_indexing_if_public_pois_resolution_fails() {
     // Set the POIs blocklist to block the network subgraph arbitrum v1.1.1 indexing only
     // if the returned POI matches the faulty one.
     //
-    let faulty_poi = (
-        (
-            deployment_1,
-            u64::MAX, // An absurd block number that will cause the POI resolution to fail
+    let faulty_poi = ProofOfIndexingInfo {
+        block_number: u64::MAX, // An absurd block number that will cause the POI resolution to fail
+        deployment_id: deployment_1,
+        proof_of_indexing: parse_poi(
+            "0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1",
         ),
-        parse_poi("0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1"),
-    );
+    };
 
     let service = test_service_state(
         Default::default(), // No address blocklist
         Default::default(), // No host blocklist
         Default::default(), // No minimum version requirements
-        HashSet::from([faulty_poi]),
+        PoiBlocklist::new(vec![faulty_poi]),
     );
 
     //* When

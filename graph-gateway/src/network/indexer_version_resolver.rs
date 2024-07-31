@@ -15,9 +15,6 @@ use url::Url;
 
 use crate::indexers;
 
-/// The default indexer version resolution timeout: 5 seconds.
-pub const DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(5_000);
-
 /// The error that can occur while resolving the indexer versions.
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ResolutionError {
