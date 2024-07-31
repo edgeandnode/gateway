@@ -23,6 +23,8 @@ use crate::network::{
     indexer_version_resolver::VersionResolver,
 };
 
+use super::InternalState;
+
 /// Internal representation of the indexer pre-processed information.
 ///
 /// This is not the final representation of the indexer.
@@ -154,20 +156,10 @@ pub(super) struct IndexingProgress {
 }
 
 /// Process the fetched network topology information.
-pub(super) async fn process_info<S>(
-    state: &S,
+pub(super) async fn process_info(
+    state: &InternalState,
     indexers: &HashMap<IndexerId, IndexerRawInfo>,
-) -> HashMap<IndexerId, Result<ResolvedIndexerInfo, IndexerInfoResolutionError>>
-where
-    S: AsRef<Option<AddrBlocklist>>
-        + AsRef<HostResolver>
-        + AsRef<Option<HostBlocklist>>
-        + AsRef<VersionRequirements>
-        + AsRef<VersionResolver>
-        + AsRef<Option<(PoiResolver, PoiBlocklist)>>
-        + AsRef<IndexingProgressResolver>
-        + AsRef<(CostModelResolver, CostModelCompiler)>,
-{
+) -> HashMap<IndexerId, Result<ResolvedIndexerInfo, IndexerInfoResolutionError>> {
     let processed_info = {
         let indexers_iter_fut = indexers.iter().map(move |(indexer_id, indexer)| {
             // Instrument the indexer processing span
@@ -182,7 +174,9 @@ where
 
             async move {
                 // Check if the indexer's address is in the address blocklist
-                if let Err(err) = check_indexer_blocked_by_addr_blocklist(state.as_ref(), indexer) {
+                if let Err(err) =
+                    check_indexer_blocked_by_addr_blocklist(&state.indexer_addr_blocklist, indexer)
+                {
                     tracing::debug!(%err);
                     return (*indexer_id, Err(err));
                 }
@@ -192,8 +186,8 @@ where
                 // If the indexer host cannot be resolved or is in the blocklist, the indexer must
                 // be marked as unhealthy
                 if let Err(err) = resolve_and_check_indexer_blocked_by_host_blocklist(
-                    state.as_ref(),
-                    state.as_ref(),
+                    &state.indexer_host_resolver,
+                    &state.indexer_host_blocklist,
                     &indexer.url,
                 )
                 .await
@@ -208,8 +202,8 @@ where
                 // marked as unhealthy
                 let (indexer_service_version, graph_node_version) =
                     match resolve_and_check_indexer_blocked_by_version(
-                        state.as_ref(),
-                        state.as_ref(),
+                        &state.indexer_version_resolver,
+                        &state.indexer_version_requirements,
                         &indexer.url,
                     )
                     .await
@@ -349,16 +343,11 @@ async fn resolve_and_check_indexer_blocked_by_version(
 }
 
 /// Process the indexer's indexings information.
-async fn process_indexer_indexings<S>(
-    state: &S,
+async fn process_indexer_indexings(
+    state: &InternalState,
     url: &Url,
     indexings: HashMap<DeploymentId, IndexingRawInfo>,
-) -> HashMap<DeploymentId, Result<ResolvedIndexingInfo, IndexingInfoResolutionError>>
-where
-    S: AsRef<Option<(PoiResolver, PoiBlocklist)>>
-        + AsRef<IndexingProgressResolver>
-        + AsRef<(CostModelResolver, CostModelCompiler)>,
-{
+) -> HashMap<DeploymentId, Result<ResolvedIndexingInfo, IndexingInfoResolutionError>> {
     let indexer_indexings: HashMap<DeploymentId, Result<IndexingInfo<(), ()>, _>> = indexings
         .into_iter()
         .map(|(id, info)| (id, Ok(info.into())))
@@ -370,7 +359,7 @@ where
 
     // Check if the indexer's indexings should be blocked by POI
     let blocked_indexings_by_poi = resolve_and_check_indexer_indexings_blocked_by_poi(
-        state.as_ref(),
+        &state.indexer_indexing_pois_blocklist,
         url,
         &healthy_indexer_indexings,
     )
@@ -396,8 +385,12 @@ where
         .collect::<HashMap<_, _>>();
 
     // Resolve the indexer's indexing progress information
-    let mut indexing_progress =
-        resolve_indexer_progress(state.as_ref(), url, &healthy_indexer_indexings).await;
+    let mut indexing_progress = resolve_indexer_progress(
+        &state.indexer_indexing_progress_resolver,
+        url,
+        &healthy_indexer_indexings,
+    )
+    .await;
 
     // Remove the indexings with no indexing progress information from the healthy indexers list
     healthy_indexer_indexings.retain(|id| indexing_progress.contains_key(id));
@@ -427,8 +420,12 @@ where
         .collect::<HashMap<_, _>>();
 
     // Resolve the indexer's indexing cost models
-    let mut indexer_cost_models =
-        resolve_indexer_cost_models(state.as_ref(), url, &healthy_indexer_indexings).await;
+    let mut indexer_cost_models = resolve_indexer_cost_models(
+        &state.indexer_indexing_cost_model_resolver,
+        url,
+        &healthy_indexer_indexings,
+    )
+    .await;
 
     // Update the indexer's indexings info with the cost models
     let indexer_indexings = indexer_indexings
