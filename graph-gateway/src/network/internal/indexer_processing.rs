@@ -443,16 +443,7 @@ async fn resolve_and_check_indexer_indexings_blocked_by_poi(
     // Resolve the indexer public POIs for the affected deployments
     let poi_result = pois_resolver.resolve(url, &indexer_affected_pois).await;
 
-    // Check if any of the reported POIs are in the blocklist
-    let blocklist_check_result = pois_blocklist.check(poi_result);
-
-    indexings
-        .iter()
-        .filter_map(|id| match blocklist_check_result.get(id) {
-            Some(state) if state.is_blocked() => Some(*id),
-            _ => None,
-        })
-        .collect::<HashSet<_>>()
+    pois_blocklist.check(poi_result)
 }
 
 /// Resolve the indexer's progress information.
