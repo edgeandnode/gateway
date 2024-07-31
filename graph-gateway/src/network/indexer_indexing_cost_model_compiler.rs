@@ -17,9 +17,6 @@ use crate::indexers::cost_models::CostModelSource;
 /// Maximum size of a cost model source.
 const MAX_COST_MODEL_SIZE: usize = 1 << 16;
 
-/// Default time-to-live for the cost model compilation cache entries: 12 hours.
-const DEFAULT_COMPILATION_CACHE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
-
 /// Internal representation of a cost model source to be used as a key in the compilation cache
 /// hashmap.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -62,18 +59,7 @@ pub struct CostModelCompiler {
     cache: RwLock<TtlHashMap<CacheKey, Result<Ptr<CostModel>, CompilationError>>>,
 }
 
-impl Default for CostModelCompiler {
-    /// Creates a new [`CostModelCompiler`] instance with the default compilation cache
-    /// time-to-live, which is 12 hours.
-    fn default() -> Self {
-        Self {
-            cache: RwLock::new(TtlHashMap::with_ttl(DEFAULT_COMPILATION_CACHE_TTL)),
-        }
-    }
-}
-
 impl CostModelCompiler {
-    /// Creates a new [`CostModelCompiler`] instance with a custom compilation cache time-to-live.
     pub fn new(cache_ttl: Duration) -> Self {
         Self {
             cache: RwLock::new(TtlHashMap::with_ttl(cache_ttl)),

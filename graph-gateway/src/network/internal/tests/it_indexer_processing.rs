@@ -97,7 +97,7 @@ fn test_service_state(
             http_client.clone(),
             Duration::from_secs(30),
         ),
-        cost_model_compiler: CostModelCompiler::default(),
+        cost_model_compiler: CostModelCompiler::new(Duration::MAX),
         cost_model_resolver: CostModelResolver::new(http_client.clone(), Duration::from_secs(5)),
     };
 

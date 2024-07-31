@@ -14,12 +14,6 @@ use crate::{
     indexers::cost_models::{CostModelSource, Error as IndexerCostModelFetchError},
 };
 
-/// The default TTL (time-to-live) for the cached indexer's cost model sources: 5 minutes.
-///
-/// The cache TTL is the maximum time that the cached cost model sources are valid.
-pub const DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_CACHE_TTL: Duration =
-    Duration::from_secs(300);
-
 /// Error that can occur during cost model resolution.
 #[derive(Debug, thiserror::Error)]
 pub enum ResolutionError {

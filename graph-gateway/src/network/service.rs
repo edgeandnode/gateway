@@ -13,8 +13,6 @@ use semver::Version;
 use thegraph_core::types::{DeploymentId, IndexerId, SubgraphId};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
-use crate::indexers::public_poi::ProofOfIndexingInfo;
-
 use super::{
     config::VersionRequirements,
     errors::{DeploymentError, SubgraphError},
@@ -32,6 +30,7 @@ use super::{
     subgraph_client::Client as SubgraphClient,
     ResolutionError,
 };
+use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
@@ -205,7 +204,7 @@ pub fn spawn(
             Duration::from_secs(25),
         ),
         cost_model_resolver: CostModelResolver::new(http_client.clone(), Duration::from_secs(5)),
-        cost_model_compiler: CostModelCompiler::default(),
+        cost_model_compiler: CostModelCompiler::new(Duration::from_secs(12 * 60 * 60)),
     };
     let update_interval = Duration::from_secs(60);
     let network = spawn_updater_task(subgraph_client, internal_state, update_interval);
