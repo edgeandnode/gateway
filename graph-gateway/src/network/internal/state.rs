@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
+use ipnetwork::IpNetwork;
 use thegraph_core::types::IndexerId;
 
 use crate::network::{
-    config::VersionRequirements as IndexerVersionRequirements,
-    indexer_host_blocklist::HostBlocklist, indexer_host_resolver::HostResolver,
+    config::VersionRequirements as IndexerVersionRequirements, indexer_host_resolver::HostResolver,
     indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist, indexer_indexing_poi_resolver::PoiResolver,
@@ -16,7 +16,7 @@ use crate::network::{
 pub struct InternalState {
     pub indexer_addr_blocklist: HashSet<IndexerId>,
     pub indexer_host_resolver: HostResolver,
-    pub indexer_host_blocklist: Option<HostBlocklist>,
+    pub indexer_host_blocklist: HashSet<IpNetwork>,
     pub indexer_version_requirements: IndexerVersionRequirements,
     pub indexer_version_resolver: VersionResolver,
     pub indexer_indexing_pois_blocklist: Option<(PoiResolver, PoiBlocklist)>,

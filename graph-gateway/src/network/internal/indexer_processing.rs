@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet};
 use alloy_primitives::BlockNumber;
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
-use gateway_common::{blocklist::Blocklist as _, ptr::Ptr};
+use gateway_common::ptr::Ptr;
+use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::types::{AllocationId, DeploymentId, IndexerId};
 use tracing::Instrument;
@@ -12,7 +13,6 @@ use url::Url;
 use crate::network::{
     config::VersionRequirements,
     errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
-    indexer_host_blocklist::HostBlocklist,
     indexer_host_resolver::HostResolver,
     indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,
@@ -257,19 +257,16 @@ pub(super) async fn process_info(
 /// - If the indexer's host is in the blocklist: the indexer is BLOCKED.
 async fn resolve_and_check_indexer_blocked_by_host_blocklist(
     resolver: &HostResolver,
-    blocklist: &Option<HostBlocklist>,
+    blocklist: &HashSet<IpNetwork>,
     url: &Url,
 ) -> Result<(), IndexerInfoResolutionError> {
     // Resolve the indexer's URL, if it fails (or times out), the indexer must be BLOCKED
-    let resolution_result = resolver.resolve_url(url).await?;
+    let addrs = resolver.resolve_url(url).await?;
 
-    // If the host blocklist was not configured, the indexer must be ALLOWED
-    let host_blocklist = match blocklist {
-        Some(blocklist) => blocklist,
-        _ => return Ok(()),
-    };
-
-    if host_blocklist.check(&resolution_result).is_blocked() {
+    if addrs
+        .iter()
+        .any(|addr| blocklist.iter().any(|net| net.contains(*addr)))
+    {
         return Err(IndexerInfoResolutionError::BlockedByHostBlocklist);
     }
 

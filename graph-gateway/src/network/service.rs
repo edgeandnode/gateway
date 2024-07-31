@@ -16,7 +16,6 @@ use tokio::{sync::watch, time::MissedTickBehavior};
 use super::{
     config::VersionRequirements as IndexerVersionRequirements,
     errors::{DeploymentError, SubgraphError},
-    indexer_host_blocklist::HostBlocklist,
     indexer_host_resolver::{HostResolver, DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT},
     indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::{
@@ -180,7 +179,7 @@ pub struct NetworkServiceBuilder {
     indexer_client: reqwest::Client,
     indexer_addr_blocklist: HashSet<IndexerId>,
     indexer_host_resolver: HostResolver,
-    indexer_host_blocklist: Option<HostBlocklist>,
+    indexer_host_blocklist: HashSet<IpNetwork>,
     indexer_version_requirements: IndexerVersionRequirements,
     indexer_version_resolver: VersionResolver,
     indexer_indexing_pois_blocklist: Option<(PoiResolver, PoiBlocklist)>,
@@ -214,7 +213,7 @@ impl NetworkServiceBuilder {
             indexer_client,
             indexer_addr_blocklist: Default::default(),
             indexer_host_resolver,
-            indexer_host_blocklist: None,
+            indexer_host_blocklist: Default::default(),
             indexer_version_requirements: Default::default(),
             indexer_version_resolver,
             indexer_indexing_pois_blocklist: None,
@@ -252,9 +251,7 @@ impl NetworkServiceBuilder {
 
     /// Sets the indexer host blocklist.
     pub fn with_indexer_host_blocklist(mut self, blocklist: HashSet<IpNetwork>) -> Self {
-        let blocklist = HostBlocklist::new(blocklist);
-
-        self.indexer_host_blocklist = Some(blocklist);
+        self.indexer_host_blocklist = blocklist;
         self
     }
 
