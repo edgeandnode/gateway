@@ -4,14 +4,14 @@
 //! This module contains the logic necessary to query the Graph to get the latest state of the
 //! network subgraph.
 
+use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail, ensure, Context};
 use custom_debug::CustomDebug;
 use gateway_common::time::unix_timestamp;
 use gateway_framework::{blocks::Block, config::Hidden};
-use serde::Deserialize;
+use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 use serde_json::json;
 use serde_with::serde_as;
-use thegraph_core::client::queries::page::BlockHeight;
 use thegraph_graphql_http::http::response::Error as GqlError;
 use types::Subgraph;
 use url::Url;
@@ -100,6 +100,23 @@ pub struct TrustedIndexer {
     pub url: Url,
     /// free query auth token
     pub auth: Hidden<String>,
+}
+
+#[derive(Clone, Debug)]
+enum BlockHeight {
+    Hash(BlockHash),
+    NumberGte(BlockNumber),
+}
+
+impl Serialize for BlockHeight {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut obj = s.serialize_map(Some(1))?;
+        match self {
+            Self::Hash(hash) => obj.serialize_entry("hash", hash)?,
+            Self::NumberGte(number) => obj.serialize_entry("number_gte", number)?,
+        }
+        obj.end()
+    }
 }
 
 /// The Graph network subgraph client.
