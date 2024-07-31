@@ -21,7 +21,6 @@ use super::{
 use crate::network::{
     config::VersionRequirements as IndexerVersionRequirements,
     errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
-    indexer_addr_blocklist::AddrBlocklist,
     indexer_host_blocklist::HostBlocklist,
     indexer_host_resolver::HostResolver,
     indexer_indexing_cost_model_compiler::CostModelCompiler,
@@ -98,7 +97,7 @@ fn test_service_state(
     );
 
     let mut state = InternalState {
-        indexer_addr_blocklist: None,
+        indexer_addr_blocklist: addr_blocklist,
         indexer_host_resolver,
         indexer_host_blocklist: None,
         indexer_version_resolver,
@@ -110,11 +109,6 @@ fn test_service_state(
         indexer_indexing_progress_resolver,
         indexer_indexing_cost_model_resolver,
     };
-
-    if !addr_blocklist.is_empty() {
-        let indexers_addr_blocklist = AddrBlocklist::new(addr_blocklist);
-        state.indexer_addr_blocklist = Some(indexers_addr_blocklist);
-    }
 
     if !host_blocklist.is_empty() {
         let indexers_host_blocklist = HostBlocklist::new(host_blocklist);
