@@ -7,9 +7,8 @@
 //! The resolver will perform better if the client provided has a connection pool with the different
 //! indexers, as it will be able to reuse already established connections.
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use gateway_common::ttl_hash_map::TtlHashMap;
 use parking_lot::RwLock;
 use semver::Version;
 use url::Url;
@@ -18,9 +17,6 @@ use crate::indexers;
 
 /// The default indexer version resolution timeout: 5 seconds.
 pub const DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT: Duration = Duration::from_millis(5_000);
-
-/// The default TTL (time-to-live) for cache entries: 30 minutes.
-pub const DEFAULT_INDEXER_VERSION_CACHE_TTL: Duration = Duration::from_secs(60 * 30);
 
 /// The error that can occur while resolving the indexer versions.
 #[derive(Clone, Debug, thiserror::Error)]
@@ -54,43 +50,19 @@ pub struct VersionResolver {
     graph_node_version_resolution_timeout: Duration,
 
     /// Cache for the resolved indexer service versions.
-    indexer_service_version_cache: Arc<RwLock<TtlHashMap<String, Version>>>,
+    indexer_service_version_cache: Arc<RwLock<HashMap<String, Version>>>,
     /// Cache for the resolved indexer graph-node versions.
-    graph_node_version_cache: Arc<RwLock<TtlHashMap<String, Version>>>,
+    graph_node_version_cache: Arc<RwLock<HashMap<String, Version>>>,
 }
 
 impl VersionResolver {
-    /// Creates a new [`VersionResolver`] instance with the provided client.
-    ///
-    /// The resolver will use the default indexer version resolution timeout,
-    /// [`DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT`] (1.5 seconds), and cache TTL,
-    /// [`DEFAULT_INDEXER_VERSION_CACHE_TTL`] (20 minutes).
-    pub fn new(client: reqwest::Client) -> Self {
-        Self {
-            client,
-            indexer_service_version_resolution_timeout: DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
-            graph_node_version_resolution_timeout: DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT,
-            indexer_service_version_cache: Arc::new(RwLock::new(TtlHashMap::with_ttl(
-                DEFAULT_INDEXER_VERSION_CACHE_TTL,
-            ))),
-            graph_node_version_cache: Arc::new(RwLock::new(TtlHashMap::with_ttl(
-                DEFAULT_INDEXER_VERSION_CACHE_TTL,
-            ))),
-        }
-    }
-
-    /// Creates a new [`VersionResolver`] instance with the provided client, timeout and cache TTL.
-    pub fn with_timeout_and_cache_ttl(
-        client: reqwest::Client,
-        timeout: Duration,
-        cache_ttl: Duration,
-    ) -> Self {
+    pub fn new(client: reqwest::Client, timeout: Duration) -> Self {
         Self {
             client,
             indexer_service_version_resolution_timeout: timeout,
             graph_node_version_resolution_timeout: timeout,
-            indexer_service_version_cache: Arc::new(RwLock::new(TtlHashMap::with_ttl(cache_ttl))),
-            graph_node_version_cache: Arc::new(RwLock::new(TtlHashMap::with_ttl(cache_ttl))),
+            indexer_service_version_cache: Default::default(),
+            graph_node_version_cache: Default::default(),
         }
     }
 

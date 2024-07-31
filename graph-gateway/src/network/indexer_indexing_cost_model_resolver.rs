@@ -4,7 +4,7 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use gateway_common::{ptr::Ptr, ttl_hash_map::TtlHashMap};
+use gateway_common::ptr::Ptr;
 use parking_lot::RwLock;
 use thegraph_core::types::DeploymentId;
 use url::Url;
@@ -40,31 +40,15 @@ pub enum ResolutionError {
 pub struct CostModelResolver {
     client: reqwest::Client,
     timeout: Duration,
-    cache: RwLock<TtlHashMap<(String, DeploymentId), Ptr<CostModelSource>>>,
+    cache: RwLock<HashMap<(String, DeploymentId), Ptr<CostModelSource>>>,
 }
 
 impl CostModelResolver {
-    /// Creates a new [`CostModelResolver`] with the given HTTP client.
-    pub fn new(client: reqwest::Client) -> Self {
-        Self {
-            client,
-            timeout: DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
-            cache: RwLock::new(TtlHashMap::with_ttl(
-                DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_CACHE_TTL,
-            )),
-        }
-    }
-
-    /// Creates a new [`CostModelResolver`] with the given HTTP client, timeout, and cache TTL.
-    pub fn with_timeout_and_cache_ttl(
-        client: reqwest::Client,
-        timeout: Duration,
-        cache_ttl: Duration,
-    ) -> Self {
+    pub fn new(client: reqwest::Client, timeout: Duration) -> Self {
         Self {
             client,
             timeout,
-            cache: RwLock::new(TtlHashMap::with_ttl(cache_ttl)),
+            cache: Default::default(),
         }
     }
 
