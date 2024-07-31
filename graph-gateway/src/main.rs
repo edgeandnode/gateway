@@ -25,16 +25,15 @@ use gateway_framework::{
     auth::AuthContext,
     budgets::{Budgeter, USD},
     chains::Chains,
-    exchange_rate,
-    http::middleware::{
-        legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
-    },
-    json, logging,
+    exchange_rate, json, logging,
 };
 use graph_gateway::{
     client_query::{self, context::Context},
     indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance,
+    middleware::{
+        legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
+    },
     network::{
         subgraph_client::Client as NetworkSubgraphClient, NetworkService, NetworkServiceBuilder,
     },

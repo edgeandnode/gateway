@@ -26,6 +26,7 @@ lazy_static = "1.4.0"
 num-traits = "0.2.18"
 ordered-float = "4.2.0"
 parking_lot.workspace = true
+pin-project = "1.1.5"
 primitive-types.workspace = true
 prometheus = { version = "0.13", default-features = false }
 prost = "0.13.1"

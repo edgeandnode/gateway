@@ -7,7 +7,6 @@ pub mod config;
 pub mod errors;
 pub mod exchange_rate;
 pub mod graphql;
-pub mod http;
 pub mod indexing;
 pub mod json;
 pub mod logging;
