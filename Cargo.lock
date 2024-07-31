@@ -4767,14 +4767,9 @@ dependencies = [
  "alloy-sol-types",
  "bs58",
  "ethers-core",
- "indoc",
- "reqwest 0.12.5",
  "serde",
- "serde_json",
  "serde_with",
- "thegraph-graphql-http",
  "thiserror",
- "tracing",
  "url",
 ]
 
