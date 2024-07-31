@@ -10,7 +10,6 @@
 use std::collections::{HashMap, HashSet};
 
 use alloy_primitives::BlockNumber;
-use gateway_common::blocklist::Result as BlocklistResult;
 use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 
 use crate::indexers::public_poi::ProofOfIndexingInfo;
@@ -60,17 +59,16 @@ impl PoiBlocklist {
             .collect()
     }
 
-    /// Check if any of the reported POIs are in the blocklist.
-    // TODO: Implement `Blocklist` trait
+    /// Return deployments with blocked POIs.
     pub fn check(
         &self,
         pois: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing>,
-    ) -> HashMap<DeploymentId, BlocklistResult> {
+    ) -> HashSet<DeploymentId> {
         pois.iter()
-            .map(|((deployment_id, block_number), poi)| {
-                let state = self.check_poi(*deployment_id, *block_number, *poi);
-                (*deployment_id, state)
+            .filter(|((deployment_id, block_number), poi)| {
+                self.check_poi(*deployment_id, *block_number, **poi)
             })
+            .map(|((deployment_id, _), _)| *deployment_id)
             .collect()
     }
 
@@ -80,21 +78,14 @@ impl PoiBlocklist {
         deployment_id: DeploymentId,
         block_number: BlockNumber,
         poi: ProofOfIndexing,
-    ) -> BlocklistResult {
+    ) -> bool {
         match self.blocklist.get(&deployment_id) {
-            None => BlocklistResult::Allowed,
-            Some(blocked_pois) => {
-                // Check if the POI is blocked
-                if blocked_pois.iter().any(|blocked| {
-                    blocked.deployment_id == deployment_id
-                        && blocked.block_number == block_number
-                        && blocked.proof_of_indexing == poi
-                }) {
-                    BlocklistResult::Blocked
-                } else {
-                    BlocklistResult::Allowed
-                }
-            }
+            None => false,
+            Some(blocked_pois) => blocked_pois.iter().any(|blocked| {
+                blocked.deployment_id == deployment_id
+                    && blocked.block_number == block_number
+                    && blocked.proof_of_indexing == poi
+            }),
         }
     }
 }
