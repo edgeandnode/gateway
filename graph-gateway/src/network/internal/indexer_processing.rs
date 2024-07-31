@@ -12,7 +12,6 @@ use url::Url;
 use crate::network::{
     config::VersionRequirements,
     errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
-    indexer_addr_blocklist::AddrBlocklist,
     indexer_host_blocklist::HostBlocklist,
     indexer_host_resolver::HostResolver,
     indexer_indexing_cost_model_compiler::CostModelCompiler,
@@ -173,12 +172,11 @@ pub(super) async fn process_info(
             tracing::trace!(parent: &indexer_span, "processing");
 
             async move {
-                // Check if the indexer's address is in the address blocklist
-                if let Err(err) =
-                    check_indexer_blocked_by_addr_blocklist(&state.indexer_addr_blocklist, indexer)
-                {
-                    tracing::debug!(%err);
-                    return (*indexer_id, Err(err));
+                if state.indexer_addr_blocklist.contains(indexer_id) {
+                    return (
+                        *indexer_id,
+                        Err(IndexerInfoResolutionError::BlockedByAddrBlocklist),
+                    );
                 }
 
                 // Check if the indexer's host is in the host blocklist
@@ -250,27 +248,6 @@ pub(super) async fn process_info(
     };
 
     FromIterator::from_iter(processed_info)
-}
-
-/// Check if the indexer's address is in the address blocklist.
-///
-/// - If the address blocklist was not configured: the indexer is ALLOWED.
-/// - If the address is in the blocklist: the indexer is BLOCKED.
-fn check_indexer_blocked_by_addr_blocklist(
-    blocklist: &Option<AddrBlocklist>,
-    indexer: &IndexerRawInfo,
-) -> Result<(), IndexerInfoResolutionError> {
-    let blocklist = match blocklist {
-        Some(blocklist) => blocklist,
-        None => return Ok(()),
-    };
-
-    // Check if the indexer's address is in the blocklist
-    if blocklist.check(&indexer.id).is_blocked() {
-        return Err(IndexerInfoResolutionError::BlockedByAddrBlocklist);
-    }
-
-    Ok(())
 }
 
 /// Resolve and check if the indexer's host is in the host blocklist.
