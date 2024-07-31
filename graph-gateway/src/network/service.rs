@@ -10,21 +10,21 @@ use std::{
 use alloy_primitives::BlockNumber;
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::types::{DeploymentId, IndexerId, ProofOfIndexing, SubgraphId};
+use thegraph_core::types::{DeploymentId, IndexerId, SubgraphId};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
+use crate::indexers::public_poi::ProofOfIndexingInfo;
+
 use super::{
-    config::VersionRequirements as IndexerVersionRequirements,
+    config::VersionRequirements,
     errors::{DeploymentError, SubgraphError},
-    indexer_host_resolver::{HostResolver, DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT},
+    indexer_host_resolver::HostResolver,
     indexer_indexing_cost_model_compiler::CostModelCompiler,
-    indexer_indexing_cost_model_resolver::{
-        CostModelResolver, DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT,
-    },
+    indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist,
     indexer_indexing_poi_resolver::PoiResolver,
     indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::{VersionResolver, DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT},
+    indexer_version_resolver::VersionResolver,
     internal::{
         fetch_and_preprocess_subgraph_info, fetch_update, Indexing, IndexingId, InternalState,
         NetworkTopologySnapshot, PreprocessedNetworkInfo,
@@ -173,152 +173,44 @@ impl NetworkService {
     }
 }
 
-/// The [`NetworkService`] builder.
-pub struct NetworkServiceBuilder {
+pub fn spawn(
+    http_client: reqwest::Client,
     subgraph_client: SubgraphClient,
-    indexer_client: reqwest::Client,
+    min_indexer_service_version: Version,
+    min_graph_node_version: Version,
     indexer_addr_blocklist: HashSet<IndexerId>,
-    indexer_host_resolver: HostResolver,
     indexer_host_blocklist: HashSet<IpNetwork>,
-    indexer_version_requirements: IndexerVersionRequirements,
-    indexer_version_resolver: VersionResolver,
-    indexer_indexing_pois_blocklist: Option<(PoiResolver, PoiBlocklist)>,
-    indexer_indexing_progress_resolver: IndexingProgressResolver,
-    indexer_indexing_cost_model_resolver: CostModelResolver,
-    indexer_indexing_cost_model_compiler: CostModelCompiler,
-    update_interval: Duration,
-}
-
-impl NetworkServiceBuilder {
-    /// Creates a new [`NetworkServiceBuilder`] instance.
-    pub fn new(subgraph_client: SubgraphClient, indexer_client: reqwest::Client) -> Self {
-        let indexer_host_resolver = HostResolver::with_timeout(
-            DEFAULT_INDEXER_HOST_RESOLUTION_TIMEOUT, // 5 seconds
-        )
-        .expect("failed to create host resolver");
-        let indexer_version_resolver = VersionResolver::new(
-            indexer_client.clone(),
-            DEFAULT_INDEXER_VERSION_RESOLUTION_TIMEOUT, // 5 seconds
-        );
-        let indexer_indexing_progress_resolver =
-            IndexingProgressResolver::new(indexer_client.clone(), Duration::from_secs(25));
-        let indexer_indexing_cost_model_resolver = CostModelResolver::new(
-            indexer_client.clone(),
-            DEFAULT_INDEXER_INDEXING_COST_MODEL_RESOLUTION_TIMEOUT, // 5 seconds
-        );
-        let indexer_indexing_cost_model_compiler = CostModelCompiler::default();
-
-        Self {
-            subgraph_client,
-            indexer_client,
-            indexer_addr_blocklist: Default::default(),
-            indexer_host_resolver,
-            indexer_host_blocklist: Default::default(),
-            indexer_version_requirements: Default::default(),
-            indexer_version_resolver,
-            indexer_indexing_pois_blocklist: None,
-            indexer_indexing_progress_resolver,
-            indexer_indexing_cost_model_resolver,
-            indexer_indexing_cost_model_compiler,
-            update_interval: Duration::from_secs(60),
-        }
-    }
-
-    /// Sets the update interval for the network topology information.
-    pub fn with_update_interval(mut self, update_interval: Duration) -> Self {
-        self.update_interval = update_interval;
-        self
-    }
-
-    /// Sets the minimum indexer service version for indexers.
-    pub fn with_indexer_min_indexer_service_version(mut self, version: Version) -> Self {
-        self.indexer_version_requirements
-            .min_indexer_service_version = version;
-        self
-    }
-
-    /// Sets the minimum graph node version for indexers.
-    pub fn with_indexer_min_graph_node_version(mut self, version: Version) -> Self {
-        self.indexer_version_requirements.min_graph_node_version = version;
-        self
-    }
-
-    /// Sets the indexer address blocklist.
-    pub fn with_indexer_addr_blocklist(mut self, blocklist: HashSet<IndexerId>) -> Self {
-        self.indexer_addr_blocklist = blocklist;
-        self
-    }
-
-    /// Sets the indexer host blocklist.
-    pub fn with_indexer_host_blocklist(mut self, blocklist: HashSet<IpNetwork>) -> Self {
-        self.indexer_host_blocklist = blocklist;
-        self
-    }
-
-    /// Sets the indexer POIs blocklist.
-    pub fn with_indexer_pois_blocklist(
-        mut self,
-        blocklist: HashSet<((DeploymentId, BlockNumber), ProofOfIndexing)>,
-    ) -> Self {
-        let resolver = PoiResolver::new(
-            self.indexer_client.clone(),
+    indexer_pois_blocklist: Vec<ProofOfIndexingInfo>,
+) -> NetworkService {
+    let internal_state = InternalState {
+        indexer_addr_blocklist,
+        indexer_host_resolver: HostResolver::new(Duration::from_secs(5))
+            .expect("failed to create host resolver"),
+        indexer_host_blocklist,
+        indexer_version_requirements: VersionRequirements {
+            min_indexer_service_version,
+            min_graph_node_version,
+        },
+        indexer_version_resolver: VersionResolver::new(http_client.clone(), Duration::from_secs(5)),
+        poi_blocklist: PoiBlocklist::new(
+            indexer_pois_blocklist.into_iter().map(Into::into).collect(),
+        ),
+        poi_resolver: PoiResolver::new(
+            http_client.clone(),
             Duration::from_secs(5),
             Duration::from_secs(20 * 60),
-        );
-        let blocklist = PoiBlocklist::new(blocklist);
+        ),
+        indexing_progress_resolver: IndexingProgressResolver::new(
+            http_client.clone(),
+            Duration::from_secs(25),
+        ),
+        cost_model_resolver: CostModelResolver::new(http_client.clone(), Duration::from_secs(5)),
+        cost_model_compiler: CostModelCompiler::default(),
+    };
+    let update_interval = Duration::from_secs(60);
+    let network = spawn_updater_task(subgraph_client, internal_state, update_interval);
 
-        self.indexer_indexing_pois_blocklist = Some((resolver, blocklist));
-        self
-    }
-
-    /// Builds the [`NetworkService`] instance ready for spawning.
-    ///
-    /// To spawn the [`NetworkService`] instance, call the [`NetworkServicePending::spawn`] method.
-    pub fn build(self) -> NetworkServicePending {
-        let internal_state = InternalState {
-            indexer_addr_blocklist: self.indexer_addr_blocklist,
-            indexer_host_resolver: self.indexer_host_resolver,
-            indexer_host_blocklist: self.indexer_host_blocklist,
-            indexer_version_requirements: self.indexer_version_requirements,
-            indexer_version_resolver: self.indexer_version_resolver,
-            indexer_indexing_pois_blocklist: self.indexer_indexing_pois_blocklist,
-            indexer_indexing_progress_resolver: self.indexer_indexing_progress_resolver,
-            indexer_indexing_cost_model_resolver: (
-                self.indexer_indexing_cost_model_resolver,
-                self.indexer_indexing_cost_model_compiler,
-            ),
-        };
-
-        NetworkServicePending {
-            subgraph_client: self.subgraph_client,
-            internal_state,
-            update_interval: self.update_interval,
-        }
-    }
-}
-
-/// The [`NetworkService`] pending instance.
-///
-/// This struct represents the [`NetworkService`] instance that is pending spawning. To spawn the
-/// [`NetworkService`] instance, call the [`NetworkServicePending::spawn`] method.
-pub struct NetworkServicePending {
-    update_interval: Duration,
-    subgraph_client: SubgraphClient,
-    internal_state: InternalState,
-}
-
-impl NetworkServicePending {
-    /// Spawns the [`NetworkService`] instance's background task and returns the service
-    /// instance.
-    pub fn spawn(self) -> NetworkService {
-        let network = spawn_updater_task(
-            self.subgraph_client,
-            self.internal_state,
-            self.update_interval,
-        );
-
-        NetworkService { network }
-    }
+    NetworkService { network }
 }
 
 /// Spawn a background task to fetch the network topology information from the graph network

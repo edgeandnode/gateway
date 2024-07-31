@@ -6,9 +6,7 @@ pub use errors::{
     DeploymentError, IndexingError, ResolutionError, SubgraphError, UnavailableReason,
 };
 pub use internal::{Indexer, Indexing, IndexingId};
-pub use service::{
-    NetworkService, NetworkServiceBuilder, NetworkServicePending, ResolvedSubgraphInfo,
-};
+pub use service::{NetworkService, ResolvedSubgraphInfo};
 
 mod config;
 mod errors;
@@ -20,5 +18,5 @@ pub mod indexer_indexing_poi_resolver;
 pub mod indexer_indexing_progress_resolver;
 pub mod indexer_version_resolver;
 pub mod internal;
-mod service;
+pub mod service;
 pub mod subgraph_client;

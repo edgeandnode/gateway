@@ -12,14 +12,15 @@ use crate::network::{
     indexer_version_resolver::VersionResolver,
 };
 
-/// Internal type holding the network service state.
 pub struct InternalState {
     pub indexer_addr_blocklist: HashSet<IndexerId>,
     pub indexer_host_resolver: HostResolver,
     pub indexer_host_blocklist: HashSet<IpNetwork>,
     pub indexer_version_requirements: IndexerVersionRequirements,
     pub indexer_version_resolver: VersionResolver,
-    pub indexer_indexing_pois_blocklist: Option<(PoiResolver, PoiBlocklist)>,
-    pub indexer_indexing_progress_resolver: IndexingProgressResolver,
-    pub indexer_indexing_cost_model_resolver: (CostModelResolver, CostModelCompiler),
+    pub poi_blocklist: PoiBlocklist,
+    pub poi_resolver: PoiResolver,
+    pub indexing_progress_resolver: IndexingProgressResolver,
+    pub cost_model_resolver: CostModelResolver,
+    pub cost_model_compiler: CostModelCompiler,
 }

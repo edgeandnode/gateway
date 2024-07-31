@@ -6,21 +6,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use alloy_primitives::{Address, BlockNumber, U256};
+use alloy_primitives::{Address, U256};
 use anyhow::Context;
 use custom_debug::CustomDebug;
 use gateway_framework::{
     auth::APIKey,
     config::{Hidden, HiddenSecretKey},
 };
-use graph_gateway::network::subgraph_client::TrustedIndexer;
+use graph_gateway::{
+    indexers::public_poi::ProofOfIndexingInfo, network::subgraph_client::TrustedIndexer,
+};
 use ipnetwork::IpNetwork;
 use ordered_float::NotNan;
 use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 use url::Url;
 
 /// The Graph Gateway configuration.
@@ -195,28 +196,6 @@ pub struct Scalar {
     pub signer: Hidden<SecretKey>,
     /// Scalar TAP verifier contract address
     pub verifier: Address,
-}
-
-/// Proof of indexing info for the POI blocklist.
-///
-/// See [`Config`]'s [`poi_blocklist`](struct.Config.html#structfield.poi_blocklist).
-#[derive(Debug, Deserialize)]
-pub struct ProofOfIndexingInfo {
-    /// POI deployment ID (the IPFS Hash in the Graph Network Subgraph).
-    pub deployment_id: DeploymentId,
-    /// POI block number.
-    pub block_number: BlockNumber,
-    /// Proof of indexing (POI).
-    pub proof_of_indexing: ProofOfIndexing,
-}
-
-impl From<ProofOfIndexingInfo> for ((DeploymentId, BlockNumber), ProofOfIndexing) {
-    fn from(info: ProofOfIndexingInfo) -> Self {
-        (
-            (info.deployment_id, info.block_number),
-            info.proof_of_indexing,
-        )
-    }
 }
 
 /// Load the configuration from a JSON file.

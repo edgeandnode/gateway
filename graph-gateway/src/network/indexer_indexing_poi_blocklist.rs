@@ -15,20 +15,16 @@ use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 
 /// A blocklist based on the Proof of Indexing (POI) of indexers.
+#[derive(Default)]
 pub struct PoiBlocklist {
     blocklist: HashMap<DeploymentId, HashSet<ProofOfIndexingInfo>>,
 }
 
 impl PoiBlocklist {
-    /// Create a new indexer POI blocklist with the given configuration.
-    pub fn new<TInfo>(conf: impl IntoIterator<Item = TInfo>) -> Self
-    where
-        TInfo: Into<ProofOfIndexingInfo>,
-    {
+    pub fn new(conf: Vec<ProofOfIndexingInfo>) -> Self {
         // Group the blocked POI info by deployment ID
         let mut conf_map = HashMap::new();
-        for info in conf {
-            let info = info.into();
+        for info in conf.into_iter() {
             conf_map
                 .entry(info.deployment_id)
                 .or_insert_with(HashSet::new)
@@ -38,6 +34,10 @@ impl PoiBlocklist {
         Self {
             blocklist: conf_map,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.blocklist.is_empty()
     }
 
     /// Get a list of POIs metadata that are affected.
