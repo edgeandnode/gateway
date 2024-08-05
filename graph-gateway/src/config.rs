@@ -2,7 +2,6 @@
 
 use std::{
     collections::{BTreeMap, HashSet},
-    fmt,
     path::{Path, PathBuf},
 };
 
@@ -49,10 +48,6 @@ pub struct Config {
     pub kafka: KafkaConfig,
     /// Format log output as JSON
     pub log_json: bool,
-    /// L2 gateway to forward client queries to
-    #[debug(with = fmt_debug_optional_url)]
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    pub l2_gateway: Option<Url>,
     /// Minimum graph-node version that will receive queries
     #[serde_as(as = "DisplayFromStr")]
     pub min_graph_node_version: Version,
@@ -86,14 +81,6 @@ where
 {
     let value = f64::deserialize(deserializer)?;
     NotNan::new(value).map_err(serde::de::Error::custom)
-}
-
-/// Implement Debug for Option<Url> as display `Some(Url)` or `None`.
-fn fmt_debug_optional_url(url: &Option<Url>, f: &mut fmt::Formatter) -> fmt::Result {
-    match url {
-        Some(url) => write!(f, "Some({})", url),
-        None => write!(f, "None"),
-    }
 }
 
 /// API keys configuration.

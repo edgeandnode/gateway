@@ -49,7 +49,6 @@ fn process_deployment_info_successfully() {
                 manifest_network: "arbitrum-one".to_string(),
                 manifest_start_block: 42440000,
                 subgraphs: HashSet::from([subgraph_id]),
-                transferred_to_l2: false,
             },
         ),
         (
@@ -63,7 +62,6 @@ fn process_deployment_info_successfully() {
                 manifest_network: "arbitrum-one".to_string(),
                 manifest_start_block: 42440000,
                 subgraphs: HashSet::from([subgraph_id]),
-                transferred_to_l2: false,
             },
         ),
     ]);
@@ -107,42 +105,6 @@ fn process_deployment_info_successfully() {
 }
 
 #[test]
-fn block_deployment_when_transferred_to_l2() {
-    init_test_tracing();
-
-    //* Given
-    // Graph Network Subgraph info (on 2024-05-27)
-    let deployment_v001 = deployment_id!("QmU318BETTzmjUhBMDndQEaGqyP4rCSbiSZBZapaqNQQfF");
-    let raw_info = HashMap::from([(
-        deployment_v001,
-        DeploymentRawInfo {
-            id: deployment_v001,
-            manifest_network: "mainnet".to_string(),
-            manifest_start_block: 15685263,
-            subgraphs: Default::default(),
-            transferred_to_l2: true, // Marked as transferred
-            allocations: vec![],     // No allocations
-        },
-    )]);
-
-    //* When
-    let info = subgraph_processing::process_deployments_info(raw_info);
-
-    //* Then
-    // Assert deployments processed info
-    assert_eq!(info.len(), 1);
-    assert!(info.contains_key(&deployment_v001));
-
-    let deployment_err = info
-        .get(&deployment_v001)
-        .expect("deployment info not found")
-        .as_ref()
-        .expect_err("deployment not blocked");
-
-    assert_matches!(deployment_err, &DeploymentError::TransferredToL2);
-}
-
-#[test]
 fn process_subgraph_info_successfully() {
     init_test_tracing();
 
@@ -155,7 +117,6 @@ fn process_subgraph_info_successfully() {
         subgraph_id,
         SubgraphRawInfo {
             id: subgraph_id,
-            id_on_l2: None,
             versions: vec![
                 SubgraphVersionRawInfo {
                     version: 1,
@@ -178,7 +139,6 @@ fn process_subgraph_info_successfully() {
                         manifest_network: "arbitrum-one".to_string(),
                         manifest_start_block: 42440000,
                         subgraphs: HashSet::from([subgraph_id]),
-                        transferred_to_l2: false,
                     },
                 },
                 SubgraphVersionRawInfo {
@@ -192,7 +152,6 @@ fn process_subgraph_info_successfully() {
                         manifest_network: "arbitrum-one".to_string(),
                         manifest_start_block: 42440000,
                         subgraphs: HashSet::from([subgraph_id]),
-                        transferred_to_l2: false,
                     },
                 },
             ],
@@ -256,8 +215,7 @@ fn block_deployment_when_no_allocations() {
             manifest_network: "mainnet".to_string(),
             manifest_start_block: 15685263,
             subgraphs: Default::default(),
-            transferred_to_l2: false, // Not marked as transferred
-            allocations: vec![],      // No allocations
+            allocations: vec![], // No allocations
         },
     )]);
 
@@ -279,65 +237,16 @@ fn block_deployment_when_no_allocations() {
 }
 
 #[test]
-fn block_subgraph_when_all_deployments_have_been_transferred_to_l2() {
-    init_test_tracing();
-
-    //* Given
-    // Graph Network Subgraph info (on 2024-05-27)
-    let subgraph_id = subgraph_id!("2ko2nM7rMkL4BmFbnMoAatb69EcA8MBApAPTorDVNTgj");
-    let subgraph_id_on_l2 = subgraph_id!("3uQzo8AbYn9Pwdp5aEuBQaocu7FtdVwZUV72aJGL5Gik");
-    let deployment_v001 = deployment_id!("QmU318BETTzmjUhBMDndQEaGqyP4rCSbiSZBZapaqNQQfF");
-    let raw_info = HashMap::from([(
-        subgraph_id,
-        SubgraphRawInfo {
-            id: subgraph_id,
-            id_on_l2: Some(subgraph_id_on_l2),
-            versions: vec![SubgraphVersionRawInfo {
-                version: 0,
-                deployment: DeploymentRawInfo {
-                    id: deployment_v001,
-                    manifest_network: "mainnet".to_string(),
-                    manifest_start_block: 15685263,
-                    subgraphs: Default::default(),
-                    transferred_to_l2: true, // Marked as transferred
-                    allocations: vec![],     // No allocations
-                },
-            }],
-        },
-    )]);
-
-    //* When
-    let info = subgraph_processing::process_subgraph_info(raw_info);
-
-    //* Then
-    // Assert subgraphs processed info
-    assert_eq!(info.len(), 1);
-    assert!(info.contains_key(&subgraph_id));
-
-    let subgraph_err = info
-        .get(&subgraph_id)
-        .expect("subgraph info not found")
-        .as_ref()
-        .expect_err("subgraph not blocked");
-
-    assert_matches!(subgraph_err, &SubgraphError::TransferredToL2 { id_on_l2: Some(id_on_l2) } => {
-        assert_eq!(id_on_l2, subgraph_id_on_l2);
-    });
-}
-
-#[test]
 fn block_subgraph_when_all_deployments_have_no_allocations() {
     init_test_tracing();
 
     //* Given
     let subgraph_id = subgraph_id!("2ko2nM7rMkL4BmFbnMoAatb69EcA8MBApAPTorDVNTgj");
-    let subgraph_id_on_l2 = subgraph_id!("3uQzo8AbYn9Pwdp5aEuBQaocu7FtdVwZUV72aJGL5Gik");
     let deployment_v001 = deployment_id!("QmU318BETTzmjUhBMDndQEaGqyP4rCSbiSZBZapaqNQQfF");
     let raw_info = HashMap::from([(
         subgraph_id,
         SubgraphRawInfo {
             id: subgraph_id,
-            id_on_l2: Some(subgraph_id_on_l2),
             versions: vec![SubgraphVersionRawInfo {
                 version: 0,
                 deployment: DeploymentRawInfo {
@@ -345,8 +254,7 @@ fn block_subgraph_when_all_deployments_have_no_allocations() {
                     manifest_network: "mainnet".to_string(),
                     manifest_start_block: 15685263,
                     subgraphs: Default::default(),
-                    transferred_to_l2: false, // Not marked as transferred
-                    allocations: vec![],      // No allocations
+                    allocations: vec![], // No allocations
                 },
             }],
         },
@@ -370,76 +278,6 @@ fn block_subgraph_when_all_deployments_have_no_allocations() {
 }
 
 #[test]
-fn block_subgraph_deployment_if_marked_as_transferred_to_l2() {
-    init_test_tracing();
-
-    //* Given
-    let subgraph_id = subgraph_id!("2ko2nM7rMkL4BmFbnMoAatb69EcA8MBApAPTorDVNTgj");
-    let deployment_v003 = deployment_id!("QmU318BETTzmjUhBMDndQEaGqyP4rCSbiSZBZapaqNQQfF");
-    let deployment_v002 = deployment_id!("QmPK1s3pNYLi9ERiq3BDxKa4XosgWwFRQUydHUtz4YgpqB");
-    let raw_info = HashMap::from([(
-        subgraph_id,
-        SubgraphRawInfo {
-            id: subgraph_id,
-            id_on_l2: None,
-            versions: vec![
-                SubgraphVersionRawInfo {
-                    version: 2,
-                    deployment: DeploymentRawInfo {
-                        id: deployment_v003,
-                        manifest_network: "mainnet".to_string(),
-                        manifest_start_block: 15685263,
-                        subgraphs: Default::default(),
-                        transferred_to_l2: false,
-                        allocations: vec![AllocationInfo {
-                            id: allocation_id!("177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
-                            indexer: indexer_id!("4e5c87772c29381bcabc58c3f182b6633b5a274a"),
-                        }],
-                    },
-                },
-                SubgraphVersionRawInfo {
-                    version: 1,
-                    deployment: DeploymentRawInfo {
-                        id: deployment_v002,
-                        manifest_network: "mainnet".to_string(),
-                        manifest_start_block: 15685263,
-                        subgraphs: Default::default(),
-                        transferred_to_l2: true, // Marked as transferred
-                        allocations: vec![],     // No allocations
-                    },
-                },
-            ],
-        },
-    )]);
-
-    //* When
-    let info = subgraph_processing::process_subgraph_info(raw_info);
-
-    //* Then
-    // Assert subgraphs processed info
-    assert_eq!(info.len(), 1);
-    assert!(info.contains_key(&subgraph_id));
-
-    let subgraph_info = info
-        .get(&subgraph_id)
-        .expect("subgraph info not found")
-        .as_ref()
-        .expect("subgraph blocked");
-
-    assert_eq!(subgraph_info.versions.len(), 2);
-
-    let version_2 = &subgraph_info.versions[0]; // Highest version
-    assert_eq!(version_2.version, 2);
-    assert_eq!(version_2.deployment_id, deployment_v003);
-    assert!(version_2.deployment.is_ok());
-
-    let version_1 = &subgraph_info.versions[1];
-    assert_eq!(version_1.version, 1);
-    assert_eq!(version_1.deployment_id, deployment_v002);
-    assert_matches!(version_1.deployment, Err(DeploymentError::TransferredToL2));
-}
-
-#[test]
 fn block_subgraph_deployment_if_has_no_allocations() {
     init_test_tracing();
 
@@ -451,7 +289,6 @@ fn block_subgraph_deployment_if_has_no_allocations() {
         subgraph_id,
         SubgraphRawInfo {
             id: subgraph_id,
-            id_on_l2: None,
             versions: vec![
                 SubgraphVersionRawInfo {
                     version: 2,
@@ -460,7 +297,6 @@ fn block_subgraph_deployment_if_has_no_allocations() {
                         manifest_network: "mainnet".to_string(),
                         manifest_start_block: 15685263,
                         subgraphs: Default::default(),
-                        transferred_to_l2: false,
                         allocations: vec![AllocationInfo {
                             id: allocation_id!("177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
                             indexer: indexer_id!("4e5c87772c29381bcabc58c3f182b6633b5a274a"),
@@ -474,8 +310,7 @@ fn block_subgraph_deployment_if_has_no_allocations() {
                         manifest_network: "mainnet".to_string(),
                         manifest_start_block: 15685263,
                         subgraphs: Default::default(),
-                        transferred_to_l2: false, // Not marked as transferred
-                        allocations: vec![],      // No allocations
+                        allocations: vec![], // No allocations
                     },
                 },
             ],

@@ -8,8 +8,8 @@ use alloy_primitives::BlockNumber;
 use anyhow::anyhow;
 use axum::{
     body::Bytes,
-    extract::{OriginalUri, Path, State},
-    http::{HeaderMap, Response, StatusCode},
+    extract::{Path, State},
+    http::{Response, StatusCode},
     Extension,
 };
 use cost_model::{Context as AgoraContext, CostModel};
@@ -28,14 +28,14 @@ use prost::bytes::Buf;
 use rand::{thread_rng, Rng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::types::{AllocationId, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 use tracing::{info_span, Instrument as _};
 use url::Url;
 
 use self::{
-    attestation_header::GraphAttestation, context::Context, l2_forwarding::forward_request_to_l2,
-    query_selector::QuerySelector, query_settings::QuerySettings,
+    attestation_header::GraphAttestation, context::Context, query_selector::QuerySelector,
+    query_settings::QuerySettings,
 };
 use crate::{
     auth::AuthSettings,
@@ -50,7 +50,6 @@ use crate::{
 
 mod attestation_header;
 pub mod context;
-mod l2_forwarding;
 mod query_selector;
 mod query_settings;
 
@@ -62,38 +61,19 @@ pub struct QueryBody {
     pub variables: Option<Box<RawValue>>,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthSettings>,
     Extension(RequestId(request_id)): Extension<RequestId>,
     query_settings: Option<Extension<QuerySettings>>,
-    OriginalUri(original_uri): OriginalUri,
     selector: QuerySelector,
-    headers: HeaderMap,
     payload: Bytes,
 ) -> Result<Response<String>, Error> {
     let start_time = Instant::now();
 
     // Check if the query selector is authorized by the auth token and
     // resolve the subgraph deployments for the query.
-    let subgraph = match resolve_subgraph_info(&ctx, &auth, selector).await? {
-        Err(ResolutionError::TransferredToL2 { id_on_l2 }) => {
-            return match ctx.l2_gateway.as_ref() {
-                Some(l2_gateway_url) => Ok(forward_request_to_l2(
-                    &ctx.indexer_client.client,
-                    l2_gateway_url,
-                    &original_uri,
-                    headers,
-                    payload,
-                    id_on_l2,
-                )
-                .await),
-                None => Err(Error::SubgraphNotFound(anyhow!("transferred to l2"))),
-            }
-        }
-        Ok(info) => info,
-    };
+    let subgraph = resolve_subgraph_info(&ctx, &auth, selector).await?;
 
     let client_request: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
@@ -160,14 +140,6 @@ pub async fn handle_query(
     )
 }
 
-/// Error type for the `resolve_subgraph_info` function.
-#[derive(Debug, thiserror::Error)]
-enum ResolutionError {
-    /// The subgraph (or deployment) was transferred to L2.
-    #[error("subgraph transferred to L2: {id_on_l2:?}")]
-    TransferredToL2 { id_on_l2: Option<SubgraphId> },
-}
-
 /// Resolve the subgraph info for the given query selector.
 ///
 /// This function checks if the subgraph (or deployment) is authorized by the auth settings and
@@ -176,7 +148,7 @@ async fn resolve_subgraph_info(
     ctx: &Context,
     auth: &AuthSettings,
     selector: QuerySelector,
-) -> Result<Result<ResolvedSubgraphInfo, ResolutionError>, Error> {
+) -> Result<ResolvedSubgraphInfo, Error> {
     match selector {
         QuerySelector::Subgraph(ref id) => {
             // If the subgraph is not authorized, return an error.
@@ -185,9 +157,6 @@ async fn resolve_subgraph_info(
             }
 
             match ctx.network.resolve_with_subgraph_id(id) {
-                Err(SubgraphError::TransferredToL2 { id_on_l2 }) => {
-                    Ok(Err(ResolutionError::TransferredToL2 { id_on_l2 }))
-                }
                 Err(SubgraphError::NoAllocations) => {
                     Err(Error::SubgraphNotFound(anyhow!("no allocations",)))
                 }
@@ -196,16 +165,13 @@ async fn resolve_subgraph_info(
                 }
                 Ok(None) => Err(Error::SubgraphNotFound(anyhow!("{selector}",))),
                 Ok(Some(info)) if info.indexings.is_empty() => Err(Error::NoIndexers),
-                Ok(Some(info)) => Ok(Ok(info)),
+                Ok(Some(info)) => Ok(info),
             }
         }
         QuerySelector::Deployment(ref id) => {
             // Authorization is based on the "authorized subgraphs" allowlist. We need to resolve
             // the subgraph deployments to check if any of the deployment's subgraphs are authorized
             match ctx.network.resolve_with_deployment_id(id) {
-                Err(DeploymentError::TransferredToL2) => {
-                    Ok(Err(ResolutionError::TransferredToL2 { id_on_l2: None }))
-                }
                 Err(DeploymentError::NoAllocations) => {
                     Err(Error::SubgraphNotFound(anyhow!("no allocations",)))
                 }
@@ -215,7 +181,7 @@ async fn resolve_subgraph_info(
                     if !auth.is_any_deployment_subgraph_authorized(&info.subgraphs) {
                         Err(Error::Auth(anyhow!("deployment not authorized by user")))
                     } else {
-                        Ok(Ok(info))
+                        Ok(info)
                     }
                 }
             }
@@ -785,13 +751,8 @@ pub async fn handle_indexer_query(
         deployment,
         indexer,
     };
-    let subgraph = resolve_subgraph_info(&ctx, &auth, QuerySelector::Deployment(deployment))
-        .await?
-        .map_err(|err| match err {
-            ResolutionError::TransferredToL2 { .. } => {
-                Error::SubgraphNotFound(anyhow!("deployment transferred to L2"))
-            }
-        })?;
+    let subgraph =
+        resolve_subgraph_info(&ctx, &auth, QuerySelector::Deployment(deployment)).await?;
     let indexing = subgraph
         .indexings
         .get(&indexing_id)

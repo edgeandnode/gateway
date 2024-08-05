@@ -20,7 +20,6 @@ headers.workspace = true
 hex.workspace = true
 hickory-resolver = "0.24.0"
 indexer-selection.workspace = true
-indoc = "2.0.5"
 ipnetwork = { version = "0.20.0", default-features = false }
 itertools = "0.13.0"
 lazy_static = "1.4.0"

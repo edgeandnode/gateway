@@ -39,7 +39,6 @@ fn indexers_data_pre_processing() {
     let data = network_data(json!([
       {
         "id": "21dvLGCdpj4TNQXt7azhjc2sZhj2j5fWXuYCYG6z3mjP",
-        "idOnL2": null,
         "versions": [
           {
             "version": 1,
@@ -49,7 +48,6 @@ fn indexers_data_pre_processing() {
                 "network": "gnosis",
                 "startBlock": "25313137"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0x8de241c35f8bc02ae9ad635e273372dd083f6520",
@@ -89,7 +87,6 @@ fn indexers_data_pre_processing() {
                 "network": "gnosis",
                 "startBlock": "25313105"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0xa51c172268db23b0ec7bcf36b60d4cec374c1783",
@@ -107,7 +104,6 @@ fn indexers_data_pre_processing() {
       },
       {
         "id": "223LR19dRLKChVVy8xH4bXvG9gjnFvmm73M6qDh8BFLf",
-        "idOnL2": null,
         "versions": [
           {
             "version": 1,
@@ -117,7 +113,6 @@ fn indexers_data_pre_processing() {
                 "network": "arbitrum-sepolia",
                 "startBlock": "24276088"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0x28220d396bf2c22717b07f4d767429b7d5b72b03",
@@ -139,7 +134,6 @@ fn indexers_data_pre_processing() {
                 "network": "arbitrum-sepolia",
                 "startBlock": "24276088"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0x070b3036035489055d59f93efb63b80c7031ebca",
@@ -308,7 +302,6 @@ fn subgraphs_data_pre_processing() {
     let data = network_data(json!([
       {
         "id": "21dvLGCdpj4TNQXt7azhjc2sZhj2j5fWXuYCYG6z3mjP",
-        "idOnL2": null,
         "versions": [
           {
             "version": 1,
@@ -318,7 +311,6 @@ fn subgraphs_data_pre_processing() {
                 "network": "gnosis",
                 "startBlock": "25313137"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0xcc3f326bdbfcb6fc730e04d859e6103f31cd691c",
@@ -340,7 +332,6 @@ fn subgraphs_data_pre_processing() {
                 "network": "gnosis",
                 "startBlock": "25313105"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0xa51c172268db23b0ec7bcf36b60d4cec374c1783",
@@ -358,7 +349,6 @@ fn subgraphs_data_pre_processing() {
       },
       {
         "id": "223LR19dRLKChVVy8xH4bXvG9gjnFvmm73M6qDh8BFLf",
-        "idOnL2": null,
         "versions": [
           {
             "version": 1,
@@ -368,7 +358,6 @@ fn subgraphs_data_pre_processing() {
                 "network": "arbitrum-sepolia",
                 "startBlock": "24276088"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0x28220d396bf2c22717b07f4d767429b7d5b72b03",
@@ -386,7 +375,6 @@ fn subgraphs_data_pre_processing() {
       },
       {
         "id": "223LR19dRLKChVVy8xH4bXvG9gjnFvmm73M6qDh8BFLf",
-        "idOnL2": null,
         "versions": [
           {
             "version": 0,
@@ -396,7 +384,6 @@ fn subgraphs_data_pre_processing() {
                 "network": "arbitrum-sepolia",
                 "startBlock": "24276088"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0x070b3036035489055d59f93efb63b80c7031ebca",
@@ -414,7 +401,6 @@ fn subgraphs_data_pre_processing() {
       },
       {
         "id": "2gWLd9Aw4VRCPQHcXrxBSVGWEdBu3VL8arCckxRUbeAA",
-        "idOnL2": null,
         "versions": [
           {
             "version": 1,
@@ -424,7 +410,6 @@ fn subgraphs_data_pre_processing() {
                 "network": "gnosis-chiado",
                 "startBlock": "25313137"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0x3afbf91a22d264d2d6fb46fa828ecc3dce687e72",
@@ -546,7 +531,6 @@ fn deployments_data_pre_processing() {
     let data = network_data(json!([
       {
         "id": "21dvLGCdpj4TNQXt7azhjc2sZhj2j5fWXuYCYG6z3mjP",
-        "idOnL2": null,
         "versions": [
           {
             "version": 1,
@@ -556,7 +540,6 @@ fn deployments_data_pre_processing() {
                 "network": "gnosis",
                 "startBlock": "25313137"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0xcc3f326bdbfcb6fc730e04d859e6103f31cd691c",
@@ -578,7 +561,6 @@ fn deployments_data_pre_processing() {
                 "network": "gnosis",
                 "startBlock": "25313105"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0xa51c172268db23b0ec7bcf36b60d4cec374c1783",
@@ -596,7 +578,6 @@ fn deployments_data_pre_processing() {
       },
       {
         "id": "223LR19dRLKChVVy8xH4bXvG9gjnFvmm73M6qDh8BFLf",
-        "idOnL2": null,
         "versions": [
           {
             "version": 1,
@@ -606,7 +587,6 @@ fn deployments_data_pre_processing() {
                 "network": "arbitrum-sepolia",
                 "startBlock": "24276088"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0x28220d396bf2c22717b07f4d767429b7d5b72b03",
@@ -624,7 +604,6 @@ fn deployments_data_pre_processing() {
       },
       {
         "id": "223LR19dRLKChVVy8xH4bXvG9gjnFvmm73M6qDh8BFLf",
-        "idOnL2": null,
         "versions": [
           {
             "version": 0,
@@ -634,7 +613,6 @@ fn deployments_data_pre_processing() {
                 "network": "arbitrum-sepolia",
                 "startBlock": "24276088"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0x070b3036035489055d59f93efb63b80c7031ebca",
@@ -652,7 +630,6 @@ fn deployments_data_pre_processing() {
       },
       {
         "id": "2gWLd9Aw4VRCPQHcXrxBSVGWEdBu3VL8arCckxRUbeAA",
-        "idOnL2": null,
         "versions": [
           {
             "version": 1,
@@ -662,7 +639,6 @@ fn deployments_data_pre_processing() {
                 "network": "gnosis-chiado",
                 "startBlock": "25313137"
               },
-              "transferredToL2": false,
               "indexerAllocations": [
                 {
                   "id": "0x3afbf91a22d264d2d6fb46fa828ecc3dce687e72",

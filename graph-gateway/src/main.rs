@@ -100,7 +100,6 @@ async fn main() {
         indexers: conf.trusted_indexers,
         latest_block: None,
         page_size: 500,
-        l2_transfer_support: conf.l2_gateway.is_some(),
     };
     let indexer_host_blocklist = match &conf.ip_blocker_db {
         Some(path) => {
@@ -156,7 +155,6 @@ async fn main() {
         indexer_client,
         receipt_signer,
         budgeter,
-        l2_gateway: conf.l2_gateway,
         chains: Box::leak(Box::new(Chains::new(conf.chain_aliases))),
         grt_per_usd,
         indexing_perf,

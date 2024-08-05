@@ -1,5 +1,4 @@
 use alloy_primitives::{BlockNumber, B256};
-use indoc::indoc;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use thegraph_core::types::DeploymentId;
@@ -10,15 +9,14 @@ use thegraph_graphql_http::{
 
 use super::urls::StatusUrl;
 
-const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = indoc! {
-    r#"query publicPois($requests: [PublicProofOfIndexingRequest!]!) {
+const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = r#"
+    query publicPois($requests: [PublicProofOfIndexingRequest!]!) {
         publicProofsOfIndexing(requests: $requests) {
             deployment
             proofOfIndexing
             block { number }
         }
-    }"#
-};
+    }"#;
 
 pub type ProofOfIndexing = B256;
 
@@ -183,25 +181,23 @@ mod tests {
     #[test]
     fn deserialize_public_pois_response() {
         //* Given
-        let response = indoc::indoc! {
-            r#"{
-                    "publicProofsOfIndexing": [
-                        {
-                            "deployment": "QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH",
-                            "proofOfIndexing": "0xba8a057796a81e013789789996551bb5b2920fb9947334db956992f7098bd287",
-                            "block": {
-                                "number": "123"
-                            }
-                        },
-                        {
-                            "deployment": "QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw",
-                            "block": {
-                                "number": "456"
-                            }
-                        }
-                    ]
-                }"#
-        };
+        let response = r#"{
+            "publicProofsOfIndexing": [
+                {
+                    "deployment": "QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH",
+                    "proofOfIndexing": "0xba8a057796a81e013789789996551bb5b2920fb9947334db956992f7098bd287",
+                    "block": {
+                        "number": "123"
+                    }
+                },
+                {
+                    "deployment": "QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw",
+                    "block": {
+                        "number": "456"
+                    }
+                }
+            ]
+        }"#;
 
         //* When
         let response = serde_json::from_str::<Response>(response);

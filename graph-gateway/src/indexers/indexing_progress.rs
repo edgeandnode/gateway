@@ -9,7 +9,7 @@ use thegraph_graphql_http::{
 
 use super::urls::StatusUrl;
 
-const INDEXING_PROGRESS_QUERY_DOCUMENT: &str = indoc::indoc! {r#"
+const INDEXING_PROGRESS_QUERY_DOCUMENT: &str = r#"
     query indexingProgress($deployments: [String!]!) {
         indexingStatuses(subgraphs: $deployments) {
             subgraph
@@ -19,8 +19,7 @@ const INDEXING_PROGRESS_QUERY_DOCUMENT: &str = indoc::indoc! {r#"
                 earliestBlock { number }
             }
         }
-    }
-"#};
+    }"#;
 
 /// Errors that can occur while fetching the indexing progress.
 #[derive(Clone, Debug, thiserror::Error)]

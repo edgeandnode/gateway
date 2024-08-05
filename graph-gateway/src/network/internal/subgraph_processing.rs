@@ -11,7 +11,6 @@ use crate::network::errors::{DeploymentError, SubgraphError};
 #[derive(Debug, Clone)]
 pub(super) struct SubgraphRawInfo {
     pub id: SubgraphId,
-    pub id_on_l2: Option<SubgraphId>,
     pub versions: Vec<SubgraphVersionRawInfo>,
 }
 
@@ -33,7 +32,6 @@ pub(super) struct DeploymentRawInfo {
     pub manifest_network: String,
     pub manifest_start_block: BlockNumber,
     pub subgraphs: HashSet<SubgraphId>,
-    pub transferred_to_l2: bool,
     pub allocations: Vec<AllocationInfo>,
 }
 
@@ -81,8 +79,6 @@ pub struct AllocationInfo {
 
 /// Process the fetched subgraphs' information.
 ///
-/// - If the subgraph was transferred to L2 and has no allocations,
-///   [`SubgraphError::TransferredToL2`] error is returned.
 /// - If the subgraph has no allocations, [`SubgraphError::NoAllocations`] is returned.
 pub(super) fn process_subgraph_info(
     subgraphs: HashMap<SubgraphId, SubgraphRawInfo>,
@@ -96,11 +92,6 @@ pub(super) fn process_subgraph_info(
             // See ref: 9936786a-e286-45f3-9190-8409d8389e88
             if subgraph.versions.is_empty() {
                 return (id, Err(SubgraphError::NoValidVersions));
-            }
-
-            // Check if the subgraph was transferred to L2
-            if let Err(err) = check_subgraph_transferred_to_l2(&subgraph) {
-                return (id, Err(err));
             }
 
             // Check if the subgraph has any allocations
@@ -139,24 +130,6 @@ pub(super) fn process_subgraph_info(
         .collect()
 }
 
-/// Check if the subgraph was transferred to L2.
-///
-/// A subgraph is considered to be transferred to L2 if all its versions-deployments
-/// are transferred to L2 (i.e., `transferred_to_l2` is `true`) and have no allocations.
-fn check_subgraph_transferred_to_l2(subgraph: &SubgraphRawInfo) -> Result<(), SubgraphError> {
-    let transferred_to_l2 = subgraph.versions.iter().all(|version| {
-        version.deployment.transferred_to_l2 && version.deployment.allocations.is_empty()
-    });
-
-    if transferred_to_l2 {
-        Err(SubgraphError::TransferredToL2 {
-            id_on_l2: subgraph.id_on_l2,
-        })
-    } else {
-        Ok(())
-    }
-}
-
 /// Check if the subgraph has any allocations.
 ///
 /// A subgraph is considered to have allocations if at least one of its versions-deployments
@@ -176,8 +149,6 @@ fn check_subgraph_has_allocations(subgraph: &SubgraphRawInfo) -> Result<(), Subg
 
 /// Process the fetched deployments' information.
 ///
-/// - If the deployment was transferred to L2 and has no allocations,
-///   [`DeploymentError::TransferredToL2`] error is returned.
 /// - If the deployment has no allocations, [`DeploymentError::NoAllocations`] is returned.
 pub(super) fn process_deployments_info(
     deployments: HashMap<DeploymentId, DeploymentRawInfo>,
@@ -193,17 +164,10 @@ pub(super) fn process_deployments_info(
 
 /// Try to convert the deployment raw information into processed deployment information.
 ///
-/// - If the deployment was marked as transferred to L2 and has no allocations,
-///   [`DeploymentError::TransferredToL2`] error is returned.
 /// - If the deployment has no allocations, [`DeploymentError::NoAllocations`] is returned.
 fn try_into_deployment_info(
     deployment: &DeploymentRawInfo,
 ) -> Result<DeploymentInfo, DeploymentError> {
-    // Check if the deployment was transferred to L2
-    if deployment.transferred_to_l2 && deployment.allocations.is_empty() {
-        return Err(DeploymentError::TransferredToL2);
-    }
-
     // Check if the deployment has any allocations
     if deployment.allocations.is_empty() {
         return Err(DeploymentError::NoAllocations);
