@@ -16,7 +16,6 @@ alloy-primitives = { version = "0.7.1", features = ["serde"] }
 axum = { git = "https://github.com/tokio-rs/axum", rev = "50c035c", default-features = false, features = [
     "json",
     "tokio",
-    "original-uri",
 ] }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "deacb09" }
 futures = "0.3"

@@ -152,9 +152,6 @@ pub fn into_internal_deployments_raw_info<'a>(
 
 /// Convert from the fetched subgraph information into the internal representation.
 fn into_subgraph_raw_info(subgraph: subgraph_client::types::Subgraph) -> SubgraphRawInfo {
-    let subgraph_id = subgraph.id;
-    let subgraph_id_on_l2 = subgraph.id_on_l2;
-
     // It is guaranteed that:
     // - All subgraphs have at least one version
     // - All versions are ordered by version number in descending order
@@ -166,18 +163,17 @@ fn into_subgraph_raw_info(subgraph: subgraph_client::types::Subgraph) -> Subgrap
             let mut raw_info = match into_subgraph_version_raw_info(version) {
                 Ok(info) => info,
                 Err(err) => {
-                    tracing::debug!(subgraph = %subgraph_id, %err);
+                    tracing::debug!(subgraph = %subgraph.id, %err);
                     return None;
                 }
             };
-            raw_info.deployment.subgraphs.insert(subgraph_id);
+            raw_info.deployment.subgraphs.insert(subgraph.id);
             Some(raw_info)
         })
         .collect::<Vec<_>>();
 
     SubgraphRawInfo {
-        id: subgraph_id,
-        id_on_l2: subgraph_id_on_l2,
+        id: subgraph.id,
         versions: subgraph_versions,
     }
 }
@@ -197,8 +193,6 @@ fn into_subgraph_version_raw_info(
         })
         .collect::<Vec<_>>();
 
-    let deployment_id = deployment.id;
-    let deployment_transferred_to_l2 = deployment.transferred_to_l2;
     let manifest = deployment
         .manifest
         .ok_or_else(|| anyhow!("missing manifest"))?;
@@ -208,12 +202,11 @@ fn into_subgraph_version_raw_info(
 
     let version_number = version.version;
     let version_deployment = DeploymentRawInfo {
-        id: deployment_id,
+        id: deployment.id,
         allocations: deployment_allocations,
         manifest_network,
         manifest_start_block: manifest.start_block,
         subgraphs: Default::default(),
-        transferred_to_l2: deployment_transferred_to_l2,
     };
 
     Ok(SubgraphVersionRawInfo {

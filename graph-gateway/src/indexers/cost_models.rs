@@ -7,7 +7,7 @@ use thegraph_graphql_http::{
 
 use super::urls::CostUrl;
 
-const COST_MODEL_QUERY_DOCUMENT: &str = indoc::indoc! {r#"
+const COST_MODEL_QUERY_DOCUMENT: &str = r#"
     query costModels($deployments: [String!]!) {
         costModels(deployments: $deployments) {
             deployment
@@ -15,7 +15,7 @@ const COST_MODEL_QUERY_DOCUMENT: &str = indoc::indoc! {r#"
             variables
         }
     }
-"#};
+"#;
 
 /// Errors that can occur while fetching the cost models.
 #[derive(Clone, Debug, thiserror::Error)]

@@ -38,7 +38,6 @@ pub mod types {
     #[serde(rename_all = "camelCase")]
     pub struct Subgraph {
         pub id: SubgraphId,
-        pub id_on_l2: Option<SubgraphId>,
         pub versions: Vec<SubgraphVersion>,
     }
 
@@ -66,8 +65,6 @@ pub mod types {
         pub manifest: Option<Manifest>,
         #[serde(rename = "indexerAllocations")]
         pub allocations: Vec<Allocation>,
-        #[serde(default)]
-        pub transferred_to_l2: bool,
     }
 
     #[serde_as]
@@ -125,7 +122,6 @@ pub struct Client {
     pub indexers: Vec<TrustedIndexer>,
     pub page_size: usize,
     pub latest_block: Option<Block>,
-    pub l2_transfer_support: bool,
 }
 
 impl Client {
@@ -147,57 +143,46 @@ impl Client {
         indexer: &TrustedIndexer,
     ) -> anyhow::Result<Vec<types::Subgraph>> {
         // ref: 9936786a-e286-45f3-9190-8409d8389e88
-        #[allow(clippy::obfuscated_if_else)]
-        let query = indoc::formatdoc! {
-            r#"query ($block: Block_height!, $first: Int!, $last: String!) {{
-                meta: _meta(block: $block) {{ block {{ number hash timestamp }} }}
+        let query = r#"
+            query ($block: Block_height!, $first: Int!, $last: String!) {
+                meta: _meta(block: $block) { block { number hash timestamp } }
                 results: subgraphs(
                     block: $block
                     orderBy: id, orderDirection: asc
                     first: $first
-                    where: {{
+                    where: {
                         id_gt: $last
                         entityVersion: 2
                         versionCount_gte: 1
-                        {}
-                    }}
-                ) {{
+                        active: true
+                    }
+                ) {
                     id
-                    {}
-                    versions(orderBy: version, orderDirection: desc) {{
+                    versions(orderBy: version, orderDirection: desc) {
                         version
-                        subgraphDeployment {{
+                        subgraphDeployment {
                             ipfsHash
-                            manifest {{
+                            manifest {
                                 network
                                 startBlock
-                            }}
+                            }
                             indexerAllocations(
                                 first: 100
                                 orderBy: allocatedTokens, orderDirection: desc
-                                where: {{ status: Active }}
-                            ) {{
+                                where: { status: Active }
+                            ) {
                                 id
                                 allocatedTokens
-                                indexer {{
+                                indexer {
                                     id
                                     url
                                     stakedTokens
-                                }}
-                            }}
-                            {}
-                        }}
-                    }}
-                }}
-            }}"#,
-            self.l2_transfer_support
-                .then_some("")
-                .unwrap_or("active: true"),
-            self.l2_transfer_support.then_some("idOnL2").unwrap_or(""),
-            self.l2_transfer_support
-                .then_some("transferredToL2")
-                .unwrap_or(""),
-        };
+                                }
+                            }
+                        }
+                    }
+                }
+            }"#;
 
         #[derive(Debug, Deserialize)]
         pub struct QueryResponse {

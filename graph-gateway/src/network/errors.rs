@@ -1,5 +1,4 @@
 use semver::Version;
-use thegraph_core::types::SubgraphId;
 
 use crate::network::{
     indexer_host_resolver::ResolutionError as HostResolutionError,
@@ -9,10 +8,6 @@ use crate::network::{
 /// Subgraph validation error.
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum SubgraphError {
-    /// The subgraph was transferred to L2.
-    #[error("transferred to L2")]
-    TransferredToL2 { id_on_l2: Option<SubgraphId> },
-
     /// No allocations were found for the subgraph.
     #[error("no allocations")]
     NoAllocations,
@@ -25,10 +20,6 @@ pub enum SubgraphError {
 /// Deployment validation error
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum DeploymentError {
-    /// The subgraph was transferred to L2.
-    #[error("transferred to L2")]
-    TransferredToL2,
-
     /// No allocations were found for the subgraph.
     #[error("no allocations")]
     NoAllocations,
