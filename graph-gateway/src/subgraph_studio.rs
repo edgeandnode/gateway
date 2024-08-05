@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
 use alloy_primitives::Address;
-use gateway_framework::auth::{APIKey, QueryStatus};
 use serde::Deserialize;
 use tokio::{
     sync::watch,
     time::{interval, Duration, MissedTickBehavior},
 };
 use url::Url;
+
+use crate::auth::{APIKey, QueryStatus};
 
 pub async fn api_keys(
     client: reqwest::Client,

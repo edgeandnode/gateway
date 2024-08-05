@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod block_constraints;
 pub mod client_query;
 pub mod indexer_client;

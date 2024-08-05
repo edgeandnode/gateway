@@ -16,7 +16,6 @@ use cost_model::{Context as AgoraContext, CostModel};
 use custom_debug::CustomDebug;
 use gateway_common::{http_ext::HttpBuilderExt as _, ptr::Ptr};
 use gateway_framework::{
-    auth::AuthSettings,
     budgets::USD,
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     metrics::{with_metric, METRICS},
@@ -39,6 +38,7 @@ use self::{
     query_selector::QuerySelector, query_settings::QuerySettings,
 };
 use crate::{
+    auth::AuthSettings,
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     indexer_client::{IndexerAuth, IndexerResponse},
     indexing_performance,
@@ -941,13 +941,15 @@ mod tests {
             routing::post,
             Extension, Router,
         };
-        use gateway_framework::auth::{APIKey, AuthContext, AuthSettings};
         use headers::{Authorization, ContentType, HeaderMapExt};
         use http_body_util::BodyExt;
         use tokio::sync::watch;
         use tower::ServiceExt;
 
-        use crate::middleware::{legacy_auth_adapter, RequireAuthorizationLayer};
+        use crate::{
+            auth::{APIKey, AuthContext, AuthSettings},
+            middleware::{legacy_auth_adapter, RequireAuthorizationLayer},
+        };
 
         /// Create a test authorization context.
         fn test_auth_ctx(key: Option<&str>) -> AuthContext {
