@@ -1,16 +1,14 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
-    time::Duration,
 };
 
 use anyhow::{anyhow, bail, ensure};
-use dashmap::DashMap;
 use ordered_float::NotNan;
 use serde::Deserialize;
 use serde_with::serde_as;
 use thegraph_core::types::{alloy_primitives::Address, SubgraphId};
-use tokio::{sync::watch, time::MissedTickBehavior};
+use tokio::sync::watch;
 
 #[derive(Clone, Debug, Default)]
 pub struct AuthSettings {
@@ -65,8 +63,6 @@ pub struct AuthContext {
     pub payment_required: bool,
     pub api_keys: watch::Receiver<HashMap<String, APIKey>>,
     pub special_api_keys: Arc<HashSet<String>>,
-    // TODO: remove after L1 deprecation
-    pub rate_limiter: Option<RateLimiter>,
 }
 
 impl AuthContext {
@@ -75,13 +71,6 @@ impl AuthContext {
     pub fn check(&self, token: &str, domain: &str) -> anyhow::Result<AuthSettings> {
         ensure!(!token.is_empty(), "missing API key");
         parse_api_key(token).ok_or_else(|| anyhow!("malformed API key"))?;
-
-        if let Some(rate_limiter) = &self.rate_limiter {
-            if rate_limiter.above_limit(token) {
-                bail!("Rate limit exceeded. This endpoint, along with all other endpoints querying subgraphs on L1, will soon be unavailable. Reach out to support@edgeandnode.com for help transferring to L2, or read the L2 Transfer Tools guide: https://thegraph.com/docs/en/arbitrum/l2-transfer-tools-guide/");
-            }
-            rate_limiter.increment(token);
-        }
 
         if self.special_api_keys.contains(token) {
             return Ok(AuthSettings {
@@ -217,38 +206,5 @@ mod tests {
             // check all authorized when authorized set is empty
             assert!(is_domain_authorized(&[] as &[&str], input));
         }
-    }
-}
-
-// TODO: remove after L1 deprecation
-#[derive(Clone)]
-pub struct RateLimiter {
-    counters: Arc<DashMap<String, u16>>,
-    limit: u16,
-}
-
-impl RateLimiter {
-    pub fn new(limit: u16) -> Self {
-        let counters: Arc<DashMap<String, u16>> = Default::default();
-        {
-            let counters = counters.clone();
-            let mut interval = tokio::time::interval(Duration::from_secs(1));
-            interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-            tokio::spawn(async move {
-                loop {
-                    interval.tick().await;
-                    counters.clear();
-                }
-            })
-        };
-        Self { counters, limit }
-    }
-
-    pub fn above_limit(&self, key: &str) -> bool {
-        self.counters.get(key).map(|v| *v).unwrap_or(0) > self.limit
-    }
-
-    pub fn increment(&self, key: &str) {
-        *self.counters.entry(key.to_string()).or_default() += 1;
     }
 }
