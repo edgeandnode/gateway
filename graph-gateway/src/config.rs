@@ -30,9 +30,6 @@ use url::Url;
 pub struct Config {
     #[serde(default)]
     pub api_keys: Option<ApiKeys>,
-    /// Rate limit per API key in queries per second.
-    // TODO: remove after L1 deprecation
-    pub api_key_rate_limit: Option<u16>,
     pub attestations: AttestationConfig,
     /// List of indexer addresses to block. This should only be used temprorarily, to compensate for
     /// indexer-selection imperfections.

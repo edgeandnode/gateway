@@ -135,13 +135,8 @@ async fn main() {
     )));
 
     // Initialize the auth service
-    let auth_service = init_auth_service(
-        http_client.clone(),
-        conf.api_keys,
-        conf.payment_required,
-        conf.api_key_rate_limit,
-    )
-    .await;
+    let auth_service =
+        init_auth_service(http_client.clone(), conf.api_keys, conf.payment_required).await;
 
     let budgeter: &'static Budgeter =
         Box::leak(Box::new(Budgeter::new(USD(conf.query_fees_target))));
@@ -354,7 +349,6 @@ async fn init_auth_service(
     http: reqwest::Client,
     config: Option<ApiKeys>,
     payment_required: bool,
-    api_key_rate_limit: Option<u16>,
 ) -> AuthContext {
     let special_api_keys = match &config {
         Some(ApiKeys::Endpoint { special, .. }) => Arc::new(HashSet::from_iter(special.clone())),
@@ -376,6 +370,5 @@ async fn init_auth_service(
         payment_required,
         api_keys,
         special_api_keys,
-        rate_limiter: api_key_rate_limit.map(gateway_framework::auth::RateLimiter::new),
     }
 }
