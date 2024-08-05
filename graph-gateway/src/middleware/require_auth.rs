@@ -7,13 +7,11 @@ use std::{
 };
 
 use axum::http::Request;
-use gateway_framework::{
-    auth::{AuthContext, AuthSettings},
-    errors::Error,
-    graphql,
-};
+use gateway_framework::{errors::Error, graphql};
 use headers::{authorization::Bearer, Authorization, HeaderMapExt, Origin};
 use tower::Service;
+
+use crate::auth::{AuthContext, AuthSettings};
 
 #[pin_project::pin_project(project = KindProj)]
 enum Kind<F> {
@@ -170,7 +168,6 @@ mod tests {
 
     use assert_matches::assert_matches;
     use axum::body::Body;
-    use gateway_framework::auth::{APIKey, AuthSettings};
     use headers::{Authorization, ContentType, HeaderMapExt};
     use http_body_util::BodyExt;
     use hyper::http;
@@ -178,7 +175,8 @@ mod tests {
     use tokio::sync::watch;
     use tokio_test::assert_ready_ok;
 
-    use super::{AuthContext, RequireAuthorizationLayer};
+    use super::{AuthContext, AuthSettings, RequireAuthorizationLayer};
+    use crate::auth::APIKey;
 
     fn test_auth_ctx(key: Option<&str>) -> AuthContext {
         let mut ctx = AuthContext {

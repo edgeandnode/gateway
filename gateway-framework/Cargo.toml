@@ -8,7 +8,6 @@ alloy-primitives.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 ethers = "2.0.14"
-faster-hex = "0.9.0"
 gateway-common = { path = "../gateway-common" }
 headers.workspace = true
 itertools = "0.13.0"

@@ -22,12 +22,12 @@ use axum::{
 use config::{ApiKeys, ExchangeRateProvider};
 use ethers::signers::{Signer, Wallet};
 use gateway_framework::{
-    auth::AuthContext,
     budgets::{Budgeter, USD},
     chains::Chains,
     exchange_rate, json, logging,
 };
 use graph_gateway::{
+    auth::AuthContext,
     client_query::{self, context::Context},
     indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance,

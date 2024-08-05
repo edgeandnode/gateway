@@ -1,4 +1,3 @@
-pub mod auth;
 pub mod blocks;
 pub mod budgets;
 pub mod chain;

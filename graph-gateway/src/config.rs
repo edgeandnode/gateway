@@ -9,12 +9,10 @@ use std::{
 use alloy_primitives::{Address, U256};
 use anyhow::Context;
 use custom_debug::CustomDebug;
-use gateway_framework::{
-    auth::APIKey,
-    config::{Hidden, HiddenSecretKey},
-};
+use gateway_framework::config::{Hidden, HiddenSecretKey};
 use graph_gateway::{
-    indexers::public_poi::ProofOfIndexingInfo, network::subgraph_client::TrustedIndexer,
+    auth::APIKey, indexers::public_poi::ProofOfIndexingInfo,
+    network::subgraph_client::TrustedIndexer,
 };
 use ipnetwork::IpNetwork;
 use ordered_float::NotNan;

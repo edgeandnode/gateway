@@ -11,6 +11,7 @@ axum = { workspace = true, features = ["tokio", "http1"] }
 cost-model.workspace = true
 custom_debug = "0.6.1"
 ethers = "2.0.14"
+faster-hex = "0.9.0"
 futures.workspace = true
 gateway-common = { path = "../gateway-common" }
 gateway-framework = { path = "../gateway-framework" }
