@@ -2,24 +2,26 @@
 
 use std::{
     collections::{BTreeMap, HashSet},
+    ops::Deref,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, B256, U256};
 use anyhow::Context;
 use custom_debug::CustomDebug;
-use gateway_framework::config::{Hidden, HiddenSecretKey};
-use graph_gateway::{
-    auth::APIKey, indexers::public_poi::ProofOfIndexingInfo,
-    network::subgraph_client::TrustedIndexer,
-};
 use ipnetwork::IpNetwork;
 use ordered_float::NotNan;
 use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{serde_as, DeserializeAs, DisplayFromStr};
 use url::Url;
+
+use crate::{
+    auth::APIKey, indexers::public_poi::ProofOfIndexingInfo,
+    network::subgraph_client::TrustedIndexer,
+};
 
 /// The Graph Gateway configuration.
 #[serde_as]
@@ -208,4 +210,42 @@ pub enum Error {
     /// An error occurred while deserializing the configuration.
     #[error("failed to deserialize configuration: {0}")]
     Deserialize(#[from] serde_json::Error),
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(transparent)]
+pub struct Hidden<T>(pub T);
+
+impl<T: std::fmt::Debug> std::fmt::Debug for Hidden<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "HIDDEN")
+    }
+}
+
+impl<T: FromStr> FromStr for Hidden<T> {
+    type Err = T::Err;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.parse()?))
+    }
+}
+
+impl<T> Deref for Hidden<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+pub struct HiddenSecretKey;
+
+impl<'de> DeserializeAs<'de, Hidden<SecretKey>> for HiddenSecretKey {
+    fn deserialize_as<D>(deserializer: D) -> Result<Hidden<SecretKey>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let bytes = B256::deserialize(deserializer)?;
+        SecretKey::from_slice(bytes.as_slice())
+            .map(Hidden)
+            .map_err(serde::de::Error::custom)
+    }
 }

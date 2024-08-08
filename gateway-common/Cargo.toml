@@ -1,9 +1,0 @@
-[package]
-edition = "2021"
-name = "gateway-common"
-version = "0.0.1"
-
-[dependencies]
-by_address = "1.2.1"
-headers.workspace = true
-http = "1.1.0"

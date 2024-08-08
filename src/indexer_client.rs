@@ -1,19 +1,20 @@
 use alloy_primitives::{BlockHash, BlockNumber};
 use alloy_sol_types::Eip712Domain;
-use gateway_framework::{
-    blocks::Block,
-    errors::{
-        IndexerError::{self, *},
-        MissingBlockError, UnavailableReason,
-    },
-};
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use thegraph_core::types::attestation::{self, Attestation};
 use thegraph_graphql_http::http::response::Error as GQLError;
 use url::Url;
 
-use crate::{receipts::Receipt, unattestable_errors::miscategorized_unattestable};
+use crate::{
+    blocks::Block,
+    errors::{
+        IndexerError::{self, *},
+        MissingBlockError, UnavailableReason,
+    },
+    receipts::Receipt,
+    unattestable_errors::miscategorized_unattestable,
+};
 
 #[derive(Clone, Debug)]
 pub struct IndexerResponse {
@@ -234,7 +235,7 @@ fn check_block_error(err: &str) -> Result<(), MissingBlockError> {
 
 #[cfg(test)]
 mod tests {
-    use gateway_framework::errors::MissingBlockError;
+    use crate::errors::MissingBlockError;
 
     #[test]
     fn check_block_error() {

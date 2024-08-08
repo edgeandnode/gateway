@@ -9,15 +9,17 @@ use std::{
 use alloy_primitives::BlockNumber;
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
-use gateway_common::ptr::Ptr;
 use semver::Version;
 use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 use url::Url;
 
 use super::{DeploymentInfo, SubgraphInfo};
-use crate::network::{
-    errors::{DeploymentError, IndexerInfoResolutionError, IndexingError, SubgraphError},
-    internal::indexer_processing::ResolvedIndexerInfo,
+use crate::{
+    network::{
+        errors::{DeploymentError, IndexerInfoResolutionError, IndexingError, SubgraphError},
+        internal::indexer_processing::ResolvedIndexerInfo,
+    },
+    ptr::Ptr,
 };
 
 /// The minimum indexer service version required to support Scalar TAP.

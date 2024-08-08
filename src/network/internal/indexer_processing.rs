@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use alloy_primitives::BlockNumber;
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
-use gateway_common::ptr::Ptr;
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::types::{AllocationId, DeploymentId, IndexerId};
@@ -11,16 +10,19 @@ use tracing::Instrument;
 use url::Url;
 
 use super::InternalState;
-use crate::network::{
-    config::VersionRequirements,
-    errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
-    indexer_host_resolver::HostResolver,
-    indexer_indexing_cost_model_compiler::CostModelCompiler,
-    indexer_indexing_cost_model_resolver::CostModelResolver,
-    indexer_indexing_poi_blocklist::PoiBlocklist,
-    indexer_indexing_poi_resolver::PoiResolver,
-    indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::VersionResolver,
+use crate::{
+    network::{
+        config::VersionRequirements,
+        errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
+        indexer_host_resolver::HostResolver,
+        indexer_indexing_cost_model_compiler::CostModelCompiler,
+        indexer_indexing_cost_model_resolver::CostModelResolver,
+        indexer_indexing_poi_blocklist::PoiBlocklist,
+        indexer_indexing_poi_resolver::PoiResolver,
+        indexer_indexing_progress_resolver::IndexingProgressResolver,
+        indexer_version_resolver::VersionResolver,
+    },
+    ptr::Ptr,
 };
 
 /// Internal representation of the indexer pre-processed information.

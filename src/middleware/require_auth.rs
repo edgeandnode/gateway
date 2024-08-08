@@ -7,11 +7,14 @@ use std::{
 };
 
 use axum::http::Request;
-use gateway_framework::{errors::Error, graphql};
 use headers::{authorization::Bearer, Authorization, HeaderMapExt, Origin};
 use tower::Service;
 
-use crate::auth::{AuthContext, AuthSettings};
+use crate::{
+    auth::{AuthContext, AuthSettings},
+    errors::Error,
+    graphql,
+};
 
 #[pin_project::pin_project(project = KindProj)]
 enum Kind<F> {
