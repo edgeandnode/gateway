@@ -27,10 +27,12 @@ use super::{
         fetch_and_preprocess_subgraph_info, fetch_update, Indexing, IndexingId, InternalState,
         NetworkTopologySnapshot, PreprocessedNetworkInfo,
     },
-    subgraph_client::Client as SubgraphClient,
     ResolutionError,
 };
-use crate::indexers::public_poi::ProofOfIndexingInfo;
+use crate::{
+    discovery::network_subgraph::Client as SubgraphClient,
+    indexers::public_poi::ProofOfIndexingInfo,
+};
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {

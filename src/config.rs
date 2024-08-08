@@ -19,8 +19,8 @@ use serde_with::{serde_as, DeserializeAs, DisplayFromStr};
 use url::Url;
 
 use crate::{
-    auth::APIKey, indexers::public_poi::ProofOfIndexingInfo,
-    network::subgraph_client::TrustedIndexer,
+    auth::APIKey, discovery::network_subgraph::TrustedIndexer,
+    indexers::public_poi::ProofOfIndexingInfo,
 };
 
 /// The Graph Gateway configuration.

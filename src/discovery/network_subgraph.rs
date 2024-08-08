@@ -33,18 +33,18 @@ use crate::{
 /// See: https://github.com/graphprotocol/graph-network-subgraph/blob/master/schema.graphql
 pub mod types {
     use alloy_primitives::BlockNumber;
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
     use serde_with::serde_as;
     use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 
-    #[derive(Debug, Clone, Deserialize)]
+    #[derive(Debug, Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct Subgraph {
         pub id: SubgraphId,
         pub versions: Vec<SubgraphVersion>,
     }
 
-    #[derive(Debug, Clone, Deserialize)]
+    #[derive(Debug, Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct SubgraphVersion {
         pub version: u32,
@@ -52,7 +52,7 @@ pub mod types {
     }
 
     #[serde_as]
-    #[derive(Debug, Clone, Deserialize)]
+    #[derive(Debug, Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct Manifest {
         pub network: Option<String>,
@@ -60,7 +60,7 @@ pub mod types {
         pub start_block: BlockNumber,
     }
 
-    #[derive(Debug, Clone, Deserialize)]
+    #[derive(Debug, Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct SubgraphDeployment {
         #[serde(rename = "ipfsHash")]
@@ -71,7 +71,7 @@ pub mod types {
     }
 
     #[serde_as]
-    #[derive(Debug, Clone, Deserialize)]
+    #[derive(Debug, Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct Allocation {
         pub id: AllocationId,
@@ -81,7 +81,7 @@ pub mod types {
     }
 
     #[serde_as]
-    #[derive(Debug, Clone, Deserialize)]
+    #[derive(Debug, Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct Indexer {
         pub id: IndexerId,
@@ -231,6 +231,7 @@ impl Client {
                     &page_query.to_string(),
                 )
                 .await?;
+            // tracing::warn!(response.client_response);
             let response: QueryResponse =
                 serde_json::from_str(&response.client_response).context("parse body")?;
             if !response.errors.is_empty() {
