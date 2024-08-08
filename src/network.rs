@@ -19,4 +19,3 @@ pub mod indexer_indexing_progress_resolver;
 pub mod indexer_version_resolver;
 pub mod internal;
 pub mod service;
-pub mod subgraph_client;
