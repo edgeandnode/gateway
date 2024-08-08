@@ -4,14 +4,13 @@ use anyhow::{anyhow, ensure};
 use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 use url::Url;
 
-use crate::network::{
-    internal::{
+use crate::{
+    discovery::network_subgraph as subgraph_client,
+    network::internal::{
         indexer_processing::{IndexerRawInfo, IndexingRawInfo},
         subgraph_processing::{DeploymentRawInfo, SubgraphRawInfo, SubgraphVersionRawInfo},
         AllocationInfo,
     },
-    subgraph_client,
-    subgraph_client::types::SubgraphVersion,
 };
 
 pub fn into_internal_indexers_raw_info<'a>(
@@ -180,7 +179,7 @@ fn into_subgraph_raw_info(subgraph: subgraph_client::types::Subgraph) -> Subgrap
 
 /// Convert from the fetched subgraph version information into the internal representation.
 fn into_subgraph_version_raw_info(
-    version: SubgraphVersion,
+    version: subgraph_client::types::SubgraphVersion,
 ) -> anyhow::Result<SubgraphVersionRawInfo> {
     let deployment = version.subgraph_deployment;
 

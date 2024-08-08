@@ -26,6 +26,7 @@ use graph_gateway::{
     chains::Chains,
     client_query::{self, context::Context},
     config::{self, ApiKeys, ExchangeRateProvider},
+    discovery::{self, Versions},
     exchange_rate,
     indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance,
@@ -33,7 +34,7 @@ use graph_gateway::{
     middleware::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
-    network::{self, subgraph_client::Client as SubgraphClient},
+    network,
     receipts::ReceiptSigner,
     reports, subgraph_studio, vouchers,
 };
@@ -41,7 +42,7 @@ use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
-use thegraph_core::types::attestation;
+use thegraph_core::types::{attestation, IndexerId};
 use tokio::{
     net::TcpListener,
     signal::unix::SignalKind,
@@ -93,9 +94,9 @@ async fn main() {
     let indexer_client = IndexerClient {
         client: http_client.clone(),
     };
-    let network_subgraph_client = SubgraphClient {
+    let network_subgraph_client = discovery::network_subgraph::Client {
         client: indexer_client.clone(),
-        indexers: conf.trusted_indexers,
+        indexers: conf.trusted_indexers.clone(),
         latest_block: None,
         page_size: 500,
     };
@@ -105,7 +106,22 @@ async fn main() {
         }
         None => Default::default(),
     };
-    let indexer_blocklist = conf.bad_indexers.into_iter().map(Into::into).collect();
+    let indexer_blocklist: HashSet<IndexerId> =
+        conf.bad_indexers.into_iter().map(Into::into).collect();
+
+    let _wip_network = discovery::spawn(
+        indexer_client.clone(),
+        conf.trusted_indexers,
+        http_client.clone(),
+        indexer_blocklist.clone(),
+        indexer_host_blocklist.clone(),
+        Versions {
+            indexer_service: conf.min_indexer_version.clone(),
+            graph_node: conf.min_graph_node_version.clone(),
+        },
+    )
+    .await;
+
     let mut network = network::service::spawn(
         http_client.clone(),
         network_subgraph_client,

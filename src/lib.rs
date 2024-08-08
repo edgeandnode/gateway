@@ -6,6 +6,7 @@ pub mod chain;
 pub mod chains;
 pub mod client_query;
 pub mod config;
+pub mod discovery;
 pub mod errors;
 pub mod exchange_rate;
 pub mod graphql;

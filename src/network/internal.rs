@@ -8,7 +8,8 @@ pub use self::{
     state::InternalState,
     subgraph_processing::{AllocationInfo, DeploymentInfo, SubgraphInfo, SubgraphVersionInfo},
 };
-use super::{subgraph_client::Client as SubgraphClient, DeploymentError, SubgraphError};
+use super::{DeploymentError, SubgraphError};
+use crate::discovery::network_subgraph::Client as SubgraphClient;
 
 mod indexer_processing;
 mod pre_processing;
@@ -66,13 +67,4 @@ pub async fn fetch_and_preprocess_subgraph_info(
         deployments,
         indexers,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    mod it_indexer_processing;
-    mod tests_pre_processing;
-    mod tests_subgraph_processing;
 }
