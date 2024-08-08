@@ -742,9 +742,8 @@ pub async fn handle_indexer_query(
 ) -> Result<Response<String>, Error> {
     let start_time = Instant::now();
 
-    let bad_indexers = |err: IndexerError| -> Error {
-        Error::BadIndexers(IndexerErrors::from_iter([(indexer, err)]))
-    };
+    let bad_indexers =
+        |err: IndexerError| -> Error { Error::BadIndexers(IndexerErrors([(indexer, err)].into())) };
 
     let indexing_id = IndexingId {
         deployment,

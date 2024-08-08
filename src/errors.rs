@@ -43,31 +43,7 @@ impl IntoResponse for Error {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct IndexerErrors(BTreeMap<IndexerId, IndexerError>);
-
-impl FromIterator<(IndexerId, IndexerError)> for IndexerErrors {
-    /// Create an `IndexerErrors` from an iterator of `(IndexerId, IndexerError)` tuples.
-    ///
-    /// ### Example
-    ///
-    /// ```rust
-    /// use std::iter::FromIterator;
-    /// use thegraph_core::indexer_id;
-    /// use thegraph_core::types::IndexerId;
-    /// use gateway_framework::errors::{IndexerError, IndexerErrors};
-    ///
-    /// let indexer = indexer_id!("0002c67268fb8c8917f36f865a0cbdf5292fa68d");
-    /// let error = IndexerError::Timeout;
-    ///
-    /// let errors = IndexerErrors::from_iter([(indexer, error)]);
-    ///
-    /// assert_eq!(errors.len(), 1);
-    /// assert!(errors.contains_key(&indexer));
-    /// ```
-    fn from_iter<T: IntoIterator<Item = (IndexerId, IndexerError)>>(iter: T) -> Self {
-        Self(FromIterator::from_iter(iter))
-    }
-}
+pub struct IndexerErrors(pub BTreeMap<IndexerId, IndexerError>);
 
 impl std::ops::Deref for IndexerErrors {
     type Target = BTreeMap<IndexerId, IndexerError>;
