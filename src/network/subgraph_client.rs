@@ -7,8 +7,6 @@
 use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail, ensure, Context};
 use custom_debug::CustomDebug;
-use gateway_common::time::unix_timestamp;
-use gateway_framework::{blocks::Block, config::Hidden};
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 use serde_json::json;
 use serde_with::serde_as;
@@ -16,7 +14,12 @@ use thegraph_graphql_http::http::response::Error as GqlError;
 use types::Subgraph;
 use url::Url;
 
-use crate::indexer_client::{IndexerAuth, IndexerClient};
+use crate::{
+    blocks::Block,
+    config::Hidden,
+    indexer_client::{IndexerAuth, IndexerClient},
+    time::unix_timestamp,
+};
 
 /// The Graph network subgraph types.
 ///

@@ -9,10 +9,9 @@
 use std::time::Duration;
 
 use cost_model::{CompileError, CostModel};
-use gateway_common::{ptr::Ptr, ttl_hash_map::TtlHashMap};
 use parking_lot::RwLock;
 
-use crate::indexers::cost_models::CostModelSource;
+use crate::{indexers::cost_models::CostModelSource, ptr::Ptr, ttl_hash_map::TtlHashMap};
 
 /// Maximum size of a cost model source.
 const MAX_COST_MODEL_SIZE: usize = 1 << 16;

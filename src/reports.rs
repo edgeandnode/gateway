@@ -1,7 +1,5 @@
 use alloy_primitives::Address;
 use anyhow::{anyhow, Context};
-use gateway_common::time::unix_timestamp;
-use gateway_framework::errors;
 use ordered_float::NotNan;
 use prost::Message;
 use serde_json::json;
@@ -9,7 +7,7 @@ use thegraph_core::types::{AllocationId, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 use toolshed::concat_bytes;
 
-use crate::{indexer_client::IndexerResponse, receipts::Receipt};
+use crate::{errors, indexer_client::IndexerResponse, receipts::Receipt, time::unix_timestamp};
 
 pub struct ClientRequest {
     pub id: String,

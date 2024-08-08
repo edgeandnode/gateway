@@ -15,7 +15,7 @@ use url::Url;
 
 abigen!(
     ChainlinkPriceFeed,
-    "gateway-framework/src/contract_abis/ChainlinkPriceFeed.json",
+    "src/contract_abis/ChainlinkPriceFeed.json",
     event_derives(serde::Deserialize, serde::Serialize);
 );
 

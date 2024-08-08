@@ -1771,52 +1771,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gateway-common"
-version = "0.0.1"
-dependencies = [
- "by_address",
- "headers",
- "http 1.1.0",
-]
-
-[[package]]
-name = "gateway-framework"
-version = "0.0.1"
-dependencies = [
- "alloy-primitives",
- "anyhow",
- "assert_matches",
- "axum",
- "ethers",
- "gateway-common",
- "headers",
- "http-body-util",
- "hyper 1.4.1",
- "itertools 0.13.0",
- "lazy_static",
- "ordered-float",
- "parking_lot",
- "prometheus",
- "rand",
- "reqwest 0.12.5",
- "secp256k1",
- "serde",
- "serde_json",
- "serde_with",
- "test-with",
- "thegraph-core",
- "thegraph-graphql-http",
- "thiserror",
- "tokio",
- "tokio-test",
- "toolshed",
- "tower-test",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1871,17 +1825,17 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "axum",
+ "by_address",
  "cost-model",
  "custom_debug",
  "ethers",
  "faster-hex",
  "futures",
- "gateway-common",
- "gateway-framework",
  "graphql 0.3.0",
  "headers",
  "hex",
  "hickory-resolver",
+ "http 1.1.0",
  "http-body-util",
  "hyper 1.4.1",
  "indexer-selection",
@@ -3434,7 +3388,6 @@ dependencies = [
  "lazy_static",
  "memchr",
  "parking_lot",
- "protobuf",
  "thiserror",
 ]
 
@@ -3480,12 +3433,6 @@ dependencies = [
  "quote",
  "syn 2.0.72",
 ]
-
-[[package]]
-name = "protobuf"
-version = "2.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
 name = "quick-error"

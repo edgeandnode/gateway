@@ -19,18 +19,17 @@ use axum::{
     response::Response,
     routing, Router,
 };
-use config::{ApiKeys, ExchangeRateProvider};
 use ethers::signers::{Signer, Wallet};
-use gateway_framework::{
-    budgets::{Budgeter, USD},
-    chains::Chains,
-    exchange_rate, json, logging,
-};
 use graph_gateway::{
     auth::AuthContext,
+    budgets::{Budgeter, USD},
+    chains::Chains,
     client_query::{self, context::Context},
+    config::{self, ApiKeys, ExchangeRateProvider},
+    exchange_rate,
     indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance,
+    json,
     middleware::{
         legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
     },
@@ -50,8 +49,7 @@ use tokio::{
     time::{interval, MissedTickBehavior},
 };
 use tower_http::cors::{self, CorsLayer};
-
-mod config;
+use tracing_subscriber::{prelude::*, EnvFilter};
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
@@ -71,7 +69,7 @@ async fn main() {
 
     let conf_repr = format!("{conf:?}");
 
-    logging::init("graph-gateway", conf.log_json);
+    init_logging("graph-gateway", conf.log_json);
     tracing::info!("gateway ID: {}", gateway_id);
     tracing::debug!(config = %conf_repr);
 
@@ -338,6 +336,24 @@ async fn handle_metrics() -> impl axum::response::IntoResponse {
 
 fn graphql_error_response<S: ToString>(message: S) -> json::JsonResponse {
     json::json_response([], json!({"errors": [{"message": message.to_string()}]}))
+}
+
+pub fn init_logging(executable_name: &str, json: bool) {
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::try_new(format!("info,{executable_name}=debug")).unwrap());
+
+    let log_default_layer = (!json).then(tracing_subscriber::fmt::layer);
+    let log_json_layer = json.then(|| {
+        tracing_subscriber::fmt::layer()
+            .json()
+            .with_current_span(false)
+    });
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(log_default_layer)
+        .with(log_json_layer)
+        .init();
 }
 
 /// Creates a new [`AuthContext`] from the given configuration.

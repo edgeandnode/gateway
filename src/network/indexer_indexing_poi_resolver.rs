@@ -9,12 +9,13 @@
 use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::BlockNumber;
-use gateway_common::ttl_hash_map::TtlHashMap;
 use parking_lot::RwLock;
 use thegraph_core::types::{DeploymentId, ProofOfIndexing};
 use url::Url;
 
-use crate::{indexers, indexers::public_poi::Error as PublicPoiFetchError};
+use crate::{
+    indexers, indexers::public_poi::Error as PublicPoiFetchError, ttl_hash_map::TtlHashMap,
+};
 
 /// The number of Public POI queries in a single request.
 const POIS_PER_REQUEST_BATCH_SIZE: usize = 10;

@@ -7,8 +7,9 @@ use axum::{
     http::request::Parts,
     response::IntoResponse,
 };
-use gateway_framework::{errors::Error, graphql};
 use thegraph_core::types::{DeploymentId, SubgraphId};
+
+use crate::{errors::Error, graphql};
 
 /// Rejection type for the query selector extractor, [`QuerySelector`].
 ///

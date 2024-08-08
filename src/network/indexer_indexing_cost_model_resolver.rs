@@ -4,7 +4,6 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use gateway_common::ptr::Ptr;
 use parking_lot::RwLock;
 use thegraph_core::types::DeploymentId;
 use url::Url;
@@ -12,6 +11,7 @@ use url::Url;
 use crate::{
     indexers,
     indexers::cost_models::{CostModelSource, Error as IndexerCostModelFetchError},
+    ptr::Ptr,
 };
 
 /// Error that can occur during cost model resolution.

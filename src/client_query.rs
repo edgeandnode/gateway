@@ -14,12 +14,6 @@ use axum::{
 };
 use cost_model::{Context as AgoraContext, CostModel};
 use custom_debug::CustomDebug;
-use gateway_common::{http_ext::HttpBuilderExt as _, ptr::Ptr};
-use gateway_framework::{
-    budgets::USD,
-    errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
-    metrics::{with_metric, METRICS},
-};
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use num_traits::cast::ToPrimitive as _;
@@ -40,10 +34,15 @@ use self::{
 use crate::{
     auth::AuthSettings,
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
+    budgets::USD,
+    errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
+    http_ext::HttpBuilderExt as _,
     indexer_client::{IndexerAuth, IndexerResponse},
     indexing_performance,
+    metrics::{with_metric, METRICS},
     middleware::RequestId,
     network::{self, DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
+    ptr::Ptr,
     receipts::ReceiptStatus,
     reports,
 };

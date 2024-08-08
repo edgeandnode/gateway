@@ -6,17 +6,18 @@ use std::{
 use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail};
 use cost_model::Context;
-use gateway_framework::{
-    blocks::{BlockConstraint, UnresolvedBlock},
-    chain::Chain,
-    errors::Error,
-};
 use graphql::{
     graphql_parser::query::{OperationDefinition, Selection, SelectionSet, Text, Value},
     IntoStaticValue as _, StaticValue,
 };
 use itertools::Itertools as _;
 use serde_json::{self, json};
+
+use crate::{
+    blocks::{BlockConstraint, UnresolvedBlock},
+    chain::Chain,
+    errors::Error,
+};
 
 #[derive(Debug)]
 pub struct BlockRequirements {
