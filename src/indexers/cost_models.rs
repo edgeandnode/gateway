@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use thegraph_core::types::DeploymentId;
+use thegraph_core::DeploymentId;
 use thegraph_graphql_http::{
     graphql::{Document, IntoDocument, IntoDocumentWithVariables},
     http_client::{RequestError, ReqwestExt, ResponseError},

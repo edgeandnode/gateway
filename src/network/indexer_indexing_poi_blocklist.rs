@@ -9,8 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use alloy_primitives::BlockNumber;
-use thegraph_core::types::{DeploymentId, ProofOfIndexing};
+use thegraph_core::{BlockNumber, DeploymentId, ProofOfIndexing};
 
 use crate::indexers::public_poi::ProofOfIndexingInfo;
 

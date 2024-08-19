@@ -1,8 +1,7 @@
 use std::{collections::HashMap, ops::Deref, time::Duration};
 
-use alloy_primitives::BlockNumber;
 use parking_lot::RwLock;
-use thegraph_core::types::{DeploymentId, IndexerId};
+use thegraph_core::{BlockNumber, DeploymentId, IndexerId};
 use tokio::{self, sync::mpsc, time::MissedTickBehavior};
 
 use crate::network::NetworkService;

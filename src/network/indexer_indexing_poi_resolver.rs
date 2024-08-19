@@ -8,9 +8,8 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use alloy_primitives::BlockNumber;
 use parking_lot::RwLock;
-use thegraph_core::types::{DeploymentId, ProofOfIndexing};
+use thegraph_core::{BlockNumber, DeploymentId, ProofOfIndexing};
 use url::Url;
 
 use crate::{
@@ -216,8 +215,7 @@ mod tests {
     mod it_public_pois_resolution {
         use std::time::Duration;
 
-        use alloy_primitives::BlockNumber;
-        use thegraph_core::deployment_id;
+        use thegraph_core::{deployment_id, BlockNumber};
 
         use super::*;
         use crate::indexers;

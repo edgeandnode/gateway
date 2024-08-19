@@ -8,7 +8,6 @@ use std::{
     time::Duration,
 };
 
-use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
 use axum::{
     body::Body,
@@ -41,7 +40,7 @@ use prometheus::{self, Encoder as _};
 use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
-use thegraph_core::types::attestation;
+use thegraph_core::{attestation, Address, ChainId};
 use tokio::{
     net::TcpListener,
     signal::unix::SignalKind,
@@ -85,7 +84,9 @@ async fn main() {
 
     let attestation_domain: &'static Eip712Domain =
         Box::leak(Box::new(attestation::eip712_domain(
-            U256::from_str_radix(&conf.attestations.chain_id, 10)
+            conf.attestations
+                .chain_id
+                .parse::<ChainId>()
                 .expect("failed to parse attestation domain chain_id"),
             conf.attestations.dispute_manager,
         )));

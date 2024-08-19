@@ -3,10 +3,9 @@ use std::{
     fmt::{self, Write as _},
 };
 
-use alloy_primitives::BlockNumber;
 use axum::response::{IntoResponse, Response};
 use itertools::Itertools as _;
-use thegraph_core::types::IndexerId;
+use thegraph_core::{BlockNumber, IndexerId};
 
 use crate::{blocks::UnresolvedBlock, graphql};
 

@@ -1,8 +1,10 @@
-use alloy_primitives::{BlockHash, BlockNumber};
 use alloy_sol_types::Eip712Domain;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
-use thegraph_core::types::attestation::{self, Attestation};
+use thegraph_core::{
+    attestation::{self, Attestation},
+    BlockHash, BlockNumber,
+};
 use thegraph_graphql_http::http::response::Error as GQLError;
 use url::Url;
 

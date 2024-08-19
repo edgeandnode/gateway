@@ -7,7 +7,7 @@ use axum::{
     http::request::Parts,
     response::IntoResponse,
 };
-use thegraph_core::types::{DeploymentId, SubgraphId};
+use thegraph_core::{DeploymentId, SubgraphId};
 
 use crate::{errors::Error, graphql};
 

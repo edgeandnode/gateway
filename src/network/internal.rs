@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::Duration};
 
-use thegraph_core::types::{DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::{DeploymentId, IndexerId, SubgraphId};
 
 use self::indexer_processing::IndexerRawInfo;
 pub use self::{

@@ -4,7 +4,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_primitives::BlockNumber;
 use anyhow::anyhow;
 use axum::{
     body::Bytes,
@@ -22,7 +21,7 @@ use prost::bytes::Buf;
 use rand::{thread_rng, Rng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::types::{AllocationId, DeploymentId, IndexerId};
+use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 use tracing::{info_span, Instrument as _};
 use url::Url;

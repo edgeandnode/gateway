@@ -1,7 +1,7 @@
 use std::fmt;
 
-use alloy_primitives::{BlockHash, BlockNumber, BlockTimestamp};
 use serde::Deserialize;
+use thegraph_core::{BlockHash, BlockNumber, BlockTimestamp};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 pub struct Block {

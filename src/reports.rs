@@ -1,9 +1,8 @@
-use alloy_primitives::Address;
 use anyhow::{anyhow, Context};
 use ordered_float::NotNan;
 use prost::Message;
 use serde_json::json;
-use thegraph_core::types::{AllocationId, DeploymentId, IndexerId};
+use thegraph_core::{Address, AllocationId, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 use toolshed::concat_bytes;
 

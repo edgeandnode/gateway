@@ -7,10 +7,9 @@ use std::{
     time::Duration,
 };
 
-use alloy_primitives::BlockNumber;
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::types::{DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::{BlockNumber, DeploymentId, IndexerId, SubgraphId};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{

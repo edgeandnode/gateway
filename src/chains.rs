@@ -4,7 +4,7 @@ use std::{
 };
 
 use parking_lot::{RwLock, RwLockReadGuard};
-use thegraph_core::types::IndexerId;
+use thegraph_core::IndexerId;
 use tokio::{
     select, spawn,
     sync::mpsc,

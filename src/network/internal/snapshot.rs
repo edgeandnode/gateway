@@ -6,11 +6,10 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use alloy_primitives::BlockNumber;
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
 use semver::Version;
-use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId, SubgraphId};
 use url::Url;
 
 use super::{DeploymentInfo, SubgraphInfo};

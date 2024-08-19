@@ -4,12 +4,12 @@
 //! This module contains the logic necessary to query the Graph to get the latest state of the
 //! network subgraph.
 
-use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail, ensure, Context};
 use custom_debug::CustomDebug;
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 use serde_json::json;
 use serde_with::serde_as;
+use thegraph_core::{BlockHash, BlockNumber};
 use thegraph_graphql_http::http::response::Error as GqlError;
 use types::Subgraph;
 use url::Url;
@@ -32,10 +32,9 @@ use crate::{
 ///
 /// See: https://github.com/graphprotocol/graph-network-subgraph/blob/master/schema.graphql
 pub mod types {
-    use alloy_primitives::BlockNumber;
     use serde::Deserialize;
     use serde_with::serde_as;
-    use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
+    use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId, SubgraphId};
 
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "camelCase")]

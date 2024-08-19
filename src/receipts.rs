@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::U256;
 use alloy_sol_types::Eip712Domain;
 use ethers::{core::k256::ecdsa::SigningKey, signers::Wallet};
 use parking_lot::{Mutex, RwLock};
@@ -9,7 +9,7 @@ pub use receipts::QueryStatus as ReceiptStatus;
 use receipts::ReceiptPool;
 use secp256k1::SecretKey;
 use tap_core::{receipt::Receipt as TapReceipt, signed_message::EIP712SignedMessage};
-use thegraph_core::types::AllocationId;
+use thegraph_core::{Address, AllocationId};
 
 /// A receipt for an indexer request.
 #[derive(Debug, Clone)]

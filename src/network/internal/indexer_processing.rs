@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use alloy_primitives::BlockNumber;
 use cost_model::CostModel;
 use custom_debug::CustomDebug;
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::types::{AllocationId, DeploymentId, IndexerId};
+use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId};
 use tracing::Instrument;
 use url::Url;
 

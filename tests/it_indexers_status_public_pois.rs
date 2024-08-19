@@ -1,9 +1,8 @@
 use std::time::Duration;
 
-use alloy_primitives::BlockNumber;
 use assert_matches::assert_matches;
 use graph_gateway::indexers;
-use thegraph_core::deployment_id;
+use thegraph_core::{deployment_id, BlockNumber};
 use url::Url;
 
 /// Test helper to get the testnet indexer url from the environment.

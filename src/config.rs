@@ -7,7 +7,7 @@ use std::{
     str::FromStr,
 };
 
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{B256, U256};
 use anyhow::Context;
 use custom_debug::CustomDebug;
 use ipnetwork::IpNetwork;
@@ -16,6 +16,7 @@ use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DeserializeAs, DisplayFromStr};
+use thegraph_core::Address;
 use url::Url;
 
 use crate::{

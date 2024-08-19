@@ -1,7 +1,6 @@
-use alloy_primitives::{BlockNumber, B256};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use thegraph_core::types::DeploymentId;
+use thegraph_core::{BlockNumber, DeploymentId, ProofOfIndexing};
 use thegraph_graphql_http::{
     graphql::{Document, IntoDocument, IntoDocumentWithVariables},
     http_client::{RequestError, ReqwestExt, ResponseError},
@@ -17,8 +16,6 @@ const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = r#"
             block { number }
         }
     }"#;
-
-pub type ProofOfIndexing = B256;
 
 /// Errors that can occur while fetching the indexer's public POIs.
 #[derive(Clone, Debug, thiserror::Error)]
@@ -169,14 +166,9 @@ pub struct PartialBlockPtr {
 
 #[cfg(test)]
 mod tests {
-    use thegraph_core::deployment_id;
+    use thegraph_core::{deployment_id, poi};
 
-    use super::{ProofOfIndexing, Response};
-
-    /// Test helper to create a valid `ProofOfIndexing` instance from an arbitrary string.
-    fn parse_poi(poi: impl AsRef<str>) -> ProofOfIndexing {
-        poi.as_ref().parse().expect("invalid POI")
-    }
+    use super::Response;
 
     #[test]
     fn deserialize_public_pois_response() {
@@ -212,8 +204,8 @@ mod tests {
         );
         assert_eq!(
             response.public_proofs_of_indexing[0].proof_of_indexing,
-            Some(parse_poi(
-                "0xba8a057796a81e013789789996551bb5b2920fb9947334db956992f7098bd287"
+            Some(poi!(
+                "ba8a057796a81e013789789996551bb5b2920fb9947334db956992f7098bd287"
             ))
         );
         assert_eq!(response.public_proofs_of_indexing[0].block.number, 123);

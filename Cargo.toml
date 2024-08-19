@@ -16,9 +16,9 @@ alloy-primitives = { version = "0.7.1", features = ["serde"] }
 alloy-sol-types = "0.7.1"
 anyhow = "1.0"
 axum = { git = "https://github.com/tokio-rs/axum", rev = "50c035c", default-features = false, features = [
-  "json",
-  "tokio",
-  "http1",
+    "json",
+    "tokio",
+    "http1",
 ] }
 by_address = "1.2.1"
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "deacb09" }
@@ -46,9 +46,9 @@ rand = { version = "0.8", features = ["small_rng"] }
 rdkafka = { version = "0.36.2", features = ["gssapi", "tracing"] }
 receipts = { git = "https://github.com/edgeandnode/receipts", rev = "e94e0f1" }
 reqwest = { version = "0.12", default-features = false, features = [
-  "json",
-  "default-tls",
-  "gzip",
+    "json",
+    "default-tls",
+    "gzip",
 ] }
 secp256k1 = { version = "0.29", default-features = false }
 semver = { version = "1.0", features = ["serde"] }
@@ -58,27 +58,27 @@ serde_with = "3.8.1"
 simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "c179dfe" }
-thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "db1ab45" }
+thegraph-core = { version = "0.6.0", features = ["serde"] }
 thegraph-graphql-http = { version = "0.2.1", features = [
-  "http-client-reqwest",
+    "http-client-reqwest",
 ] }
 thiserror = "1.0.59"
 tokio = { version = "1.38.0", features = [
-  "macros",
-  "parking_lot",
-  "rt-multi-thread",
-  "signal",
-  "sync",
-  "time",
+    "macros",
+    "parking_lot",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
 ] }
 toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "toolshed-v0.6.0" }
 tower = "0.4.13"
 tower-http = { version = "0.5.2", features = ["cors"] }
 tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
-  "env-filter",
-  "parking_lot",
-  "json",
+    "env-filter",
+    "parking_lot",
+    "json",
 ] }
 url = "2.5.0"
 
