@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use ipnetwork::IpNetwork;
-use thegraph_core::types::IndexerId;
+use thegraph_core::IndexerId;
 
 use crate::network::{
     config::VersionRequirements as IndexerVersionRequirements, indexer_host_resolver::HostResolver,

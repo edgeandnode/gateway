@@ -2,9 +2,8 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use alloy_primitives::BlockNumber;
 use parking_lot::{Mutex, RwLock};
-use thegraph_core::types::DeploymentId;
+use thegraph_core::{BlockNumber, DeploymentId};
 use url::Url;
 
 use crate::{

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use alloy_primitives::Address;
 use serde::Deserialize;
+use thegraph_core::Address;
 use tokio::{
     sync::watch,
     time::{interval, Duration, MissedTickBehavior},

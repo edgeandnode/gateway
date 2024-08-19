@@ -3,7 +3,6 @@ use std::{
     fmt::Write as _,
 };
 
-use alloy_primitives::{BlockHash, BlockNumber};
 use anyhow::{anyhow, bail};
 use cost_model::Context;
 use graphql::{
@@ -12,6 +11,7 @@ use graphql::{
 };
 use itertools::Itertools as _;
 use serde_json::{self, json};
+use thegraph_core::{BlockHash, BlockNumber};
 
 use crate::{
     blocks::{BlockConstraint, UnresolvedBlock},

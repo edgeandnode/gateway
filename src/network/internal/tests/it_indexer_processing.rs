@@ -3,14 +3,10 @@ use std::{
     time::Duration,
 };
 
-use alloy_primitives::Address;
 use assert_matches::assert_matches;
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::{
-    allocation_id, deployment_id, indexer_id,
-    types::{IndexerId, ProofOfIndexing},
-};
+use thegraph_core::{allocation_id, deployment_id, indexer_id, poi, Address, IndexerId};
 use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 use url::Url;
 
@@ -66,11 +62,6 @@ fn parse_url(url: impl AsRef<str>) -> Url {
 /// Test helper to get an [`IpNetwork`] from a given string.
 fn parse_ip_network(network: impl AsRef<str>) -> IpNetwork {
     network.as_ref().parse().expect("Invalid IP network")
-}
-
-/// Test helper to get a [`ProofOfIndexing`] from a given string.
-fn parse_poi(poi: impl AsRef<str>) -> ProofOfIndexing {
-    poi.as_ref().parse().expect("Invalid POI")
 }
 
 /// Test helper to build the service config for the tests.
@@ -336,9 +327,7 @@ async fn block_indexing_if_blocked_by_pois_blocklist() {
     let faulty_poi = ProofOfIndexingInfo {
         block_number: 1337,
         deployment_id: deployment_1,
-        proof_of_indexing: parse_poi(
-            "0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1",
-        ),
+        proof_of_indexing: poi!("f99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1"),
     };
 
     let service = test_service_state(
@@ -428,9 +417,7 @@ async fn do_not_block_indexing_if_poi_not_blocked_by_poi_blocklist() {
         deployment_id: deployment_1,
         // The POI for block 1337 of  the network subgraph arbitrum v1.1.1 is:
         // 0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1
-        proof_of_indexing: parse_poi(
-            "0x2b7a6d4ed9fbef02c8aa817dfd9bafb126cadc0f8ebcab736e627ef6d5aab060",
-        ),
+        proof_of_indexing: poi!("2b7a6d4ed9fbef02c8aa817dfd9bafb126cadc0f8ebcab736e627ef6d5aab060"),
     };
 
     let service = test_service_state(
@@ -504,9 +491,7 @@ async fn do_not_block_indexing_if_public_pois_resolution_fails() {
     let faulty_poi = ProofOfIndexingInfo {
         block_number: u64::MAX, // An absurd block number that will cause the POI resolution to fail
         deployment_id: deployment_1,
-        proof_of_indexing: parse_poi(
-            "0xf99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1",
-        ),
+        proof_of_indexing: poi!("f99821910bfe16578caa1c823e99a69091409cd1d9d69f9f83e1a43a770c6fa1"),
     };
 
     let service = test_service_state(

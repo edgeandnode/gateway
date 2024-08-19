@@ -3,7 +3,7 @@ use std::{
     iter,
 };
 
-use thegraph_core::types::IndexerId;
+use thegraph_core::IndexerId;
 
 use crate::blocks::{Block, UnresolvedBlock};
 
@@ -106,12 +106,12 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::{Address, BlockHash, U256};
+    use alloy_primitives::U256;
     use itertools::Itertools;
     use rand::{
         rngs::SmallRng, seq::SliceRandom as _, thread_rng, Rng as _, RngCore as _, SeedableRng,
     };
-    use thegraph_core::types::IndexerId;
+    use thegraph_core::{Address, BlockHash, IndexerId};
     use toolshed::concat_bytes;
 
     use super::{Block, Chain, MAX_LEN};

@@ -1,7 +1,6 @@
-use alloy_primitives::BlockNumber;
 use serde::Deserialize;
 use serde_with::serde_as;
-use thegraph_core::types::DeploymentId;
+use thegraph_core::{BlockNumber, DeploymentId};
 use thegraph_graphql_http::{
     graphql::{Document, IntoDocument, IntoDocumentWithVariables},
     http_client::{RequestError, ReqwestExt as _, ResponseError},

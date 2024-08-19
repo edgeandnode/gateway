@@ -7,7 +7,7 @@ use anyhow::{anyhow, bail, ensure};
 use ordered_float::NotNan;
 use serde::Deserialize;
 use serde_with::serde_as;
-use thegraph_core::types::{alloy_primitives::Address, SubgraphId};
+use thegraph_core::{Address, SubgraphId};
 use tokio::sync::watch;
 
 #[derive(Clone, Debug, Default)]

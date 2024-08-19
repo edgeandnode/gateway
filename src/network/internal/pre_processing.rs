@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
 
 use anyhow::{anyhow, ensure};
-use thegraph_core::types::{AllocationId, DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 use url::Url;
 
 use crate::network::{
