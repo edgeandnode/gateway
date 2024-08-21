@@ -163,7 +163,7 @@ mod tests {
         //* When
         // The service must be ready before calling it
         svc.ready().await.expect("service is ready");
-        svc.call(req);
+        let _ = svc.call(req).await;
 
         let (r, _) = handle
             .next_request()
@@ -195,11 +195,11 @@ mod tests {
         //* When
         // The service must be ready before calling it
         svc.ready().await.expect("service is ready");
-        svc.call(req1);
+        let _ = svc.call(req1).await;
 
         // Wait for the service to be ready again before calling it
         svc.ready().await.expect("service is ready");
-        svc.call(req2);
+        let _ = svc.call(req2).await;
 
         let (r1, _) = handle
             .next_request()
@@ -243,7 +243,7 @@ mod tests {
         //* When
         // The service must be ready before calling it
         svc.ready().await.expect("service is ready");
-        svc.call(req);
+        let _ = svc.call(req).await;
 
         let (r, _) = handle
             .next_request()
