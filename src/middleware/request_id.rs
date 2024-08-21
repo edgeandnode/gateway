@@ -163,7 +163,7 @@ mod tests {
         //* When
         // The service must be ready before calling it
         svc.ready().await.expect("service is ready");
-        let _ = svc.call(req).await;
+        tokio::spawn(svc.call(req));
 
         let (r, _) = handle
             .next_request()
@@ -195,11 +195,11 @@ mod tests {
         //* When
         // The service must be ready before calling it
         svc.ready().await.expect("service is ready");
-        let _ = svc.call(req1).await;
+        tokio::spawn(svc.call(req1));
 
         // Wait for the service to be ready again before calling it
         svc.ready().await.expect("service is ready");
-        let _ = svc.call(req2).await;
+        tokio::spawn(svc.call(req2));
 
         let (r1, _) = handle
             .next_request()
@@ -243,7 +243,7 @@ mod tests {
         //* When
         // The service must be ready before calling it
         svc.ready().await.expect("service is ready");
-        let _ = svc.call(req).await;
+        tokio::spawn(svc.call(req));
 
         let (r, _) = handle
             .next_request()
