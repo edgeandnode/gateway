@@ -74,8 +74,8 @@ selected based on some combination of the following criteria (implemention at ht
 
 The first response from an indexer (that passes through some additional filters) is returned to the
 client, after stripping out data not requested by the client. All indexer responses are used to feed
-back performance information into the indexer selection algorithm. If all 3 indexers fail to respond
-to the request, then this process is repeated until all available indexers are exhausted.
+back performance information into the indexer selection algorithm. If all selected indexers fail to
+respond to the request, then this process is repeated until all available indexers are exhausted.
 
 ## data science
 
