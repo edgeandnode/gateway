@@ -35,12 +35,10 @@ pub struct IndexerRequest {
 }
 
 pub struct Reporter {
-    pub gateway_id: String,
+    pub tap_signer: Address,
     pub graph_env: String,
     pub budget: String,
-    pub client_request_topic: &'static str,
-    pub indexer_request_topic: &'static str,
-    pub attestation_topic: &'static str,
+    pub topics: Topics,
     pub write_buf: Vec<u8>,
     pub kafka_producer: rdkafka::producer::ThreadedProducer<
         rdkafka::producer::DefaultProducerContext,
@@ -48,14 +46,20 @@ pub struct Reporter {
     >,
 }
 
+pub struct Topics {
+    pub client_request: &'static str,
+    pub indexer_request: &'static str,
+    pub attestation: &'static str,
+    pub indexer_fees: &'static str,
+}
+
 impl Reporter {
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
-        gateway_id: String,
+        tap_signer: Address,
         graph_env: String,
         budget: NotNan<f64>,
-        client_request_topic: &'static str,
-        indexer_request_topic: &'static str,
-        attestation_topic: &'static str,
+        topics: Topics,
         kafka_config: impl Into<rdkafka::ClientConfig>,
     ) -> anyhow::Result<mpsc::UnboundedSender<ClientRequest>> {
         let kafka_producer = kafka_config
@@ -63,12 +67,10 @@ impl Reporter {
             .create()
             .context("kafka producer error")?;
         let mut reporter = Self {
-            gateway_id,
+            tap_signer,
             graph_env,
             budget: budget.to_string(),
-            client_request_topic,
-            indexer_request_topic,
-            attestation_topic,
+            topics,
             write_buf: Default::default(),
             kafka_producer,
         };
@@ -119,8 +121,9 @@ impl Reporter {
             .first()
             .map(|i| i.subgraph_chain.as_str())
             .unwrap_or("");
+        let gateway_id = format!("{:?}", self.tap_signer);
         let client_request_payload = json!({
-            "gateway_id": &self.gateway_id,
+            "gateway_id": &gateway_id,
             "query_id": &client_request.id,
             "ray_id": &client_request.id,
             "network_chain": &self.graph_env,
@@ -166,7 +169,7 @@ impl Reporter {
             };
 
             let indexer_request_payload = json!({
-                "gateway_id": &self.gateway_id,
+                "gateway_id": &gateway_id,
                 "query_id": &client_request.id,
                 "ray_id": &client_request.id,
                 "network_chain": &self.graph_env,
@@ -192,16 +195,37 @@ impl Reporter {
             });
             serde_json::to_writer(&mut self.write_buf, &indexer_request_payload).unwrap();
             let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
-                rdkafka::producer::BaseRecord::to(self.indexer_request_topic)
+                rdkafka::producer::BaseRecord::to(self.topics.indexer_request)
                     .payload(&self.write_buf);
             self.kafka_producer
                 .send(record)
                 .map_err(|(err, _)| err)
                 .context(anyhow!(
                     "failed to send to topic {}",
-                    self.indexer_request_topic
+                    self.topics.indexer_request
                 ))?;
             self.write_buf.clear();
+
+            if matches!(&indexer_request.receipt, Receipt::TAP(_)) {
+                IndexerFeesProtobuf {
+                    signer: self.tap_signer.to_vec(),
+                    receiver: indexer_request.indexer.to_vec(),
+                    fee_grt: indexer_request.receipt.grt_value() as f64 * 1e-18,
+                }
+                .encode(&mut self.write_buf)
+                .unwrap();
+                let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
+                    rdkafka::producer::BaseRecord::to(self.topics.indexer_fees)
+                        .payload(&self.write_buf);
+                self.kafka_producer
+                    .send(record)
+                    .map_err(|(err, _)| err)
+                    .context(anyhow!(
+                        "failed to send to topic {}",
+                        self.topics.indexer_fees
+                    ))?;
+                self.write_buf.clear();
+            }
 
             if let Some((original_response, attestation)) = indexer_request
                 .result
@@ -225,14 +249,14 @@ impl Reporter {
                 .encode(&mut self.write_buf)
                 .unwrap();
                 let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
-                    rdkafka::producer::BaseRecord::to(self.attestation_topic)
+                    rdkafka::producer::BaseRecord::to(self.topics.attestation)
                         .payload(&self.write_buf);
                 self.kafka_producer
                     .send(record)
                     .map_err(|(err, _)| err)
                     .context(anyhow!(
                         "failed to send to topic {}",
-                        self.attestation_topic
+                        self.topics.attestation
                     ))?;
                 self.write_buf.clear();
             }
@@ -240,13 +264,13 @@ impl Reporter {
 
         serde_json::to_writer(&mut self.write_buf, &client_request_payload).unwrap();
         let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
-            rdkafka::producer::BaseRecord::to(self.client_request_topic).payload(&self.write_buf);
+            rdkafka::producer::BaseRecord::to(self.topics.client_request).payload(&self.write_buf);
         self.kafka_producer
             .send(record)
             .map_err(|(err, _)| err)
             .context(anyhow!(
                 "failed to send to topic {}",
-                self.client_request_topic
+                self.topics.client_request
             ))?;
         self.write_buf.clear();
 
@@ -275,4 +299,16 @@ pub struct AttestationProtobuf {
     /// 65 bytes, ECDSA signature (v, r, s)
     #[prost(bytes, tag = "7")]
     signature: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct IndexerFeesProtobuf {
+    /// 20 bytes (address)
+    #[prost(bytes, tag = "1")]
+    signer: Vec<u8>,
+    /// 20 bytes (address)
+    #[prost(bytes, tag = "2")]
+    receiver: Vec<u8>,
+    #[prost(double, tag = "3")]
+    fee_grt: f64,
 }
