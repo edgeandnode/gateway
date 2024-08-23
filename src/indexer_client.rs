@@ -57,18 +57,7 @@ impl IndexerClient {
             .body(query.to_string())
             .send()
             .await;
-
-        if result
-            .as_ref()
-            .err()
-            .and_then(|r| r.status())
-            .filter(|s| s.as_u16() == 500)
-            .is_some()
-        {
-            tracing::debug!(indexer_err_query = %query);
-        }
-
-        let response = match result {
+        let response = match result.and_then(|r| r.error_for_status()) {
             Ok(response) => response,
             Err(err) if err.is_timeout() => return Err(Timeout),
             Err(err) => {
