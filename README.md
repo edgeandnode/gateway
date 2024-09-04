@@ -24,11 +24,11 @@ accessible via the network subgraph which indexes the Graph Network contracts.
 
 The gateway periodically queries the network subgraph for this data using a set of trusted indexers.
 The trusted indexers are not necessary theoretically, but they avoid an otherwise cumbersome
-boostrapping process for for payments.
+bootstrapping process for payments.
 
 When an indexer registers itself via the contract, it provides a URL to access its indexer-service.
 After the subgraph data is collected and organized, the gateway requests more information from each
-active indexer via the indexer-serivce. This inculdes software version information and, for each
+active indexer via the indexer-service. This includes software version information and, for each
 allocation, the indexing status (progress on chain indexed by subgraph deployment) and cost models.
 
 The gateway may be configured to block public Proofs Of Indexing (POIs) that have been associated
@@ -64,7 +64,7 @@ to track the progress of each indexer relative to the indexed chain. The request
 client request and potentially additional data is called the "indexer request".
 
 A subset of up to 3 indexers will be selected to execute the indexer request. These indexers are
-selected based on some combination of the following criteria (implemention at https://github.com/edgeandnode/candidate-selection):
+selected based on some combination of the following criteria (implementation at https://github.com/edgeandnode/candidate-selection):
 
 - success rate
 - expected latency
@@ -85,7 +85,7 @@ The gateway exports data into 3 kafka topics:
 - indexer requests (`gateway_indexer_attempts`)
 - attestations (`gateway_attestations`)
 
-## indexer paymets
+## indexer payments
 
 The gateway serves its budget per indexer request, in USD, at `/budget`. Indexers make their prices
 available via Agora cost-models. These cost models are served, for each subgraph deployment, by
@@ -130,12 +130,12 @@ e.g. `graph-gateway path/to/config.json`. The structure of the configuration fil
 
 Log filtering is set using the `RUST_LOG` environment variable. For example, if you would like to
 set the default log level to `info`, but want to set the log level for the `graph_gateway` module to
-`debug`, you would use `RUST_LOG="info,graph_gateway=debug"`. More details on evironment variable
+`debug`, you would use `RUST_LOG="info,graph_gateway=debug"`. More details on environment variable
 filtering: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html.
 
 ### errors
 
-Each error that be returned to the client when making a request is defined in [errors.rs](src/errors.rs) (`gateway_framework::errors::Error`).
+Each error returned to the client when making a request is defined in [errors.rs](src/errors.rs) (`gateway_framework::errors::Error`).
 
 ### logs
 
