@@ -6,13 +6,13 @@ use url::Url;
 
 /// Test helper to get the testnet indexer url from the environment.
 fn test_indexer_url() -> Url {
-    std::env::var("IT_TEST_TESTNET_INDEXER_URL")
-        .expect("Missing IT_TEST_TESTNET_INDEXER_URL")
+    std::env::var("IT_TEST_UPGRADE_INDEXER_URL")
+        .expect("Missing IT_TEST_UPGRADE_INDEXER_URL")
         .parse()
-        .expect("Invalid IT_TEST_TESTNET_INDEXER_URL")
+        .expect("Invalid IT_TEST_UPGRADE_INDEXER_URL")
 }
 
-#[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn fetch_indexer_cost_models() {
     //* Given
