@@ -12,8 +12,8 @@ inherits = "release"
 debug = true
 
 [dependencies]
-alloy-primitives = { version = "0.7.1", features = ["serde"] }
-alloy-sol-types = "0.7.1"
+alloy-primitives = { version = "0.8.0", features = ["serde"] }
+alloy-sol-types = "0.8.0"
 anyhow = "1.0"
 axum = { git = "https://github.com/tokio-rs/axum", rev = "50c035c", default-features = false, features = [
     "json",
