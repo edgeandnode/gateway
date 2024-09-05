@@ -7,21 +7,21 @@ use url::Url;
 
 /// Test helper to get the testnet indexer url from the environment.
 fn test_indexer_url() -> Url {
-    std::env::var("IT_TEST_TESTNET_INDEXER_URL")
-        .expect("Missing IT_TEST_TESTNET_INDEXER_URL")
+    std::env::var("IT_TEST_UPGRADE_INDEXER_URL")
+        .expect("Missing IT_TEST_UPGRADE_INDEXER_URL")
         .parse()
-        .expect("Invalid IT_TEST_TESTNET_INDEXER_URL")
+        .expect("Invalid IT_TEST_UPGRADE_INDEXER_URL")
 }
 
-#[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn query_indexer_public_pois() {
     //* Given
     let client = reqwest::Client::new();
     let status_url = indexers::status_url(test_indexer_url());
 
-    let deployment0 = deployment_id!("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH");
-    let deployment1 = deployment_id!("QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw");
+    let deployment0 = deployment_id!("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY");
+    let deployment1 = deployment_id!("QmUhiH6Z5xo6o3GNzsSvqpGKLmCt6w5WzKQ1yHk6C8AA8S");
     let query = [(deployment0, 123), (deployment1, 456)];
 
     //* When
@@ -46,7 +46,7 @@ async fn query_indexer_public_pois() {
 
 /// Indexers do not support more than 10 requests at a time. It returns a 500 Internal Server
 /// Error with the following message: "query is too expensive".
-#[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn requests_over_max_requests_per_query_should_fail() {
     //* Given

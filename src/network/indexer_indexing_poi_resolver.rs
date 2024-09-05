@@ -222,13 +222,13 @@ mod tests {
 
         /// Test helper to get the testnet indexer url from the environment.
         fn test_indexer_url() -> reqwest::Url {
-            std::env::var("IT_TEST_TESTNET_INDEXER_URL")
-                .expect("Missing IT_TEST_TESTNET_INDEXER_URL")
+            std::env::var("IT_TEST_UPGRADE_INDEXER_URL")
+                .expect("Missing IT_TEST_UPGRADE_INDEXER_URL")
                 .parse()
-                .expect("Invalid IT_TEST_TESTNET_INDEXER_URL")
+                .expect("Invalid IT_TEST_UPGRADE_INDEXER_URL")
         }
 
-        #[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
+        #[test_with::env(IT_TEST_UPGRADE_INDEXER_URL)]
         #[tokio::test]
         async fn send_batched_queries_and_merge_results() {
             //* Given

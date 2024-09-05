@@ -7,13 +7,13 @@ use tokio::time::timeout;
 
 /// Test helper to get the testnet indexer url from the environment.
 fn test_indexer_url() -> reqwest::Url {
-    std::env::var("IT_TEST_TESTNET_INDEXER_URL")
-        .expect("Missing IT_TEST_TESTNET_INDEXER_URL")
+    std::env::var("IT_TEST_UPGRADE_INDEXER_URL")
+        .expect("Missing IT_TEST_UPGRADE_INDEXER_URL")
         .parse()
-        .expect("Invalid IT_TEST_TESTNET_INDEXER_URL")
+        .expect("Invalid IT_TEST_UPGRADE_INDEXER_URL")
 }
 
-#[test_with::env(IT_TEST_TESTNET_INDEXER_URL)]
+#[test_with::env(IT_TEST_UPGRADE_INDEXER_URL)]
 #[tokio::test]
 async fn fetch_indexer_indexing_progress() {
     //* Given
@@ -21,8 +21,8 @@ async fn fetch_indexer_indexing_progress() {
     let status_url = indexers::status_url(test_indexer_url());
 
     let test_deployments = [
-        deployment_id!("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH"),
-        deployment_id!("QmSqxfDGyGenGFPkqw9sqnYar4XgzaioVWNvhw5QQ3RB1U"),
+        deployment_id!("QmSWxvd8SaQK6qZKJ7xtfxCCGoRzGnoi2WNzmJYYJW9BXY"),
+        deployment_id!("QmUhiH6Z5xo6o3GNzsSvqpGKLmCt6w5WzKQ1yHk6C8AA8S"),
     ];
 
     //* When
@@ -46,7 +46,7 @@ async fn fetch_indexer_indexing_progress() {
 
     assert_eq!(status1.chains.len(), 1);
     let chain = &status1.chains[0];
-    assert_eq!(chain.network, "mainnet");
+    assert_eq!(chain.network, "arbitrum-one");
     assert_matches!(chain.latest_block, Some(ref block) => {
         assert!(block.number > 0);
     });
@@ -62,7 +62,7 @@ async fn fetch_indexer_indexing_progress() {
 
     assert_eq!(status2.chains.len(), 1);
     let chain = &status2.chains[0];
-    assert_eq!(chain.network, "mainnet");
+    assert_eq!(chain.network, "arbitrum-one");
     assert_matches!(chain.latest_block, Some(ref block) => {
         assert!(block.number > 0);
     });
