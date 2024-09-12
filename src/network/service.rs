@@ -3,13 +3,13 @@
 //! query processing pipeline
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     time::Duration,
 };
 
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::{BlockNumber, DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::{Address, BlockNumber, DeploymentId, SubgraphId};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{
@@ -29,7 +29,7 @@ use super::{
     subgraph_client::Client as SubgraphClient,
     ResolutionError,
 };
-use crate::indexers::public_poi::ProofOfIndexingInfo;
+use crate::{config::BlockedIndexer, indexers::public_poi::ProofOfIndexingInfo};
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
@@ -176,12 +176,12 @@ pub fn spawn(
     subgraph_client: SubgraphClient,
     min_indexer_service_version: Version,
     min_graph_node_version: Version,
-    indexer_addr_blocklist: HashSet<IndexerId>,
+    indexer_blocklist: BTreeMap<Address, BlockedIndexer>,
     indexer_host_blocklist: HashSet<IpNetwork>,
     indexer_pois_blocklist: Vec<ProofOfIndexingInfo>,
 ) -> NetworkService {
     let internal_state = InternalState {
-        indexer_addr_blocklist,
+        indexer_blocklist,
         indexer_host_resolver: HostResolver::new(Duration::from_secs(5))
             .expect("failed to create host resolver"),
         indexer_host_blocklist,

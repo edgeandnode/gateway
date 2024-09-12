@@ -16,7 +16,7 @@ use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_with::{serde_as, DeserializeAs, DisplayFromStr};
-use thegraph_core::Address;
+use thegraph_core::{Address, DeploymentId};
 use url::Url;
 
 use crate::{
@@ -31,10 +31,9 @@ pub struct Config {
     #[serde(default)]
     pub api_keys: Option<ApiKeys>,
     pub attestations: AttestationConfig,
-    /// List of indexer addresses to block. This should only be used temprorarily, to compensate for
-    /// indexer-selection imperfections.
+    /// List of indexer addresses to block. This should only be used temprorarily.
     #[serde(default)]
-    pub bad_indexers: Vec<Address>,
+    pub blocked_indexers: BTreeMap<Address, BlockedIndexer>,
     /// Chain aliases
     #[serde(default)]
     pub chain_aliases: BTreeMap<String, String>,
@@ -105,6 +104,13 @@ pub enum ApiKeys {
     },
     /// Fixed set of API keys
     Fixed(Vec<APIKey>),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BlockedIndexer {
+    /// empty array blocks on all deployments
+    pub deployments: Vec<DeploymentId>,
+    pub reason: String,
 }
 
 /// Attestation configuration.

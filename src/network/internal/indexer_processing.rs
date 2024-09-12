@@ -10,6 +10,7 @@ use url::Url;
 
 use super::InternalState;
 use crate::{
+    config::BlockedIndexer,
     network::{
         config::VersionRequirements,
         errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
@@ -172,13 +173,6 @@ pub(super) async fn process_info(
             tracing::trace!(parent: &indexer_span, "processing");
 
             async move {
-                if state.indexer_addr_blocklist.contains(indexer_id) {
-                    return (
-                        *indexer_id,
-                        Err(IndexerInfoResolutionError::BlockedByAddrBlocklist),
-                    );
-                }
-
                 // Check if the indexer's host is in the host blocklist
                 //
                 // If the indexer host cannot be resolved or is in the blocklist, the indexer must
@@ -224,9 +218,15 @@ pub(super) async fn process_info(
                         tracing::field::display(&graph_node_version),
                     );
 
+                let blocklist = state.indexer_blocklist.get(&*indexer.id);
                 // Resolve the indexer's indexings information
-                let indexings =
-                    process_indexer_indexings(state, &indexer.url, indexer.indexings.clone()).await;
+                let indexings = process_indexer_indexings(
+                    state,
+                    &indexer.url,
+                    indexer.indexings.clone(),
+                    blocklist,
+                )
+                .await;
 
                 (
                     *indexer_id,
@@ -267,7 +267,7 @@ async fn resolve_and_check_indexer_blocked_by_host_blocklist(
         .iter()
         .any(|addr| blocklist.iter().any(|net| net.contains(*addr)))
     {
-        return Err(IndexerInfoResolutionError::BlockedByHostBlocklist);
+        return Err(IndexerInfoResolutionError::BlockedHost);
     }
 
     Ok(())
@@ -321,11 +321,33 @@ async fn process_indexer_indexings(
     state: &InternalState,
     url: &Url,
     indexings: HashMap<DeploymentId, IndexingRawInfo>,
+    blocklist: Option<&BlockedIndexer>,
 ) -> HashMap<DeploymentId, Result<ResolvedIndexingInfo, IndexingInfoResolutionError>> {
-    let indexer_indexings: HashMap<DeploymentId, Result<IndexingInfo<(), ()>, _>> = indexings
+    let mut indexer_indexings: HashMap<DeploymentId, Result<IndexingInfo<(), ()>, _>> = indexings
         .into_iter()
         .map(|(id, info)| (id, Ok(info.into())))
         .collect();
+
+    match blocklist {
+        None => (),
+        Some(blocklist) if blocklist.deployments.is_empty() => {
+            for entry in indexer_indexings.values_mut() {
+                *entry = Err(IndexingInfoResolutionError::Blocked(
+                    blocklist.reason.clone(),
+                ));
+            }
+        }
+        Some(blocklist) => {
+            for deployment in &blocklist.deployments {
+                indexer_indexings.insert(
+                    *deployment,
+                    Err(IndexingInfoResolutionError::Blocked(
+                        blocklist.reason.clone(),
+                    )),
+                );
+            }
+        }
+    };
 
     // Keep track of the healthy indexers, so we efficiently resolve the indexer's indexings thar
     // are not marked as unhealthy in a previous resolution step
@@ -349,7 +371,7 @@ async fn process_indexer_indexings(
         .map(|(id, res)| {
             let info = res.and_then(|info| {
                 if blocked_indexings_by_poi.contains(&id) {
-                    Err(IndexingInfoResolutionError::BlockedByPoiBlocklist)
+                    Err(IndexingInfoResolutionError::Blocked("bad POI".into()))
                 } else {
                     Ok(info)
                 }
