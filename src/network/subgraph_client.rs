@@ -133,7 +133,10 @@ impl Client {
             match self.fetch_from_indexer(indexer).await {
                 Ok(results) => return Ok(results),
                 Err(network_subgraph_query_err) => {
-                    tracing::error!(indexer = %indexer.url, %network_subgraph_query_err);
+                    tracing::error!(
+                        indexer = %indexer.url,
+                        network_subgraph_query_err = format!("{network_subgraph_query_err:#}",
+                    ));
                 }
             };
         }
@@ -230,6 +233,11 @@ impl Client {
                     &page_query.to_string(),
                 )
                 .await?;
+            tracing::trace!(
+                response.original_response,
+                response.client_response,
+                ?response.errors,
+            );
             let response: QueryResponse =
                 serde_json::from_str(&response.client_response).context("parse body")?;
             if !response.errors.is_empty() {
