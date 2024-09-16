@@ -83,13 +83,9 @@ pub enum IndexerError {
 
 #[derive(thiserror::Error, Clone, Debug)]
 pub enum UnavailableReason {
-    /// The indexer is blocked by one of the block lists (e.g., the indexer address is blocked by
-    /// the gateway, the indexer host IP address is blocked by the gateway, etc.).
-    #[error("blocked")]
-    Blocked,
-    /// The indexer deployment was blocked since it reported a POI blocked by the gateway (bad POI).
-    #[error("blocked (bad POI)")]
-    BlockedBadPOI,
+    /// The indexer is blocked.
+    #[error("blocked ({0})")]
+    Blocked(String),
 
     /// The indexer version is not supported (e.g., the indexer service version is below the minimum
     /// version required by the gateway, etc.)

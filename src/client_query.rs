@@ -710,8 +710,9 @@ impl From<network::ResolutionError> for IndexerError {
         match err {
             network::ResolutionError::Unavailable(reason) => {
                 let reason = match reason {
-                    network::UnavailableReason::Blocked => UnavailableReason::Blocked,
-                    network::UnavailableReason::BlockedBadPOI => UnavailableReason::BlockedBadPOI,
+                    network::UnavailableReason::Blocked(reason) => {
+                        UnavailableReason::Blocked(reason)
+                    }
                     reason @ network::UnavailableReason::IndexerServiceVersionBelowMin
                     | reason @ network::UnavailableReason::GraphNodeVersionBelowMin => {
                         UnavailableReason::NotSupported(reason.to_string())

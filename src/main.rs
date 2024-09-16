@@ -106,13 +106,12 @@ async fn main() {
         }
         None => Default::default(),
     };
-    let indexer_blocklist = conf.bad_indexers.into_iter().map(Into::into).collect();
     let mut network = network::service::spawn(
         http_client.clone(),
         network_subgraph_client,
         conf.min_indexer_version,
         conf.min_graph_node_version,
-        indexer_blocklist,
+        conf.blocked_indexers,
         indexer_host_blocklist,
         conf.poi_blocklist,
     );
