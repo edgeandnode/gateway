@@ -72,8 +72,7 @@ pub struct Config {
     /// Target for indexer fees paid per request
     #[serde(deserialize_with = "deserialize_not_nan_f64")]
     pub query_fees_target: NotNan<f64>,
-    /// Scalar TAP config (receipt signing)
-    pub scalar: Scalar,
+    pub receipts: Receipts,
 }
 
 /// Deserialize a `NotNan<f64>` from a `f64` and return an error if the value is NaN.
@@ -171,21 +170,18 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
     }
 }
 
-/// Scalar TAP config (receipt signing).
-///
-/// See [`Config`]'s [`scalar`](struct.Config.html#structfield.scalar).
 #[serde_as]
 #[derive(Debug, Deserialize)]
-pub struct Scalar {
-    /// Scalar TAP verifier contract chain
+pub struct Receipts {
+    /// TAP verifier contract chain
     pub chain_id: U256,
-    /// Secret key for legacy voucher signing
+    /// Secret key for legacy voucher signing (Scalar)
     #[serde_as(as = "Option<HiddenSecretKey>")]
     pub legacy_signer: Option<Hidden<SecretKey>>,
-    /// Secret key for voucher signing
+    /// TAP signer key
     #[serde_as(as = "HiddenSecretKey")]
     pub signer: Hidden<SecretKey>,
-    /// Scalar TAP verifier contract address
+    /// TAP verifier contract address
     pub verifier: Address,
 }
 

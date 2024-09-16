@@ -62,7 +62,7 @@ async fn main() {
         .unwrap();
     let conf = config::load_from_file(&conf_path).expect("Failed to load config");
 
-    let signer_address = Wallet::from_bytes(conf.scalar.signer.0.as_ref())
+    let signer_address = Wallet::from_bytes(conf.receipts.signer.0.as_ref())
         .expect("failed to prepare receipt wallet");
     let tap_signer = Address::from(signer_address.address().0);
 
@@ -119,15 +119,15 @@ async fn main() {
     network.wait_until_ready().await;
 
     let legacy_signer: &'static SecretKey = Box::leak(Box::new(
-        conf.scalar
+        conf.receipts
             .legacy_signer
             .map(|s| s.0)
-            .unwrap_or(conf.scalar.signer.0),
+            .unwrap_or(conf.receipts.signer.0),
     ));
     let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(ReceiptSigner::new(
-        conf.scalar.signer.0,
-        conf.scalar.chain_id,
-        conf.scalar.verifier,
+        conf.receipts.signer.0,
+        conf.receipts.chain_id,
+        conf.receipts.verifier,
         legacy_signer,
     )));
 
