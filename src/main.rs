@@ -64,12 +64,12 @@ async fn main() {
 
     let signer_address = Wallet::from_bytes(conf.scalar.signer.0.as_ref())
         .expect("failed to prepare receipt wallet");
-    let gateway_id = format!("{:?}", Address::from(signer_address.address().0));
+    let tap_signer = Address::from(signer_address.address().0);
 
     let conf_repr = format!("{conf:?}");
 
     init_logging("graph-gateway", conf.log_json);
-    tracing::info!("gateway ID: {}", gateway_id);
+    tracing::info!("gateway ID: {:?}", tap_signer);
     tracing::debug!(config = %conf_repr);
 
     let http_client = reqwest::Client::builder()
@@ -139,12 +139,15 @@ async fn main() {
         Box::leak(Box::new(Budgeter::new(USD(conf.query_fees_target))));
 
     let reporter = reports::Reporter::create(
-        gateway_id.clone(),
+        tap_signer,
         conf.graph_env_id,
         conf.query_fees_target,
-        "gateway_client_query_results",
-        "gateway_indexer_attempts",
-        "gateway_attestations",
+        reports::Topics {
+            client_request: "gateway_client_query_results",
+            indexer_request: "gateway_indexer_attempts",
+            attestation: "gateway_attestations",
+            indexer_fees: "gateway_indexer_fees",
+        },
         conf.kafka,
     )
     .unwrap();
@@ -229,7 +232,7 @@ async fn main() {
                 // Set up the query tracing span
                 .layer(RequestTracingLayer)
                 // Set the query ID on the request
-                .layer(SetRequestIdLayer::new(gateway_id))
+                .layer(SetRequestIdLayer::new(format!("{:?}", tap_signer)))
                 // Handle legacy in-path auth, and convert it into a header
                 .layer(middleware::from_fn(legacy_auth_adapter))
                 // Require the query to be authorized
