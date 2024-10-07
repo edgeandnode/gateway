@@ -9,7 +9,7 @@ use custom_debug::CustomDebug;
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 use serde_json::json;
 use serde_with::serde_as;
-use thegraph_core::{BlockHash, BlockNumber};
+use thegraph_core::{BlockHash, BlockNumber, BlockTimestamp};
 use thegraph_graphql_http::http::response::Error as GqlError;
 use types::Subgraph;
 use url::Url;
@@ -202,7 +202,13 @@ impl Client {
         }
         #[derive(Debug, Deserialize)]
         pub struct Meta {
-            block: Block,
+            block: PartialBlock,
+        }
+        #[derive(Debug, Deserialize)]
+        pub struct PartialBlock {
+            pub number: BlockNumber,
+            pub hash: BlockHash,
+            pub timestamp: Option<BlockTimestamp>,
         }
 
         debug_assert!(self.page_size > 0);
@@ -246,8 +252,17 @@ impl Client {
             let mut data = response
                 .data
                 .ok_or_else(|| anyhow!("response missing data"))?;
-            if let Some(block) = &query_block {
-                ensure!(block == &data.meta.block);
+            let block = Block {
+                number: data.meta.block.number,
+                hash: data.meta.block.hash,
+                timestamp: data
+                    .meta
+                    .block
+                    .timestamp
+                    .ok_or_else(|| anyhow!("response missing block timestamp"))?,
+            };
+            if let Some(query_block) = &query_block {
+                ensure!(query_block == &block);
             } else {
                 ensure!(
                     data.meta.block.number
@@ -255,10 +270,10 @@ impl Client {
                     "response block before latest",
                 );
                 ensure!(
-                    (unix_timestamp() / 1_000).saturating_sub(data.meta.block.timestamp) < 120,
+                    (unix_timestamp() / 1_000).saturating_sub(block.timestamp) < 120,
                     "response too far behind",
                 );
-                query_block = Some(data.meta.block);
+                query_block = Some(block);
             }
             last_id = data.results.last().map(|entry| entry.id.to_string());
             let page_len = data.results.len();
