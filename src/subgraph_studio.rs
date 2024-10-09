@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use serde::Deserialize;
-use thegraph_core::Address;
 use tokio::{
     sync::watch,
     time::{interval, Duration, MissedTickBehavior},
@@ -53,7 +52,7 @@ impl Client {
         #[derive(Deserialize, Debug)]
         struct _ApiKey {
             key: String,
-            user_address: Address,
+            user_address: String,
             query_status: QueryStatus,
             max_budget: Option<f64>,
             #[serde(default)]
