@@ -58,6 +58,7 @@ impl Chain {
         self.0.entry(block).or_default().insert(indexer);
     }
 
+    /// Remove all entries associated with the lowest block number.
     fn evict(&mut self) {
         let min_block = match self.0.pop_first() {
             Some((min_block, _)) => min_block,
