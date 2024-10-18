@@ -79,11 +79,16 @@ respond to the request, then this process is repeated until all available indexe
 
 ## data science
 
-The gateway exports data into 3 kafka topics:
+The gateway exports data into the following kafka topics:
 
 - client requests (`gateway_client_query_results`)
 - indexer requests (`gateway_indexer_attempts`)
 - attestations (`gateway_attestations`)
+- indexer fees (TAP only) (`gateway_indexer_fees`)
+
+Optionally, the [titorelli](https://github.com/edgeandnode/titorelli/) system can do aggregations
+over these topics. For now, this is limited to creating `gateway_indexer_fees_hourly` to improve
+the startup time of the `tap-escrow-manager`.
 
 ## indexer payments
 
