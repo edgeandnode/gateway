@@ -165,8 +165,3 @@ log levels:
 
 Prometheus metrics are served at `:${METRICS_PORT}/metrics`.
 The available metrics are defined in [metrics.rs](src/metrics.rs).
-
-## Contributing
-
-The gateway is an open-source project and we welcome contributions. Please see
-our [contributing guide](docs/contributing.md) for more information.

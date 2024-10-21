@@ -3,7 +3,7 @@ on:
   pull_request:
   push:
     branches:
-      - 'main'
+      - "main"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -12,11 +12,25 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  RUSTFLAGS: '-C link-arg=-fuse-ld=lld -D warnings'
+  RUSTFLAGS: "-C link-arg=-fuse-ld=lld -D warnings"
 
 jobs:
+  check_formatting:
+    name: "check formatting"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+          components: rustfmt
+
+      - run: cargo +nightly fmt --all -- --check
+
   check_and_test:
-    name: 'check and test'
+    name: "check and test"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
@@ -36,49 +50,5 @@ jobs:
       - run: cargo check
       - run: cargo clippy -- -Dwarnings --force-warn deprecated --force-warn dead-code
 
-      ## Tests
-      # Install sops (needed for decrypting tests .env file)
-      - name: Setup sops
-        uses: nhedger/setup-sops@358bac533e4e92f9ce9f9da563d6265929c88cda # v2
-
-      # Install age (needed for decrypting tests .env file)
-      - name: Setup age
-        uses: alessiodionisi/setup-age-action@82b9aea163ade7fe23441552a514cf666b214077 # v1.3.0
-
-      - name: Unit tests
-        uses: LNSD/sops-exec-action@6da1fbca63459d9796097496d5f5e6233555b31a # v1
-        env:
-          SOPS_AGE_KEY: ${{ secrets.IT_TESTS_AGE_KEY }}
-        with:
-          env_file: .env
-          run: cargo test 'tests::' -- --skip 'tests::it_'
-
-      - name: Integration tests (in-tree)
-        uses: LNSD/sops-exec-action@6da1fbca63459d9796097496d5f5e6233555b31a # v1
-        env:
-          SOPS_AGE_KEY: ${{ secrets.IT_TESTS_AGE_KEY }}
-        with:
-          env_file: .env
-          run: cargo test 'tests::it_'
-
-      - name: Integration tests (public api)
-        uses: LNSD/sops-exec-action@6da1fbca63459d9796097496d5f5e6233555b31a # v1
-        env:
-          SOPS_AGE_KEY: ${{ secrets.IT_TESTS_AGE_KEY }}
-        with:
-          env_file: .env
-          run: cargo test --test '*'
-
-  check_formatting:
-    name: 'check formatting'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly
-          components: rustfmt
-
-      - run: cargo +nightly fmt --all -- --check
+      - name: unit tests
+        run: cargo test
