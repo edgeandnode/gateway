@@ -7,13 +7,13 @@ use anyhow::{anyhow, bail, ensure};
 use ordered_float::NotNan;
 use serde::Deserialize;
 use serde_with::serde_as;
-use thegraph_core::{Address, SubgraphId};
+use thegraph_core::SubgraphId;
 use tokio::sync::watch;
 
 #[derive(Clone, Debug, Default)]
 pub struct AuthSettings {
     pub key: String,
-    pub user: Address,
+    pub user: String,
     pub authorized_subgraphs: Vec<SubgraphId>,
     pub budget_usd: Option<NotNan<f64>>,
 }
@@ -36,7 +36,7 @@ impl AuthSettings {
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct APIKey {
     pub key: String,
-    pub user_address: Address,
+    pub user_address: String,
     pub query_status: QueryStatus,
     #[serde_as(as = "Option<serde_with::TryFromInto<f64>>")]
     #[serde(rename = "max_budget")]
@@ -75,7 +75,7 @@ impl AuthContext {
         if self.special_api_keys.contains(token) {
             return Ok(AuthSettings {
                 key: token.to_string(),
-                user: Address::default(),
+                user: String::new(),
                 authorized_subgraphs: vec![],
                 budget_usd: None,
             });
@@ -105,7 +105,7 @@ impl AuthContext {
 
         Ok(AuthSettings {
             key: api_key.key.clone(),
-            user: api_key.user_address,
+            user: api_key.user_address.clone(),
             authorized_subgraphs: api_key.subgraphs.clone(),
             budget_usd: api_key.max_budget_usd,
         })
