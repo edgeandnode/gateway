@@ -143,10 +143,8 @@ async fn main() {
         conf.graph_env_id,
         conf.query_fees_target,
         reports::Topics {
-            client_request: "gateway_client_query_results",
-            indexer_request: "gateway_indexer_attempts",
-            attestation: "gateway_attestations",
-            indexer_fees: "gateway_indexer_fees",
+            queries: "gateway_queries",
+            attestations: "gateway_attestations",
         },
         conf.kafka,
     )

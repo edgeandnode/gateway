@@ -81,10 +81,8 @@ respond to the request, then this process is repeated until all available indexe
 
 The gateway exports data into the following kafka topics:
 
-- client requests (`gateway_client_query_results`)
-- indexer requests (`gateway_indexer_attempts`)
+- queries (`gateway_queries`)
 - attestations (`gateway_attestations`)
-- indexer fees (TAP only) (`gateway_indexer_fees`)
 
 Optionally, the [titorelli](https://github.com/edgeandnode/titorelli/) system can do aggregations
 over these topics. For now, this is limited to creating `gateway_indexer_fees_hourly` to improve
