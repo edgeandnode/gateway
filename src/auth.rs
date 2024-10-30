@@ -88,13 +88,15 @@ impl AuthContext {
             .get(token)
             .ok_or_else(|| anyhow::anyhow!("API key not found"))?;
 
-        match api_key.query_status {
-            QueryStatus::Active => (),
-            QueryStatus::ServiceShutoff => {
-                bail!("payment required for subsequent requests for this API key");
-            }
-            QueryStatus::MonthlyCapReached => {
-                bail!("spend limit exceeded for this API key");
+        if self.payment_required {
+            match api_key.query_status {
+                QueryStatus::Active => (),
+                QueryStatus::ServiceShutoff => {
+                    bail!("payment required for subsequent requests for this API key");
+                }
+                QueryStatus::MonthlyCapReached => {
+                    bail!("spend limit exceeded for this API key");
+                }
             }
         }
 
