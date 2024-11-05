@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "graph-gateway"
-version = "23.0.1"
+version = "24.0.0"
 
 [profile.release]
 lto = true
@@ -12,8 +12,9 @@ inherits = "release"
 debug = true
 
 [dependencies]
-alloy-primitives = { version = "0.7.1", features = ["serde"] }
-alloy-sol-types = "0.7.1"
+alloy-primitives = { version = "0.8.11", features = ["serde"] }
+alloy-signer-local = "0.5.4"
+alloy-sol-types = "0.8.11"
 anyhow = "1.0"
 axum = { version = "0.7.7", default-features = false, features = [
     "json",
@@ -57,8 +58,8 @@ serde_json = { version = "1.0.116", features = ["raw_value"] }
 serde_with = "3.8.1"
 simple-rate-limiter = "1.0"
 snmalloc-rs = "0.3"
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "c179dfe" }
-thegraph-core = { version = "0.6.0", features = ["serde"] }
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "61b47b3" }
+thegraph-core = { version = "0.7.0", features = ["serde"] }
 thegraph-graphql-http = { version = "0.2.1", features = [
     "http-client-reqwest",
 ] }
