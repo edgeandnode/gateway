@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
 use alloy_primitives::U256;
+use alloy_signer_local::PrivateKeySigner;
 use alloy_sol_types::Eip712Domain;
-use ethers::{core::k256::ecdsa::SigningKey, signers::Wallet};
 use parking_lot::{Mutex, RwLock};
 use rand::RngCore;
 pub use receipts::QueryStatus as ReceiptStatus;
@@ -56,14 +56,15 @@ impl Receipt {
 
 /// Scalar TAP signer.
 struct TapSigner {
-    signer: Wallet<SigningKey>,
+    signer: PrivateKeySigner,
     domain: Eip712Domain,
 }
 
 impl TapSigner {
     /// Creates a new `TapSigner`.
     fn new(signer: SecretKey, chain_id: U256, verifying_contract: Address) -> Self {
-        let signer = Wallet::from_bytes(signer.as_ref()).expect("failed to prepare receipt wallet");
+        let signer = PrivateKeySigner::from_bytes(signer.as_ref().into())
+            .expect("failed to prepare receipt wallet");
 
         Self {
             signer,
