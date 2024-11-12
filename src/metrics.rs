@@ -2,8 +2,8 @@ use lazy_static::lazy_static;
 use prometheus::{
     core::{MetricVec, MetricVecBuilder},
     register_gauge, register_histogram, register_histogram_vec, register_int_counter,
-    register_int_counter_vec, register_int_gauge_vec, Gauge, Histogram, HistogramTimer,
-    HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
+    register_int_counter_vec, register_int_gauge_vec, Gauge, Histogram, HistogramVec, IntCounter,
+    IntCounterVec, IntGaugeVec,
 };
 
 lazy_static! {
@@ -111,10 +111,6 @@ impl ResponseMetricVecs {
             )
             .unwrap(),
         }
-    }
-
-    pub fn start_timer(&self, label_values: &[&str]) -> Option<HistogramTimer> {
-        with_metric(&self.duration, label_values, |h| h.start_timer())
     }
 
     pub fn check<T, E>(&self, label_values: &[&str], result: &Result<T, E>) {

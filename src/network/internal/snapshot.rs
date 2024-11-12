@@ -40,8 +40,6 @@ pub struct IndexingId {
 pub struct Indexing {
     /// The indexing unique identifier.
     pub id: IndexingId,
-    /// The indexing chain.
-    pub chain: String,
     /// The largest allocation address.
     ///
     /// This is, among all allocations associated with the indexer and deployment, the address
@@ -132,11 +130,6 @@ pub struct Subgraph {
 
 #[derive(Debug, Clone)]
 pub struct Deployment {
-    /// Deployment ID.
-    ///
-    /// The IPFS content ID of the subgraph manifest.
-    pub id: DeploymentId,
-
     /// The deployment chain name.
     ///
     /// This field is extracted from the deployment manifest.
@@ -278,11 +271,7 @@ fn construct_subgraphs_table_row(
                         indexer: alloc.indexer,
                         deployment: deployment.id,
                     };
-                    construct_indexings_table_row(
-                        indexing_id,
-                        &deployment.manifest_network,
-                        indexers,
-                    )
+                    construct_indexings_table_row(indexing_id, indexers)
                 })
                 .collect::<Vec<_>>()
         })
@@ -323,7 +312,7 @@ fn construct_deployments_table_row(
                 deployment: deployment_id,
             };
 
-            construct_indexings_table_row(indexing_id, &deployment_manifest_chain, indexers)
+            construct_indexings_table_row(indexing_id, indexers)
         })
         .collect::<HashMap<_, _>>();
     if deployment_indexings.is_empty() {
@@ -333,7 +322,6 @@ fn construct_deployments_table_row(
     let deployment_subgraphs = deployment_info.subgraphs;
 
     Ok(Deployment {
-        id: deployment_id,
         chain: deployment_manifest_chain,
         start_block: deployment_manifest_start_block,
         subgraphs: deployment_subgraphs,
@@ -346,7 +334,6 @@ fn construct_deployments_table_row(
 /// If the indexer reported an error for the indexing, the row is constructed with the error.
 fn construct_indexings_table_row(
     indexing_id: IndexingId,
-    indexing_deployment_chain: &str,
     indexers: &HashMap<
         IndexerId,
         Result<(ResolvedIndexerInfo, Arc<Indexer>), IndexerInfoResolutionError>,
@@ -398,7 +385,6 @@ fn construct_indexings_table_row(
 
     let indexing = Indexing {
         id: indexing_id,
-        chain: indexing_deployment_chain.to_owned(),
         largest_allocation: indexing_largest_allocation_addr,
         total_allocated_tokens: indexing_total_allocated_tokens,
         indexer: Arc::clone(indexer),

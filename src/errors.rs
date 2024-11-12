@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use itertools::Itertools as _;
 use thegraph_core::{BlockNumber, IndexerId};
 
-use crate::{blocks::UnresolvedBlock, graphql};
+use crate::graphql;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -17,9 +17,6 @@ pub enum Error {
     /// Failed to authenticate or authorize the client request.
     #[error("auth error: {0:#}")]
     Auth(anyhow::Error),
-    /// A block required by the query is not found.
-    #[error("block not found: {0}")]
-    BlockNotFound(UnresolvedBlock),
     /// The requested subgraph or deployment is not found or invalid.
     #[error("subgraph not found: {0:#}")]
     SubgraphNotFound(anyhow::Error),
@@ -67,9 +64,6 @@ impl fmt::Display for IndexerErrors {
 
 #[derive(thiserror::Error, Clone, Debug)]
 pub enum IndexerError {
-    /// Errors that should only occur in exceptional conditions.
-    #[error("InternalError({0})")]
-    Internal(&'static str),
     /// The indexer is considered unavailable.
     #[error("Unavailable({0})")]
     Unavailable(UnavailableReason),
@@ -97,10 +91,6 @@ pub enum UnavailableReason {
     /// within the expected time, etc.)
     #[error("no status: {0}")]
     NoStatus(String),
-
-    /// The indexer has zero stake.
-    #[error("no stake")]
-    NoStake,
 
     /// The indexer's cost model did not produce a fee for the GraphQL document.
     #[error("no fee")]

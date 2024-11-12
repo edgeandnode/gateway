@@ -188,7 +188,6 @@ fn into_subgraph_version_raw_info(
         .allocations
         .into_iter()
         .map(|allocation| AllocationInfo {
-            id: allocation.id,
             indexer: allocation.indexer.id,
         })
         .collect::<Vec<_>>();
@@ -200,7 +199,6 @@ fn into_subgraph_version_raw_info(
         .network
         .ok_or_else(|| anyhow!("manifest missing network"))?;
 
-    let version_number = version.version;
     let version_deployment = DeploymentRawInfo {
         id: deployment.id,
         allocations: deployment_allocations,
@@ -210,7 +208,6 @@ fn into_subgraph_version_raw_info(
     };
 
     Ok(SubgraphVersionRawInfo {
-        version: version_number,
         deployment: version_deployment,
     })
 }

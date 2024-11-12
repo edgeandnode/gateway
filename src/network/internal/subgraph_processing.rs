@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::{BlockNumber, DeploymentId, IndexerId, SubgraphId};
 
 use crate::network::errors::{DeploymentError, SubgraphError};
 
@@ -18,7 +18,6 @@ pub(super) struct SubgraphRawInfo {
 /// This is not the final representation of the subgraph version.
 #[derive(Debug, Clone)]
 pub(super) struct SubgraphVersionRawInfo {
-    pub version: u32,
     pub deployment: DeploymentRawInfo,
 }
 
@@ -48,7 +47,6 @@ pub struct SubgraphInfo {
 /// This is not the final representation of the subgraph version.
 #[derive(Debug, Clone)]
 pub struct SubgraphVersionInfo {
-    pub version: u32,
     pub deployment_id: DeploymentId,
     pub deployment: Result<DeploymentInfo, DeploymentError>,
 }
@@ -70,8 +68,6 @@ pub struct DeploymentInfo {
 /// This is not the final representation of the allocation.
 #[derive(Debug, Clone)]
 pub struct AllocationInfo {
-    // The allocation ID.
-    pub id: AllocationId,
     // The indexer ID.
     pub indexer: IndexerId,
 }
@@ -106,7 +102,6 @@ pub(super) fn process_subgraph_info(
                 .versions
                 .into_iter()
                 .map(|version| SubgraphVersionInfo {
-                    version: version.version,
                     deployment_id: version.deployment.id,
                     deployment: try_into_deployment_info(&version.deployment),
                 })

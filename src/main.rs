@@ -22,6 +22,7 @@ mod receipts;
 mod reports;
 mod subgraph_studio;
 mod time;
+#[allow(dead_code)]
 mod ttl_hash_map;
 mod unattestable_errors;
 mod vouchers;
@@ -162,7 +163,6 @@ async fn main() {
     let reporter = reports::Reporter::create(
         tap_signer,
         conf.graph_env_id,
-        conf.query_fees_target,
         reports::Topics {
             queries: "gateway_queries",
             attestations: "gateway_attestations",
