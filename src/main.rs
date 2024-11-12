@@ -1,3 +1,31 @@
+mod auth;
+mod block_constraints;
+mod blocks;
+mod budgets;
+mod chain;
+mod chains;
+mod client_query;
+mod config;
+mod errors;
+mod exchange_rate;
+mod graphql;
+mod http_ext;
+mod indexer_client;
+mod indexers;
+mod indexing_performance;
+mod json;
+mod metrics;
+mod middleware;
+mod network;
+mod ptr;
+mod receipts;
+mod reports;
+mod subgraph_studio;
+mod time;
+mod ttl_hash_map;
+mod unattestable_errors;
+mod vouchers;
+
 use std::{
     collections::HashSet,
     env,
@@ -9,34 +37,27 @@ use std::{
 };
 
 use alloy_sol_types::Eip712Domain;
+use auth::AuthContext;
 use axum::{
     body::Body,
     extract::{ConnectInfo, DefaultBodyLimit, State},
     http::{self, status::StatusCode, Request},
-    middleware,
-    middleware::Next,
     response::Response,
     routing, Router,
 };
+use budgets::{Budgeter, USD};
+use chains::Chains;
+use client_query::context::Context;
+use config::{ApiKeys, ExchangeRateProvider};
 use ethers::signers::{Signer, Wallet};
-use graph_gateway::{
-    auth::AuthContext,
-    budgets::{Budgeter, USD},
-    chains::Chains,
-    client_query::{self, context::Context},
-    config::{self, ApiKeys, ExchangeRateProvider},
-    exchange_rate,
-    indexer_client::IndexerClient,
-    indexing_performance::IndexingPerformance,
-    json,
-    middleware::{
-        legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
-    },
-    network::{self, subgraph_client::Client as SubgraphClient},
-    receipts::ReceiptSigner,
-    reports, subgraph_studio, vouchers,
+use indexer_client::IndexerClient;
+use indexing_performance::IndexingPerformance;
+use middleware::{
+    legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
 };
+use network::subgraph_client::Client as SubgraphClient;
 use prometheus::{self, Encoder as _};
+use receipts::ReceiptSigner;
 use secp256k1::SecretKey;
 use serde_json::json;
 use simple_rate_limiter::RateLimiter;
@@ -232,7 +253,7 @@ async fn main() {
                 // Set the query ID on the request
                 .layer(SetRequestIdLayer::new(format!("{:?}", tap_signer)))
                 // Handle legacy in-path auth, and convert it into a header
-                .layer(middleware::from_fn(legacy_auth_adapter))
+                .layer(axum::middleware::from_fn(legacy_auth_adapter))
                 // Require the query to be authorized
                 .layer(RequireAuthorizationLayer::new(auth_service)),
         );
@@ -262,7 +283,10 @@ async fn main() {
             routing::get(|| async { budgeter.query_fees_target.0.to_string() }),
         )
         .nest("/api", api)
-        .layer(middleware::from_fn_with_state(rate_limiter, ip_rate_limit));
+        .layer(axum::middleware::from_fn_with_state(
+            rate_limiter,
+            ip_rate_limit,
+        ));
 
     let app_listener = TcpListener::bind(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
@@ -313,7 +337,7 @@ async fn ip_rate_limit(
     State(limiter): State<&'static RateLimiter<String>>,
     ConnectInfo(info): ConnectInfo<SocketAddr>,
     req: Request<Body>,
-    next: Next,
+    next: axum::middleware::Next,
 ) -> Result<Response, json::JsonResponse> {
     if limiter.check_limited(info.ip().to_string()) {
         return Err(graphql_error_response("Too many requests, try again later"));
