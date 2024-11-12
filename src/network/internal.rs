@@ -4,9 +4,9 @@ use thegraph_core::{DeploymentId, IndexerId, SubgraphId};
 
 use self::indexer_processing::IndexerRawInfo;
 pub use self::{
-    snapshot::{Indexer, Indexing, IndexingId, IndexingProgress, NetworkTopologySnapshot},
+    snapshot::{Indexing, IndexingId, NetworkTopologySnapshot},
     state::InternalState,
-    subgraph_processing::{AllocationInfo, DeploymentInfo, SubgraphInfo, SubgraphVersionInfo},
+    subgraph_processing::{AllocationInfo, DeploymentInfo, SubgraphInfo},
 };
 use super::{subgraph_client::Client as SubgraphClient, DeploymentError, SubgraphError};
 
@@ -66,12 +66,4 @@ pub async fn fetch_and_preprocess_subgraph_info(
         deployments,
         indexers,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    mod tests_pre_processing;
-    mod tests_subgraph_processing;
 }

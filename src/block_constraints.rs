@@ -13,11 +13,7 @@ use itertools::Itertools as _;
 use serde_json::{self, json};
 use thegraph_core::{BlockHash, BlockNumber};
 
-use crate::{
-    blocks::{BlockConstraint, UnresolvedBlock},
-    chain::Chain,
-    errors::Error,
-};
+use crate::{blocks::BlockConstraint, chain::Chain, errors::Error};
 
 #[derive(Debug)]
 pub struct BlockRequirements {
@@ -54,9 +50,7 @@ pub fn resolve_block_requirements(
             BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => None,
             BlockConstraint::Number(number) => Some(*number),
             // resolving block hashes is not guaranteed
-            BlockConstraint::Hash(hash) => chain
-                .find(&UnresolvedBlock::WithHash(*hash))
-                .map(|b| b.number),
+            BlockConstraint::Hash(hash) => chain.find(hash).map(|b| b.number),
         })
         .collect();
     let min_block = exact_constraints.iter().min().cloned();

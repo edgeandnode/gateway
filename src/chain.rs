@@ -3,9 +3,9 @@ use std::{
     iter,
 };
 
-use thegraph_core::IndexerId;
+use thegraph_core::{BlockHash, IndexerId};
 
-use crate::blocks::{Block, UnresolvedBlock};
+use crate::blocks::Block;
 
 #[derive(Default)]
 pub struct Chain(BTreeMap<Block, BTreeSet<IndexerId>>);
@@ -18,8 +18,8 @@ impl Chain {
         self.consensus_blocks().next()
     }
 
-    pub fn find(&self, unresolved: &UnresolvedBlock) -> Option<&Block> {
-        self.consensus_blocks().find(|b| unresolved.matches(b))
+    pub fn find(&self, unresolved: &BlockHash) -> Option<&Block> {
+        self.consensus_blocks().find(|b| &b.hash == unresolved)
     }
 
     /// Return the average block production rate, based on the consensus blocks. The result will

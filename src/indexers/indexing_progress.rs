@@ -124,7 +124,6 @@ pub struct IndexingStatusResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChainStatus {
-    pub network: String,
     pub latest_block: Option<BlockStatus>,
     pub earliest_block: Option<BlockStatus>,
 }
@@ -188,7 +187,6 @@ mod tests {
             "QmZTy9EJHu8rfY9QbEk3z1epmmvh5XHhT2Wqhkfbyt8k9Z"
         );
         assert_eq!(status1.chains.len(), 1);
-        assert_eq!(status1.chains[0].network, "rinkeby");
         assert!(status1.chains[0].latest_block.is_some());
         assert!(status1.chains[0].earliest_block.is_some());
 
@@ -198,7 +196,6 @@ mod tests {
             "QmSLQfPFcz2pKRJZUH16Sk26EFpRgdxTYGnMiKvWgKRM2a"
         );
         assert_eq!(status2.chains.len(), 1);
-        assert_eq!(status2.chains[0].network, "rinkeby");
         assert!(status2.chains[0].latest_block.is_none());
         assert!(status2.chains[0].earliest_block.is_none());
     }

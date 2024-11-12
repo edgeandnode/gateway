@@ -31,8 +31,6 @@ pub enum ResolutionError {
 /// The indexing progress information of a deployment on a chain.
 #[derive(Debug, Clone)]
 pub struct IndexingProgressInfo {
-    /// The chain the deployment is associated with.
-    pub chain: String,
     /// The latest block number indexed by the indexer.
     pub latest_block: BlockNumber,
     /// The earliest block number indexed by the indexer.
@@ -115,7 +113,6 @@ impl IndexingProgressResolver {
             let status = result.ok().and_then(|chains| {
                 let chain = chains.first()?;
                 Some(IndexingProgressInfo {
-                    chain: chain.network.clone(),
                     latest_block: chain.latest_block.as_ref().map(|block| block.number)?,
                     min_block: chain.earliest_block.as_ref().map(|block| block.number),
                 })

@@ -2,10 +2,8 @@
 //! provides information about the subgraphs (and subgraph deployments) registered in the network
 //! smart contract, as well as the indexers that are indexing them.
 
-pub use errors::{
-    DeploymentError, IndexingError, ResolutionError, SubgraphError, UnavailableReason,
-};
-pub use internal::{Indexer, Indexing, IndexingId};
+pub use errors::{DeploymentError, ResolutionError, SubgraphError, UnavailableReason};
+pub use internal::{Indexing, IndexingId};
 pub use service::{NetworkService, ResolvedSubgraphInfo};
 
 mod config;

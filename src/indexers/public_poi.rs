@@ -46,11 +46,6 @@ pub struct ProofOfIndexingInfo {
 }
 
 impl ProofOfIndexingInfo {
-    /// Get the POI bytes.
-    pub fn poi(&self) -> ProofOfIndexing {
-        self.proof_of_indexing
-    }
-
     /// Get the POI metadata.
     pub fn meta(&self) -> (DeploymentId, BlockNumber) {
         (self.deployment_id, self.block_number)

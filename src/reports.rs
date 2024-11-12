@@ -12,7 +12,6 @@ pub struct ClientRequest {
     pub response_time_ms: u16,
     pub result: Result<(), errors::Error>,
     pub api_key: String,
-    pub user_address: String,
     pub grt_per_usd: NotNan<f64>,
     pub indexer_requests: Vec<IndexerRequest>,
     pub request_bytes: u32,
@@ -36,7 +35,6 @@ pub struct IndexerRequest {
 pub struct Reporter {
     pub tap_signer: Address,
     pub graph_env: String,
-    pub budget: String,
     pub topics: Topics,
     pub write_buf: Vec<u8>,
     pub kafka_producer: rdkafka::producer::ThreadedProducer<
@@ -55,7 +53,6 @@ impl Reporter {
     pub fn create(
         tap_signer: Address,
         graph_env: String,
-        budget: NotNan<f64>,
         topics: Topics,
         kafka_config: impl Into<rdkafka::ClientConfig>,
     ) -> anyhow::Result<mpsc::UnboundedSender<ClientRequest>> {
@@ -66,7 +63,6 @@ impl Reporter {
         let mut reporter = Self {
             tap_signer,
             graph_env,
-            budget: budget.to_string(),
             topics,
             write_buf: Default::default(),
             kafka_producer,
