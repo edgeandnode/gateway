@@ -12,6 +12,7 @@ pub struct ClientRequest {
     pub response_time_ms: u16,
     pub result: Result<(), errors::Error>,
     pub api_key: String,
+    pub user: String,
     pub grt_per_usd: NotNan<f64>,
     pub indexer_requests: Vec<IndexerRequest>,
     pub request_bytes: u32,
@@ -125,6 +126,7 @@ impl Reporter {
             receipt_signer: self.tap_signer.to_vec(),
             query_id: client_request.id,
             api_key: client_request.api_key,
+            user_id: client_request.user,
             result: client_request
                 .result
                 .map(|()| "success".to_string())
@@ -196,6 +198,8 @@ pub struct ClientQueryProtobuf {
     query_id: String,
     #[prost(string, tag = "4")]
     api_key: String,
+    #[prost(string, tag = "11")]
+    user_id: String,
     #[prost(string, tag = "5")]
     result: String,
     #[prost(uint32, tag = "6")]
