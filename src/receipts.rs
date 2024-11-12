@@ -15,7 +15,7 @@ use thegraph_core::{Address, AllocationId};
 #[derive(Debug, Clone)]
 pub enum Receipt {
     Legacy(u128, Vec<u8>),
-    TAP(EIP712SignedMessage<TapReceipt>),
+    Tap(EIP712SignedMessage<TapReceipt>),
 }
 
 impl Receipt {
@@ -23,7 +23,7 @@ impl Receipt {
     pub fn grt_value(&self) -> u128 {
         match self {
             Receipt::Legacy(value, _) => *value,
-            Receipt::TAP(receipt) => receipt.message.value,
+            Receipt::Tap(receipt) => receipt.message.value,
         }
     }
 
@@ -31,7 +31,7 @@ impl Receipt {
     pub fn allocation(&self) -> Address {
         match self {
             Receipt::Legacy(_, receipt) => Address::from_slice(&receipt[0..20]),
-            Receipt::TAP(receipt) => receipt.message.allocation_id,
+            Receipt::Tap(receipt) => receipt.message.allocation_id,
         }
     }
 
@@ -40,7 +40,7 @@ impl Receipt {
     pub fn serialize(&self) -> String {
         match self {
             Receipt::Legacy(_, receipt) => hex::encode(&receipt[..(receipt.len() - 32)]),
-            Receipt::TAP(receipt) => serde_json::to_string(&receipt).unwrap(),
+            Receipt::Tap(receipt) => serde_json::to_string(&receipt).unwrap(),
         }
     }
 
@@ -49,7 +49,7 @@ impl Receipt {
     pub fn header_name(&self) -> &'static str {
         match self {
             Receipt::Legacy(_, _) => "Scalar-Receipt",
-            Receipt::TAP(_) => "Tap-Receipt",
+            Receipt::Tap(_) => "Tap-Receipt",
         }
     }
 }
@@ -187,7 +187,7 @@ impl ReceiptSigner {
 
     /// Creates a new Scalar TAP receipt for the given allocation and fee.
     pub fn create_receipt(&self, allocation: AllocationId, fee: u128) -> anyhow::Result<Receipt> {
-        self.tap.create_receipt(allocation, fee).map(Receipt::TAP)
+        self.tap.create_receipt(allocation, fee).map(Receipt::Tap)
     }
 
     /// Creates a new Scalar legacy receipt for the given allocation and fee.
@@ -352,6 +352,6 @@ mod tests {
 
         //* Then
         let receipt = res.expect("failed to create tap receipt");
-        assert!(matches!(receipt, Receipt::TAP(_)));
+        assert!(matches!(receipt, Receipt::Tap(_)));
     }
 }

@@ -22,7 +22,7 @@ const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = r#"
 pub enum Error {
     /// The request failed.
     #[error("request error: {0}")]
-    RequestError(String),
+    Request(String),
 
     /// Invalid response.
     ///
@@ -94,14 +94,14 @@ pub async fn send_request(
                 unreachable!("request serialization should not fail")
             }
             RequestError::RequestSendError(..) | RequestError::ResponseRecvError(..) => {
-                Error::RequestError(err.to_string())
+                Error::Request(err.to_string())
             }
             RequestError::ResponseDeserializationError { .. } => {
                 Error::InvalidResponse(err.to_string())
             }
         })?
         .map_err(|err| match err {
-            ResponseError::Failure { .. } => Error::RequestError(err.to_string()),
+            ResponseError::Failure { .. } => Error::Request(err.to_string()),
             ResponseError::Empty => Error::EmptyResponse,
         })?;
 

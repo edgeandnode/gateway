@@ -23,7 +23,7 @@ pub enum ResolutionError {
     ///
     /// This is a wrapper around [`ResolveError`].
     #[error("dns resolution error: {0}")]
-    DnsResolutionError(#[from] ResolveError),
+    Dns(#[from] ResolveError),
 
     /// Resolution timed out.
     #[error("timeout")]

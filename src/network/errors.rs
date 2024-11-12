@@ -63,9 +63,7 @@ impl From<IndexingError> for ResolutionError {
 
                         let reason = match err {
                             HostResolutionError::InvalidUrl(_) => "invalid indexer URL",
-                            HostResolutionError::DnsResolutionError(_) => {
-                                "indexer URL DNS resolution failed"
-                            }
+                            HostResolutionError::Dns(_) => "indexer URL DNS resolution failed",
                             HostResolutionError::Timeout => {
                                 "indexer URL DNS resolution failed (timeout)"
                             }

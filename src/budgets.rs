@@ -9,6 +9,7 @@ use tokio::{
 
 use crate::metrics::METRICS;
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct USD(pub NotNan<f64>);
 
