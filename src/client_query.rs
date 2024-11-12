@@ -26,10 +26,7 @@ use tokio::sync::mpsc;
 use tracing::{info_span, Instrument as _};
 use url::Url;
 
-use self::{
-    attestation_header::GraphAttestation, context::Context, query_selector::QuerySelector,
-    query_settings::QuerySettings,
-};
+use self::{attestation_header::GraphAttestation, context::Context, query_selector::QuerySelector};
 use crate::{
     auth::AuthSettings,
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
@@ -49,7 +46,6 @@ use crate::{
 mod attestation_header;
 pub mod context;
 mod query_selector;
-mod query_settings;
 
 const SELECTION_LIMIT: usize = 3;
 
@@ -63,7 +59,6 @@ pub async fn handle_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthSettings>,
     Extension(RequestId(request_id)): Extension<RequestId>,
-    query_settings: Option<Extension<QuerySettings>>,
     selector: QuerySelector,
     payload: Bytes,
 ) -> Result<Response<String>, Error> {
@@ -81,10 +76,7 @@ pub async fn handle_query(
     let one_grt = NotNan::new(1e18).unwrap();
     let budget = {
         let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
-        if let Some(Extension(QuerySettings {
-            budget_usd: Some(user_budget_usd),
-        })) = query_settings
-        {
+        if let Some(user_budget_usd) = auth.budget_usd {
             // Security: Consumers can and will set their budget to unreasonably high values.
             // This `.min` prevents the budget from being set far beyond what it would be
             // automatically. The reason this is important is that sometimes queries are
@@ -735,7 +727,6 @@ pub async fn handle_indexer_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthSettings>,
     Extension(RequestId(request_id)): Extension<RequestId>,
-    _query_settings: Option<Extension<QuerySettings>>,
     Path((deployment, indexer)): Path<(DeploymentId, IndexerId)>,
     payload: String,
 ) -> Result<Response<String>, Error> {
