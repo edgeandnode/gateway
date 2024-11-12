@@ -278,10 +278,6 @@ async fn main() {
             "/voucher",
             routing::post(vouchers::handle_voucher).with_state(legacy_signer),
         )
-        .route(
-            "/budget",
-            routing::get(|| async { budgeter.query_fees_target.0.to_string() }),
-        )
         .nest("/api", api)
         .layer(axum::middleware::from_fn_with_state(
             rate_limiter,
