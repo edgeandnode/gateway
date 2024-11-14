@@ -16,7 +16,6 @@ use super::{
     config::VersionRequirements,
     errors::{DeploymentError, SubgraphError},
     indexer_host_resolver::HostResolver,
-    indexer_indexing_cost_model_compiler::CostModelCompiler,
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist,
     indexer_indexing_poi_resolver::PoiResolver,
@@ -203,7 +202,6 @@ pub fn spawn(
             Duration::from_secs(25),
         ),
         cost_model_resolver: CostModelResolver::new(http_client.clone(), Duration::from_secs(5)),
-        cost_model_compiler: CostModelCompiler::new(Duration::from_secs(12 * 60 * 60)),
     };
     let update_interval = Duration::from_secs(60);
     let network = spawn_updater_task(subgraph_client, internal_state, update_interval);

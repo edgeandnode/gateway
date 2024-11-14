@@ -17,7 +17,6 @@ mod json;
 mod metrics;
 mod middleware;
 mod network;
-mod ptr;
 mod receipts;
 mod reports;
 mod subgraph_studio;
