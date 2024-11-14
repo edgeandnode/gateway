@@ -50,7 +50,6 @@ pub struct Topics {
 }
 
 impl Reporter {
-    #[allow(clippy::too_many_arguments)]
     pub fn create(
         tap_signer: Address,
         graph_env: String,
@@ -148,15 +147,15 @@ impl Reporter {
         self.write_buf.clear();
 
         for indexer_request in client_request.indexer_requests {
-            if let Some((original_response, attestation)) = indexer_request
+            if let Some((response, attestation)) = indexer_request
                 .result
                 .ok()
-                .and_then(|r| Some((r.original_response, r.attestation?)))
+                .and_then(|r| Some((r.response, r.attestation?)))
             {
                 const MAX_PAYLOAD_BYTES: usize = 10_000;
                 AttestationProtobuf {
                     request: Some(indexer_request.request).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
-                    response: Some(original_response).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
+                    response: Some(response).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
                     allocation: indexer_request.receipt.allocation().0 .0.into(),
                     subgraph_deployment: attestation.deployment.0.into(),
                     request_cid: attestation.request_cid.0.into(),

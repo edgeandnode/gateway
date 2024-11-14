@@ -6,20 +6,15 @@ use std::{
 
 use anyhow::anyhow;
 use axum::{
-    body::Bytes,
     extract::{Path, State},
     http::{Response, StatusCode},
     Extension,
 };
-use cost_model::Context as AgoraContext;
 use custom_debug::CustomDebug;
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use ordered_float::NotNan;
-use prost::bytes::Buf;
 use rand::{thread_rng, Rng as _};
-use serde::Deserialize;
-use serde_json::value::RawValue;
 use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 use tracing::{info_span, Instrument as _};
@@ -28,7 +23,7 @@ use url::Url;
 use self::{attestation_header::GraphAttestation, context::Context, query_selector::QuerySelector};
 use crate::{
     auth::AuthSettings,
-    block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
+    block_constraints::{resolve_block_requirements, BlockRequirements},
     budgets::USD,
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     http_ext::HttpBuilderExt as _,
@@ -47,27 +42,18 @@ mod query_selector;
 
 const SELECTION_LIMIT: usize = 3;
 
-#[derive(Debug, Deserialize)]
-pub struct QueryBody {
-    pub query: String,
-    pub variables: Option<Box<RawValue>>,
-}
-
 pub async fn handle_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthSettings>,
     Extension(RequestId(request_id)): Extension<RequestId>,
     selector: QuerySelector,
-    payload: Bytes,
+    body: String,
 ) -> Result<Response<String>, Error> {
     let start_time = Instant::now();
 
     // Check if the query selector is authorized by the auth token and
     // resolve the subgraph deployments for the query.
     let subgraph = resolve_subgraph_info(&ctx, &auth, selector).await?;
-
-    let client_request: QueryBody =
-        serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
 
     // Calculate the budget for the query
     let grt_per_usd = *ctx.grt_per_usd.borrow();
@@ -89,14 +75,7 @@ pub async fn handle_query(
     let (tx, mut rx) = mpsc::channel(1);
     tokio::spawn(
         run_indexer_queries(
-            ctx,
-            request_id,
-            auth,
-            start_time,
-            subgraph,
-            budget,
-            client_request,
-            tx,
+            ctx, request_id, auth, start_time, subgraph, budget, body, tx,
         )
         .in_current_span(),
     );
@@ -114,7 +93,7 @@ pub async fn handle_query(
 
     result.map(
         |IndexerResponse {
-             client_response,
+             response,
              attestation,
              ..
          }| {
@@ -122,7 +101,7 @@ pub async fn handle_query(
                 .status(StatusCode::OK)
                 .header_typed(ContentType::json())
                 .header_typed(GraphAttestation(attestation))
-                .body(client_response)
+                .body(response)
                 .unwrap()
         },
     )
@@ -185,30 +164,11 @@ async fn run_indexer_queries(
     start_time: Instant,
     subgraph: ResolvedSubgraphInfo,
     budget: u128,
-    client_request: QueryBody,
+    client_request: String,
     client_response: mpsc::Sender<Result<IndexerResponse, Error>>,
 ) {
     let one_grt = NotNan::new(1e18).unwrap();
     let grt_per_usd = *ctx.grt_per_usd.borrow();
-
-    // Create the Agora context from the query and variables
-    let variables = client_request
-        .variables
-        .as_ref()
-        .map(ToString::to_string)
-        .unwrap_or_default();
-    // We handle these errors here, instead of `handle_query`, because the agora context is tied to
-    // the lifetime of the query body which may need to extend past the client response. Even if
-    // it doesn't, it is relatively difficult to convince the compiler of that.
-    let agora_context = match AgoraContext::new(&client_request.query, &variables) {
-        Ok(agora_context) => agora_context,
-        Err(err) => {
-            client_response
-                .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
-                .unwrap();
-            return;
-        }
-    };
 
     // Get the chain information for the resolved subgraph
     let chain = ctx.chains.chain(&subgraph.chain);
@@ -227,16 +187,19 @@ async fn run_indexer_queries(
         // Get the estimated blocks per minute for the chain
         let blocks_per_minute = chain_reader.blocks_per_minute();
 
-        let block_requirements =
-            match resolve_block_requirements(&chain_reader, &agora_context, subgraph.start_block) {
-                Ok(block_requirements) => block_requirements,
-                Err(err) => {
-                    client_response
-                        .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
-                        .unwrap();
-                    return;
-                }
-            };
+        let block_requirements = match resolve_block_requirements(
+            &chain_reader,
+            &client_request,
+            subgraph.start_block,
+        ) {
+            Ok(block_requirements) => block_requirements,
+            Err(err) => {
+                client_response
+                    .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
+                    .unwrap();
+                return;
+            }
+        };
 
         (chain_head, blocks_per_minute, block_requirements)
     };
@@ -257,16 +220,15 @@ async fn run_indexer_queries(
     indexer_errors.extend(errors);
 
     if tracing::enabled!(tracing::Level::TRACE) {
-        tracing::trace!(client_query = client_request.query, variables);
+        tracing::trace!(client_request);
         tracing::trace!(?candidates);
     } else if tracing::enabled!(tracing::Level::DEBUG) && thread_rng().gen_bool(0.01) {
         // Log candidates at a low rate to avoid log bloat
-        tracing::debug!(client_query = client_request.query, variables);
+        tracing::debug!(client_request);
         tracing::debug!(?candidates);
     }
 
-    let client_request_bytes = client_request.query.len() as u32;
-    let indexer_query = rewrite_query(&agora_context);
+    let client_request_bytes = client_request.len() as u32;
     let mut indexer_requests: Vec<reports::IndexerRequest> = Default::default();
     let mut client_response_time: Option<Duration> = None;
     let mut client_response_bytes: Option<u32> = None;
@@ -312,7 +274,7 @@ async fn run_indexer_queries(
 
             let blocks_behind = blocks_behind(seconds_behind, blocks_per_minute);
             let indexer_client = ctx.indexer_client.clone();
-            let indexer_query = indexer_query.clone();
+            let client_request = client_request.clone();
             let tx = tx.clone();
             tokio::spawn(
                 async move {
@@ -321,7 +283,7 @@ async fn run_indexer_queries(
                     let deployment_url = url.join(&format!("subgraphs/id/{}", deployment)).unwrap();
                     let auth = IndexerAuth::Paid(&receipt, ctx.attestation_domain);
                     let result = indexer_client
-                        .query_indexer(deployment_url, auth, &indexer_query)
+                        .query_indexer(deployment_url, auth, &client_request)
                         .in_current_span()
                         .await;
                     let response_time_ms = start_time.elapsed().as_millis() as u16;
@@ -336,7 +298,7 @@ async fn run_indexer_queries(
                         response_time_ms,
                         seconds_behind,
                         blocks_behind,
-                        request: indexer_query,
+                        request: client_request,
                     };
                     tx.try_send(report).unwrap();
                 }
@@ -350,7 +312,7 @@ async fn run_indexer_queries(
                 Ok(response) if client_response_time.is_none() => {
                     let _ = client_response.try_send(Ok(response.clone()));
                     client_response_time = Some(start_time.elapsed());
-                    client_response_bytes = Some(response.client_response.len() as u32);
+                    client_response_bytes = Some(response.response.len() as u32);
                 }
                 Ok(_) => (),
                 Err(err) => {
@@ -406,7 +368,6 @@ async fn run_indexer_queries(
 
     for indexer_request in &indexer_requests {
         let latest_block = match &indexer_request.result {
-            Ok(response) => response.probe_block.as_ref().map(|b| b.number),
             Err(IndexerError::Unavailable(UnavailableReason::MissingBlock(err))) => err.latest,
             _ => None,
         };
@@ -418,14 +379,7 @@ async fn run_indexer_queries(
             latest_block,
         );
 
-        if let Some(block) = indexer_request
-            .result
-            .as_ref()
-            .ok()
-            .and_then(|r| r.probe_block.clone())
-        {
-            chain.notify(block, indexer_request.indexer);
-        }
+        // TODO: chain.notify(...);
 
         let deployment = indexer_request.deployment.to_string();
         let indexer = format!("{:?}", indexer_request.indexer);
@@ -490,7 +444,6 @@ struct CandidateMetadata {
 
 /// Given a list of indexings, build a list of candidates that are within the required block range
 /// and have the required performance.
-#[allow(clippy::too_many_arguments)]
 fn build_candidates_list(
     ctx: &Context,
     budget: u128,
@@ -826,13 +779,13 @@ pub async fn handle_indexer_query(
         user: auth.user,
         grt_per_usd,
         request_bytes: indexer_request.request.len() as u32,
-        response_bytes: result.as_ref().map(|r| r.client_response.len() as u32).ok(),
+        response_bytes: result.as_ref().map(|r| r.response.len() as u32).ok(),
         indexer_requests: vec![indexer_request],
     });
 
     result.map(
         |IndexerResponse {
-             client_response,
+             response,
              attestation,
              ..
          }| {
@@ -840,7 +793,7 @@ pub async fn handle_indexer_query(
                 .status(StatusCode::OK)
                 .header_typed(ContentType::json())
                 .header_typed(GraphAttestation(attestation))
-                .body(client_response)
+                .body(response)
                 .unwrap()
         },
     )
