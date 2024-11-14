@@ -21,7 +21,6 @@ axum = { version = "0.7.7", default-features = false, features = [
     "tokio",
     "http1",
 ] }
-by_address = "1.2.1"
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "e9530de" }
 custom_debug = "0.6.1"
 ethers = "2.0.14"
@@ -36,7 +35,6 @@ indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection"
 ipnetwork = { version = "0.20.0", default-features = false }
 itertools = "0.13.0"
 lazy_static = "1.4.0"
-num-traits = "0.2.18"
 ordered-float = "4.2.0"
 parking_lot = "0.12.3"
 pin-project = "1.1.5"

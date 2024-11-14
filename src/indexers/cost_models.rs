@@ -12,7 +12,6 @@ const COST_MODEL_QUERY_DOCUMENT: &str = r#"
         costModels(deployments: $deployments) {
             deployment
             model
-            variables
         }
     }
 "#;
@@ -110,5 +109,4 @@ struct Response {
 pub struct CostModelSource {
     pub deployment: DeploymentId,
     pub model: String,
-    pub variables: Option<String>,
 }

@@ -1112,12 +1112,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 
 [[package]]
-name = "by_address"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64fa3c856b712db6612c019f14756e64e4bcea13337a6b33b696333a9eaa2d06"
-
-[[package]]
 name = "byte-slice-cast"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2438,7 +2432,6 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "axum",
- "by_address",
  "cost-model",
  "custom_debug",
  "ethers",
@@ -2455,7 +2448,6 @@ dependencies = [
  "ipnetwork",
  "itertools 0.13.0",
  "lazy_static",
- "num-traits",
  "ordered-float",
  "parking_lot",
  "pin-project",

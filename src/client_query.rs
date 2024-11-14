@@ -11,11 +11,10 @@ use axum::{
     http::{Response, StatusCode},
     Extension,
 };
-use cost_model::{Context as AgoraContext, CostModel};
+use cost_model::Context as AgoraContext;
 use custom_debug::CustomDebug;
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
-use num_traits::cast::ToPrimitive as _;
 use ordered_float::NotNan;
 use prost::bytes::Buf;
 use rand::{thread_rng, Rng as _};
@@ -38,7 +37,6 @@ use crate::{
     metrics::{with_metric, METRICS},
     middleware::RequestId,
     network::{self, DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
-    ptr::Ptr,
     receipts::ReceiptStatus,
     reports,
 };
@@ -249,7 +247,6 @@ async fn run_indexer_queries(
     // Candidate selection preparation
     let (mut candidates, errors) = build_candidates_list(
         &ctx,
-        &agora_context,
         budget,
         chain_head,
         blocks_per_minute,
@@ -496,7 +493,6 @@ struct CandidateMetadata {
 #[allow(clippy::too_many_arguments)]
 fn build_candidates_list(
     ctx: &Context,
-    context: &AgoraContext,
     budget: u128,
     chain_head: BlockNumber,
     blocks_per_minute: u64,
@@ -593,18 +589,6 @@ fn build_candidates_list(
             }
         }
 
-        // Calculate the fee for the indexing, and normalize it
-        let fee = match indexer_fee(context, &indexing.cost_model) {
-            Some(fee) => Normalized::new(fee as f64 / budget as f64).unwrap_or(Normalized::ONE),
-            None => {
-                candidates_errors.insert(
-                    indexing_id.indexer,
-                    IndexerError::Unavailable(UnavailableReason::NoFee),
-                );
-                continue;
-            }
-        };
-
         candidates_list.push(Candidate {
             id: indexing_id.indexer,
             data: CandidateMetadata {
@@ -614,7 +598,7 @@ fn build_candidates_list(
                 tap_support: indexing.indexer.tap_support,
             },
             perf: perf.response,
-            fee,
+            fee: Normalized::new(indexing.fee as f64 / budget as f64).unwrap_or(Normalized::ONE),
             seconds_behind: perf.seconds_behind,
             slashable_grt: (indexing.indexer.staked_tokens as f64 * 1e-18) as u64,
             zero_allocation: indexing.total_allocated_tokens == 0,
@@ -679,22 +663,6 @@ fn perf(
 
 fn blocks_behind(seconds_behind: u32, blocks_per_minute: u64) -> u64 {
     ((seconds_behind as f64 / 60.0) * blocks_per_minute as f64) as u64
-}
-
-/// Estimate the fee for an indexer based on the cost model and the query context.
-///
-/// If the cost model is not available, the fee is assumed to be zero.
-/// If the cost model is available but the cost cannot be calculated, the fee is assumed to be
-/// unavailable.
-pub fn indexer_fee(context: &AgoraContext, cost_model: &Option<Ptr<CostModel>>) -> Option<u128> {
-    match cost_model
-        .as_ref()
-        .map(|model| model.cost_with_context(context))
-    {
-        None => Some(0),
-        Some(Ok(fee)) => fee.to_u128(),
-        Some(Err(_)) => None,
-    }
 }
 
 impl From<network::ResolutionError> for IndexerError {

@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use cost_model::CostModel;
 use custom_debug::CustomDebug;
 use ipnetwork::IpNetwork;
 use semver::Version;
@@ -15,14 +14,11 @@ use crate::{
         config::VersionRequirements,
         errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
         indexer_host_resolver::HostResolver,
-        indexer_indexing_cost_model_compiler::CostModelCompiler,
-        indexer_indexing_cost_model_resolver::CostModelResolver,
         indexer_indexing_poi_blocklist::PoiBlocklist,
         indexer_indexing_poi_resolver::PoiResolver,
         indexer_indexing_progress_resolver::IndexingProgressResolver,
         indexer_version_resolver::VersionResolver,
     },
-    ptr::Ptr,
 };
 
 /// Internal representation of the indexer pre-processed information.
@@ -95,8 +91,8 @@ pub(super) struct IndexingInfo<P, C> {
     /// See [`IndexingProgress`] for more information.
     pub progress: P, // Freshness<IndexingProgressInfo>,
 
-    /// The cost model for this indexing.
-    pub cost_model: C, // Option<Ptr<CostModel>>,
+    /// The indexer fee for this indexing.
+    pub fee: C,
 }
 
 impl From<IndexingRawInfo> for IndexingInfo<(), ()> {
@@ -105,7 +101,7 @@ impl From<IndexingRawInfo> for IndexingInfo<(), ()> {
             largest_allocation: raw.largest_allocation,
             total_allocated_tokens: raw.total_allocated_tokens,
             progress: (),
-            cost_model: (),
+            fee: (),
         }
     }
 }
@@ -121,7 +117,7 @@ impl IndexingInfo<(), ()> {
             largest_allocation: self.largest_allocation,
             total_allocated_tokens: self.total_allocated_tokens,
             progress,
-            cost_model: self.cost_model,
+            fee: self.fee,
         }
     }
 }
@@ -129,20 +125,17 @@ impl IndexingInfo<(), ()> {
 impl IndexingInfo<IndexingProgress, ()> {
     /// Move the type-state-machine from the partially resolved state to the completely resolved
     /// state by adding the cost model to the indexing information.
-    fn with_cost_model(
-        self,
-        cost_model: Option<Ptr<CostModel>>,
-    ) -> IndexingInfo<IndexingProgress, Option<Ptr<CostModel>>> {
+    fn with_fee(self, fee: u128) -> IndexingInfo<IndexingProgress, u128> {
         IndexingInfo {
             largest_allocation: self.largest_allocation,
             total_allocated_tokens: self.total_allocated_tokens,
             progress: self.progress,
-            cost_model,
+            fee,
         }
     }
 }
 
-pub(super) type ResolvedIndexingInfo = IndexingInfo<IndexingProgress, Option<Ptr<CostModel>>>;
+pub(super) type ResolvedIndexingInfo = IndexingInfo<IndexingProgress, u128>;
 
 pub(super) type ResolvedIndexerInfo = IndexerInfo<ResolvedIndexingInfo>;
 
@@ -417,13 +410,10 @@ async fn process_indexer_indexings(
         .collect::<HashMap<_, _>>();
 
     // Resolve the indexer's indexing cost models
-    let mut indexer_cost_models = resolve_indexer_cost_models(
-        &state.cost_model_resolver,
-        &state.cost_model_compiler,
-        url,
-        &healthy_indexer_indexings,
-    )
-    .await;
+    let mut indexer_cost_models = state
+        .cost_model_resolver
+        .resolve(url, &healthy_indexer_indexings)
+        .await;
 
     // Update the indexer's indexings info with the cost models
     let indexer_indexings = indexer_indexings
@@ -433,10 +423,8 @@ async fn process_indexer_indexings(
                 Ok(info) => info,
                 Err(err) => return (id, Err(err)),
             };
-
-            let cost_model = indexer_cost_models.remove(&id);
-
-            (id, Ok(info.with_cost_model(cost_model)))
+            let fee = indexer_cost_models.remove(&id).unwrap_or(0);
+            (id, Ok(info.with_fee(fee)))
         })
         .collect::<HashMap<_, _>>();
 
@@ -493,42 +481,4 @@ async fn resolve_indexer_progress(
             )
         })
         .collect::<HashMap<_, _>>()
-}
-
-/// Resolve the indexer's cost models.
-async fn resolve_indexer_cost_models(
-    resolver: &CostModelResolver,
-    compiler: &CostModelCompiler,
-    url: &Url,
-    indexings: &[DeploymentId],
-) -> HashMap<DeploymentId, Ptr<CostModel>> {
-    // Resolve the indexer's cost model sources
-    let cost_model_sources = match resolver.resolve(url, indexings).await {
-        Err(err) => {
-            // If the resolution failed, return early
-            tracing::trace!("cost model resolution failed: {err}");
-            return HashMap::new();
-        }
-        Ok(result) if result.is_empty() => {
-            // If the resolution is empty, return early
-            return HashMap::new();
-        }
-        Ok(result) => result,
-    };
-
-    // Compile the cost model sources into cost models
-    let cost_models = cost_model_sources
-        .into_iter()
-        .filter_map(
-            |(deployment, source)| match compiler.compile(source.as_ref()) {
-                Err(err) => {
-                    tracing::debug!("cost model compilation failed: {err}");
-                    None
-                }
-                Ok(cost_model) => Some((deployment, cost_model)),
-            },
-        )
-        .collect();
-
-    cost_models
 }

@@ -6,19 +6,15 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use cost_model::CostModel;
 use custom_debug::CustomDebug;
 use semver::Version;
 use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId, SubgraphId};
 use url::Url;
 
 use super::{DeploymentInfo, SubgraphInfo};
-use crate::{
-    network::{
-        errors::{DeploymentError, IndexerInfoResolutionError, IndexingError, SubgraphError},
-        internal::indexer_processing::ResolvedIndexerInfo,
-    },
-    ptr::Ptr,
+use crate::network::{
+    errors::{DeploymentError, IndexerInfoResolutionError, IndexingError, SubgraphError},
+    internal::indexer_processing::ResolvedIndexerInfo,
 };
 
 /// The minimum indexer service version required to support Scalar TAP.
@@ -55,8 +51,8 @@ pub struct Indexing {
     ///
     /// See [`IndexingProgress`] for more information.
     pub progress: IndexingProgress,
-    /// The indexer's indexing cost model
-    pub cost_model: Option<Ptr<CostModel>>,
+    /// The indexer's query fee
+    pub fee: u128,
 }
 
 /// The [`IndexingProgress`] struct represents the progress of an indexing.
@@ -381,7 +377,7 @@ fn construct_indexings_table_row(
     let indexing_largest_allocation_addr = indexing_info.largest_allocation;
     let indexing_total_allocated_tokens = indexing_info.total_allocated_tokens;
     let indexing_progress = indexing_info.progress.to_owned();
-    let indexing_cost_model = indexing_info.cost_model.to_owned();
+    let fee = indexing_info.fee;
 
     let indexing = Indexing {
         id: indexing_id,
@@ -392,7 +388,7 @@ fn construct_indexings_table_row(
             latest_block: indexing_progress.latest_block,
             min_block: indexing_progress.min_block,
         },
-        cost_model: indexing_cost_model,
+        fee,
     };
 
     (indexing_id, Ok(indexing))

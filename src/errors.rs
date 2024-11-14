@@ -92,10 +92,6 @@ pub enum UnavailableReason {
     #[error("no status: {0}")]
     NoStatus(String),
 
-    /// The indexer's cost model did not produce a fee for the GraphQL document.
-    #[error("no fee")]
-    NoFee,
-
     /// The indexer did not have a block required by the query.
     #[error("{}", .0.message())]
     MissingBlock(MissingBlockError),

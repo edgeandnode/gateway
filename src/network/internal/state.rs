@@ -8,7 +8,6 @@ use crate::{
     network::{
         config::VersionRequirements as IndexerVersionRequirements,
         indexer_host_resolver::HostResolver,
-        indexer_indexing_cost_model_compiler::CostModelCompiler,
         indexer_indexing_cost_model_resolver::CostModelResolver,
         indexer_indexing_poi_blocklist::PoiBlocklist, indexer_indexing_poi_resolver::PoiResolver,
         indexer_indexing_progress_resolver::IndexingProgressResolver,
@@ -26,5 +25,4 @@ pub struct InternalState {
     pub poi_resolver: PoiResolver,
     pub indexing_progress_resolver: IndexingProgressResolver,
     pub cost_model_resolver: CostModelResolver,
-    pub cost_model_compiler: CostModelCompiler,
 }

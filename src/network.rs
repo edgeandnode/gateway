@@ -9,7 +9,6 @@ pub use service::{NetworkService, ResolvedSubgraphInfo};
 mod config;
 mod errors;
 pub mod indexer_host_resolver;
-pub mod indexer_indexing_cost_model_compiler;
 pub mod indexer_indexing_cost_model_resolver;
 pub mod indexer_indexing_poi_blocklist;
 pub mod indexer_indexing_poi_resolver;
