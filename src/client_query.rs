@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use axum::{
     extract::{Path, State},
@@ -15,6 +16,7 @@ use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use ordered_float::NotNan;
 use rand::{thread_rng, Rng as _};
+use serde::Deserialize;
 use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 use tracing::{info_span, Instrument as _};
@@ -24,15 +26,16 @@ use self::{attestation_header::GraphAttestation, context::Context, query_selecto
 use crate::{
     auth::AuthSettings,
     block_constraints::{resolve_block_requirements, BlockRequirements},
+    blocks::Block,
     budgets::USD,
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     http_ext::HttpBuilderExt as _,
-    indexer_client::{IndexerAuth, IndexerResponse},
+    indexer_client::{IndexerAuth, IndexerClient, IndexerResponse},
     indexing_performance,
     metrics::{with_metric, METRICS},
     middleware::RequestId,
     network::{self, DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
-    receipts::ReceiptStatus,
+    receipts::{Receipt, ReceiptStatus},
     reports,
 };
 
@@ -171,8 +174,8 @@ async fn run_indexer_queries(
     let grt_per_usd = *ctx.grt_per_usd.borrow();
 
     // Get the chain information for the resolved subgraph
-    let chain = ctx.chains.chain(&subgraph.chain);
-    let (chain_head, blocks_per_minute, block_requirements) = {
+    let (chain_head, blocks_per_minute, block_requirements, chain_update) = {
+        let chain = ctx.chains.chain(&subgraph.chain);
         let chain_reader = chain.read();
 
         // Get the chain head block number. Try to get it from the chain head tracker service, if it
@@ -201,7 +204,12 @@ async fn run_indexer_queries(
             }
         };
 
-        (chain_head, blocks_per_minute, block_requirements)
+        (
+            chain_head,
+            blocks_per_minute,
+            block_requirements,
+            chain_reader.update_ticket().is_some(),
+        )
     };
     tracing::debug!(chain_head, blocks_per_minute, ?block_requirements);
 
@@ -364,7 +372,12 @@ async fn run_indexer_queries(
         .map(|i| i.receipt.grt_value() as f64 * 1e-18)
         .sum();
     let total_fees_usd = USD(NotNan::new(total_fees_grt / *grt_per_usd).unwrap());
-    let _ = ctx.budgeter.feedback.send(total_fees_usd);
+
+    if chain_update {
+        let _ = ctx.budgeter.feedback.send(USD(total_fees_usd.0 * 2.0));
+    } else {
+        let _ = ctx.budgeter.feedback.send(total_fees_usd);
+    }
 
     for indexer_request in &indexer_requests {
         let latest_block = match &indexer_request.result {
@@ -379,7 +392,9 @@ async fn run_indexer_queries(
             latest_block,
         );
 
-        // TODO: chain.notify(...);
+        if chain_update && indexer_request.result.is_ok() {
+            update_chain(&ctx, indexer_request);
+        }
 
         let deployment = indexer_request.deployment.to_string();
         let indexer = format!("{:?}", indexer_request.indexer);
@@ -797,6 +812,73 @@ pub async fn handle_indexer_query(
                 .unwrap()
         },
     )
+}
+
+fn update_chain(ctx: &Context, indexer_request: &reports::IndexerRequest) {
+    let allocation = indexer_request.receipt.allocation().into();
+    let receipt = match &indexer_request.receipt {
+        Receipt::Legacy(fee, _) => ctx.receipt_signer.create_legacy_receipt(allocation, *fee),
+        Receipt::Tap(r) => ctx
+            .receipt_signer
+            .create_receipt(allocation, r.message.value),
+    };
+    let attestation_domain = ctx.attestation_domain.clone();
+    let indexer_client = ctx.indexer_client.clone();
+    let deployment_url = indexer_request
+        .url
+        .parse::<Url>()
+        .unwrap()
+        .join(&format!("subgraphs/id/{}", indexer_request.deployment))
+        .unwrap();
+    let subgraph_chain = indexer_request.subgraph_chain.clone();
+    let chains = ctx.chains;
+    let indexer = indexer_request.indexer;
+    tokio::spawn(async move {
+        match update_chain_inner(indexer_client, deployment_url, receipt, &attestation_domain).await
+        {
+            Ok(block) => {
+                tracing::debug!(chain = subgraph_chain, ?block);
+                chains.chain(&subgraph_chain).write().insert(block, indexer);
+                METRICS
+                    .blocks_per_minute
+                    .with_label_values(&[&subgraph_chain])
+                    .set(chains.chain(&subgraph_chain).read().blocks_per_minute() as i64);
+            }
+            Err(err) => {
+                tracing::debug!(chain_update_err = format!("{err:#}"));
+            }
+        };
+    });
+}
+async fn update_chain_inner(
+    indexer_client: IndexerClient,
+    deployment_url: Url,
+    receipt: anyhow::Result<Receipt>,
+    attestation_domain: &Eip712Domain,
+) -> anyhow::Result<Block> {
+    let query = r#"{"query":"{meta:_meta{block{number,hash,timestamp}}}"}"#;
+    let receipt = receipt?;
+    let auth = IndexerAuth::Paid(&receipt, attestation_domain);
+    let response = indexer_client
+        .query_indexer(deployment_url, auth, query)
+        .await?;
+    if !response.errors.is_empty() {
+        anyhow::bail!(anyhow!("indexer errors: {:?}", response.errors));
+    }
+    #[derive(Debug, Deserialize)]
+    pub struct QueryResponse {
+        data: QueryData,
+    }
+    #[derive(Debug, Deserialize)]
+    pub struct QueryData {
+        meta: Meta,
+    }
+    #[derive(Debug, Deserialize)]
+    pub struct Meta {
+        block: Block,
+    }
+    let response: QueryResponse = serde_json::from_str(&response.response)?;
+    Ok(response.data.meta.block)
 }
 
 #[cfg(test)]
