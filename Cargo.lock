@@ -2463,7 +2463,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "simple-rate-limiter",
  "snmalloc-rs",
  "tap_core",
  "test-with",
@@ -5129,15 +5128,6 @@ checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
  "digest 0.10.7",
  "rand_core",
-]
-
-[[package]]
-name = "simple-rate-limiter"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d06b30e22500a25f4b84f8a899182c5c934393cd48adc93b790292b641e38e6a"
-dependencies = [
- "parking_lot",
 ]
 
 [[package]]

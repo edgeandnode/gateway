@@ -39,10 +39,8 @@ use std::{
 use alloy_sol_types::Eip712Domain;
 use auth::AuthContext;
 use axum::{
-    body::Body,
-    extract::{ConnectInfo, DefaultBodyLimit, State},
-    http::{self, status::StatusCode, Request},
-    response::Response,
+    extract::DefaultBodyLimit,
+    http::{self, status::StatusCode},
     routing, Router,
 };
 use budgets::{Budgeter, USD};
@@ -59,15 +57,8 @@ use network::subgraph_client::Client as SubgraphClient;
 use prometheus::{self, Encoder as _};
 use receipts::ReceiptSigner;
 use secp256k1::SecretKey;
-use serde_json::json;
-use simple_rate_limiter::RateLimiter;
 use thegraph_core::{attestation, Address, ChainId};
-use tokio::{
-    net::TcpListener,
-    signal::unix::SignalKind,
-    sync::watch,
-    time::{interval, MissedTickBehavior},
-};
+use tokio::{net::TcpListener, signal::unix::SignalKind, sync::watch};
 use tower_http::cors::{self, CorsLayer};
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -200,21 +191,6 @@ async fn main() {
             .expect("Failed to start metrics server");
     });
 
-    let rate_limiter_slots = 10;
-    let rate_limiter: &'static RateLimiter<String> =
-        Box::leak(Box::new(RateLimiter::<String>::new(
-            rate_limiter_slots * conf.ip_rate_limit as usize,
-            rate_limiter_slots,
-        )));
-    tokio::spawn(async move {
-        let mut interval = interval(Duration::from_secs(1));
-        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        loop {
-            interval.tick().await;
-            rate_limiter.rotate_slots();
-        }
-    });
-
     let api = Router::new()
         .route(
             "/deployments/id/:deployment_id",
@@ -277,11 +253,7 @@ async fn main() {
             "/voucher",
             routing::post(vouchers::handle_voucher).with_state(legacy_signer),
         )
-        .nest("/api", api)
-        .layer(axum::middleware::from_fn_with_state(
-            rate_limiter,
-            ip_rate_limit,
-        ));
+        .nest("/api", api);
 
     let app_listener = TcpListener::bind(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
@@ -328,19 +300,6 @@ async fn await_shutdown_signals() {
     }
 }
 
-async fn ip_rate_limit(
-    State(limiter): State<&'static RateLimiter<String>>,
-    ConnectInfo(info): ConnectInfo<SocketAddr>,
-    req: Request<Body>,
-    next: axum::middleware::Next,
-) -> Result<Response, json::JsonResponse> {
-    if limiter.check_limited(info.ip().to_string()) {
-        return Err(graphql_error_response("Too many requests, try again later"));
-    }
-
-    Ok(next.run(req).await)
-}
-
 async fn handle_metrics() -> impl axum::response::IntoResponse {
     let encoder = prometheus::TextEncoder::new();
     let metric_families = prometheus::gather();
@@ -352,10 +311,6 @@ async fn handle_metrics() -> impl axum::response::IntoResponse {
         return (StatusCode::INTERNAL_SERVER_ERROR, buffer);
     }
     (StatusCode::OK, buffer)
-}
-
-fn graphql_error_response<S: ToString>(message: S) -> json::JsonResponse {
-    json::json_response([], json!({"errors": [{"message": message.to_string()}]}))
 }
 
 pub fn init_logging(executable_name: &str, json: bool) {
