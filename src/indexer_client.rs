@@ -1,15 +1,11 @@
 use alloy_sol_types::Eip712Domain;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
-use thegraph_core::{
-    attestation::{self, Attestation},
-    BlockHash, BlockNumber,
-};
+use thegraph_core::attestation::{self, Attestation};
 use thegraph_graphql_http::http::response::Error as GQLError;
 use url::Url;
 
 use crate::{
-    blocks::Block,
     errors::{
         IndexerError::{self, *},
         MissingBlockError, UnavailableReason,
@@ -20,11 +16,9 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct IndexerResponse {
-    pub original_response: String,
+    pub response: String,
     pub attestation: Option<Attestation>,
-    pub client_response: String,
     pub errors: Vec<String>,
-    pub probe_block: Option<Block>,
 }
 
 #[derive(Clone)]
@@ -84,11 +78,10 @@ impl IndexerClient {
             return Err(BadResponse(err));
         }
 
-        let original_response = payload
+        let response = payload
             .graphql_response
             .ok_or_else(|| BadResponse("missing response".into()))?;
-        let (client_response, errors, probe_block) = rewrite_response(&original_response)?;
-        let errors: Vec<String> = errors.into_iter().map(|err| err.message).collect();
+        let errors = parse_indexer_errors(&response)?;
 
         errors
             .iter()
@@ -110,7 +103,7 @@ impl IndexerClient {
                         attestation,
                         &allocation,
                         query,
-                        &original_response,
+                        &response,
                     ) {
                         return Err(BadResponse(format!("bad attestation: {err}")));
                     }
@@ -134,21 +127,16 @@ impl IndexerClient {
         }
 
         Ok(IndexerResponse {
-            original_response,
+            response,
             attestation: payload.attestation,
-            client_response,
             errors,
-            probe_block,
         })
     }
 }
 
-fn rewrite_response(
-    response: &str,
-) -> Result<(String, Vec<GQLError>, Option<Block>), IndexerError> {
+fn parse_indexer_errors(response: &str) -> Result<Vec<String>, IndexerError> {
     #[derive(Deserialize, Serialize)]
-    struct Response {
-        data: Option<ProbedData>,
+    struct ResponseErrors {
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
         errors: Vec<GQLError>,
@@ -157,24 +145,7 @@ fn rewrite_response(
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     }
-    #[derive(Deserialize, Serialize)]
-    struct ProbedData {
-        #[serde(rename = "_gateway_probe_", skip_serializing)]
-        probe: Option<Meta>,
-        #[serde(flatten)]
-        data: serde_json::Value,
-    }
-    #[derive(Deserialize)]
-    struct Meta {
-        block: MaybeBlock,
-    }
-    #[derive(Deserialize)]
-    struct MaybeBlock {
-        number: BlockNumber,
-        hash: BlockHash,
-        timestamp: Option<u64>,
-    }
-    let mut payload: Response =
+    let mut payload: ResponseErrors =
         serde_json::from_str(response).map_err(|err| BadResponse(err.to_string()))?;
 
     if let Some(err) = payload.error.take() {
@@ -191,19 +162,7 @@ fn rewrite_response(
         err.message.shrink_to_fit();
     }
 
-    let block = payload
-        .data
-        .as_mut()
-        .and_then(|data| data.probe.take())
-        .and_then(|meta| {
-            Some(Block {
-                number: meta.block.number,
-                hash: meta.block.hash,
-                timestamp: meta.block.timestamp?,
-            })
-        });
-    let client_response = serde_json::to_string(&payload).unwrap();
-    Ok((client_response, payload.errors, block))
+    Ok(payload.errors.into_iter().map(|e| e.message).collect())
 }
 
 fn check_block_error(err: &str) -> Result<(), MissingBlockError> {

@@ -1,19 +1,34 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     iter,
+    time::Duration,
 };
 
 use thegraph_core::{BlockHash, IndexerId};
+use tokio::time::Instant;
 
 use crate::blocks::Block;
 
 #[derive(Default)]
-pub struct Chain(BTreeMap<Block, BTreeSet<IndexerId>>);
+pub struct Chain {
+    blocks: BTreeMap<Block, BTreeSet<IndexerId>>,
+    update: parking_lot::Mutex<Option<Instant>>,
+}
 
 const MAX_LEN: usize = 512;
 const DEFAULT_BLOCKS_PER_MINUTE: u64 = 6;
+const UPDATE_INTERVAL: Duration = Duration::from_secs(1);
 
 impl Chain {
+    pub fn update_ticket(&self) -> Option<()> {
+        let mut update = self.update.try_lock()?;
+        if matches!(*update, Some(t) if t.elapsed() < UPDATE_INTERVAL) {
+            return None;
+        }
+        *update = Some(Instant::now());
+        Some(())
+    }
+
     pub fn latest(&self) -> Option<&Block> {
         self.consensus_blocks().next()
     }
@@ -38,33 +53,39 @@ impl Chain {
         (bps * 60.0) as u64
     }
 
-    pub fn should_insert(&self, block: &Block, indexer: &IndexerId) -> bool {
+    pub fn insert(&mut self, block: Block, indexer: IndexerId) {
+        tracing::trace!(%indexer, ?block);
+        if !self.should_insert(&block, &indexer) {
+            return;
+        }
+        if self.blocks.len() >= MAX_LEN {
+            self.evict();
+        }
+        self.blocks.entry(block).or_default().insert(indexer);
+    }
+
+    fn should_insert(&self, block: &Block, indexer: &IndexerId) -> bool {
         let redundant = self
-            .0
+            .blocks
             .get(block)
             .map(|indexers| indexers.contains(indexer))
             .unwrap_or(false);
-        let lowest_block = self.0.first_key_value().map(|(b, _)| b.number).unwrap_or(0);
-        let has_space = (self.0.len() < MAX_LEN) || (block.number > lowest_block);
+        let lowest_block = self
+            .blocks
+            .first_key_value()
+            .map(|(b, _)| b.number)
+            .unwrap_or(0);
+        let has_space = (self.blocks.len() < MAX_LEN) || (block.number > lowest_block);
         !redundant && has_space
-    }
-
-    pub fn insert(&mut self, block: Block, indexer: IndexerId) {
-        tracing::trace!(%indexer, ?block);
-        debug_assert!(self.should_insert(&block, &indexer));
-        if self.0.len() >= MAX_LEN {
-            self.evict();
-        }
-        self.0.entry(block).or_default().insert(indexer);
     }
 
     /// Remove all entries associated with the lowest block number.
     fn evict(&mut self) {
-        let min_block = match self.0.pop_first() {
+        let min_block = match self.blocks.pop_first() {
             Some((min_block, _)) => min_block,
             None => return,
         };
-        while let Some(entry) = self.0.first_entry() {
+        while let Some(entry) = self.blocks.first_entry() {
             debug_assert!(entry.key().number >= min_block.number);
             if entry.key().number > min_block.number {
                 break;
@@ -100,7 +121,7 @@ impl Chain {
             }
         }
         ConsensusBlocks {
-            blocks: self.0.iter().rev().peekable(),
+            blocks: self.blocks.iter().rev().peekable(),
         }
     }
 }
@@ -108,7 +129,7 @@ impl Chain {
 #[cfg(test)]
 mod tests {
     use alloy_primitives::U256;
-    use itertools::Itertools;
+    use itertools::Itertools as _;
     use rand::{
         rngs::SmallRng, seq::SliceRandom as _, thread_rng, Rng as _, RngCore as _, SeedableRng,
     };
@@ -137,32 +158,30 @@ mod tests {
                 timestamp,
             };
             let indexer = *indexers.choose(&mut rng).unwrap();
-            if chain.should_insert(&block, &indexer) {
-                chain.insert(block, indexer);
-            }
+            chain.insert(block, indexer);
         }
 
-        // println!("{:#?}", chain.0);
+        // println!("{:#?}", chain.blocks);
         // println!("{:#?}", chain.consensus_blocks().collect::<Vec<_>>());
 
-        assert!(chain.0.len() <= MAX_LEN, "chain len above max");
-        assert!(chain.consensus_blocks().count() <= chain.0.len());
+        assert!(chain.blocks.len() <= MAX_LEN, "chain len above max");
+        assert!(chain.consensus_blocks().count() <= chain.blocks.len());
         assert!(chain.blocks_per_minute() > 0);
-        let blocks = || chain.0.keys();
+        let blocks = || chain.blocks.keys();
         assert!(
             blocks().tuple_windows().all(|(a, b)| a.number <= b.number),
             "chain block numbers not monotonic, check ord impl"
         );
         for block in chain.consensus_blocks() {
             let max_fork_indexers = chain
-                .0
+                .blocks
                 .iter()
                 .filter(|(block, _)| (block != block) && (block.number == block.number))
                 .map(|(_, indexers)| indexers.len())
                 .max()
                 .unwrap_or(0);
             assert!(
-                chain.0.get(block).unwrap().len() > max_fork_indexers,
+                chain.blocks.get(block).unwrap().len() > max_fork_indexers,
                 "consensus block without majority consensus"
             );
         }
