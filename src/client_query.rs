@@ -4,19 +4,22 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use axum::{
+    body::Bytes,
     extract::{Path, State},
     http::{Response, StatusCode},
     Extension,
 };
+use cost_model::Context as AgoraContext;
 use custom_debug::CustomDebug;
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use ordered_float::NotNan;
+use prost::bytes::Buf;
 use rand::{thread_rng, Rng as _};
 use serde::Deserialize;
+use serde_json::value::RawValue;
 use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 use tracing::{info_span, Instrument as _};
@@ -25,17 +28,16 @@ use url::Url;
 use self::{attestation_header::GraphAttestation, context::Context, query_selector::QuerySelector};
 use crate::{
     auth::AuthSettings,
-    block_constraints::{resolve_block_requirements, BlockRequirements},
-    blocks::Block,
+    block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     budgets::USD,
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     http_ext::HttpBuilderExt as _,
-    indexer_client::{IndexerAuth, IndexerClient, IndexerResponse},
+    indexer_client::{IndexerAuth, IndexerResponse},
     indexing_performance,
     metrics::{with_metric, METRICS},
     middleware::RequestId,
     network::{self, DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
-    receipts::{Receipt, ReceiptStatus},
+    receipts::ReceiptStatus,
     reports,
 };
 
@@ -45,18 +47,27 @@ mod query_selector;
 
 const SELECTION_LIMIT: usize = 3;
 
+#[derive(Debug, Deserialize)]
+pub struct QueryBody {
+    pub query: String,
+    pub variables: Option<Box<RawValue>>,
+}
+
 pub async fn handle_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthSettings>,
     Extension(RequestId(request_id)): Extension<RequestId>,
     selector: QuerySelector,
-    body: String,
+    payload: Bytes,
 ) -> Result<Response<String>, Error> {
     let start_time = Instant::now();
 
     // Check if the query selector is authorized by the auth token and
     // resolve the subgraph deployments for the query.
     let subgraph = resolve_subgraph_info(&ctx, &auth, selector).await?;
+
+    let client_request: QueryBody =
+        serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
 
     // Calculate the budget for the query
     let grt_per_usd = *ctx.grt_per_usd.borrow();
@@ -78,7 +89,14 @@ pub async fn handle_query(
     let (tx, mut rx) = mpsc::channel(1);
     tokio::spawn(
         run_indexer_queries(
-            ctx, request_id, auth, start_time, subgraph, budget, body, tx,
+            ctx,
+            request_id,
+            auth,
+            start_time,
+            subgraph,
+            budget,
+            client_request,
+            tx,
         )
         .in_current_span(),
     );
@@ -96,7 +114,7 @@ pub async fn handle_query(
 
     result.map(
         |IndexerResponse {
-             response,
+             client_response,
              attestation,
              ..
          }| {
@@ -104,7 +122,7 @@ pub async fn handle_query(
                 .status(StatusCode::OK)
                 .header_typed(ContentType::json())
                 .header_typed(GraphAttestation(attestation))
-                .body(response)
+                .body(client_response)
                 .unwrap()
         },
     )
@@ -167,15 +185,34 @@ async fn run_indexer_queries(
     start_time: Instant,
     subgraph: ResolvedSubgraphInfo,
     budget: u128,
-    client_request: String,
+    client_request: QueryBody,
     client_response: mpsc::Sender<Result<IndexerResponse, Error>>,
 ) {
     let one_grt = NotNan::new(1e18).unwrap();
     let grt_per_usd = *ctx.grt_per_usd.borrow();
 
+    // Create the Agora context from the query and variables
+    let variables = client_request
+        .variables
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    // We handle these errors here, instead of `handle_query`, because the agora context is tied to
+    // the lifetime of the query body which may need to extend past the client response. Even if
+    // it doesn't, it is relatively difficult to convince the compiler of that.
+    let agora_context = match AgoraContext::new(&client_request.query, &variables) {
+        Ok(agora_context) => agora_context,
+        Err(err) => {
+            client_response
+                .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
+                .unwrap();
+            return;
+        }
+    };
+
     // Get the chain information for the resolved subgraph
-    let (chain_head, blocks_per_minute, block_requirements, chain_update) = {
-        let chain = ctx.chains.chain(&subgraph.chain);
+    let chain = ctx.chains.chain(&subgraph.chain);
+    let (chain_head, blocks_per_minute, block_requirements) = {
         let chain_reader = chain.read();
 
         // Get the chain head block number. Try to get it from the chain head tracker service, if it
@@ -190,26 +227,18 @@ async fn run_indexer_queries(
         // Get the estimated blocks per minute for the chain
         let blocks_per_minute = chain_reader.blocks_per_minute();
 
-        let block_requirements = match resolve_block_requirements(
-            &chain_reader,
-            &client_request,
-            subgraph.start_block,
-        ) {
-            Ok(block_requirements) => block_requirements,
-            Err(err) => {
-                client_response
-                    .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
-                    .unwrap();
-                return;
-            }
-        };
+        let block_requirements =
+            match resolve_block_requirements(&chain_reader, &agora_context, subgraph.start_block) {
+                Ok(block_requirements) => block_requirements,
+                Err(err) => {
+                    client_response
+                        .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
+                        .unwrap();
+                    return;
+                }
+            };
 
-        (
-            chain_head,
-            blocks_per_minute,
-            block_requirements,
-            chain_reader.update_ticket().is_some(),
-        )
+        (chain_head, blocks_per_minute, block_requirements)
     };
     tracing::debug!(chain_head, blocks_per_minute, ?block_requirements);
 
@@ -228,15 +257,16 @@ async fn run_indexer_queries(
     indexer_errors.extend(errors);
 
     if tracing::enabled!(tracing::Level::TRACE) {
-        tracing::trace!(client_request);
+        tracing::trace!(client_query = client_request.query, variables);
         tracing::trace!(?candidates);
     } else if tracing::enabled!(tracing::Level::DEBUG) && thread_rng().gen_bool(0.01) {
         // Log candidates at a low rate to avoid log bloat
-        tracing::debug!(client_request);
+        tracing::debug!(client_query = client_request.query, variables);
         tracing::debug!(?candidates);
     }
 
-    let client_request_bytes = client_request.len() as u32;
+    let client_request_bytes = client_request.query.len() as u32;
+    let indexer_query = rewrite_query(&agora_context);
     let mut indexer_requests: Vec<reports::IndexerRequest> = Default::default();
     let mut client_response_time: Option<Duration> = None;
     let mut client_response_bytes: Option<u32> = None;
@@ -282,7 +312,7 @@ async fn run_indexer_queries(
 
             let blocks_behind = blocks_behind(seconds_behind, blocks_per_minute);
             let indexer_client = ctx.indexer_client.clone();
-            let client_request = client_request.clone();
+            let indexer_query = indexer_query.clone();
             let tx = tx.clone();
             tokio::spawn(
                 async move {
@@ -291,7 +321,7 @@ async fn run_indexer_queries(
                     let deployment_url = url.join(&format!("subgraphs/id/{}", deployment)).unwrap();
                     let auth = IndexerAuth::Paid(&receipt, ctx.attestation_domain);
                     let result = indexer_client
-                        .query_indexer(deployment_url, auth, &client_request)
+                        .query_indexer(deployment_url, auth, &indexer_query)
                         .in_current_span()
                         .await;
                     let response_time_ms = start_time.elapsed().as_millis() as u16;
@@ -306,7 +336,7 @@ async fn run_indexer_queries(
                         response_time_ms,
                         seconds_behind,
                         blocks_behind,
-                        request: client_request,
+                        request: indexer_query,
                     };
                     tx.try_send(report).unwrap();
                 }
@@ -320,7 +350,7 @@ async fn run_indexer_queries(
                 Ok(response) if client_response_time.is_none() => {
                     let _ = client_response.try_send(Ok(response.clone()));
                     client_response_time = Some(start_time.elapsed());
-                    client_response_bytes = Some(response.response.len() as u32);
+                    client_response_bytes = Some(response.client_response.len() as u32);
                 }
                 Ok(_) => (),
                 Err(err) => {
@@ -372,15 +402,11 @@ async fn run_indexer_queries(
         .map(|i| i.receipt.grt_value() as f64 * 1e-18)
         .sum();
     let total_fees_usd = USD(NotNan::new(total_fees_grt / *grt_per_usd).unwrap());
-
-    if chain_update {
-        let _ = ctx.budgeter.feedback.send(USD(total_fees_usd.0 * 2.0));
-    } else {
-        let _ = ctx.budgeter.feedback.send(total_fees_usd);
-    }
+    let _ = ctx.budgeter.feedback.send(total_fees_usd);
 
     for indexer_request in &indexer_requests {
         let latest_block = match &indexer_request.result {
+            Ok(response) => response.probe_block.as_ref().map(|b| b.number),
             Err(IndexerError::Unavailable(UnavailableReason::MissingBlock(err))) => err.latest,
             _ => None,
         };
@@ -392,8 +418,13 @@ async fn run_indexer_queries(
             latest_block,
         );
 
-        if chain_update && indexer_request.result.is_ok() {
-            update_chain(&ctx, indexer_request);
+        if let Some(block) = indexer_request
+            .result
+            .as_ref()
+            .ok()
+            .and_then(|r| r.probe_block.clone())
+        {
+            chain.notify(block, indexer_request.indexer);
         }
 
         let deployment = indexer_request.deployment.to_string();
@@ -459,6 +490,7 @@ struct CandidateMetadata {
 
 /// Given a list of indexings, build a list of candidates that are within the required block range
 /// and have the required performance.
+#[allow(clippy::too_many_arguments)]
 fn build_candidates_list(
     ctx: &Context,
     budget: u128,
@@ -794,13 +826,13 @@ pub async fn handle_indexer_query(
         user: auth.user,
         grt_per_usd,
         request_bytes: indexer_request.request.len() as u32,
-        response_bytes: result.as_ref().map(|r| r.response.len() as u32).ok(),
+        response_bytes: result.as_ref().map(|r| r.client_response.len() as u32).ok(),
         indexer_requests: vec![indexer_request],
     });
 
     result.map(
         |IndexerResponse {
-             response,
+             client_response,
              attestation,
              ..
          }| {
@@ -808,77 +840,10 @@ pub async fn handle_indexer_query(
                 .status(StatusCode::OK)
                 .header_typed(ContentType::json())
                 .header_typed(GraphAttestation(attestation))
-                .body(response)
+                .body(client_response)
                 .unwrap()
         },
     )
-}
-
-fn update_chain(ctx: &Context, indexer_request: &reports::IndexerRequest) {
-    let allocation = indexer_request.receipt.allocation().into();
-    let receipt = match &indexer_request.receipt {
-        Receipt::Legacy(fee, _) => ctx.receipt_signer.create_legacy_receipt(allocation, *fee),
-        Receipt::Tap(r) => ctx
-            .receipt_signer
-            .create_receipt(allocation, r.message.value),
-    };
-    let attestation_domain = ctx.attestation_domain.clone();
-    let indexer_client = ctx.indexer_client.clone();
-    let deployment_url = indexer_request
-        .url
-        .parse::<Url>()
-        .unwrap()
-        .join(&format!("subgraphs/id/{}", indexer_request.deployment))
-        .unwrap();
-    let subgraph_chain = indexer_request.subgraph_chain.clone();
-    let chains = ctx.chains;
-    let indexer = indexer_request.indexer;
-    tokio::spawn(async move {
-        match update_chain_inner(indexer_client, deployment_url, receipt, &attestation_domain).await
-        {
-            Ok(block) => {
-                tracing::debug!(chain = subgraph_chain, ?block);
-                chains.chain(&subgraph_chain).write().insert(block, indexer);
-                METRICS
-                    .blocks_per_minute
-                    .with_label_values(&[&subgraph_chain])
-                    .set(chains.chain(&subgraph_chain).read().blocks_per_minute() as i64);
-            }
-            Err(err) => {
-                tracing::debug!(chain_update_err = format!("{err:#}"));
-            }
-        };
-    });
-}
-async fn update_chain_inner(
-    indexer_client: IndexerClient,
-    deployment_url: Url,
-    receipt: anyhow::Result<Receipt>,
-    attestation_domain: &Eip712Domain,
-) -> anyhow::Result<Block> {
-    let query = r#"{"query":"{meta:_meta{block{number,hash,timestamp}}}"}"#;
-    let receipt = receipt?;
-    let auth = IndexerAuth::Paid(&receipt, attestation_domain);
-    let response = indexer_client
-        .query_indexer(deployment_url, auth, query)
-        .await?;
-    if !response.errors.is_empty() {
-        anyhow::bail!(anyhow!("indexer errors: {:?}", response.errors));
-    }
-    #[derive(Debug, Deserialize)]
-    pub struct QueryResponse {
-        data: QueryData,
-    }
-    #[derive(Debug, Deserialize)]
-    pub struct QueryData {
-        meta: Meta,
-    }
-    #[derive(Debug, Deserialize)]
-    pub struct Meta {
-        block: Block,
-    }
-    let response: QueryResponse = serde_json::from_str(&response.response)?;
-    Ok(response.data.meta.block)
 }
 
 #[cfg(test)]
