@@ -416,7 +416,7 @@ async fn process_indexer_indexings(
         .await;
 
     // Update the indexer's indexings info with the cost models
-    let indexer_indexings = indexer_indexings
+    indexer_indexings
         .into_iter()
         .map(|(id, res)| {
             let info = match res {
@@ -426,11 +426,7 @@ async fn process_indexer_indexings(
             let fee = indexer_cost_models.remove(&id).unwrap_or(0);
             (id, Ok(info.with_fee(fee)))
         })
-        .collect::<HashMap<_, _>>();
-
-    // Return the processed indexer's indexings
-    #[allow(clippy::let_and_return)]
-    indexer_indexings
+        .collect()
 }
 
 /// Resolve and check if any of the indexer's indexings should be blocked by POI.

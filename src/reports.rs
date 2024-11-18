@@ -50,7 +50,6 @@ pub struct Topics {
 }
 
 impl Reporter {
-    #[allow(clippy::too_many_arguments)]
     pub fn create(
         tap_signer: Address,
         graph_env: String,
