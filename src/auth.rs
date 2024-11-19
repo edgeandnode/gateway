@@ -4,9 +4,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, ensure};
-use ordered_float::NotNan;
 use serde::Deserialize;
-use serde_with::serde_as;
 use thegraph_core::SubgraphId;
 use tokio::sync::watch;
 
@@ -15,7 +13,6 @@ pub struct AuthSettings {
     pub key: String,
     pub user: String,
     pub authorized_subgraphs: Vec<SubgraphId>,
-    pub budget_usd: Option<NotNan<f64>>,
 }
 
 impl AuthSettings {
@@ -32,15 +29,11 @@ impl AuthSettings {
     }
 }
 
-#[serde_as]
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct APIKey {
+pub struct ApiKey {
     pub key: String,
     pub user_address: String,
     pub query_status: QueryStatus,
-    #[serde_as(as = "Option<serde_with::TryFromInto<f64>>")]
-    #[serde(rename = "max_budget")]
-    pub max_budget_usd: Option<NotNan<f64>>,
     #[serde(default)]
     pub subgraphs: Vec<SubgraphId>,
     #[serde(default)]
@@ -61,7 +54,7 @@ pub struct AuthContext {
     /// This is used to disable the payment requirement on testnets. If `true`, all queries will be
     /// checked for the `query_status` of their API key.
     pub payment_required: bool,
-    pub api_keys: watch::Receiver<HashMap<String, APIKey>>,
+    pub api_keys: watch::Receiver<HashMap<String, ApiKey>>,
     pub special_api_keys: Arc<HashSet<String>>,
 }
 
@@ -77,7 +70,6 @@ impl AuthContext {
                 key: token.to_string(),
                 user: String::new(),
                 authorized_subgraphs: vec![],
-                budget_usd: None,
             });
         }
 
@@ -109,7 +101,6 @@ impl AuthContext {
             key: api_key.key.clone(),
             user: api_key.user_address.clone(),
             authorized_subgraphs: api_key.subgraphs.clone(),
-            budget_usd: api_key.max_budget_usd,
         })
     }
 }

@@ -7,13 +7,13 @@ use tokio::{
 };
 use url::Url;
 
-use crate::auth::{APIKey, QueryStatus};
+use crate::auth::{ApiKey, QueryStatus};
 
 pub async fn api_keys(
     client: reqwest::Client,
     url: Url,
     auth: String,
-) -> watch::Receiver<HashMap<String, APIKey>> {
+) -> watch::Receiver<HashMap<String, ApiKey>> {
     let (tx, mut rx) = watch::channel(Default::default());
     let mut client = Client { client, url, auth };
     tokio::spawn(async move {
@@ -44,7 +44,7 @@ struct Client {
 }
 
 impl Client {
-    async fn fetch_api_keys(&mut self) -> anyhow::Result<HashMap<String, APIKey>> {
+    async fn fetch_api_keys(&mut self) -> anyhow::Result<HashMap<String, ApiKey>> {
         #[derive(Deserialize, Debug)]
         struct _ApiKeys {
             api_keys: Vec<_ApiKey>,
@@ -54,7 +54,6 @@ impl Client {
             key: String,
             user_address: String,
             query_status: QueryStatus,
-            max_budget: Option<f64>,
             #[serde(default)]
             subgraphs: Vec<String>,
             #[serde(default)]
@@ -73,12 +72,11 @@ impl Client {
             .api_keys
             .into_iter()
             .map(|api_key| {
-                let api_key = APIKey {
+                let api_key = ApiKey {
                     key: api_key.key,
                     user_address: api_key.user_address,
                     query_status: api_key.query_status,
                     domains: api_key.domains,
-                    max_budget_usd: api_key.max_budget.and_then(|b| b.try_into().ok()),
                     subgraphs: api_key
                         .subgraphs
                         .into_iter()
@@ -87,7 +85,7 @@ impl Client {
                 };
                 (api_key.key.clone(), api_key)
             })
-            .collect::<HashMap<String, APIKey>>();
+            .collect::<HashMap<String, ApiKey>>();
 
         tracing::info!(api_keys = api_keys.len());
         Ok(api_keys)

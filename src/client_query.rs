@@ -68,22 +68,9 @@ pub async fn handle_query(
     let client_request: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
 
-    // Calculate the budget for the query
     let grt_per_usd = *ctx.grt_per_usd.borrow();
     let one_grt = NotNan::new(1e18).unwrap();
-    let budget = {
-        let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
-        if let Some(user_budget_usd) = auth.budget_usd {
-            // Security: Consumers can and will set their budget to unreasonably high values.
-            // This `.min` prevents the budget from being set far beyond what it would be
-            // automatically. The reason this is important is that sometimes queries are
-            // subsidized, and we would be at-risk to allow arbitrarily high values.
-            let max_budget = budget * 10;
-
-            budget = (*(user_budget_usd * grt_per_usd * one_grt) as u128).min(max_budget);
-        }
-        budget
-    };
+    let budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
 
     let (tx, mut rx) = mpsc::channel(1);
     tokio::spawn(
@@ -838,7 +825,7 @@ mod tests {
         use tower::ServiceExt;
 
         use crate::{
-            auth::{APIKey, AuthContext, AuthSettings},
+            auth::{ApiKey, AuthContext, AuthSettings},
             middleware::{legacy_auth_adapter, RequireAuthorizationLayer},
         };
 
@@ -852,7 +839,7 @@ mod tests {
             if let Some(key) = key {
                 ctx.api_keys = watch::channel(HashMap::from([(
                     key.into(),
-                    APIKey {
+                    ApiKey {
                         key: key.into(),
                         ..Default::default()
                     },
