@@ -43,8 +43,6 @@ pub struct Config {
     pub graph_env_id: String,
     /// File path of CSV containing rows of `IpNetwork,Country`
     pub ip_blocker_db: Option<PathBuf>,
-    /// IP rate limit in requests per second
-    pub ip_rate_limit: u16,
     /// See https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
     #[serde(default)]
     pub kafka: KafkaConfig,
