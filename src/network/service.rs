@@ -222,13 +222,11 @@ fn spawn_updater_task(
         let mut network_info: Option<PreprocessedNetworkInfo> = None;
 
         let mut timer = tokio::time::interval(update_interval);
-        timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
             timer.tick().await;
 
-            match fetch_and_preprocess_subgraph_info(&mut subgraph_client, Duration::from_secs(30))
-                .await
-            {
+            match fetch_and_preprocess_subgraph_info(&mut subgraph_client, update_interval).await {
                 Ok(info) => network_info = Some(info),
                 Err(network_subgraph_update_err) => tracing::error!(%network_subgraph_update_err),
             };
