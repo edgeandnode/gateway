@@ -7,7 +7,7 @@ use std::{
     str::FromStr,
 };
 
-use alloy_primitives::{B256, U256};
+use alloy::primitives::{B256, U256};
 use anyhow::Context;
 use custom_debug::CustomDebug;
 use ipnetwork::IpNetwork;

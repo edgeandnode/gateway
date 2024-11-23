@@ -107,7 +107,7 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::U256;
+    use alloy::primitives::U256;
     use itertools::Itertools;
     use rand::{
         rngs::SmallRng, seq::SliceRandom as _, thread_rng, Rng as _, RngCore as _, SeedableRng,

@@ -12,9 +12,7 @@ inherits = "release"
 debug = true
 
 [dependencies]
-alloy-primitives = { version = "0.8.11", features = ["serde"] }
-alloy-signer-local = "0.5.4"
-alloy-sol-types = "0.8.11"
+alloy = { version = "0.5.4", features = ["contract", "signer-local"] }
 anyhow = "1.0"
 axum = { version = "0.7.7", default-features = false, features = [
     "json",

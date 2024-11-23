@@ -298,7 +298,7 @@ fn parse_number<'c, T: Text<'c>>(
 mod tests {
     use std::iter::FromIterator as _;
 
-    use alloy_primitives::hex;
+    use alloy::primitives::hex;
 
     use super::*;
 

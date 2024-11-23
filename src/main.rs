@@ -36,8 +36,7 @@ use std::{
     time::Duration,
 };
 
-use alloy_signer_local::PrivateKeySigner;
-use alloy_sol_types::Eip712Domain;
+use alloy::{dyn_abi::Eip712Domain, signers::local::PrivateKeySigner};
 use auth::AuthContext;
 use axum::{
     extract::DefaultBodyLimit,
