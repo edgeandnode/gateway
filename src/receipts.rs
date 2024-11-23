@@ -1,7 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
-use alloy::primitives::U256;
-use alloy::{dyn_abi::Eip712Domain, signers::local::PrivateKeySigner};
+use alloy::{dyn_abi::Eip712Domain, primitives::U256, signers::local::PrivateKeySigner};
 use parking_lot::{Mutex, RwLock};
 use rand::RngCore;
 pub use receipts::QueryStatus as ReceiptStatus;
