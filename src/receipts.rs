@@ -62,10 +62,7 @@ struct TapSigner {
 
 impl TapSigner {
     /// Creates a new `TapSigner`.
-    fn new(signer: SecretKey, chain_id: U256, verifying_contract: Address) -> Self {
-        let signer = PrivateKeySigner::from_bytes(signer.as_ref().into())
-            .expect("failed to prepare receipt wallet");
-
+    fn new(signer: PrivateKeySigner, chain_id: U256, verifying_contract: Address) -> Self {
         Self {
             signer,
             domain: Eip712Domain {
@@ -174,7 +171,7 @@ pub struct ReceiptSigner {
 impl ReceiptSigner {
     /// Creates a new `ReceiptSigner`.
     pub fn new(
-        signer: SecretKey,
+        signer: PrivateKeySigner,
         chain_id: U256,
         verifier: Address,
         legacy_signer: &'static SecretKey,
@@ -283,7 +280,7 @@ mod tests {
         #[test]
         fn create_receipt() {
             //* Given
-            let secret_key = SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key");
+            let secret_key = PrivateKeySigner::from_slice(&[0xcd; 32]).expect("invalid secret key");
             let signer = TapSigner::new(
                 secret_key,
                 1.try_into().expect("invalid chain id"),
@@ -306,13 +303,13 @@ mod tests {
     #[test]
     fn create_legacy_receipt() {
         //* Given
-        let tap_secret_key = SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key");
+        let tap_signer = PrivateKeySigner::from_slice(&[0xcd; 32]).expect("invalid secret key");
         let legacy_secret_key = Box::leak(Box::new(
             SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key"),
         ));
 
         let signer = ReceiptSigner::new(
-            tap_secret_key,
+            tap_signer,
             1.try_into().expect("invalid chain id"),
             allocation_id!("177b557b12f22bb17a9d73dcc994d978dd6f5f89").into_inner(),
             legacy_secret_key,
@@ -332,13 +329,13 @@ mod tests {
     #[test]
     fn create_tap_receipt() {
         //* Given
-        let tap_secret_key = SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key");
+        let tap_signer = PrivateKeySigner::from_slice(&[0xcd; 32]).expect("invalid secret key");
         let legacy_secret_key = Box::leak(Box::new(
             SecretKey::from_slice(&[0xcd; 32]).expect("invalid secret key"),
         ));
 
         let signer = ReceiptSigner::new(
-            tap_secret_key,
+            tap_signer,
             1.try_into().expect("invalid chain id"),
             address!("177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
             legacy_secret_key,
