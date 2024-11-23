@@ -12,10 +12,9 @@ use anyhow::Context;
 use custom_debug::CustomDebug;
 use ipnetwork::IpNetwork;
 use ordered_float::NotNan;
-use secp256k1::SecretKey;
 use semver::Version;
 use serde::Deserialize;
-use serde_with::{serde_as, DeserializeAs, DisplayFromStr};
+use serde_with::{serde_as, DisplayFromStr};
 use thegraph_core::{Address, DeploymentId};
 use url::Url;
 
@@ -168,17 +167,14 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
     }
 }
 
-#[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct Receipts {
     /// TAP verifier contract chain
     pub chain_id: U256,
     /// Secret key for legacy voucher signing (Scalar)
-    #[serde_as(as = "Option<HiddenSecretKey>")]
-    pub legacy_signer: Option<Hidden<SecretKey>>,
+    pub legacy_signer: Option<Hidden<B256>>,
     /// TAP signer key
-    #[serde_as(as = "HiddenSecretKey")]
-    pub signer: Hidden<SecretKey>,
+    pub signer: Hidden<B256>,
     /// TAP verifier contract address
     pub verifier: Address,
 }
@@ -234,19 +230,5 @@ impl<T> Deref for Hidden<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-pub struct HiddenSecretKey;
-
-impl<'de> DeserializeAs<'de, Hidden<SecretKey>> for HiddenSecretKey {
-    fn deserialize_as<D>(deserializer: D) -> Result<Hidden<SecretKey>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let bytes = B256::deserialize(deserializer)?;
-        SecretKey::from_slice(bytes.as_slice())
-            .map(Hidden)
-            .map_err(serde::de::Error::custom)
     }
 }

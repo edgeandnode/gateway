@@ -36,6 +36,7 @@ use std::{
     time::Duration,
 };
 
+use alloy_signer_local::PrivateKeySigner;
 use alloy_sol_types::Eip712Domain;
 use auth::AuthContext;
 use axum::{
@@ -47,7 +48,6 @@ use budgets::{Budgeter, USD};
 use chains::Chains;
 use client_query::context::Context;
 use config::{ApiKeys, ExchangeRateProvider};
-use ethers::signers::{Signer, Wallet};
 use indexer_client::IndexerClient;
 use indexing_performance::IndexingPerformance;
 use middleware::{
@@ -56,8 +56,7 @@ use middleware::{
 use network::subgraph_client::Client as SubgraphClient;
 use prometheus::{self, Encoder as _};
 use receipts::ReceiptSigner;
-use secp256k1::SecretKey;
-use thegraph_core::{attestation, Address, ChainId};
+use thegraph_core::{attestation, ChainId};
 use tokio::{net::TcpListener, signal::unix::SignalKind, sync::watch};
 use tower_http::cors::{self, CorsLayer};
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -74,14 +73,14 @@ async fn main() {
         .unwrap();
     let conf = config::load_from_file(&conf_path).expect("Failed to load config");
 
-    let signer_address = Wallet::from_bytes(conf.receipts.signer.0.as_ref())
-        .expect("failed to prepare receipt wallet");
-    let tap_signer = Address::from(signer_address.address().0);
+    let receipt_signer = PrivateKeySigner::from_bytes(&conf.receipts.signer)
+        .expect("failed to prepare receipt signer");
+    let signer_address = receipt_signer.address();
 
     let conf_repr = format!("{conf:?}");
 
     init_logging("graph-gateway", conf.log_json);
-    tracing::info!("gateway ID: {:?}", tap_signer);
+    tracing::info!("gateway ID: {:?}", signer_address);
     tracing::debug!(config = %conf_repr);
 
     let http_client = reqwest::Client::builder()
@@ -130,14 +129,18 @@ async fn main() {
     let indexing_perf = IndexingPerformance::new(network.clone());
     network.wait_until_ready().await;
 
-    let legacy_signer: &'static SecretKey = Box::leak(Box::new(
-        conf.receipts
-            .legacy_signer
-            .map(|s| s.0)
-            .unwrap_or(conf.receipts.signer.0),
+    let legacy_signer: &'static secp256k1::SecretKey = Box::leak(Box::new(
+        secp256k1::SecretKey::from_slice(
+            conf.receipts
+                .legacy_signer
+                .as_ref()
+                .map(|s| s.0.as_slice())
+                .unwrap_or(receipt_signer.to_bytes().as_slice()),
+        )
+        .expect("invalid legacy signer key"),
     ));
     let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(ReceiptSigner::new(
-        conf.receipts.signer.0,
+        receipt_signer,
         conf.receipts.chain_id,
         conf.receipts.verifier,
         legacy_signer,
@@ -151,7 +154,7 @@ async fn main() {
         Box::leak(Box::new(Budgeter::new(USD(conf.query_fees_target))));
 
     let reporter = reports::Reporter::create(
-        tap_signer,
+        signer_address,
         conf.graph_env_id,
         reports::Topics {
             queries: "gateway_queries",
@@ -226,7 +229,7 @@ async fn main() {
                 // Set up the query tracing span
                 .layer(RequestTracingLayer)
                 // Set the query ID on the request
-                .layer(SetRequestIdLayer::new(format!("{:?}", tap_signer)))
+                .layer(SetRequestIdLayer::new(format!("{:?}", signer_address)))
                 // Handle legacy in-path auth, and convert it into a header
                 .layer(axum::middleware::from_fn(legacy_auth_adapter))
                 // Require the query to be authorized
