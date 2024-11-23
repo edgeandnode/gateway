@@ -146,7 +146,7 @@ pub fn is_domain_authorized<S: AsRef<str>>(authorized: &[S], origin: &str) -> bo
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::hex;
+    use alloy::primitives::hex;
 
     use super::{is_domain_authorized, parse_api_key};
 

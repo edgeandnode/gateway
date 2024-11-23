@@ -1,4 +1,4 @@
-use alloy_sol_types::Eip712Domain;
+use alloy::dyn_abi::Eip712Domain;
 use ordered_float::NotNan;
 use tokio::sync::{mpsc, watch};
 
