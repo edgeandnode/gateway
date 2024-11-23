@@ -89,7 +89,7 @@ async fn main() {
 
     let grt_per_usd = match conf.exchange_rate_provider {
         ExchangeRateProvider::Fixed(grt_per_usd) => watch::channel(grt_per_usd).1,
-        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await.unwrap(),
+        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await,
     };
 
     let attestation_domain: &'static Eip712Domain =
