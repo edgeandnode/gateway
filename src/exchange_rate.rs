@@ -1,23 +1,23 @@
 use std::{sync::Arc, time::Duration};
 
+use alloy::{primitives::Address, providers::ProviderBuilder, sol, transports::http::Http};
 use anyhow::ensure;
-use ethers::{
-    abi::Address,
-    prelude::{abigen, Http},
-    providers::Provider,
-};
 use ordered_float::NotNan;
 use tokio::{
     sync::watch,
     time::{interval, MissedTickBehavior},
 };
 use url::Url;
+use ChainlinkPriceFeed::ChainlinkPriceFeedInstance;
 
-abigen!(
+sol!(
+    #[sol(rpc)]
     ChainlinkPriceFeed,
     "src/contract_abis/ChainlinkPriceFeed.json",
-    event_derives(serde::Deserialize, serde::Serialize);
 );
+
+// TODO: figure out how to erase this type
+type Provider = alloy::providers::RootProvider<Http<reqwest::Client>>;
 
 pub async fn grt_per_usd(provider: Url) -> anyhow::Result<watch::Receiver<NotNan<f64>>> {
     // https://data.chain.link/ethereum/mainnet/crypto-eth/grt-eth
@@ -29,13 +29,9 @@ pub async fn grt_per_usd(provider: Url) -> anyhow::Result<watch::Receiver<NotNan
         .parse()
         .unwrap();
 
-    let provider = Arc::new(Provider::<Http>::try_from(provider.to_string()).unwrap());
-    let eth_per_grt: &'static ChainlinkPriceFeed<Provider<Http>> = Box::leak(Box::new(
-        ChainlinkPriceFeed::new(chainlink_eth_per_grt, provider.clone()),
-    ));
-    let usd_per_eth: &'static ChainlinkPriceFeed<Provider<Http>> = Box::leak(Box::new(
-        ChainlinkPriceFeed::new(chainlink_usd_per_eth, provider),
-    ));
+    let provider = Arc::new(ProviderBuilder::new().on_http(provider));
+    let eth_per_grt = ChainlinkPriceFeed::new(chainlink_eth_per_grt, provider.clone());
+    let usd_per_eth = ChainlinkPriceFeed::new(chainlink_usd_per_eth, provider);
 
     let (tx, mut rx) = watch::channel(NotNan::new(0.0).unwrap());
     tokio::spawn(async move {
@@ -44,14 +40,14 @@ pub async fn grt_per_usd(provider: Url) -> anyhow::Result<watch::Receiver<NotNan
         loop {
             interval.tick().await;
 
-            let eth_per_grt = match fetch_price(eth_per_grt).await {
+            let eth_per_grt = match fetch_price(&eth_per_grt).await {
                 Ok(eth_per_grt) => eth_per_grt,
                 Err(eth_per_grt_err) => {
                     tracing::error!(%eth_per_grt_err);
                     return;
                 }
             };
-            let usd_per_eth = match fetch_price(usd_per_eth).await {
+            let usd_per_eth = match fetch_price(&usd_per_eth).await {
                 Ok(usd_per_eth) => usd_per_eth,
                 Err(usd_per_eth_err) => {
                     tracing::error!(%usd_per_eth_err);
@@ -70,10 +66,12 @@ pub async fn grt_per_usd(provider: Url) -> anyhow::Result<watch::Receiver<NotNan
     Ok(rx)
 }
 
-async fn fetch_price(contract: &ChainlinkPriceFeed<Provider<Http>>) -> anyhow::Result<NotNan<f64>> {
-    let decimals: u8 = contract.decimals().await?;
+async fn fetch_price(
+    contract: &ChainlinkPriceFeedInstance<Http<reqwest::Client>, Arc<Provider>>,
+) -> anyhow::Result<NotNan<f64>> {
+    let decimals: u8 = contract.decimals().call().await?._0;
     ensure!(decimals <= 18);
-    let latest_answer: u128 = contract.latest_answer().await?.try_into()?;
+    let latest_answer: u128 = contract.latestAnswer().call().await?._0.try_into()?;
     ensure!(latest_answer > 0);
     Ok(NotNan::new(
         latest_answer as f64 * 10.0_f64.powi(-(decimals as i32)),

@@ -21,7 +21,6 @@ axum = { version = "0.7.7", default-features = false, features = [
 ] }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "e9530de" }
 custom_debug = "0.6.1"
-ethers = "2.0.14"
 faster-hex = "0.10.0"
 futures = "0.3"
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
