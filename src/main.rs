@@ -120,7 +120,7 @@ async fn main() {
         conf.min_graph_node_version,
         conf.blocked_indexers,
         indexer_host_blocklist,
-        conf.poi_blocklist,
+        conf.poi_blocklist.clone(),
     );
     let indexing_perf = IndexingPerformance::new(network.clone());
     network.wait_until_ready().await;
@@ -171,6 +171,8 @@ async fn main() {
         attestation_domain,
         reporter,
     };
+
+    let poi_blocklist: &'static str = serde_json::to_string(&conf.poi_blocklist).unwrap().leak();
 
     // Host metrics on a separate server with a port that isn't open to public requests.
     tokio::spawn(async move {
@@ -251,6 +253,10 @@ async fn main() {
         .route(
             "/voucher",
             routing::post(vouchers::handle_voucher).with_state(legacy_signer),
+        )
+        .route(
+            "/poi_blocklist",
+            routing::get(move || async move { poi_blocklist }),
         )
         .nest("/api", api);
 
