@@ -28,7 +28,7 @@ use super::{
     subgraph_client::Client as SubgraphClient,
     ResolutionError,
 };
-use crate::{config::BlockedIndexer, indexers::public_poi::ProofOfIndexingInfo};
+use crate::config::{BlockedIndexer, BlockedPoi};
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
@@ -177,7 +177,7 @@ pub fn spawn(
     min_graph_node_version: Version,
     indexer_blocklist: BTreeMap<Address, BlockedIndexer>,
     indexer_host_blocklist: HashSet<IpNetwork>,
-    indexer_pois_blocklist: Vec<ProofOfIndexingInfo>,
+    poi_blocklist: Vec<BlockedPoi>,
 ) -> NetworkService {
     let internal_state = InternalState {
         indexer_blocklist,
@@ -189,9 +189,7 @@ pub fn spawn(
             min_graph_node_version,
         },
         indexer_version_resolver: VersionResolver::new(http_client.clone(), Duration::from_secs(5)),
-        poi_blocklist: PoiBlocklist::new(
-            indexer_pois_blocklist.into_iter().map(Into::into).collect(),
-        ),
+        poi_blocklist: PoiBlocklist::new(poi_blocklist),
         poi_resolver: PoiResolver::new(
             http_client.clone(),
             Duration::from_secs(5),

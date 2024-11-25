@@ -35,34 +35,6 @@ pub enum Error {
     EmptyResponse,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Deserialize)]
-pub struct ProofOfIndexingInfo {
-    /// Proof of indexing (POI).
-    pub proof_of_indexing: ProofOfIndexing,
-    /// POI deployment ID (the IPFS Hash in the Graph Network Subgraph).
-    pub deployment_id: DeploymentId,
-    /// POI block number.
-    pub block_number: BlockNumber,
-}
-
-impl ProofOfIndexingInfo {
-    /// Get the POI metadata.
-    pub fn meta(&self) -> (DeploymentId, BlockNumber) {
-        (self.deployment_id, self.block_number)
-    }
-}
-
-impl From<((DeploymentId, BlockNumber), ProofOfIndexing)> for ProofOfIndexingInfo {
-    fn from(value: ((DeploymentId, BlockNumber), ProofOfIndexing)) -> Self {
-        let ((deployment_id, block_number), proof_of_indexing) = value;
-        Self {
-            deployment_id,
-            block_number,
-            proof_of_indexing,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PublicProofOfIndexingRequest {
