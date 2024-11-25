@@ -2,14 +2,11 @@
 
 use std::{
     collections::{BTreeMap, HashSet},
-    ops::Deref,
     path::{Path, PathBuf},
-    str::FromStr,
 };
 
 use alloy::primitives::{B256, U256};
 use anyhow::Context;
-use custom_debug::CustomDebug;
 use ipnetwork::IpNetwork;
 use ordered_float::NotNan;
 use semver::Version;
@@ -25,7 +22,7 @@ use crate::{
 
 /// The Graph Gateway configuration.
 #[serde_as]
-#[derive(CustomDebug, Deserialize)]
+#[derive(Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub api_keys: Option<ApiKeys>,
@@ -60,8 +57,6 @@ pub struct Config {
     /// POI blocklist
     #[serde(default)]
     pub poi_blocklist: Vec<ProofOfIndexingInfo>,
-    /// POI blocklist update interval in minutes (default: 20 minutes)
-    pub poi_blocklist_update_interval: Option<u64>,
     /// public API port
     pub port_api: u16,
     /// private metrics port
@@ -85,7 +80,7 @@ where
 ///
 /// See [`Config`]'s [`api_keys`](struct.Config.html#structfield.api_keys).
 #[serde_as]
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(untagged)]
 pub enum ApiKeys {
     Endpoint {
@@ -93,7 +88,7 @@ pub enum ApiKeys {
         #[serde_as(as = "DisplayFromStr")]
         url: Url,
         /// Bearer auth token
-        auth: Hidden<String>,
+        auth: String,
         /// API keys that won't be blocked for non-payment
         #[serde(default)]
         special: Vec<String>,
@@ -102,7 +97,7 @@ pub enum ApiKeys {
     Fixed(Vec<APIKey>),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct BlockedIndexer {
     /// empty array blocks on all deployments
     pub deployments: Vec<DeploymentId>,
@@ -112,7 +107,7 @@ pub struct BlockedIndexer {
 /// Attestation configuration.
 ///
 /// See [`Config`]'s [`attestations`](struct.Config.html#structfield.attestations).
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct AttestationConfig {
     pub chain_id: String,
     pub dispute_manager: Address,
@@ -122,7 +117,7 @@ pub struct AttestationConfig {
 ///
 /// See [`Config`]'s [`exchange_rate_provider`](struct.Config.html#structfield.exchange_rate_provider).
 #[serde_as]
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(untagged)]
 pub enum ExchangeRateProvider {
     /// Ethereum RPC provider
@@ -134,7 +129,7 @@ pub enum ExchangeRateProvider {
 /// Kafka configuration.
 ///
 /// See [`Config`]'s [`kafka`](struct.Config.html#structfield.kafka).
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct KafkaConfig(BTreeMap<String, String>);
 
 impl Default for KafkaConfig {
@@ -167,20 +162,20 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct Receipts {
     /// TAP verifier contract chain
     pub chain_id: U256,
     /// Secret key for legacy voucher signing (Scalar)
-    pub legacy_signer: Option<Hidden<B256>>,
+    pub legacy_signer: Option<B256>,
     /// TAP signer key
-    pub signer: Hidden<B256>,
+    pub signer: B256,
     /// TAP verifier contract address
     pub verifier: Address,
 }
 
 /// Load the configuration from a JSON file.
-pub fn load_from_file(path: &Path) -> Result<Config, Error> {
+pub fn load_from_file(path: &Path) -> anyhow::Result<Config> {
     let config_content = std::fs::read_to_string(path)?;
     let config = serde_json::from_str(&config_content)?;
     Ok(config)
@@ -195,40 +190,4 @@ pub fn load_ip_blocklist_from_file(path: &Path) -> anyhow::Result<HashSet<IpNetw
         .lines()
         .filter_map(|line| line.split_once(',')?.0.parse().ok())
         .collect())
-}
-
-/// An error that can occur when loading the configuration.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// An error occurred while reading the configuration file.
-    #[error("failed to read configuration file: {0}")]
-    Io(#[from] std::io::Error),
-
-    /// An error occurred while deserializing the configuration.
-    #[error("failed to deserialize configuration: {0}")]
-    Deserialize(#[from] serde_json::Error),
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(transparent)]
-pub struct Hidden<T>(pub T);
-
-impl<T: std::fmt::Debug> std::fmt::Debug for Hidden<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HIDDEN")
-    }
-}
-
-impl<T: FromStr> FromStr for Hidden<T> {
-    type Err = T::Err;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(s.parse()?))
-    }
-}
-
-impl<T> Deref for Hidden<T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
 }

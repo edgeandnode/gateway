@@ -16,7 +16,6 @@ use url::Url;
 
 use crate::{
     blocks::Block,
-    config::Hidden,
     indexer_client::{IndexerAuth, IndexerClient},
     time::unix_timestamp,
 };
@@ -98,7 +97,7 @@ pub struct TrustedIndexer {
     #[serde_as(as = "serde_with::DisplayFromStr")]
     pub url: Url,
     /// free query auth token
-    pub auth: Hidden<String>,
+    pub auth: String,
 }
 
 #[derive(Clone, Debug)]

@@ -76,11 +76,8 @@ async fn main() {
         .expect("failed to prepare receipt signer");
     let signer_address = receipt_signer.address();
 
-    let conf_repr = format!("{conf:?}");
-
     init_logging("graph-gateway", conf.log_json);
     tracing::info!("gateway ID: {:?}", signer_address);
-    tracing::debug!(config = %conf_repr);
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -348,7 +345,7 @@ async fn init_auth_service(
 
     let api_keys = match config {
         Some(ApiKeys::Endpoint { url, auth, .. }) => {
-            subgraph_studio::api_keys(http, url, auth.0).await
+            subgraph_studio::api_keys(http, url, auth).await
         }
         Some(ApiKeys::Fixed(api_keys)) => {
             let api_keys = api_keys.into_iter().map(|k| (k.key.clone(), k)).collect();
