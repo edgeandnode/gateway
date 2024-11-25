@@ -12,7 +12,7 @@ inherits = "release"
 debug = true
 
 [dependencies]
-alloy = { version = "0.5.4", features = ["contract", "signer-local"] }
+alloy = { version = "0.6.0", features = ["contract", "signer-local"] }
 anyhow = "1.0"
 axum = { version = "0.7.7", default-features = false, features = [
     "json",
