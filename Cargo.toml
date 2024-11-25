@@ -53,7 +53,7 @@ serde_json = { version = "1.0.116", features = ["raw_value"] }
 serde_with = "3.8.1"
 snmalloc-rs = "0.3"
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "61b47b3" }
-thegraph-core = { version = "0.7.0", features = ["serde"] }
+thegraph-core = { version = "0.8.0", features = ["serde"] }
 thegraph-graphql-http = { version = "0.2.1", features = [
     "http-client-reqwest",
 ] }
