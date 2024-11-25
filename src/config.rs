@@ -10,15 +10,12 @@ use anyhow::Context;
 use ipnetwork::IpNetwork;
 use ordered_float::NotNan;
 use semver::Version;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use thegraph_core::{Address, DeploymentId};
+use thegraph_core::{Address, BlockNumber, DeploymentId};
 use url::Url;
 
-use crate::{
-    auth::APIKey, indexers::public_poi::ProofOfIndexingInfo,
-    network::subgraph_client::TrustedIndexer,
-};
+use crate::{auth::APIKey, network::subgraph_client::TrustedIndexer};
 
 /// The Graph Gateway configuration.
 #[serde_as]
@@ -56,7 +53,7 @@ pub struct Config {
     pub payment_required: bool,
     /// POI blocklist
     #[serde(default)]
-    pub poi_blocklist: Vec<ProofOfIndexingInfo>,
+    pub poi_blocklist: Vec<BlockedPoi>,
     /// public API port
     pub port_api: u16,
     /// private metrics port
@@ -172,6 +169,17 @@ pub struct Receipts {
     pub signer: B256,
     /// TAP verifier contract address
     pub verifier: Address,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BlockedPoi {
+    pub public_poi: B256,
+    pub deployment: DeploymentId,
+    pub block_number: BlockNumber,
+    /// Example query (should be minimal to reproduce bad response)
+    pub query: Option<String>,
+    /// Bad query response, from the above query executed on indexers with this blocked PoI
+    pub bad_query_response: Option<String>,
 }
 
 /// Load the configuration from a JSON file.
