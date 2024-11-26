@@ -113,9 +113,9 @@ mod tests {
         rngs::SmallRng, seq::SliceRandom as _, thread_rng, Rng as _, RngCore as _, SeedableRng,
     };
     use thegraph_core::{Address, BlockHash, IndexerId};
-    use toolshed::concat_bytes;
 
     use super::{Block, Chain, MAX_LEN};
+    use crate::concat_bytes;
 
     #[test]
     fn chain() {

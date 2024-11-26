@@ -2,6 +2,7 @@ mod auth;
 mod block_constraints;
 mod blocks;
 mod budgets;
+mod bytes;
 mod chain;
 mod chains;
 mod client_query;
