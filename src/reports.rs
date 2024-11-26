@@ -3,9 +3,8 @@ use ordered_float::NotNan;
 use prost::Message;
 use thegraph_core::{Address, AllocationId, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
-use toolshed::concat_bytes;
 
-use crate::{errors, indexer_client::IndexerResponse, receipts::Receipt};
+use crate::{concat_bytes, errors, indexer_client::IndexerResponse, receipts::Receipt};
 
 pub struct ClientRequest {
     pub id: String,

@@ -1807,13 +1807,11 @@ dependencies = [
  "serde_with",
  "snmalloc-rs",
  "tap_core",
- "test-with",
  "thegraph-core",
  "thegraph-graphql-http",
  "thiserror",
  "tokio",
  "tokio-test",
- "toolshed",
  "tower",
  "tower-http",
  "tower-test",
@@ -4058,19 +4056,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-with"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3feb483cdf81866d103b411636e52d2e7af915cd9db562a8a6813b89cb55f55e"
-dependencies = [
- "proc-macro-error2",
- "proc-macro2",
- "quote",
- "regex",
- "syn 2.0.89",
-]
-
-[[package]]
 name = "thegraph-core"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4322,14 +4307,6 @@ dependencies = [
  "indexmap 2.6.0",
  "toml_datetime",
  "winnow",
-]
-
-[[package]]
-name = "toolshed"
-version = "0.6.0"
-source = "git+https://github.com/edgeandnode/toolshed?tag=toolshed-v0.6.0#c44cb91e8349c59bb7ff8d4eb086badc8c99491a"
-dependencies = [
- "tokio",
 ]
 
 [[package]]
