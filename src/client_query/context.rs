@@ -1,5 +1,5 @@
-use alloy::dyn_abi::Eip712Domain;
 use ordered_float::NotNan;
+use thegraph_core::alloy::dyn_abi::Eip712Domain;
 use tokio::sync::{mpsc, watch};
 
 use crate::{

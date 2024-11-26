@@ -1,11 +1,13 @@
-use alloy::primitives::{FixedBytes, U256};
 use axum::{body::Bytes, extract::State, http::StatusCode};
 use lazy_static::lazy_static;
 use receipts::{self, combine_partial_vouchers, receipts_to_partial_voucher, receipts_to_voucher};
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use serde::Deserialize;
 use serde_json::json;
-use thegraph_core::Address;
+use thegraph_core::alloy::{
+    hex,
+    primitives::{Address, FixedBytes, U256},
+};
 
 use crate::{
     json::{json_response, JsonResponse},

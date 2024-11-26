@@ -9,7 +9,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use parking_lot::RwLock;
-use thegraph_core::{BlockNumber, DeploymentId, ProofOfIndexing};
+use thegraph_core::{alloy::primitives::BlockNumber, DeploymentId, ProofOfIndexing};
 use url::Url;
 
 use crate::{

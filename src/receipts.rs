@@ -1,13 +1,20 @@
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
-use alloy::{dyn_abi::Eip712Domain, primitives::U256, signers::local::PrivateKeySigner};
 use parking_lot::{Mutex, RwLock};
 use rand::RngCore;
 pub use receipts::QueryStatus as ReceiptStatus;
 use receipts::ReceiptPool;
 use secp256k1::SecretKey;
 use tap_core::{receipt::Receipt as TapReceipt, signed_message::EIP712SignedMessage};
-use thegraph_core::{Address, AllocationId};
+use thegraph_core::{
+    alloy::{
+        dyn_abi::Eip712Domain,
+        hex,
+        primitives::{Address, U256},
+        signers::local::PrivateKeySigner,
+    },
+    AllocationId,
+};
 
 /// A receipt for an indexer request.
 #[derive(Debug, Clone)]
@@ -211,7 +218,10 @@ impl ReceiptSigner {
 
 #[cfg(test)]
 mod tests {
-    use thegraph_core::{address, allocation_id};
+    use thegraph_core::{
+        allocation_id,
+        alloy::{primitives::address, signers::local::PrivateKeySigner},
+    };
 
     use super::*;
 
@@ -271,7 +281,10 @@ mod tests {
     }
 
     mod tap {
-        use thegraph_core::{address, allocation_id};
+        use thegraph_core::{
+            allocation_id,
+            alloy::{primitives::address, signers::local::PrivateKeySigner},
+        };
 
         use super::*;
 

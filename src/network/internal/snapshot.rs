@@ -8,7 +8,9 @@ use std::{
 
 use custom_debug::CustomDebug;
 use semver::Version;
-use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::{
+    alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId, SubgraphId,
+};
 use url::Url;
 
 use super::{DeploymentInfo, SubgraphInfo};

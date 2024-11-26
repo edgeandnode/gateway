@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use ipnetwork::IpNetwork;
-use thegraph_core::Address;
+use thegraph_core::alloy::primitives::Address;
 
 use crate::{
     config::BlockedIndexer,

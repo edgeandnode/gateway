@@ -1,8 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::{primitives::Address, providers::ProviderBuilder, sol, transports::http::Http};
 use anyhow::ensure;
 use ordered_float::NotNan;
+use thegraph_core::alloy::{
+    primitives::Address, providers::ProviderBuilder, sol, transports::http::Http,
+};
 use tokio::{
     sync::watch,
     time::{interval, MissedTickBehavior},
@@ -17,7 +19,7 @@ sol!(
 );
 
 // TODO: figure out how to erase this type
-type Provider = alloy::providers::RootProvider<Http<reqwest::Client>>;
+type Provider = thegraph_core::alloy::providers::RootProvider<Http<reqwest::Client>>;
 
 pub async fn grt_per_usd(provider: Url) -> watch::Receiver<NotNan<f64>> {
     // https://data.chain.link/feeds/arbitrum/mainnet/grt-usd

@@ -5,7 +5,7 @@ use std::{
 
 use axum::response::{IntoResponse, Response};
 use itertools::Itertools as _;
-use thegraph_core::{BlockNumber, IndexerId};
+use thegraph_core::{alloy::primitives::BlockNumber, IndexerId};
 
 use crate::graphql;
 

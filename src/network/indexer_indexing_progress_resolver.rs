@@ -3,7 +3,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use parking_lot::{Mutex, RwLock};
-use thegraph_core::{BlockNumber, DeploymentId};
+use thegraph_core::{alloy::primitives::BlockNumber, DeploymentId};
 use url::Url;
 
 use crate::{

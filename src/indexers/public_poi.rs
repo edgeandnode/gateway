@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use thegraph_core::{BlockNumber, DeploymentId, ProofOfIndexing};
+use thegraph_core::{alloy::primitives::BlockNumber, DeploymentId, ProofOfIndexing};
 use thegraph_graphql_http::{
     graphql::{Document, IntoDocument, IntoDocumentWithVariables},
     http_client::{RequestError, ReqwestExt, ResponseError},
@@ -133,7 +133,7 @@ pub struct PartialBlockPtr {
 
 #[cfg(test)]
 mod tests {
-    use thegraph_core::{deployment_id, poi};
+    use thegraph_core::{deployment_id, proof_of_indexing as poi};
 
     use super::Response;
 

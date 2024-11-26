@@ -11,7 +11,7 @@ use graphql::{
 };
 use itertools::Itertools as _;
 use serde_json::{self, json};
-use thegraph_core::{BlockHash, BlockNumber};
+use thegraph_core::alloy::primitives::{BlockHash, BlockNumber};
 
 use crate::{blocks::BlockConstraint, chain::Chain, errors::Error};
 
@@ -298,7 +298,7 @@ fn parse_number<'c, T: Text<'c>>(
 mod tests {
     use std::iter::FromIterator as _;
 
-    use alloy::primitives::hex;
+    use thegraph_core::alloy::primitives::hex;
 
     use super::*;
 

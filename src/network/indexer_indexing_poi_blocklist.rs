@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use thegraph_core::{BlockNumber, DeploymentId, ProofOfIndexing};
+use thegraph_core::{alloy::primitives::BlockNumber, DeploymentId, ProofOfIndexing};
 
 use crate::config::BlockedPoi;
 
