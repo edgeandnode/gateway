@@ -9,7 +9,7 @@ use custom_debug::CustomDebug;
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 use serde_json::json;
 use serde_with::serde_as;
-use thegraph_core::{BlockHash, BlockNumber, BlockTimestamp};
+use thegraph_core::alloy::primitives::{BlockHash, BlockNumber, BlockTimestamp};
 use thegraph_graphql_http::http::response::Error as GqlError;
 use types::Subgraph;
 use url::Url;
@@ -33,7 +33,9 @@ use crate::{
 pub mod types {
     use serde::Deserialize;
     use serde_with::serde_as;
-    use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId, SubgraphId};
+    use thegraph_core::{
+        alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId, SubgraphId,
+    };
 
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "camelCase")]

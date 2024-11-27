@@ -1,9 +1,11 @@
-use alloy::dyn_abi::Eip712Domain;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use thegraph_core::{
+    alloy::{
+        dyn_abi::Eip712Domain,
+        primitives::{BlockHash, BlockNumber},
+    },
     attestation::{self, Attestation},
-    BlockHash, BlockNumber,
 };
 use thegraph_graphql_http::http::response::Error as GQLError;
 use url::Url;

@@ -9,7 +9,10 @@ use std::{
 
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::{Address, BlockNumber, DeploymentId, SubgraphId};
+use thegraph_core::{
+    alloy::primitives::{Address, BlockNumber},
+    DeploymentId, SubgraphId,
+};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{

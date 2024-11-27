@@ -37,7 +37,6 @@ use std::{
     time::Duration,
 };
 
-use alloy::{dyn_abi::Eip712Domain, signers::local::PrivateKeySigner};
 use auth::AuthContext;
 use axum::{
     extract::DefaultBodyLimit,
@@ -56,7 +55,10 @@ use middleware::{
 use network::subgraph_client::Client as SubgraphClient;
 use prometheus::{self, Encoder as _};
 use receipts::ReceiptSigner;
-use thegraph_core::{attestation, ChainId};
+use thegraph_core::{
+    alloy::{dyn_abi::Eip712Domain, primitives::ChainId, signers::local::PrivateKeySigner},
+    attestation,
+};
 use tokio::{net::TcpListener, signal::unix::SignalKind, sync::watch};
 use tower_http::cors::{self, CorsLayer};
 use tracing_subscriber::{prelude::*, EnvFilter};

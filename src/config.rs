@@ -5,14 +5,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use alloy::primitives::{B256, U256};
 use anyhow::Context;
 use ipnetwork::IpNetwork;
 use ordered_float::NotNan;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use thegraph_core::{Address, BlockNumber, DeploymentId};
+use thegraph_core::{
+    alloy::primitives::{Address, BlockNumber, B256, U256},
+    DeploymentId,
+};
 use url::Url;
 
 use crate::{auth::APIKey, network::subgraph_client::TrustedIndexer};

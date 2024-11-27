@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use ordered_float::NotNan;
 use prost::Message;
-use thegraph_core::{Address, AllocationId, DeploymentId, IndexerId};
+use thegraph_core::{alloy::primitives::Address, AllocationId, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 
 use crate::{concat_bytes, errors, indexer_client::IndexerResponse, receipts::Receipt};

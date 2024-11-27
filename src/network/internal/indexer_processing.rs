@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use custom_debug::CustomDebug;
 use ipnetwork::IpNetwork;
 use semver::Version;
-use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId};
+use thegraph_core::{alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId};
 use tracing::Instrument;
 use url::Url;
 

@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use thegraph_core::{BlockHash, BlockNumber, BlockTimestamp};
+use thegraph_core::alloy::primitives::{BlockHash, BlockNumber, BlockTimestamp};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 pub struct Block {

@@ -20,7 +20,7 @@ use prost::bytes::Buf;
 use rand::{thread_rng, Rng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::{AllocationId, BlockNumber, DeploymentId, IndexerId};
+use thegraph_core::{alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 use tracing::{info_span, Instrument as _};
 use url::Url;
