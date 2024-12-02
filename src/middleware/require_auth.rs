@@ -174,12 +174,11 @@ mod tests {
     use headers::{Authorization, ContentType, HeaderMapExt};
     use http_body_util::BodyExt;
     use hyper::http;
-    use ordered_float::NotNan;
     use tokio::sync::watch;
     use tokio_test::assert_ready_ok;
 
     use super::{AuthContext, AuthSettings, RequireAuthorizationLayer};
-    use crate::auth::APIKey;
+    use crate::auth::ApiKey;
 
     fn test_auth_ctx(key: Option<&str>) -> AuthContext {
         let mut ctx = AuthContext {
@@ -190,9 +189,8 @@ mod tests {
         if let Some(key) = key {
             ctx.api_keys = watch::channel(HashMap::from([(
                 key.into(),
-                APIKey {
+                ApiKey {
                     key: key.into(),
-                    max_budget_usd: Some(NotNan::new(1e3).unwrap()),
                     ..Default::default()
                 },
             )]))

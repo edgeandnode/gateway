@@ -17,7 +17,7 @@ use thegraph_core::{
 };
 use url::Url;
 
-use crate::{auth::APIKey, network::subgraph_client::TrustedIndexer};
+use crate::{auth::ApiKey, network::subgraph_client::TrustedIndexer};
 
 /// The Graph Gateway configuration.
 #[serde_as]
@@ -93,7 +93,7 @@ pub enum ApiKeys {
         special: Vec<String>,
     },
     /// Fixed set of API keys
-    Fixed(Vec<APIKey>),
+    Fixed(Vec<ApiKey>),
 }
 
 #[derive(Deserialize)]
