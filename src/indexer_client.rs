@@ -1,3 +1,4 @@
+use http::header::CONTENT_TYPE;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use thegraph_core::{
@@ -47,14 +48,14 @@ impl IndexerClient {
         query: &str,
     ) -> Result<IndexerResponse, IndexerError> {
         let (auth_key, auth_value) = match auth {
-            IndexerAuth::Paid(receipt, _) => (receipt.header_name(), receipt.serialize()),
+            IndexerAuth::Paid(receipt, _) => ("Tap-Receipt", receipt.serialize()),
             IndexerAuth::Free(token) => (AUTHORIZATION.as_str(), format!("Bearer {token}")),
         };
 
         let result = self
             .client
             .post(deployment_url)
-            .header("Content-Type", "application/json")
+            .header(CONTENT_TYPE.as_str(), "application/json")
             .header(auth_key, auth_value)
             .body(query.to_string())
             .send()

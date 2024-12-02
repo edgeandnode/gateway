@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 use custom_debug::CustomDebug;
@@ -18,12 +18,6 @@ use crate::network::{
     errors::{DeploymentError, IndexerInfoResolutionError, IndexingError, SubgraphError},
     internal::indexer_processing::ResolvedIndexerInfo,
 };
-
-/// The minimum indexer service version required to support Scalar TAP.
-fn min_required_indexer_service_version_tap_support() -> &'static Version {
-    static VERSION: OnceLock<Version> = OnceLock::new();
-    VERSION.get_or_init(|| "1.0.0-alpha".parse().expect("valid version"))
-}
 
 /// The [`IndexingId`] struct represents the unique identifier of an indexing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -97,9 +91,6 @@ pub struct Indexer {
     /// The indexer's "graph node" version.
     pub graph_node_version: Version,
 
-    /// Whether the indexer supports TAP payments.
-    pub tap_support: bool,
-
     /// The indexer's staked tokens.
     pub staked_tokens: u128,
 }
@@ -168,17 +159,11 @@ pub fn new_from(
             (
                 indexer_id,
                 indexer.map(|info| {
-                    // The indexer service version must be greater than or equal to the minimum
-                    // required version to support Scalar TAP.
-                    let indexer_tap_support = &info.indexer_service_version
-                        >= min_required_indexer_service_version_tap_support();
-
                     let indexer = Indexer {
                         id: info.id,
                         url: info.url.clone(),
                         indexer_service_version: info.indexer_service_version.clone(),
                         graph_node_version: info.graph_node_version.clone(),
-                        tap_support: indexer_tap_support,
                         staked_tokens: info.staked_tokens,
                     };
 

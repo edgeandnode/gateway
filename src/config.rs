@@ -165,8 +165,6 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
 pub struct Receipts {
     /// TAP verifier contract chain
     pub chain_id: U256,
-    /// Secret key for legacy voucher signing (Scalar)
-    pub legacy_signer: Option<B256>,
     /// TAP signer key
     pub signer: B256,
     /// TAP verifier contract address
