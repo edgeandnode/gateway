@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use ordered_float::NotNan;
 use prost::Message;
-use thegraph_core::{alloy::primitives::Address, AllocationId, DeploymentId, IndexerId};
+use thegraph_core::{alloy::primitives::Address, DeploymentId, IndexerId};
 use tokio::sync::mpsc;
 
 use crate::{concat_bytes, errors, indexer_client::IndexerResponse, receipts::Receipt};
@@ -21,7 +21,6 @@ pub struct ClientRequest {
 pub struct IndexerRequest {
     pub indexer: IndexerId,
     pub deployment: DeploymentId,
-    pub largest_allocation: AllocationId,
     pub url: String,
     pub receipt: Receipt,
     pub subgraph_chain: String,
@@ -88,7 +87,7 @@ impl Reporter {
                 allocation: indexer_request.receipt.allocation().to_vec(),
                 indexed_chain: indexer_request.subgraph_chain.clone(),
                 url: indexer_request.url.clone(),
-                fee_grt: indexer_request.receipt.grt_value() as f64 * 1e-18,
+                fee_grt: indexer_request.receipt.value() as f64 * 1e-18,
                 response_time_ms: indexer_request.response_time_ms as u32,
                 seconds_behind: indexer_request.seconds_behind,
                 result: indexer_request
@@ -108,14 +107,13 @@ impl Reporter {
                     })
                     .unwrap_or_default(),
                 blocks_behind: indexer_request.blocks_behind,
-                legacy_scalar: matches!(&indexer_request.receipt, Receipt::Legacy(_, _)),
             })
             .collect();
 
         let total_fees_grt: f64 = client_request
             .indexer_requests
             .iter()
-            .map(|i| i.receipt.grt_value() as f64 * 1e-18)
+            .map(|i| i.receipt.value() as f64 * 1e-18)
             .sum();
         let total_fees_usd: f64 = total_fees_grt / *client_request.grt_per_usd;
 
@@ -239,8 +237,6 @@ pub struct IndexerQueryProtobuf {
     indexer_errors: String,
     #[prost(uint64, tag = "11")]
     blocks_behind: u64,
-    #[prost(bool, tag = "12")]
-    legacy_scalar: bool,
 }
 
 #[derive(prost::Message)]

@@ -14,7 +14,6 @@ mod http_ext;
 mod indexer_client;
 mod indexers;
 mod indexing_performance;
-mod json;
 mod metrics;
 mod middleware;
 mod network;
@@ -25,7 +24,6 @@ mod time;
 #[allow(dead_code)]
 mod ttl_hash_map;
 mod unattestable_errors;
-mod vouchers;
 
 use std::{
     collections::HashSet,
@@ -39,7 +37,6 @@ use std::{
 
 use auth::AuthContext;
 use axum::{
-    extract::DefaultBodyLimit,
     http::{self, status::StatusCode},
     routing, Router,
 };
@@ -128,21 +125,10 @@ async fn main() {
     let indexing_perf = IndexingPerformance::new(network.clone());
     network.wait_until_ready().await;
 
-    let legacy_signer: &'static secp256k1::SecretKey = Box::leak(Box::new(
-        secp256k1::SecretKey::from_slice(
-            conf.receipts
-                .legacy_signer
-                .as_ref()
-                .map(|s| s.0.as_slice())
-                .unwrap_or(receipt_signer.to_bytes().as_slice()),
-        )
-        .expect("invalid legacy signer key"),
-    ));
     let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(ReceiptSigner::new(
         receipt_signer,
         conf.receipts.chain_id,
         conf.receipts.verifier,
-        legacy_signer,
     )));
 
     // Initialize the auth service
@@ -241,22 +227,6 @@ async fn main() {
         .route("/", routing::get(|| async { "Ready to roll!" }))
         // This path is required by NGINX ingress controller
         .route("/ready", routing::get(|| async { "Ready" }))
-        .route(
-            "/collect-receipts",
-            routing::post(vouchers::handle_collect_receipts)
-                .with_state(legacy_signer)
-                .layer(DefaultBodyLimit::max(3_000_000)),
-        )
-        .route(
-            "/partial-voucher",
-            routing::post(vouchers::handle_partial_voucher)
-                .with_state(legacy_signer)
-                .layer(DefaultBodyLimit::max(3_000_000)),
-        )
-        .route(
-            "/voucher",
-            routing::post(vouchers::handle_voucher).with_state(legacy_signer),
-        )
         .route(
             "/blocklist",
             routing::get(move || async move {

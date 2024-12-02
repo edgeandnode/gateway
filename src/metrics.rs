@@ -14,9 +14,6 @@ pub struct Metrics {
     pub client_query: ResponseMetrics,
     pub avg_query_fees: Gauge,
     pub indexer_query: ResponseMetricVecs,
-    pub collect_receipts: ResponseMetrics,
-    pub partial_voucher: ResponseMetrics,
-    pub voucher: ResponseMetrics,
     pub blocks_per_minute: IntGaugeVec,
 }
 
@@ -34,12 +31,6 @@ impl Metrics {
                 "indexer query",
                 &["deployment", "indexer"],
             ),
-            collect_receipts: ResponseMetrics::new(
-                "gw_collect_receipts",
-                "collect-receipts request",
-            ),
-            partial_voucher: ResponseMetrics::new("gw_partial_voucher", "partial-voucher request"),
-            voucher: ResponseMetrics::new("gw_voucher", "requests for voucher"),
             blocks_per_minute: register_int_gauge_vec!(
                 "gw_blocks_per_minute",
                 "chain blocks per minute",

@@ -37,7 +37,6 @@ use crate::{
     metrics::{with_metric, METRICS},
     middleware::RequestId,
     network::{self, DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
-    receipts::ReceiptStatus,
     reports,
 };
 
@@ -289,26 +288,20 @@ async fn run_indexer_queries(
             let largest_allocation = selection.data.largest_allocation;
             let url = selection.data.url.clone();
             let seconds_behind = selection.seconds_behind;
-            let legacy_scalar = !selection.data.tap_support;
             let subgraph_chain = subgraph.chain.clone();
 
             // over-pay indexers to hit target
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections.len() as f64;
             let indexer_fee = selection.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
-            let receipt = match if legacy_scalar {
-                ctx.receipt_signer
-                    .create_legacy_receipt(largest_allocation, fee)
-            } else {
-                ctx.receipt_signer.create_receipt(largest_allocation, fee)
-            } {
+            let receipt = match ctx.receipt_signer.create_receipt(largest_allocation, fee) {
                 Ok(receipt) => receipt,
                 Err(err) => {
                     tracing::error!(?indexer, %deployment, error=?err, "failed to create receipt");
                     continue;
                 }
             };
-            debug_assert!(fee == receipt.grt_value());
+            debug_assert!(fee == receipt.value());
 
             let blocks_behind = blocks_behind(seconds_behind, blocks_per_minute);
             let indexer_client = ctx.indexer_client.clone();
@@ -328,7 +321,6 @@ async fn run_indexer_queries(
                     let report = reports::IndexerRequest {
                         indexer,
                         deployment,
-                        largest_allocation,
                         url: url.to_string(),
                         receipt,
                         subgraph_chain,
@@ -357,17 +349,6 @@ async fn run_indexer_queries(
                     indexer_errors.insert(report.indexer, err.clone());
                 }
             }
-
-            let receipt_status = match &report.result {
-                Ok(_) => ReceiptStatus::Success,
-                Err(IndexerError::Timeout) => ReceiptStatus::Unknown,
-                Err(_) => ReceiptStatus::Failure,
-            };
-            ctx.receipt_signer.record_receipt(
-                &report.largest_allocation,
-                &report.receipt,
-                receipt_status,
-            );
 
             indexer_requests.push(report);
         }
@@ -399,7 +380,7 @@ async fn run_indexer_queries(
 
     let total_fees_grt: f64 = indexer_requests
         .iter()
-        .map(|i| i.receipt.grt_value() as f64 * 1e-18)
+        .map(|i| i.receipt.value() as f64 * 1e-18)
         .sum();
     let total_fees_usd = USD(NotNan::new(total_fees_grt / *grt_per_usd).unwrap());
     let _ = ctx.budgeter.feedback.send(total_fees_usd);
@@ -445,7 +426,7 @@ async fn run_indexer_queries(
             result = ?indexer_request.result.as_ref().map(|_| ()),
             response_time_ms = indexer_request.response_time_ms,
             seconds_behind = indexer_request.seconds_behind,
-            fee = indexer_request.receipt.grt_value() as f64 * 1e-18,
+            fee = indexer_request.receipt.value() as f64 * 1e-18,
             "indexer_request"
         );
         tracing::trace!(indexer_request = indexer_request.request);
@@ -485,7 +466,6 @@ struct CandidateMetadata {
     #[debug(with = std::fmt::Display::fmt)]
     url: Url,
     largest_allocation: AllocationId,
-    tap_support: bool,
 }
 
 /// Given a list of indexings, build a list of candidates that are within the required block range
@@ -594,7 +574,6 @@ fn build_candidates_list(
                 deployment,
                 url: indexing.indexer.url.clone(),
                 largest_allocation: indexing.largest_allocation,
-                tap_support: indexing.indexer.tap_support,
             },
             perf: perf.response,
             fee: Normalized::new(indexing.fee as f64 / budget as f64).unwrap_or(Normalized::ONE),
@@ -733,11 +712,7 @@ pub async fn handle_indexer_query(
     let fee = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
 
     let allocation = indexing.largest_allocation;
-    let receipt = match if indexing.indexer.tap_support {
-        ctx.receipt_signer.create_receipt(allocation, fee)
-    } else {
-        ctx.receipt_signer.create_legacy_receipt(allocation, fee)
-    } {
+    let receipt = match ctx.receipt_signer.create_receipt(allocation, fee) {
         Ok(receipt) => receipt,
         Err(err) => {
             return Err(Error::Internal(anyhow!("failed to create receipt: {err}")));
@@ -762,7 +737,6 @@ pub async fn handle_indexer_query(
     let indexer_request = reports::IndexerRequest {
         indexer: indexing_id.indexer,
         deployment: indexing_id.deployment,
-        largest_allocation: allocation,
         url: indexing.indexer.url.to_string(),
         receipt,
         subgraph_chain: subgraph.chain,
@@ -805,7 +779,7 @@ pub async fn handle_indexer_query(
         result = ?indexer_request.result.as_ref().map(|_| ()),
         response_time_ms = indexer_request.response_time_ms,
         seconds_behind = indexer_request.seconds_behind,
-        fee = indexer_request.receipt.grt_value() as f64 * 1e-18,
+        fee = indexer_request.receipt.value() as f64 * 1e-18,
         "indexer_request"
     );
 
