@@ -47,8 +47,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.116", features = ["raw_value"] }
 serde_with = "3.8.1"
 snmalloc-rs = "0.3"
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "f680f4c" }
-thegraph-core = { version = "0.8.5", features = [
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "1c6e29f" }
+thegraph-core = { version = "0.9.0", features = [
     "alloy-contract",
     "alloy-signer-local",
     "attestation",
