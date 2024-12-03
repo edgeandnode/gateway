@@ -7,6 +7,7 @@ mod chain;
 mod chains;
 mod client_query;
 mod config;
+mod discovery;
 mod errors;
 mod exchange_rate;
 mod graphql;
