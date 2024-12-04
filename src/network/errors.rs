@@ -71,8 +71,6 @@ impl From<IndexingError> for ResolutionError {
                         UnavailableReason::IndexerResolutionError(reason)
                     }
                     IndexerInfoResolutionError::IndexerServiceVersionResolutionFailed(err) => {
-                        tracing::debug!(error=?err, "indexer service version resolution failed");
-
                         let reason = match err {
                             VersionResolutionError::FetchError(_) => {
                                 "indexer service version resolution failed"
