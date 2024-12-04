@@ -2188,6 +2188,7 @@ dependencies = [
  "tap_core",
  "thegraph-core",
  "thegraph-graphql-http",
+ "thegraph-headers",
  "thiserror 2.0.6",
  "tokio",
  "tokio-test",
@@ -4723,6 +4724,19 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "thegraph-headers"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "904f12db82a53c6fb87516bdbb7ad64fe82ec809afb2c85dd05b98891d3e5483"
+dependencies = [
+ "headers",
+ "http 1.2.0",
+ "serde",
+ "serde_json",
+ "thegraph-core",
 ]
 
 [[package]]
