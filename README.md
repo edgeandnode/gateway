@@ -116,12 +116,6 @@ The gateway operator is also expected to manage at least 2 wallets:
 - sender: requires ETH for transaction gas and GRT to allocate into TAP escrow balances for paying indexers
 - authorized signer: used by the gateway and tap-aggregator to sign receipts and RAVs
 
-### Scalar
-
-The Timeline Aggregation Protocol (TAP) significantly reduces the requirement for indexers to trust
-the gateway to collect the payments they are owed. More details [here](https://github.com/semiotic-ai/timeline-aggregation-protocol).
-For this reason, the original Scalar payment system is being phased out.
-
 ## operational notes
 
 ### configuration
