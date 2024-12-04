@@ -35,16 +35,11 @@ where
     }
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
-        // Create a tracing span for the client request and enter it. This way events created by the different layers
-        // in the middleware stack are associated with it.
-        let client_request_span = tracing::info_span!(
-            "client_request", // name
+        self.inner.call(req).instrument(tracing::info_span!(
+            "client_request",
             request_id = field::Empty,
             selector = field::Empty,
-        )
-        .entered();
-
-        self.inner.call(req).instrument(client_request_span.clone())
+        ))
     }
 }
 
