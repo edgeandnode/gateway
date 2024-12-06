@@ -16,19 +16,18 @@ use thegraph_core::{
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{
-    config::VersionRequirements,
     errors::{DeploymentError, SubgraphError},
     host_filter::HostFilter,
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist,
     indexer_indexing_poi_resolver::PoiResolver,
     indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::VersionResolver,
     internal::{
         fetch_and_preprocess_subgraph_info, fetch_update, Indexing, IndexingId, InternalState,
         NetworkTopologySnapshot, PreprocessedNetworkInfo,
     },
     subgraph_client::Client as SubgraphClient,
+    version_filter::{MinimumVersionRequirements, VersionFilter},
 };
 use crate::{
     config::{BlockedIndexer, BlockedPoi},
@@ -164,7 +163,7 @@ impl NetworkService {
 }
 
 pub fn spawn(
-    http_client: reqwest::Client,
+    http: reqwest::Client,
     subgraph_client: SubgraphClient,
     min_indexer_service_version: Version,
     min_graph_node_version: Version,
@@ -176,22 +175,24 @@ pub fn spawn(
         indexer_blocklist,
         indexer_host_filter: HostFilter::new(indexer_host_blocklist)
             .expect("failed to create host resolver"),
-        indexer_version_requirements: VersionRequirements {
-            min_indexer_service_version,
-            min_graph_node_version,
-        },
-        indexer_version_resolver: VersionResolver::new(http_client.clone(), Duration::from_secs(5)),
+        indexer_version_filter: VersionFilter::new(
+            http.clone(),
+            MinimumVersionRequirements {
+                indexer_service: min_indexer_service_version,
+                graph_node: min_graph_node_version,
+            },
+        ),
         poi_blocklist: PoiBlocklist::new(poi_blocklist),
         poi_resolver: PoiResolver::new(
-            http_client.clone(),
+            http.clone(),
             Duration::from_secs(5),
             Duration::from_secs(20 * 60),
         ),
         indexing_progress_resolver: IndexingProgressResolver::new(
-            http_client.clone(),
+            http.clone(),
             Duration::from_secs(25),
         ),
-        cost_model_resolver: CostModelResolver::new(http_client.clone(), Duration::from_secs(5)),
+        cost_model_resolver: CostModelResolver::new(http.clone(), Duration::from_secs(5)),
     };
     let update_interval = Duration::from_secs(60);
     let network = spawn_updater_task(subgraph_client, internal_state, update_interval);

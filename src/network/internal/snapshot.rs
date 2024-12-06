@@ -7,7 +7,6 @@ use std::{
 };
 
 use custom_debug::CustomDebug;
-use semver::Version;
 use thegraph_core::{
     alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId, SubgraphId,
 };
@@ -89,11 +88,6 @@ pub struct Indexer {
     #[debug(with = std::fmt::Display::fmt)]
     pub url: Url,
 
-    /// The indexer's "indexer service" version.
-    pub indexer_service_version: Version,
-    /// The indexer's "graph node" version.
-    pub graph_node_version: Version,
-
     /// The indexer's staked tokens.
     pub staked_tokens: u128,
 }
@@ -165,8 +159,6 @@ pub fn new_from(
                     let indexer = Indexer {
                         id: info.id,
                         url: info.url.clone(),
-                        indexer_service_version: info.indexer_service_version.clone(),
-                        graph_node_version: info.graph_node_version.clone(),
                         staked_tokens: info.staked_tokens,
                     };
 

@@ -2,18 +2,6 @@ use std::borrow::Borrow;
 
 use url::Url;
 
-/// Builds the URL to query the version of the indexer.
-///
-/// # Panics
-/// The function panics if the URL cannot be built.
-pub fn version_url<U: Borrow<Url>>(url: U) -> VersionUrl {
-    let url = url
-        .borrow()
-        .join("version/")
-        .expect("failed to build indexer version URL");
-    VersionUrl(url)
-}
-
 /// Builds the URL to the status endpoint of the indexer.
 ///
 /// # Panics
@@ -80,7 +68,6 @@ macro_rules! url_new_type {
     };
 }
 
-url_new_type!(VersionUrl);
 url_new_type!(StatusUrl);
 url_new_type!(CostUrl);
 
@@ -88,16 +75,12 @@ url_new_type!(CostUrl);
 mod tests {
     use url::Url;
 
-    use super::{cost_url, status_url, version_url};
+    use super::{cost_url, status_url};
 
     /// Ensure the different URL builder functions accept owned and borrowed URL parameters.
     #[test]
     fn check_url_builders() {
         let url = Url::parse("http://localhost:8020").expect("Invalid URL");
-
-        // Version URL
-        let _ = version_url(&url);
-        let _ = version_url(url.clone());
 
         // Status URL
         let _ = status_url(&url);
