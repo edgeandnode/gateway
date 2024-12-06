@@ -201,8 +201,7 @@ pub fn spawn(
         indexing_progress_resolver: IndexingProgressResolver::new(http.clone()),
         cost_model_resolver: CostModelResolver::new(http.clone()),
     };
-    let update_interval = Duration::from_secs(60);
-    let network = spawn_updater_task(subgraph_client, internal_state, update_interval);
+    let network = spawn_updater_task(subgraph_client, internal_state);
 
     NetworkService { network }
 }
@@ -221,12 +220,12 @@ pub struct InternalState {
 fn spawn_updater_task(
     mut subgraph_client: SubgraphClient,
     state: InternalState,
-    update_interval: Duration,
 ) -> watch::Receiver<NetworkTopologySnapshot> {
     let (tx, rx) = watch::channel(Default::default());
 
     tokio::spawn(async move {
         let mut network_info: Option<PreprocessedNetworkInfo> = None;
+        let update_interval = Duration::from_secs(30);
 
         let mut timer = tokio::time::interval(update_interval);
         timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
