@@ -29,9 +29,11 @@ use super::{
         NetworkTopologySnapshot, PreprocessedNetworkInfo,
     },
     subgraph_client::Client as SubgraphClient,
-    ResolutionError,
 };
-use crate::config::{BlockedIndexer, BlockedPoi};
+use crate::{
+    config::{BlockedIndexer, BlockedPoi},
+    errors::UnavailableReason,
+};
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
@@ -46,7 +48,7 @@ pub struct ResolvedSubgraphInfo {
     /// Subgraph versions, in descending order.
     pub versions: Vec<DeploymentId>,
     /// A list of [`Indexing`]s for the resolved subgraph versions.
-    pub indexings: HashMap<IndexingId, Result<Indexing, ResolutionError>>,
+    pub indexings: HashMap<IndexingId, Result<Indexing, UnavailableReason>>,
 }
 
 impl ResolvedSubgraphInfo {
@@ -109,19 +111,12 @@ impl NetworkService {
         let subgraph_chain = subgraph.chain.clone();
         let subgraph_start_block = subgraph.start_block;
 
-        let indexings = subgraph
-            .indexings
-            .clone()
-            .into_iter()
-            .map(|(id, res)| (id, res.map_err(|err| err.into())))
-            .collect();
-
         Ok(Some(ResolvedSubgraphInfo {
             chain: subgraph_chain,
             start_block: subgraph_start_block,
             subgraphs: vec![subgraph.id],
             versions: subgraph.versions.clone(),
-            indexings,
+            indexings: subgraph.indexings.clone(),
         }))
     }
 
@@ -145,12 +140,7 @@ impl NetworkService {
         let deployment_start_block = deployment.start_block;
 
         let subgraphs = deployment.subgraphs.iter().copied().collect::<Vec<_>>();
-        let indexings = deployment
-            .indexings
-            .clone()
-            .into_iter()
-            .map(|(id, res)| (id, res.map_err(|err| err.into())))
-            .collect();
+        let indexings = deployment.indexings.clone();
 
         Ok(Some(ResolvedSubgraphInfo {
             chain: deployment_chain,

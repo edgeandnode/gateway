@@ -10,12 +10,10 @@ use url::Url;
 use super::InternalState;
 use crate::{
     config::BlockedIndexer,
+    errors::UnavailableReason,
     network::{
-        config::VersionRequirements,
-        errors::{IndexerInfoResolutionError, IndexingInfoResolutionError},
-        indexer_host_resolver::HostResolver,
-        indexer_indexing_poi_blocklist::PoiBlocklist,
-        indexer_indexing_poi_resolver::PoiResolver,
+        config::VersionRequirements, indexer_host_resolver::HostResolver,
+        indexer_indexing_poi_blocklist::PoiBlocklist, indexer_indexing_poi_resolver::PoiResolver,
         indexer_indexing_progress_resolver::IndexingProgressResolver,
         indexer_version_resolver::VersionResolver,
     },
@@ -60,7 +58,7 @@ pub(super) struct IndexerInfo<I> {
     pub graph_node_version: Version,
 
     /// The indexer's indexings information.
-    pub indexings: HashMap<DeploymentId, Result<I, IndexingInfoResolutionError>>,
+    pub indexings: HashMap<DeploymentId, Result<I, UnavailableReason>>,
 }
 
 /// Internal representation of the indexer's indexing information.
@@ -152,7 +150,7 @@ pub(super) struct IndexingProgress {
 pub(super) async fn process_info(
     state: &InternalState,
     indexers: &HashMap<IndexerId, IndexerRawInfo>,
-) -> HashMap<IndexerId, Result<ResolvedIndexerInfo, IndexerInfoResolutionError>> {
+) -> HashMap<IndexerId, Result<ResolvedIndexerInfo, UnavailableReason>> {
     let processed_info = {
         let indexers_iter_fut = indexers.iter().map(move |(indexer_id, indexer)| {
             // Instrument the indexer processing span
@@ -252,7 +250,7 @@ async fn resolve_and_check_indexer_blocked_by_host_blocklist(
     resolver: &HostResolver,
     blocklist: &HashSet<IpNetwork>,
     url: &Url,
-) -> Result<(), IndexerInfoResolutionError> {
+) -> Result<(), UnavailableReason> {
     // Resolve the indexer's URL, if it fails (or times out), the indexer must be BLOCKED
     let addrs = resolver.resolve_url(url).await?;
 
@@ -260,7 +258,7 @@ async fn resolve_and_check_indexer_blocked_by_host_blocklist(
         .iter()
         .any(|addr| blocklist.iter().any(|net| net.contains(*addr)))
     {
-        return Err(IndexerInfoResolutionError::BlockedHost);
+        return Err(UnavailableReason::Blocked("bad host".to_string()));
     }
 
     Ok(())
@@ -271,18 +269,17 @@ async fn resolve_and_check_indexer_blocked_by_version(
     resolver: &VersionResolver,
     version_requirements: &VersionRequirements,
     url: &Url,
-) -> Result<(Version, Version), IndexerInfoResolutionError> {
+) -> Result<(Version, Version), UnavailableReason> {
     // Resolve the indexer's service version
     let indexer_service_version = resolver
         .resolve_indexer_service_version(url)
         .await
-        .map_err(IndexerInfoResolutionError::IndexerServiceVersionResolutionFailed)?;
+        .map_err(|err| UnavailableReason::NoStatus(format!("failed to reach indexer: {err}")))?;
 
     // Check if the indexer's service version is supported
     if indexer_service_version < version_requirements.min_indexer_service_version {
-        return Err(IndexerInfoResolutionError::IndexerServiceVersionBelowMin(
-            indexer_service_version,
-            version_requirements.min_indexer_service_version.clone(),
+        return Err(UnavailableReason::NotSupported(
+            "indexer-service version below minimum".to_string(),
         ));
     }
 
@@ -300,9 +297,8 @@ async fn resolve_and_check_indexer_blocked_by_version(
 
     // Check if the indexer's graph node version is supported
     if graph_node_version < version_requirements.min_graph_node_version {
-        return Err(IndexerInfoResolutionError::GraphNodeVersionBelowMin(
-            graph_node_version,
-            version_requirements.min_graph_node_version.clone(),
+        return Err(UnavailableReason::NotSupported(
+            "graph-node version below minimum".to_string(),
         ));
     }
 
@@ -315,7 +311,7 @@ async fn process_indexer_indexings(
     url: &Url,
     indexings: HashMap<DeploymentId, IndexingRawInfo>,
     blocklist: Option<&BlockedIndexer>,
-) -> HashMap<DeploymentId, Result<ResolvedIndexingInfo, IndexingInfoResolutionError>> {
+) -> HashMap<DeploymentId, Result<ResolvedIndexingInfo, UnavailableReason>> {
     let mut indexer_indexings: HashMap<DeploymentId, Result<IndexingInfo<(), ()>, _>> = indexings
         .into_iter()
         .map(|(id, info)| (id, Ok(info.into())))
@@ -325,18 +321,14 @@ async fn process_indexer_indexings(
         None => (),
         Some(blocklist) if blocklist.deployments.is_empty() => {
             for entry in indexer_indexings.values_mut() {
-                *entry = Err(IndexingInfoResolutionError::Blocked(
-                    blocklist.reason.clone(),
-                ));
+                *entry = Err(UnavailableReason::Blocked(blocklist.reason.clone()));
             }
         }
         Some(blocklist) => {
             for deployment in &blocklist.deployments {
                 indexer_indexings.insert(
                     *deployment,
-                    Err(IndexingInfoResolutionError::Blocked(
-                        blocklist.reason.clone(),
-                    )),
+                    Err(UnavailableReason::Blocked(blocklist.reason.clone())),
                 );
             }
         }
@@ -364,7 +356,7 @@ async fn process_indexer_indexings(
         .map(|(id, res)| {
             let info = res.and_then(|info| {
                 if blocked_indexings_by_poi.contains(&id) {
-                    Err(IndexingInfoResolutionError::Blocked("bad POI".into()))
+                    Err(UnavailableReason::Blocked("bad PoI".to_string()))
                 } else {
                     Ok(info)
                 }
@@ -400,7 +392,9 @@ async fn process_indexer_indexings(
                 _ => {
                     return (
                         id,
-                        Err(IndexingInfoResolutionError::IndexingProgressNotFound),
+                        Err(UnavailableReason::NoStatus(
+                            "failed to get indexing progress".to_string(),
+                        )),
                     );
                 }
             };
@@ -458,7 +452,7 @@ async fn resolve_indexer_progress(
     resolver: &IndexingProgressResolver,
     url: &Url,
     indexings: &[DeploymentId],
-) -> HashMap<DeploymentId, Result<IndexingProgress, IndexingInfoResolutionError>> {
+) -> HashMap<DeploymentId, Result<IndexingProgress, UnavailableReason>> {
     let mut progress_info = resolver.resolve(url, indexings).await;
 
     // Get the progress information for each indexing
@@ -473,7 +467,9 @@ async fn resolve_indexer_progress(
                         latest_block: info.latest_block,
                         min_block: info.min_block,
                     })
-                    .ok_or(IndexingInfoResolutionError::IndexingProgressNotFound),
+                    .ok_or_else(|| {
+                        UnavailableReason::NoStatus("failed to get indexing progress".to_string())
+                    }),
             )
         })
         .collect::<HashMap<_, _>>()
