@@ -16,9 +16,9 @@ use thegraph_core::{
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{
+    cost_model::CostModelResolver,
     errors::{DeploymentError, SubgraphError},
     host_filter::HostFilter,
-    indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist,
     indexer_indexing_poi_resolver::PoiResolver,
     indexer_indexing_progress_resolver::IndexingProgressResolver,
@@ -192,7 +192,7 @@ pub fn spawn(
             http.clone(),
             Duration::from_secs(25),
         ),
-        cost_model_resolver: CostModelResolver::new(http.clone(), Duration::from_secs(5)),
+        cost_model_resolver: CostModelResolver::new(http.clone()),
     };
     let update_interval = Duration::from_secs(60);
     let network = spawn_updater_task(subgraph_client, internal_state, update_interval);

@@ -14,18 +14,6 @@ pub fn status_url<U: Borrow<Url>>(url: U) -> StatusUrl {
     StatusUrl(url)
 }
 
-/// Builds the URL to the cost model endpoint of the indexer.
-///
-/// # Panics
-/// The function panics if the URL cannot be built.
-pub fn cost_url<U: Borrow<Url>>(url: U) -> CostUrl {
-    let url = url
-        .borrow()
-        .join("cost/")
-        .expect("failed to build indexer cost URL");
-    CostUrl(url)
-}
-
 /// Newtype wrapper around `Url` to provide type safety.
 macro_rules! url_new_type {
     ($name:ident) => {
@@ -69,13 +57,12 @@ macro_rules! url_new_type {
 }
 
 url_new_type!(StatusUrl);
-url_new_type!(CostUrl);
 
 #[cfg(test)]
 mod tests {
     use url::Url;
 
-    use super::{cost_url, status_url};
+    use super::status_url;
 
     /// Ensure the different URL builder functions accept owned and borrowed URL parameters.
     #[test]
@@ -85,9 +72,5 @@ mod tests {
         // Status URL
         let _ = status_url(&url);
         let _ = status_url(url.clone());
-
-        // Cost URL
-        let _ = cost_url(&url);
-        let _ = cost_url(url.clone());
     }
 }

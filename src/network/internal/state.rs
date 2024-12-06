@@ -5,7 +5,7 @@ use thegraph_core::alloy::primitives::Address;
 use crate::{
     config::BlockedIndexer,
     network::{
-        host_filter::HostFilter, indexer_indexing_cost_model_resolver::CostModelResolver,
+        cost_model::CostModelResolver, host_filter::HostFilter,
         indexer_indexing_poi_blocklist::PoiBlocklist, indexer_indexing_poi_resolver::PoiResolver,
         indexer_indexing_progress_resolver::IndexingProgressResolver,
         version_filter::VersionFilter,
