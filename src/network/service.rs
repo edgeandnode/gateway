@@ -18,7 +18,7 @@ use tokio::{sync::watch, time::MissedTickBehavior};
 use super::{
     config::VersionRequirements,
     errors::{DeploymentError, SubgraphError},
-    indexer_host_resolver::HostResolver,
+    host_filter::HostFilter,
     indexer_indexing_cost_model_resolver::CostModelResolver,
     indexer_indexing_poi_blocklist::PoiBlocklist,
     indexer_indexing_poi_resolver::PoiResolver,
@@ -174,9 +174,8 @@ pub fn spawn(
 ) -> NetworkService {
     let internal_state = InternalState {
         indexer_blocklist,
-        indexer_host_resolver: HostResolver::new(Duration::from_secs(5))
+        indexer_host_filter: HostFilter::new(indexer_host_blocklist)
             .expect("failed to create host resolver"),
-        indexer_host_blocklist,
         indexer_version_requirements: VersionRequirements {
             min_indexer_service_version,
             min_graph_node_version,

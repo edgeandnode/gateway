@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use custom_debug::CustomDebug;
-use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::{alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId};
 use tracing::Instrument;
@@ -12,8 +11,8 @@ use crate::{
     config::BlockedIndexer,
     errors::UnavailableReason,
     network::{
-        config::VersionRequirements, indexer_host_resolver::HostResolver,
-        indexer_indexing_poi_blocklist::PoiBlocklist, indexer_indexing_poi_resolver::PoiResolver,
+        config::VersionRequirements, indexer_indexing_poi_blocklist::PoiBlocklist,
+        indexer_indexing_poi_resolver::PoiResolver,
         indexer_indexing_progress_resolver::IndexingProgressResolver,
         indexer_version_resolver::VersionResolver,
     },
@@ -164,17 +163,7 @@ pub(super) async fn process_info(
             tracing::trace!(parent: &indexer_span, "processing");
 
             async move {
-                // Check if the indexer's host is in the host blocklist
-                //
-                // If the indexer host cannot be resolved or is in the blocklist, the indexer must
-                // be marked as unhealthy
-                if let Err(err) = resolve_and_check_indexer_blocked_by_host_blocklist(
-                    &state.indexer_host_resolver,
-                    &state.indexer_host_blocklist,
-                    &indexer.url,
-                )
-                .await
-                {
+                if let Err(err) = state.indexer_host_filter.check(&indexer.url).await {
                     tracing::debug!(%err);
                     return (*indexer_id, Err(err));
                 }
@@ -239,29 +228,6 @@ pub(super) async fn process_info(
     };
 
     FromIterator::from_iter(processed_info)
-}
-
-/// Resolve and check if the indexer's host is in the host blocklist.
-///
-/// - If the indexer's host is not resolvable: the indexer is BLOCKED.
-/// - If the host blocklist was not configured: the indexer is ALLOWED.
-/// - If the indexer's host is in the blocklist: the indexer is BLOCKED.
-async fn resolve_and_check_indexer_blocked_by_host_blocklist(
-    resolver: &HostResolver,
-    blocklist: &HashSet<IpNetwork>,
-    url: &Url,
-) -> Result<(), UnavailableReason> {
-    // Resolve the indexer's URL, if it fails (or times out), the indexer must be BLOCKED
-    let addrs = resolver.resolve_url(url).await?;
-
-    if addrs
-        .iter()
-        .any(|addr| blocklist.iter().any(|net| net.contains(*addr)))
-    {
-        return Err(UnavailableReason::Blocked("bad host".to_string()));
-    }
-
-    Ok(())
 }
 
 /// Resolve and check if the indexer's reported versions are supported.
