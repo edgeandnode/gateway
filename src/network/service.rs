@@ -19,10 +19,9 @@ use super::{
     cost_model::CostModelResolver,
     errors::{DeploymentError, SubgraphError},
     host_filter::HostFilter,
-    indexer_indexing_poi_blocklist::PoiBlocklist,
-    indexer_indexing_poi_resolver::PoiResolver,
     indexer_processing::{self, IndexerRawInfo},
     indexing_progress::IndexingProgressResolver,
+    poi_filter::PoiFilter,
     snapshot::{self, Indexing, IndexingId, NetworkTopologySnapshot},
     subgraph_client::Client as SubgraphClient,
     subgraph_processing::{DeploymentInfo, SubgraphInfo},
@@ -171,6 +170,22 @@ pub fn spawn(
     indexer_host_blocklist: HashSet<IpNetwork>,
     poi_blocklist: Vec<BlockedPoi>,
 ) -> NetworkService {
+    let poi_blocklist = poi_blocklist
+        .iter()
+        .map(|entry| &entry.deployment)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .map(|deployment| {
+            (
+                *deployment,
+                poi_blocklist
+                    .iter()
+                    .filter(|entry| &entry.deployment == deployment)
+                    .map(|entry| (entry.block_number, entry.public_poi.into()))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
     let internal_state = InternalState {
         indexer_blocklist,
         indexer_host_filter: HostFilter::new(indexer_host_blocklist)
@@ -182,12 +197,7 @@ pub fn spawn(
                 graph_node: min_graph_node_version,
             },
         ),
-        poi_blocklist: PoiBlocklist::new(poi_blocklist),
-        poi_resolver: PoiResolver::new(
-            http.clone(),
-            Duration::from_secs(5),
-            Duration::from_secs(20 * 60),
-        ),
+        indexer_poi_filer: PoiFilter::new(http.clone(), poi_blocklist),
         indexing_progress_resolver: IndexingProgressResolver::new(http.clone()),
         cost_model_resolver: CostModelResolver::new(http.clone()),
     };
@@ -201,8 +211,7 @@ pub struct InternalState {
     pub indexer_blocklist: BTreeMap<Address, BlockedIndexer>,
     pub indexer_host_filter: HostFilter,
     pub indexer_version_filter: VersionFilter,
-    pub poi_blocklist: PoiBlocklist,
-    pub poi_resolver: PoiResolver,
+    pub indexer_poi_filer: PoiFilter,
     pub indexing_progress_resolver: IndexingProgressResolver,
     pub cost_model_resolver: CostModelResolver,
 }

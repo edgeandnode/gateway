@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use custom_debug::CustomDebug;
 use thegraph_core::{alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId};
@@ -8,10 +8,7 @@ use url::Url;
 use crate::{
     config::BlockedIndexer,
     errors::UnavailableReason,
-    network::{
-        indexer_indexing_poi_blocklist::PoiBlocklist, indexer_indexing_poi_resolver::PoiResolver,
-        indexing_progress::IndexingProgressResolver, service::InternalState,
-    },
+    network::{indexing_progress::IndexingProgressResolver, service::InternalState},
 };
 
 /// Internal representation of the indexer pre-processed information.
@@ -223,13 +220,10 @@ async fn process_indexer_indexings(
     let mut healthy_indexer_indexings = indexer_indexings.keys().copied().collect::<Vec<_>>();
 
     // Check if the indexer's indexings should be blocked by POI
-    let blocked_indexings_by_poi = resolve_and_check_indexer_indexings_blocked_by_poi(
-        &state.poi_blocklist,
-        &state.poi_resolver,
-        url,
-        &healthy_indexer_indexings,
-    )
-    .await;
+    let blocked_indexings_by_poi = state
+        .indexer_poi_filer
+        .blocked_deployments(url, &healthy_indexer_indexings)
+        .await;
 
     // Remove the blocked indexings from the healthy indexers list
     healthy_indexer_indexings.retain(|id| !blocked_indexings_by_poi.contains(id));
@@ -305,30 +299,6 @@ async fn process_indexer_indexings(
             (id, Ok(info.with_fee(fee)))
         })
         .collect()
-}
-
-/// Resolve and check if any of the indexer's indexings should be blocked by POI.
-async fn resolve_and_check_indexer_indexings_blocked_by_poi(
-    blocklist: &PoiBlocklist,
-    resolver: &PoiResolver,
-    url: &Url,
-    indexings: &[DeploymentId],
-) -> HashSet<DeploymentId> {
-    if blocklist.is_empty() {
-        return Default::default();
-    }
-
-    // Get the list of affected POIs to resolve for the indexer's deployments
-    // If none of the deployments are affected, the indexer must be ALLOWED
-    let indexer_affected_pois = blocklist.affected_pois_metadata(indexings);
-    if indexer_affected_pois.is_empty() {
-        return Default::default();
-    }
-
-    // Resolve the indexer public POIs for the affected deployments
-    let poi_result = resolver.resolve(url, &indexer_affected_pois).await;
-
-    blocklist.check(poi_result)
 }
 
 /// Resolve the indexer's progress information.

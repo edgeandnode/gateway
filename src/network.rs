@@ -6,10 +6,9 @@ use thegraph_graphql_http::graphql::{IntoDocument as _, IntoDocumentWithVariable
 pub mod cost_model;
 mod errors;
 pub mod host_filter;
-pub mod indexer_indexing_poi_blocklist;
-pub mod indexer_indexing_poi_resolver;
 mod indexer_processing;
 pub mod indexing_progress;
+pub mod poi_filter;
 mod pre_processing;
 pub mod service;
 mod snapshot;
@@ -18,8 +17,8 @@ mod subgraph_processing;
 pub mod version_filter;
 
 pub struct GraphQlRequest {
-    document: String,
-    variables: serde_json::Value,
+    pub document: String,
+    pub variables: serde_json::Value,
 }
 impl IntoDocumentWithVariables for GraphQlRequest {
     type Variables = serde_json::Value;
