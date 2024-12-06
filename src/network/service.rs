@@ -11,7 +11,7 @@ use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::{
     alloy::primitives::{Address, BlockNumber},
-    DeploymentId, SubgraphId,
+    DeploymentId, IndexerId, SubgraphId,
 };
 use tokio::{sync::watch, time::MissedTickBehavior};
 
@@ -21,17 +21,17 @@ use super::{
     host_filter::HostFilter,
     indexer_indexing_poi_blocklist::PoiBlocklist,
     indexer_indexing_poi_resolver::PoiResolver,
-    indexer_indexing_progress_resolver::IndexingProgressResolver,
-    internal::{
-        fetch_and_preprocess_subgraph_info, fetch_update, Indexing, IndexingId, InternalState,
-        NetworkTopologySnapshot, PreprocessedNetworkInfo,
-    },
+    indexer_processing::{self, IndexerRawInfo},
+    indexing_progress::IndexingProgressResolver,
+    snapshot::{self, Indexing, IndexingId, NetworkTopologySnapshot},
     subgraph_client::Client as SubgraphClient,
+    subgraph_processing::{DeploymentInfo, SubgraphInfo},
     version_filter::{MinimumVersionRequirements, VersionFilter},
 };
 use crate::{
     config::{BlockedIndexer, BlockedPoi},
     errors::UnavailableReason,
+    network::{pre_processing, subgraph_processing},
 };
 
 /// Subgraph resolution information returned by the [`NetworkService`].
@@ -197,6 +197,16 @@ pub fn spawn(
     NetworkService { network }
 }
 
+pub struct InternalState {
+    pub indexer_blocklist: BTreeMap<Address, BlockedIndexer>,
+    pub indexer_host_filter: HostFilter,
+    pub indexer_version_filter: VersionFilter,
+    pub poi_blocklist: PoiBlocklist,
+    pub poi_resolver: PoiResolver,
+    pub indexing_progress_resolver: IndexingProgressResolver,
+    pub cost_model_resolver: CostModelResolver,
+}
+
 /// Spawn a background task to fetch the network topology information from the graph network
 /// subgraph at regular intervals
 fn spawn_updater_task(
@@ -239,4 +249,56 @@ fn spawn_updater_task(
     });
 
     rx
+}
+
+/// Fetch the subgraphs information from the graph network subgraph and performs pre-processing
+/// steps, i.e., validation and conversion into the internal representation.
+///
+///   1. Fetch the subgraphs information from the graph network subgraph.
+///   2. Validate and convert the subgraphs fetched info into the internal representation.
+///
+/// If the fetch fails or the response is empty, an error is returned.
+///
+/// Invalid info is filtered out before converting into the internal representation.
+pub async fn fetch_and_preprocess_subgraph_info(
+    client: &mut SubgraphClient,
+    timeout: Duration,
+) -> anyhow::Result<PreprocessedNetworkInfo> {
+    // Fetch the subgraphs information from the graph network subgraph
+    let data = tokio::time::timeout(timeout, client.fetch()).await??;
+    anyhow::ensure!(!data.is_empty(), "empty subgraph response");
+
+    // Pre-process (validate and convert) the fetched subgraphs information
+    let indexers = pre_processing::into_internal_indexers_raw_info(data.iter());
+    let subgraphs = pre_processing::into_internal_subgraphs_raw_info(data.into_iter());
+    let deployments = pre_processing::into_internal_deployments_raw_info(subgraphs.values());
+
+    let subgraphs = subgraph_processing::process_subgraph_info(subgraphs);
+    let deployments = subgraph_processing::process_deployments_info(deployments);
+
+    Ok(PreprocessedNetworkInfo {
+        subgraphs,
+        deployments,
+        indexers,
+    })
+}
+
+/// Fetch the network topology information from the graph network subgraph.
+pub async fn fetch_update(
+    network: &PreprocessedNetworkInfo,
+    state: &InternalState,
+) -> NetworkTopologySnapshot {
+    // Process network topology information
+    let indexers_info = indexer_processing::process_info(state, &network.indexers).await;
+    snapshot::new_from(
+        indexers_info,
+        network.subgraphs.clone(),
+        network.deployments.clone(),
+    )
+}
+
+pub struct PreprocessedNetworkInfo {
+    subgraphs: HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>>,
+    deployments: HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>>,
+    indexers: HashMap<IndexerId, IndexerRawInfo>,
 }

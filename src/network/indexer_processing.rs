@@ -5,13 +5,12 @@ use thegraph_core::{alloy::primitives::BlockNumber, AllocationId, DeploymentId, 
 use tracing::Instrument;
 use url::Url;
 
-use super::InternalState;
 use crate::{
     config::BlockedIndexer,
     errors::UnavailableReason,
     network::{
         indexer_indexing_poi_blocklist::PoiBlocklist, indexer_indexing_poi_resolver::PoiResolver,
-        indexer_indexing_progress_resolver::IndexingProgressResolver,
+        indexing_progress::IndexingProgressResolver, service::InternalState,
     },
 };
 
@@ -19,7 +18,7 @@ use crate::{
 ///
 /// This is not the final representation of the indexer.
 #[derive(CustomDebug)]
-pub(super) struct IndexerRawInfo {
+pub struct IndexerRawInfo {
     /// The indexer's ID.
     pub id: IndexerId,
     /// The indexer's URL.
@@ -37,7 +36,7 @@ pub(super) struct IndexerRawInfo {
 ///
 /// This is not the final representation of the indexer.
 #[derive(CustomDebug)]
-pub(super) struct IndexerInfo<I> {
+pub struct IndexerInfo<I> {
     /// The indexer's ID.
     pub id: IndexerId,
     /// The indexer's URL.
@@ -56,7 +55,7 @@ pub(super) struct IndexerInfo<I> {
 ///
 /// This is not the final representation of the indexer's indexing information.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct IndexingRawInfo {
+pub struct IndexingRawInfo {
     /// The largest allocation.
     pub largest_allocation: AllocationId,
     /// The total amount of tokens allocated.
@@ -68,7 +67,7 @@ pub(super) struct IndexingRawInfo {
 /// This type uses the "type-state" pattern to represent the different states of the indexing
 /// information: unresolved, partially resolved (with indexing progress) and completely resolved.
 #[derive(Debug)]
-pub(super) struct IndexingInfo<P, C> {
+pub struct IndexingInfo<P, C> {
     /// The largest allocation.
     pub largest_allocation: AllocationId,
 
@@ -124,13 +123,13 @@ impl IndexingInfo<IndexingProgress, ()> {
     }
 }
 
-pub(super) type ResolvedIndexingInfo = IndexingInfo<IndexingProgress, u128>;
+pub type ResolvedIndexingInfo = IndexingInfo<IndexingProgress, u128>;
 
-pub(super) type ResolvedIndexerInfo = IndexerInfo<ResolvedIndexingInfo>;
+pub type ResolvedIndexerInfo = IndexerInfo<ResolvedIndexingInfo>;
 
 /// Internal representation of the indexing's progress information.
 #[derive(Clone, Debug)]
-pub(super) struct IndexingProgress {
+pub struct IndexingProgress {
     /// The latest indexed block.
     pub latest_block: BlockNumber,
     /// The minimum indexed block.
@@ -138,7 +137,7 @@ pub(super) struct IndexingProgress {
 }
 
 /// Process the fetched network topology information.
-pub(super) async fn process_info(
+pub async fn process_info(
     state: &InternalState,
     indexers: &HashMap<IndexerId, IndexerRawInfo>,
 ) -> HashMap<IndexerId, Result<ResolvedIndexerInfo, UnavailableReason>> {

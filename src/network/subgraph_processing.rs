@@ -8,7 +8,7 @@ use crate::network::errors::{DeploymentError, SubgraphError};
 ///
 /// This is not the final representation of the subgraph.
 #[derive(Debug, Clone)]
-pub(super) struct SubgraphRawInfo {
+pub struct SubgraphRawInfo {
     pub id: SubgraphId,
     pub versions: Vec<SubgraphVersionRawInfo>,
 }
@@ -17,7 +17,7 @@ pub(super) struct SubgraphRawInfo {
 ///
 /// This is not the final representation of the subgraph version.
 #[derive(Debug, Clone)]
-pub(super) struct SubgraphVersionRawInfo {
+pub struct SubgraphVersionRawInfo {
     pub deployment: DeploymentRawInfo,
 }
 
@@ -25,7 +25,7 @@ pub(super) struct SubgraphVersionRawInfo {
 ///
 /// This is not the final representation of the deployment.
 #[derive(Debug, Clone)]
-pub(super) struct DeploymentRawInfo {
+pub struct DeploymentRawInfo {
     pub id: DeploymentId,
     pub manifest_network: String,
     pub manifest_start_block: BlockNumber,
@@ -75,7 +75,7 @@ pub struct AllocationInfo {
 /// Process the fetched subgraphs' information.
 ///
 /// - If the subgraph has no allocations, [`SubgraphError::NoAllocations`] is returned.
-pub(super) fn process_subgraph_info(
+pub fn process_subgraph_info(
     subgraphs: HashMap<SubgraphId, SubgraphRawInfo>,
 ) -> HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>> {
     subgraphs
@@ -144,7 +144,7 @@ fn check_subgraph_has_allocations(subgraph: &SubgraphRawInfo) -> Result<(), Subg
 /// Process the fetched deployments' information.
 ///
 /// - If the deployment has no allocations, [`DeploymentError::NoAllocations`] is returned.
-pub(super) fn process_deployments_info(
+pub fn process_deployments_info(
     deployments: HashMap<DeploymentId, DeploymentRawInfo>,
 ) -> HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>> {
     deployments

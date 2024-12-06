@@ -1,6 +1,6 @@
 pub use errors::{DeploymentError, SubgraphError};
-pub use internal::{Indexing, IndexingId};
 pub use service::{NetworkService, ResolvedSubgraphInfo};
+pub use snapshot::{Indexing, IndexingId};
 use thegraph_graphql_http::graphql::{IntoDocument as _, IntoDocumentWithVariables};
 
 pub mod cost_model;
@@ -8,10 +8,13 @@ mod errors;
 pub mod host_filter;
 pub mod indexer_indexing_poi_blocklist;
 pub mod indexer_indexing_poi_resolver;
-pub mod indexer_indexing_progress_resolver;
-pub mod internal;
+mod indexer_processing;
+pub mod indexing_progress;
+mod pre_processing;
 pub mod service;
+mod snapshot;
 pub mod subgraph_client;
+mod subgraph_processing;
 pub mod version_filter;
 
 pub struct GraphQlRequest {

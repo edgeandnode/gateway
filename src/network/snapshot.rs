@@ -1,5 +1,3 @@
-//! Entities that are used to represent the network topology.
-
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
@@ -12,12 +10,12 @@ use thegraph_core::{
 };
 use url::Url;
 
-use super::{DeploymentInfo, SubgraphInfo};
 use crate::{
     errors::UnavailableReason,
     network::{
         errors::{DeploymentError, SubgraphError},
-        internal::indexer_processing::ResolvedIndexerInfo,
+        indexer_processing::ResolvedIndexerInfo,
+        subgraph_processing::{DeploymentInfo, SubgraphInfo},
     },
 };
 

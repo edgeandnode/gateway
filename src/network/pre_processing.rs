@@ -5,13 +5,12 @@ use thegraph_core::{AllocationId, DeploymentId, IndexerId, SubgraphId};
 use url::Url;
 
 use crate::network::{
-    internal::{
-        indexer_processing::{IndexerRawInfo, IndexingRawInfo},
-        subgraph_processing::{DeploymentRawInfo, SubgraphRawInfo, SubgraphVersionRawInfo},
-        AllocationInfo,
-    },
+    indexer_processing::{IndexerRawInfo, IndexingRawInfo},
     subgraph_client,
     subgraph_client::types::SubgraphVersion,
+    subgraph_processing::{
+        AllocationInfo, DeploymentRawInfo, SubgraphRawInfo, SubgraphVersionRawInfo,
+    },
 };
 
 pub fn into_internal_indexers_raw_info<'a>(
