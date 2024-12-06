@@ -188,10 +188,7 @@ pub fn spawn(
             Duration::from_secs(5),
             Duration::from_secs(20 * 60),
         ),
-        indexing_progress_resolver: IndexingProgressResolver::new(
-            http.clone(),
-            Duration::from_secs(25),
-        ),
+        indexing_progress_resolver: IndexingProgressResolver::new(http.clone()),
         cost_model_resolver: CostModelResolver::new(http.clone()),
     };
     let update_interval = Duration::from_secs(60);

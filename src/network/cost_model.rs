@@ -2,11 +2,10 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use thegraph_core::DeploymentId;
-use thegraph_graphql_http::{
-    graphql::{Document, IntoDocument, IntoDocumentWithVariables},
-    http_client::ReqwestExt,
-};
+use thegraph_graphql_http::http_client::ReqwestExt;
 use url::Url;
+
+use crate::network::GraphQlRequest;
 
 pub struct CostModelResolver {
     http: reqwest::Client,
@@ -51,7 +50,7 @@ impl CostModelResolver {
     ) -> anyhow::Result<HashMap<DeploymentId, String>> {
         let url = url.join("cost").map_err(|_| anyhow!("invalid URL"))?;
 
-        const QUERY: &str = r#"
+        let query = r#"
             query costModels($deployments: [String!]!) {
                 costModels(deployments: $deployments) {
                     deployment
@@ -59,7 +58,6 @@ impl CostModelResolver {
                 }
             }
         "#;
-        let deployments = deployments.iter().map(|item| item.to_string()).collect();
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Response {
@@ -70,22 +68,13 @@ impl CostModelResolver {
             pub deployment: DeploymentId,
             pub model: String,
         }
-        struct Request {
-            deployments: Vec<String>,
-        }
-        impl IntoDocumentWithVariables for Request {
-            type Variables = serde_json::Value;
-            fn into_document_with_variables(self) -> (Document, Self::Variables) {
-                (
-                    QUERY.into_document(),
-                    serde_json::json!({ "deployments": self.deployments }),
-                )
-            }
-        }
         let resp = self
             .http
             .post(url)
-            .send_graphql::<Response>(Request { deployments })
+            .send_graphql::<Response>(GraphQlRequest {
+                document: query.to_string(),
+                variables: serde_json::json!({ "deployments": deployments }),
+            })
             .await??;
         Ok(resp
             .cost_models
