@@ -58,10 +58,10 @@ impl PoiResolver {
         url: &Url,
         pois: &[(DeploymentId, BlockNumber)],
     ) -> HashMap<(DeploymentId, BlockNumber), Result<ProofOfIndexing, ResolutionError>> {
-        let status_url = indexers::status_url(url);
+        let status_url = url.join("status").unwrap();
         let res = tokio::time::timeout(
             self.timeout,
-            send_requests(&self.client, status_url, pois, POIS_PER_REQUEST_BATCH_SIZE),
+            send_requests(&self.client, &status_url, pois, POIS_PER_REQUEST_BATCH_SIZE),
         )
         .await;
 
@@ -162,7 +162,7 @@ impl PoiResolver {
 /// an error if the request failed.
 async fn send_requests(
     client: &reqwest::Client,
-    url: indexers::StatusUrl,
+    status_url: &Url,
     poi_requests: &[(DeploymentId, BlockNumber)],
     batch_size: usize,
 ) -> HashMap<(DeploymentId, BlockNumber), Result<ProofOfIndexing, PublicPoiFetchError>> {
@@ -171,11 +171,9 @@ async fn send_requests(
 
     // Create a request for each batch
     let requests = request_batches.map(|batch| {
-        let url = url.clone();
+        let status_url = status_url.clone();
         async move {
-            // Request the indexings' POIs
-            let response = indexers::public_poi::send_request(client, url.clone(), batch).await;
-
+            let response = indexers::public_poi::send_request(client, status_url, batch).await;
             let result = match response {
                 Err(err) => {
                     // If the request failed, mark all deployment-block number pairs in the batch as

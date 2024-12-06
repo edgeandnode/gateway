@@ -59,12 +59,12 @@ impl IndexingProgressResolver {
         url: &Url,
         indexings: &[DeploymentId],
     ) -> HashMap<DeploymentId, Result<Vec<ChainStatus>, ResolutionError>> {
-        let status_url = indexers::status_url(url);
+        let status_url = url.join("status").unwrap();
         let res = tokio::time::timeout(
             self.timeout,
             send_requests(
                 &self.client,
-                status_url,
+                &status_url,
                 indexings,
                 INDEXINGS_PER_REQUEST_BATCH_SIZE,
             ),
@@ -132,7 +132,7 @@ impl IndexingProgressResolver {
 /// as failed. The function returns a map of deployment IDs to the indexing progress information.
 async fn send_requests(
     client: &reqwest::Client,
-    url: indexers::StatusUrl,
+    status_url: &Url,
     indexings: &[DeploymentId],
     batch_size: usize,
 ) -> HashMap<DeploymentId, Result<Vec<ChainStatus>, IndexingProgressFetchError>> {
@@ -141,11 +141,11 @@ async fn send_requests(
 
     // Create a request for each batch
     let requests = request_batches.map(|batch| {
-        let url = url.clone();
+        let status_url = status_url.clone();
         async move {
             // Request the indexing progress
             let response =
-                indexers::indexing_progress::send_request(client, url.clone(), batch).await;
+                indexers::indexing_progress::send_request(client, status_url, batch).await;
 
             let result = match response {
                 Err(err) => {

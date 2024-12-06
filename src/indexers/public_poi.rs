@@ -5,8 +5,7 @@ use thegraph_graphql_http::{
     graphql::{Document, IntoDocument, IntoDocumentWithVariables},
     http_client::{RequestError, ReqwestExt, ResponseError},
 };
-
-use super::urls::StatusUrl;
+use url::Url;
 
 const PUBLIC_PROOF_OF_INDEXING_QUERY_DOCUMENT: &str = r#"
     query publicPois($requests: [PublicProofOfIndexingRequest!]!) {
@@ -54,11 +53,11 @@ impl From<(DeploymentId, BlockNumber)> for PublicProofOfIndexingRequest {
 /// Send a request to the indexer to get the Public POIs of the given deployment-block number pairs.
 pub async fn send_request(
     client: &reqwest::Client,
-    url: StatusUrl,
+    status_url: Url,
     pois: impl IntoIterator<Item = &(DeploymentId, BlockNumber)>,
 ) -> Result<Vec<PublicProofOfIndexingResult>, Error> {
     let resp = client
-        .post(url.into_inner())
+        .post(status_url)
         .send_graphql::<Response>(Request::new(pois))
         .await
         .map_err(|err| match err {

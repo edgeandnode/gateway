@@ -5,8 +5,7 @@ use thegraph_graphql_http::{
     graphql::{Document, IntoDocument, IntoDocumentWithVariables},
     http_client::{RequestError, ReqwestExt as _, ResponseError},
 };
-
-use super::urls::StatusUrl;
+use url::Url;
 
 const INDEXING_PROGRESS_QUERY_DOCUMENT: &str = r#"
     query indexingProgress($deployments: [String!]!) {
@@ -41,11 +40,11 @@ pub enum Error {
 /// Send a request to the indexer to get the indexing status of the given deployments.
 pub async fn send_request(
     client: &reqwest::Client,
-    url: StatusUrl,
+    status_url: Url,
     deployments: impl IntoIterator<Item = &DeploymentId>,
 ) -> Result<Vec<IndexingStatusResponse>, Error> {
     let resp = client
-        .post(url.into_inner())
+        .post(status_url)
         .send_graphql::<Response>(Request::new(deployments))
         .await
         .map_err(|err| match err {
