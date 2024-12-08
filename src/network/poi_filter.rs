@@ -36,7 +36,7 @@ impl PoiFilter {
 
     pub async fn blocked_deployments(
         &self,
-        url: &Url,
+        status_url: &Url,
         deployments: &[DeploymentId],
     ) -> HashSet<DeploymentId> {
         let requests: Vec<(DeploymentId, BlockNumber)> = self
@@ -47,7 +47,7 @@ impl PoiFilter {
                 entries.iter().map(|(block, _)| (*deployment, *block))
             })
             .collect();
-        let pois = self.resolve(url, requests).await;
+        let pois = self.resolve(status_url, requests).await;
 
         deployments
             .iter()
@@ -66,10 +66,10 @@ impl PoiFilter {
     /// Fetch public PoIs, such that results are cached indefinitely and refreshed every 20 minutes.
     async fn resolve(
         &self,
-        url: &Url,
+        status_url: &Url,
         requests: Vec<(DeploymentId, BlockNumber)>,
     ) -> HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> {
-        let url_string = url.to_string();
+        let url_string = status_url.to_string();
 
         let mut results: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> = Default::default();
         let mut refresh = false;
@@ -98,7 +98,7 @@ impl PoiFilter {
             return results;
         }
         let fetched: HashMap<(DeploymentId, BlockNumber), ProofOfIndexing> =
-            send_requests(&self.http, url, updates).await;
+            send_requests(&self.http, status_url, updates).await;
         {
             let now = Instant::now();
             let mut cache = self.cache.write();
@@ -163,15 +163,16 @@ async fn send_request(
                 block { number }
             }
         }"#;
+    let request = GraphQlRequest {
+        document: query.to_string(),
+        variables: serde_json::json!({ "requests": pois.iter().map(|(deployment, block)| serde_json::json!({
+            "deployment": deployment,
+            "blockNumber": block,
+        })).collect::<Vec<_>>() }),
+    };
     let response = http
         .post(status_url)
-        .send_graphql::<Response>(GraphQlRequest {
-            document: query.to_string(),
-            variables: serde_json::json!({ "requests": pois.iter().map(|(deployment, block)| serde_json::json!({
-                "deployment": deployment,
-                "blockNumber": block,
-            })).collect::<Vec<_>>() }),
-        })
+        .send_graphql::<Response>(request)
         .await??;
     Ok(response.public_proofs_of_indexing)
 }
@@ -197,57 +198,82 @@ pub struct PartialBlockPtr {
 
 #[cfg(test)]
 mod tests {
-    use thegraph_core::{deployment_id, proof_of_indexing as poi};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+        time::Duration,
+    };
 
-    use super::Response;
+    use thegraph_core::{
+        alloy::{hex, primitives::FixedBytes},
+        DeploymentId,
+    };
+    use url::Url;
 
-    #[test]
-    fn deserialize_public_pois_response() {
-        //* Given
-        let response = r#"{
-            "publicProofsOfIndexing": [
-                {
-                    "deployment": "QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH",
-                    "proofOfIndexing": "0xba8a057796a81e013789789996551bb5b2920fb9947334db956992f7098bd287",
-                    "block": {
-                        "number": "123"
+    use crate::init_logging;
+
+    #[tokio::test]
+    async fn poi_filter() {
+        init_logging("poi_filter", false);
+
+        type ResponsePoi = Arc<parking_lot::Mutex<FixedBytes<32>>>;
+        let deployment: DeploymentId = "QmUzRg2HHMpbgf6Q4VHKNDbtBEJnyp5JWCh2gUX9AV6jXv"
+            .parse()
+            .unwrap();
+        let bad_poi =
+            hex!("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef").into();
+        let response_poi: ResponsePoi = Arc::new(parking_lot::Mutex::new(bad_poi));
+        let request_count = Arc::new(parking_lot::Mutex::new(0));
+
+        let route = {
+            let response_poi = response_poi.clone();
+            let request_count = request_count.clone();
+            axum::routing::post(move || async move {
+                *request_count.lock() += 1;
+                axum::Json(serde_json::json!({
+                    "data": {
+                        "publicProofsOfIndexing": [
+                            {
+                                "deployment": deployment,
+                                "proofOfIndexing": response_poi.lock().to_string(),
+                                "block": { "number": "0" }
+                            }
+                        ]
                     }
-                },
-                {
-                    "deployment": "QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw",
-                    "block": {
-                        "number": "456"
-                    }
-                }
-            ]
-        }"#;
+                }))
+            })
+        };
+        let app = axum::Router::new().route("/status", route);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let indexer_url: Url =
+            format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port())
+                .parse()
+                .unwrap();
+        eprintln!("listening on {indexer_url}");
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
 
-        //* When
-        let response = serde_json::from_str::<Response>(response);
+        let blocklist = HashMap::from([(deployment, vec![(0, bad_poi.into())])]);
+        let poi_filter = super::PoiFilter::new(reqwest::Client::new(), blocklist);
 
-        //* Then
-        let response = response.expect("deserialization failed");
+        let status_url = indexer_url.join("status").unwrap();
+        let assert_blocked = |blocked: Vec<DeploymentId>| async {
+            let result = poi_filter
+                .blocked_deployments(&status_url, &[deployment])
+                .await;
+            assert_eq!(result, HashSet::from_iter(blocked));
+        };
 
-        assert_eq!(response.public_proofs_of_indexing.len(), 2);
-        assert_eq!(
-            response.public_proofs_of_indexing[0].deployment,
-            deployment_id!("QmeYTH2fK2wv96XvnCGH2eyKFE8kmRfo53zYVy5dKysZtH")
-        );
-        assert_eq!(
-            response.public_proofs_of_indexing[0].proof_of_indexing,
-            Some(poi!(
-                "ba8a057796a81e013789789996551bb5b2920fb9947334db956992f7098bd287"
-            ))
-        );
-        assert_eq!(response.public_proofs_of_indexing[0].block.number, 123);
-        assert_eq!(
-            response.public_proofs_of_indexing[1].deployment,
-            deployment_id!("QmawxQJ5U1JvgosoFVDyAwutLWxrckqVmBTQxaMaKoj3Lw")
-        );
-        assert_eq!(
-            response.public_proofs_of_indexing[1].proof_of_indexing,
-            None
-        );
-        assert_eq!(response.public_proofs_of_indexing[1].block.number, 456);
+        assert_blocked(vec![deployment]).await;
+        assert_eq!(*request_count.lock(), 1);
+        *response_poi.lock() =
+            hex!("1111111111111111111111111111111111111111111111111111111111111111").into();
+        assert_blocked(vec![deployment]).await;
+        assert_eq!(*request_count.lock(), 1);
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(20 * 60)).await;
+        assert_blocked(vec![]).await;
+        assert_eq!(*request_count.lock(), 2);
     }
 }

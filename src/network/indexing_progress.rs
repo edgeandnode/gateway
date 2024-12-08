@@ -29,12 +29,11 @@ impl IndexingProgressResolver {
 
     pub async fn resolve(
         &self,
-        url: &Url,
+        status_url: &Url,
         deployments: &[DeploymentId],
     ) -> HashMap<DeploymentId, IndexingProgressInfo> {
-        let url_string = url.to_string();
+        let url_string = status_url.to_string();
 
-        let status_url = url.join("status").unwrap();
         let results = send_requests(&self.http, status_url, deployments).await;
 
         let mut outer_cache = self.cache.read();
@@ -56,7 +55,7 @@ impl IndexingProgressResolver {
 
 async fn send_requests(
     http: &reqwest::Client,
-    status_url: Url,
+    status_url: &Url,
     indexings: &[DeploymentId],
 ) -> HashMap<DeploymentId, IndexingProgressInfo> {
     let request_batches = indexings.chunks(100);

@@ -215,6 +215,9 @@ async fn process_indexer_indexings(
         }
     };
 
+    // ref: df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
+    let status_url = url.join("status").unwrap();
+
     // Keep track of the healthy indexers, so we efficiently resolve the indexer's indexings thar
     // are not marked as unhealthy in a previous resolution step
     let mut healthy_indexer_indexings = indexer_indexings.keys().copied().collect::<Vec<_>>();
@@ -222,7 +225,7 @@ async fn process_indexer_indexings(
     // Check if the indexer's indexings should be blocked by POI
     let blocked_indexings_by_poi = state
         .indexer_poi_filer
-        .blocked_deployments(url, &healthy_indexer_indexings)
+        .blocked_deployments(&status_url, &healthy_indexer_indexings)
         .await;
 
     // Remove the blocked indexings from the healthy indexers list
@@ -247,7 +250,7 @@ async fn process_indexer_indexings(
     // Resolve the indexer's indexing progress information
     let mut indexing_progress = resolve_indexer_progress(
         &state.indexing_progress_resolver,
-        url,
+        &status_url,
         &healthy_indexer_indexings,
     )
     .await;
@@ -304,10 +307,10 @@ async fn process_indexer_indexings(
 /// Resolve the indexer's progress information.
 async fn resolve_indexer_progress(
     resolver: &IndexingProgressResolver,
-    url: &Url,
+    status_url: &Url,
     indexings: &[DeploymentId],
 ) -> HashMap<DeploymentId, Result<IndexingProgress, UnavailableReason>> {
-    let mut progress_info = resolver.resolve(url, indexings).await;
+    let mut progress_info = resolver.resolve(status_url, indexings).await;
 
     // Get the progress information for each indexing
     indexings

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use anyhow::anyhow;
 use thegraph_core::DeploymentId;
 use thegraph_graphql_http::http_client::ReqwestExt;
 use url::Url;
@@ -48,7 +47,8 @@ impl CostModelResolver {
         url: &Url,
         deployments: &[DeploymentId],
     ) -> anyhow::Result<HashMap<DeploymentId, String>> {
-        let url = url.join("cost").map_err(|_| anyhow!("invalid URL"))?;
+        // ref: df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
+        let url = url.join("cost").unwrap();
 
         let query = r#"
             query costModels($deployments: [String!]!) {
