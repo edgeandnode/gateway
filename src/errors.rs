@@ -105,6 +105,12 @@ pub enum UnavailableReason {
     Internal(&'static str),
 }
 
+impl UnavailableReason {
+    pub fn invalid_url() -> Self {
+        UnavailableReason::NoStatus("invalid URL".to_string())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MissingBlockError {
     pub missing: Option<BlockNumber>,

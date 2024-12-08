@@ -1,48 +1,25 @@
-//! Resolves the cost models for the indexers' deployments.
-//!
-//! The cost models are fetched from the indexer's cost URL.
+use std::collections::HashMap;
 
-use std::{collections::HashMap, time::Duration};
-
+use anyhow::anyhow;
 use thegraph_core::DeploymentId;
+use thegraph_graphql_http::http_client::ReqwestExt;
 use url::Url;
 
-use crate::{indexers, indexers::cost_models::CostModelSource};
+use crate::network::GraphQlRequest;
 
-/// Resolve the indexers' cost models sources and compile them into cost models.
 pub struct CostModelResolver {
-    client: reqwest::Client,
-    timeout: Duration,
+    http: reqwest::Client,
     cache: parking_lot::Mutex<HashMap<DeploymentId, u128>>,
 }
 
 impl CostModelResolver {
-    pub fn new(client: reqwest::Client, timeout: Duration) -> Self {
+    pub fn new(http: reqwest::Client) -> Self {
         Self {
-            client,
-            timeout,
+            http,
             cache: Default::default(),
         }
     }
 
-    async fn fetch_cost_model_sources(
-        &self,
-        url: &Url,
-        indexings: &[DeploymentId],
-    ) -> anyhow::Result<Vec<CostModelSource>> {
-        let indexer_cost_url = indexers::cost_url(url);
-        tokio::time::timeout(
-            self.timeout,
-            indexers::cost_models::send_request(&self.client, indexer_cost_url, indexings),
-        )
-        .await?
-        .map_err(Into::into)
-    }
-
-    /// Fetches the cost model sources for the given deployments from the indexer.
-    ///
-    /// Returns a map of deployment IDs to the retrieved cost model sources. If certain deployment
-    /// ID's cost model fetch fails, the corresponding value in the map is `None`.
     pub async fn resolve(
         &self,
         url: &Url,
@@ -59,11 +36,51 @@ impl CostModelResolver {
         // Only support cost models of the form `default => x;`.
         let cost_models: HashMap<DeploymentId, u128> = sources
             .into_iter()
-            .filter_map(|src| Some((src.deployment, parse_simple_cost_model(&src.model)?)))
+            .filter_map(|(deployment, src)| Some((deployment, parse_simple_cost_model(&src)?)))
             .collect();
 
         *self.cache.lock() = cost_models.clone();
         cost_models
+    }
+
+    async fn fetch_cost_model_sources(
+        &self,
+        url: &Url,
+        deployments: &[DeploymentId],
+    ) -> anyhow::Result<HashMap<DeploymentId, String>> {
+        let url = url.join("cost").map_err(|_| anyhow!("invalid URL"))?;
+
+        let query = r#"
+            query costModels($deployments: [String!]!) {
+                costModels(deployments: $deployments) {
+                    deployment
+                    model
+                }
+            }
+        "#;
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Response {
+            cost_models: Vec<CostModelSource>,
+        }
+        #[derive(serde::Deserialize)]
+        pub struct CostModelSource {
+            pub deployment: DeploymentId,
+            pub model: String,
+        }
+        let resp = self
+            .http
+            .post(url)
+            .send_graphql::<Response>(GraphQlRequest {
+                document: query.to_string(),
+                variables: serde_json::json!({ "deployments": deployments }),
+            })
+            .await??;
+        Ok(resp
+            .cost_models
+            .into_iter()
+            .map(|CostModelSource { deployment, model }| (deployment, model))
+            .collect())
     }
 }
 

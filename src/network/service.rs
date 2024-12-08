@@ -11,27 +11,27 @@ use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::{
     alloy::primitives::{Address, BlockNumber},
-    DeploymentId, SubgraphId,
+    DeploymentId, IndexerId, SubgraphId,
 };
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{
-    config::VersionRequirements,
+    cost_model::CostModelResolver,
     errors::{DeploymentError, SubgraphError},
-    indexer_host_resolver::HostResolver,
-    indexer_indexing_cost_model_resolver::CostModelResolver,
-    indexer_indexing_poi_blocklist::PoiBlocklist,
-    indexer_indexing_poi_resolver::PoiResolver,
-    indexer_indexing_progress_resolver::IndexingProgressResolver,
-    indexer_version_resolver::VersionResolver,
-    internal::{
-        fetch_and_preprocess_subgraph_info, fetch_update, Indexing, IndexingId, InternalState,
-        NetworkTopologySnapshot, PreprocessedNetworkInfo,
-    },
+    host_filter::HostFilter,
+    indexer_processing::{self, IndexerRawInfo},
+    indexing_progress::IndexingProgressResolver,
+    poi_filter::PoiFilter,
+    snapshot::{self, Indexing, IndexingId, NetworkTopologySnapshot},
     subgraph_client::Client as SubgraphClient,
-    ResolutionError,
+    subgraph_processing::{DeploymentInfo, SubgraphInfo},
+    version_filter::{MinimumVersionRequirements, VersionFilter},
 };
-use crate::config::{BlockedIndexer, BlockedPoi};
+use crate::{
+    config::{BlockedIndexer, BlockedPoi},
+    errors::UnavailableReason,
+    network::{pre_processing, subgraph_processing},
+};
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
@@ -46,7 +46,7 @@ pub struct ResolvedSubgraphInfo {
     /// Subgraph versions, in descending order.
     pub versions: Vec<DeploymentId>,
     /// A list of [`Indexing`]s for the resolved subgraph versions.
-    pub indexings: HashMap<IndexingId, Result<Indexing, ResolutionError>>,
+    pub indexings: HashMap<IndexingId, Result<Indexing, UnavailableReason>>,
 }
 
 impl ResolvedSubgraphInfo {
@@ -109,19 +109,12 @@ impl NetworkService {
         let subgraph_chain = subgraph.chain.clone();
         let subgraph_start_block = subgraph.start_block;
 
-        let indexings = subgraph
-            .indexings
-            .clone()
-            .into_iter()
-            .map(|(id, res)| (id, res.map_err(|err| err.into())))
-            .collect();
-
         Ok(Some(ResolvedSubgraphInfo {
             chain: subgraph_chain,
             start_block: subgraph_start_block,
             subgraphs: vec![subgraph.id],
             versions: subgraph.versions.clone(),
-            indexings,
+            indexings: subgraph.indexings.clone(),
         }))
     }
 
@@ -145,12 +138,7 @@ impl NetworkService {
         let deployment_start_block = deployment.start_block;
 
         let subgraphs = deployment.subgraphs.iter().copied().collect::<Vec<_>>();
-        let indexings = deployment
-            .indexings
-            .clone()
-            .into_iter()
-            .map(|(id, res)| (id, res.map_err(|err| err.into())))
-            .collect();
+        let indexings = deployment.indexings.clone();
 
         Ok(Some(ResolvedSubgraphInfo {
             chain: deployment_chain,
@@ -174,7 +162,7 @@ impl NetworkService {
 }
 
 pub fn spawn(
-    http_client: reqwest::Client,
+    http: reqwest::Client,
     subgraph_client: SubgraphClient,
     min_indexer_service_version: Version,
     min_graph_node_version: Version,
@@ -182,32 +170,49 @@ pub fn spawn(
     indexer_host_blocklist: HashSet<IpNetwork>,
     poi_blocklist: Vec<BlockedPoi>,
 ) -> NetworkService {
+    let poi_blocklist = poi_blocklist
+        .iter()
+        .map(|entry| &entry.deployment)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .map(|deployment| {
+            (
+                *deployment,
+                poi_blocklist
+                    .iter()
+                    .filter(|entry| &entry.deployment == deployment)
+                    .map(|entry| (entry.block_number, entry.public_poi.into()))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
     let internal_state = InternalState {
         indexer_blocklist,
-        indexer_host_resolver: HostResolver::new(Duration::from_secs(5))
+        indexer_host_filter: HostFilter::new(indexer_host_blocklist)
             .expect("failed to create host resolver"),
-        indexer_host_blocklist,
-        indexer_version_requirements: VersionRequirements {
-            min_indexer_service_version,
-            min_graph_node_version,
-        },
-        indexer_version_resolver: VersionResolver::new(http_client.clone(), Duration::from_secs(5)),
-        poi_blocklist: PoiBlocklist::new(poi_blocklist),
-        poi_resolver: PoiResolver::new(
-            http_client.clone(),
-            Duration::from_secs(5),
-            Duration::from_secs(20 * 60),
+        indexer_version_filter: VersionFilter::new(
+            http.clone(),
+            MinimumVersionRequirements {
+                indexer_service: min_indexer_service_version,
+                graph_node: min_graph_node_version,
+            },
         ),
-        indexing_progress_resolver: IndexingProgressResolver::new(
-            http_client.clone(),
-            Duration::from_secs(25),
-        ),
-        cost_model_resolver: CostModelResolver::new(http_client.clone(), Duration::from_secs(5)),
+        indexer_poi_filer: PoiFilter::new(http.clone(), poi_blocklist),
+        indexing_progress_resolver: IndexingProgressResolver::new(http.clone()),
+        cost_model_resolver: CostModelResolver::new(http.clone()),
     };
-    let update_interval = Duration::from_secs(60);
-    let network = spawn_updater_task(subgraph_client, internal_state, update_interval);
+    let network = spawn_updater_task(subgraph_client, internal_state);
 
     NetworkService { network }
+}
+
+pub struct InternalState {
+    pub indexer_blocklist: BTreeMap<Address, BlockedIndexer>,
+    pub indexer_host_filter: HostFilter,
+    pub indexer_version_filter: VersionFilter,
+    pub indexer_poi_filer: PoiFilter,
+    pub indexing_progress_resolver: IndexingProgressResolver,
+    pub cost_model_resolver: CostModelResolver,
 }
 
 /// Spawn a background task to fetch the network topology information from the graph network
@@ -215,12 +220,12 @@ pub fn spawn(
 fn spawn_updater_task(
     mut subgraph_client: SubgraphClient,
     state: InternalState,
-    update_interval: Duration,
 ) -> watch::Receiver<NetworkTopologySnapshot> {
     let (tx, rx) = watch::channel(Default::default());
 
     tokio::spawn(async move {
         let mut network_info: Option<PreprocessedNetworkInfo> = None;
+        let update_interval = Duration::from_secs(30);
 
         let mut timer = tokio::time::interval(update_interval);
         timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -252,4 +257,56 @@ fn spawn_updater_task(
     });
 
     rx
+}
+
+/// Fetch the subgraphs information from the graph network subgraph and performs pre-processing
+/// steps, i.e., validation and conversion into the internal representation.
+///
+///   1. Fetch the subgraphs information from the graph network subgraph.
+///   2. Validate and convert the subgraphs fetched info into the internal representation.
+///
+/// If the fetch fails or the response is empty, an error is returned.
+///
+/// Invalid info is filtered out before converting into the internal representation.
+pub async fn fetch_and_preprocess_subgraph_info(
+    client: &mut SubgraphClient,
+    timeout: Duration,
+) -> anyhow::Result<PreprocessedNetworkInfo> {
+    // Fetch the subgraphs information from the graph network subgraph
+    let data = tokio::time::timeout(timeout, client.fetch()).await??;
+    anyhow::ensure!(!data.is_empty(), "empty subgraph response");
+
+    // Pre-process (validate and convert) the fetched subgraphs information
+    let indexers = pre_processing::into_internal_indexers_raw_info(data.iter());
+    let subgraphs = pre_processing::into_internal_subgraphs_raw_info(data.into_iter());
+    let deployments = pre_processing::into_internal_deployments_raw_info(subgraphs.values());
+
+    let subgraphs = subgraph_processing::process_subgraph_info(subgraphs);
+    let deployments = subgraph_processing::process_deployments_info(deployments);
+
+    Ok(PreprocessedNetworkInfo {
+        subgraphs,
+        deployments,
+        indexers,
+    })
+}
+
+/// Fetch the network topology information from the graph network subgraph.
+pub async fn fetch_update(
+    network: &PreprocessedNetworkInfo,
+    state: &InternalState,
+) -> NetworkTopologySnapshot {
+    // Process network topology information
+    let indexers_info = indexer_processing::process_info(state, &network.indexers).await;
+    snapshot::new_from(
+        indexers_info,
+        network.subgraphs.clone(),
+        network.deployments.clone(),
+    )
+}
+
+pub struct PreprocessedNetworkInfo {
+    subgraphs: HashMap<SubgraphId, Result<SubgraphInfo, SubgraphError>>,
+    deployments: HashMap<DeploymentId, Result<DeploymentInfo, DeploymentError>>,
+    indexers: HashMap<IndexerId, IndexerRawInfo>,
 }

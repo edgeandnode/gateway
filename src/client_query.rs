@@ -36,7 +36,7 @@ use crate::{
     indexing_performance,
     metrics::{with_metric, METRICS},
     middleware::RequestId,
-    network::{self, DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
+    network::{DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
     reports,
 };
 
@@ -464,7 +464,7 @@ fn build_candidates_list(
     blocks_per_minute: u64,
     block_requirements: &BlockRequirements,
     subgraph_versions: &[DeploymentId],
-    indexings: HashMap<IndexingId, Result<Indexing, network::ResolutionError>>,
+    indexings: HashMap<IndexingId, Result<Indexing, UnavailableReason>>,
 ) -> (
     Vec<Candidate<IndexerId, CandidateMetadata>>,
     BTreeMap<IndexerId, IndexerError>,
@@ -492,7 +492,7 @@ fn build_candidates_list(
         let indexing = match indexing {
             Ok(indexing) => indexing,
             Err(err) => {
-                candidates_errors.insert(indexing_id.indexer, err.into());
+                candidates_errors.insert(indexing_id.indexer, IndexerError::Unavailable(err));
                 continue;
             }
         };
@@ -630,33 +630,6 @@ fn blocks_behind(seconds_behind: u32, blocks_per_minute: u64) -> u64 {
     ((seconds_behind as f64 / 60.0) * blocks_per_minute as f64) as u64
 }
 
-impl From<network::ResolutionError> for IndexerError {
-    fn from(err: network::ResolutionError) -> Self {
-        match err {
-            network::ResolutionError::Unavailable(reason) => {
-                let reason = match reason {
-                    network::UnavailableReason::Blocked(reason) => {
-                        UnavailableReason::Blocked(reason)
-                    }
-                    reason @ network::UnavailableReason::IndexerServiceVersionBelowMin
-                    | reason @ network::UnavailableReason::GraphNodeVersionBelowMin => {
-                        UnavailableReason::NotSupported(reason.to_string())
-                    }
-                    reason @ network::UnavailableReason::IndexerResolutionError { .. }
-                    | reason @ network::UnavailableReason::IndexingProgressNotFound => {
-                        UnavailableReason::NoStatus(reason.to_string())
-                    }
-                };
-                IndexerError::Unavailable(reason)
-            }
-            network::ResolutionError::Internal(err) => {
-                tracing::error!(error = ?err, "internal error");
-                IndexerError::Unavailable(UnavailableReason::Internal(err))
-            }
-        }
-    }
-}
-
 pub async fn handle_indexer_query(
     State(ctx): State<Context>,
     Extension(auth): Extension<AuthSettings>,
@@ -680,7 +653,7 @@ pub async fn handle_indexer_query(
         .get(&indexing_id)
         .ok_or_else(|| Error::NoIndexers)?
         .as_ref()
-        .map_err(|err| bad_indexers(err.clone().into()))?;
+        .map_err(|err| bad_indexers(IndexerError::Unavailable(err.clone())))?;
 
     let (latest_block, blocks_per_minute) = {
         let chain = ctx.chains.chain(&subgraph.chain);

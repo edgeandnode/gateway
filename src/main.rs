@@ -12,7 +12,6 @@ mod exchange_rate;
 mod graphql;
 mod http_ext;
 mod indexer_client;
-mod indexers;
 mod indexing_performance;
 mod metrics;
 mod middleware;
@@ -21,8 +20,6 @@ mod receipts;
 mod reports;
 mod subgraph_studio;
 mod time;
-#[allow(dead_code)]
-mod ttl_hash_map;
 mod unattestable_errors;
 
 use std::{
