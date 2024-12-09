@@ -66,7 +66,7 @@ async fn send_requests(
             match result {
                 Ok(response) => response,
                 Err(indexing_progress_err) => {
-                    tracing::warn!(%status_url, %indexing_progress_err);
+                    tracing::debug!(%indexing_progress_err);
                     Default::default()
                 }
             }

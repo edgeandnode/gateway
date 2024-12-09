@@ -27,7 +27,7 @@ impl CostModelResolver {
         let sources = match self.fetch_cost_model_sources(url, indexings).await {
             Ok(sources) => sources,
             Err(cost_model_err) => {
-                tracing::debug!(%url, %cost_model_err);
+                tracing::debug!(%cost_model_err);
                 return self.cache.lock().clone();
             }
         };
@@ -66,7 +66,7 @@ impl CostModelResolver {
         #[derive(serde::Deserialize)]
         pub struct CostModelSource {
             pub deployment: DeploymentId,
-            pub model: String,
+            pub model: Option<String>,
         }
         let resp = self
             .http
@@ -79,7 +79,7 @@ impl CostModelResolver {
         Ok(resp
             .cost_models
             .into_iter()
-            .map(|CostModelSource { deployment, model }| (deployment, model))
+            .filter_map(|CostModelSource { deployment, model }| Some((deployment, model?)))
             .collect())
     }
 }

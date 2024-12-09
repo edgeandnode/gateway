@@ -130,7 +130,7 @@ async fn send_requests(
             match result {
                 Ok(response) => response,
                 Err(poi_fetch_err) => {
-                    tracing::warn!(%status_url, %poi_fetch_err);
+                    tracing::debug!(%poi_fetch_err);
                     Default::default()
                 }
             }
