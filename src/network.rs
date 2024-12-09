@@ -1,19 +1,30 @@
-//! Ad-hoc implementation of the network resolution service for the Graph Gateway. This service
-//! provides information about the subgraphs (and subgraph deployments) registered in the network
-//! smart contract, as well as the indexers that are indexing them.
-
-pub use errors::{DeploymentError, ResolutionError, SubgraphError, UnavailableReason};
-pub use internal::{Indexing, IndexingId};
+pub use errors::{DeploymentError, SubgraphError};
 pub use service::{NetworkService, ResolvedSubgraphInfo};
+pub use snapshot::{Indexing, IndexingId};
+use thegraph_graphql_http::graphql::{IntoDocument as _, IntoDocumentWithVariables};
 
-mod config;
+pub mod cost_model;
 mod errors;
-pub mod indexer_host_resolver;
-pub mod indexer_indexing_cost_model_resolver;
-pub mod indexer_indexing_poi_blocklist;
-pub mod indexer_indexing_poi_resolver;
-pub mod indexer_indexing_progress_resolver;
-pub mod indexer_version_resolver;
-pub mod internal;
+pub mod host_filter;
+mod indexer_processing;
+pub mod indexing_progress;
+pub mod poi_filter;
+mod pre_processing;
 pub mod service;
+mod snapshot;
 pub mod subgraph_client;
+mod subgraph_processing;
+pub mod version_filter;
+
+pub struct GraphQlRequest {
+    pub document: String,
+    pub variables: serde_json::Value,
+}
+impl IntoDocumentWithVariables for GraphQlRequest {
+    type Variables = serde_json::Value;
+    fn into_document_with_variables(
+        self,
+    ) -> (thegraph_graphql_http::graphql::Document, Self::Variables) {
+        (self.document.into_document(), self.variables)
+    }
+}
