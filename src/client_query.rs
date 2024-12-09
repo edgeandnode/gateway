@@ -21,17 +21,17 @@ use rand::{thread_rng, Rng as _};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use thegraph_core::{alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId};
+use thegraph_headers::{graph_attestation::GraphAttestation, HttpBuilderExt as _};
 use tokio::sync::mpsc;
 use tracing::{info_span, Instrument as _};
 use url::Url;
 
-use self::{attestation_header::GraphAttestation, context::Context, query_selector::QuerySelector};
+use self::{context::Context, query_selector::QuerySelector};
 use crate::{
     auth::AuthSettings,
     block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
     budgets::USD,
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
-    http_ext::HttpBuilderExt as _,
     indexer_client::{IndexerAuth, IndexerResponse},
     indexing_performance,
     metrics::{with_metric, METRICS},
@@ -40,7 +40,6 @@ use crate::{
     reports,
 };
 
-mod attestation_header;
 pub mod context;
 mod query_selector;
 
@@ -104,12 +103,16 @@ pub async fn handle_query(
              attestation,
              ..
          }| {
-            Response::builder()
+            let mut builder = Response::builder()
                 .status(StatusCode::OK)
-                .header_typed(ContentType::json())
-                .header_typed(GraphAttestation(attestation))
-                .body(client_response)
-                .unwrap()
+                .header_typed(ContentType::json());
+
+            // Add attestation header if present
+            if let Some(attestation) = attestation {
+                builder = builder.header_typed(GraphAttestation(attestation));
+            }
+
+            builder.body(client_response).expect("valid response")
         },
     )
 }
@@ -769,12 +772,16 @@ pub async fn handle_indexer_query(
              attestation,
              ..
          }| {
-            Response::builder()
+            let mut builder = Response::builder()
                 .status(StatusCode::OK)
-                .header_typed(ContentType::json())
-                .header_typed(GraphAttestation(attestation))
-                .body(client_response)
-                .unwrap()
+                .header_typed(ContentType::json());
+
+            // Add attestation header if present
+            if let Some(attestation) = attestation {
+                builder = builder.header_typed(GraphAttestation(attestation));
+            }
+
+            builder.body(client_response).expect("valid response")
         },
     )
 }

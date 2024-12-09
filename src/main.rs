@@ -10,7 +10,6 @@ mod config;
 mod errors;
 mod exchange_rate;
 mod graphql;
-mod http_ext;
 mod indexer_client;
 mod indexing_performance;
 mod metrics;

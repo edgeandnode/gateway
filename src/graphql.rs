@@ -1,8 +1,7 @@
 use axum::http::{Response, StatusCode};
 use headers::ContentType;
 use thegraph_graphql_http::http::response::{IntoError as IntoGraphqlResponseError, ResponseBody};
-
-use crate::http_ext::HttpBuilderExt as _;
+use thegraph_headers::HttpBuilderExt as _;
 
 /// Serialize an error into a GraphQL error response.
 ///
