@@ -3,7 +3,7 @@
 //! query processing pipeline
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     time::Duration,
 };
 
@@ -11,7 +11,7 @@ use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::{
     alloy::primitives::{Address, BlockNumber},
-    DeploymentId, IndexerId, SubgraphId,
+    DeploymentId, IndexerId, ProofOfIndexing, SubgraphId,
 };
 use tokio::{sync::watch, time::MissedTickBehavior};
 
@@ -28,10 +28,7 @@ use super::{
     version_filter::{MinimumVersionRequirements, VersionFilter},
     DeploymentError, SubgraphError,
 };
-use crate::{
-    config::{BlockedIndexer, BlockedPoi},
-    errors::UnavailableReason,
-};
+use crate::{config::BlocklistEntry, errors::UnavailableReason};
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
@@ -164,28 +161,40 @@ impl NetworkService {
 pub fn spawn(
     http: reqwest::Client,
     subgraph_client: SubgraphClient,
+    blocklist: Vec<BlocklistEntry>,
     min_indexer_service_version: Version,
     min_graph_node_version: Version,
-    indexer_blocklist: BTreeMap<Address, BlockedIndexer>,
     indexer_host_blocklist: HashSet<IpNetwork>,
-    poi_blocklist: Vec<BlockedPoi>,
 ) -> NetworkService {
-    let poi_blocklist = poi_blocklist
-        .iter()
-        .map(|entry| &entry.deployment)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .map(|deployment| {
-            (
-                *deployment,
+    let mut poi_blocklist: HashMap<DeploymentId, Vec<(BlockNumber, ProofOfIndexing)>> =
+        Default::default();
+    let mut indexer_blocklist: HashMap<Address, HashSet<DeploymentId>> = Default::default();
+    for entry in blocklist {
+        match entry {
+            BlocklistEntry::Poi {
+                deployment,
+                block,
+                public_poi,
+                ..
+            } => {
                 poi_blocklist
-                    .iter()
-                    .filter(|entry| &entry.deployment == deployment)
-                    .map(|entry| (entry.block_number, entry.public_poi.into()))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect();
+                    .entry(deployment)
+                    .or_default()
+                    .push((block, public_poi.into()));
+            }
+            BlocklistEntry::Other {
+                deployment,
+                indexer,
+                ..
+            } => {
+                indexer_blocklist
+                    .entry(indexer)
+                    .or_default()
+                    .insert(deployment);
+            }
+        };
+    }
+
     let internal_state = InternalState {
         indexer_blocklist,
         indexer_host_filter: HostFilter::new(indexer_host_blocklist)
@@ -207,7 +216,7 @@ pub fn spawn(
 }
 
 pub struct InternalState {
-    pub indexer_blocklist: BTreeMap<Address, BlockedIndexer>,
+    pub indexer_blocklist: HashMap<Address, HashSet<DeploymentId>>,
     pub indexer_host_filter: HostFilter,
     pub indexer_version_filter: VersionFilter,
     pub indexer_poi_filer: PoiFilter,
