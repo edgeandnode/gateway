@@ -1,10 +1,8 @@
-pub use errors::{DeploymentError, SubgraphError};
 pub use service::{NetworkService, ResolvedSubgraphInfo};
-pub use snapshot::{Indexing, IndexingId};
+pub use snapshot::{DeploymentError, Indexing, IndexingId, SubgraphError};
 use thegraph_graphql_http::graphql::{IntoDocument as _, IntoDocumentWithVariables};
 
 pub mod cost_model;
-mod errors;
 pub mod host_filter;
 mod indexer_processing;
 pub mod indexing_progress;

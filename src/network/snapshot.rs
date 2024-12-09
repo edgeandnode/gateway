@@ -13,7 +13,6 @@ use url::Url;
 use crate::{
     errors::UnavailableReason,
     network::{
-        errors::{DeploymentError, SubgraphError},
         indexer_processing::ResolvedIndexerInfo,
         subgraph_processing::{DeploymentInfo, SubgraphInfo},
     },
@@ -139,6 +138,24 @@ pub struct NetworkTopologySnapshot {
     pub subgraphs: HashMap<SubgraphId, Result<Subgraph, SubgraphError>>,
     /// Deployments network topology table.
     pub deployments: HashMap<DeploymentId, Result<Deployment, DeploymentError>>,
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum SubgraphError {
+    /// No allocations were found for the subgraph.
+    #[error("no allocations")]
+    NoAllocations,
+
+    /// All subgraph versions were marked as invalid.
+    #[error("no valid versions")]
+    NoValidVersions,
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum DeploymentError {
+    /// No allocations were found for the subgraph.
+    #[error("no allocations")]
+    NoAllocations,
 }
 
 /// Construct the [`NetworkTopologySnapshot`] from the indexers and subgraphs information.

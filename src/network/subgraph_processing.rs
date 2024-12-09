@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use thegraph_core::{alloy::primitives::BlockNumber, DeploymentId, IndexerId, SubgraphId};
 
-use crate::network::errors::{DeploymentError, SubgraphError};
+use crate::network::{DeploymentError, SubgraphError};
 
 /// Internal representation of the fetched subgraph information.
 ///

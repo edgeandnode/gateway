@@ -17,20 +17,20 @@ use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{
     cost_model::CostModelResolver,
-    errors::{DeploymentError, SubgraphError},
     host_filter::HostFilter,
     indexer_processing::{self, IndexerRawInfo},
     indexing_progress::IndexingProgressResolver,
     poi_filter::PoiFilter,
+    pre_processing,
     snapshot::{self, Indexing, IndexingId, NetworkTopologySnapshot},
     subgraph_client::Client as SubgraphClient,
-    subgraph_processing::{DeploymentInfo, SubgraphInfo},
+    subgraph_processing::{self, DeploymentInfo, SubgraphInfo},
     version_filter::{MinimumVersionRequirements, VersionFilter},
+    DeploymentError, SubgraphError,
 };
 use crate::{
     config::{BlockedIndexer, BlockedPoi},
     errors::UnavailableReason,
-    network::{pre_processing, subgraph_processing},
 };
 
 /// Subgraph resolution information returned by the [`NetworkService`].
