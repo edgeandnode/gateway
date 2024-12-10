@@ -194,6 +194,8 @@ pub fn spawn(
             }
         };
     }
+    let (_, poi_blocklist) = watch::channel(poi_blocklist);
+    let (_, indexer_blocklist) = watch::channel(indexer_blocklist);
 
     let internal_state = InternalState {
         indexer_blocklist,
@@ -216,7 +218,7 @@ pub fn spawn(
 }
 
 pub struct InternalState {
-    pub indexer_blocklist: HashMap<Address, HashSet<DeploymentId>>,
+    pub indexer_blocklist: watch::Receiver<HashMap<Address, HashSet<DeploymentId>>>,
     pub indexer_host_filter: HostFilter,
     pub indexer_version_filter: VersionFilter,
     pub indexer_poi_filer: PoiFilter,

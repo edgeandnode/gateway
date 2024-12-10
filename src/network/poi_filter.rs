@@ -6,14 +6,14 @@ use std::{
 use serde_with::serde_as;
 use thegraph_core::{alloy::primitives::BlockNumber, DeploymentId, ProofOfIndexing};
 use thegraph_graphql_http::http_client::ReqwestExt;
-use tokio::time::Instant;
+use tokio::{sync::watch, time::Instant};
 use url::Url;
 
 use super::GraphQlRequest;
 
 pub struct PoiFilter {
     http: reqwest::Client,
-    blocklist: HashMap<DeploymentId, Vec<(BlockNumber, ProofOfIndexing)>>,
+    blocklist: watch::Receiver<HashMap<DeploymentId, Vec<(BlockNumber, ProofOfIndexing)>>>,
     cache: parking_lot::RwLock<HashMap<String, IndexerEntry>>,
 }
 
@@ -25,7 +25,7 @@ struct IndexerEntry {
 impl PoiFilter {
     pub fn new(
         http: reqwest::Client,
-        blocklist: HashMap<DeploymentId, Vec<(BlockNumber, ProofOfIndexing)>>,
+        blocklist: watch::Receiver<HashMap<DeploymentId, Vec<(BlockNumber, ProofOfIndexing)>>>,
     ) -> Self {
         Self {
             http,
@@ -39,8 +39,9 @@ impl PoiFilter {
         status_url: &Url,
         deployments: &[DeploymentId],
     ) -> HashSet<DeploymentId> {
-        let requests: Vec<(DeploymentId, BlockNumber)> = self
-            .blocklist
+        let blocklist = self.blocklist.borrow().clone();
+
+        let requests: Vec<(DeploymentId, BlockNumber)> = blocklist
             .iter()
             .filter(|(deployment, _)| deployments.contains(deployment))
             .flat_map(|(deployment, entries)| {
@@ -51,7 +52,7 @@ impl PoiFilter {
 
         deployments
             .iter()
-            .filter(|deployment| match self.blocklist.get(deployment) {
+            .filter(|deployment| match blocklist.get(deployment) {
                 None => false,
                 Some(blocklist) => blocklist.iter().any(|(block, poi)| {
                     pois.get(&(**deployment, *block))
@@ -208,6 +209,7 @@ mod tests {
         alloy::{hex, primitives::FixedBytes},
         DeploymentId,
     };
+    use tokio::sync::watch;
     use url::Url;
 
     use crate::init_logging;
@@ -255,7 +257,7 @@ mod tests {
         });
 
         let blocklist = HashMap::from([(deployment, vec![(0, bad_poi.into())])]);
-        let poi_filter = super::PoiFilter::new(reqwest::Client::new(), blocklist);
+        let poi_filter = super::PoiFilter::new(reqwest::Client::new(), watch::channel(blocklist).1);
 
         let status_url = indexer_url.join("status").unwrap();
         let assert_blocked = |blocked: Vec<DeploymentId>| async {
