@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use custom_debug::CustomDebug;
 use thegraph_core::{alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId};
@@ -6,7 +6,6 @@ use tracing::Instrument;
 use url::Url;
 
 use crate::{
-    config::BlockedIndexer,
     errors::UnavailableReason,
     network::{indexing_progress::IndexingProgressResolver, service::InternalState},
 };
@@ -156,7 +155,13 @@ pub async fn process_info(
                     return (*indexer_id, Err(err));
                 }
 
-                let blocklist = state.indexer_blocklist.get(&*indexer.id);
+                let blocklist = state
+                    .indexer_blocklist
+                    .borrow()
+                    .get(&*indexer.id)
+                    .cloned()
+                    .unwrap_or_default();
+
                 // Resolve the indexer's indexings information
                 let indexings = process_indexer_indexings(
                     state,
@@ -191,29 +196,19 @@ async fn process_indexer_indexings(
     state: &InternalState,
     url: &Url,
     indexings: HashMap<DeploymentId, IndexingRawInfo>,
-    blocklist: Option<&BlockedIndexer>,
+    blocklist: HashSet<DeploymentId>,
 ) -> HashMap<DeploymentId, Result<ResolvedIndexingInfo, UnavailableReason>> {
     let mut indexer_indexings: HashMap<DeploymentId, Result<IndexingInfo<(), ()>, _>> = indexings
         .into_iter()
         .map(|(id, info)| (id, Ok(info.into())))
         .collect();
 
-    match blocklist {
-        None => (),
-        Some(blocklist) if blocklist.deployments.is_empty() => {
-            for entry in indexer_indexings.values_mut() {
-                *entry = Err(UnavailableReason::Blocked(blocklist.reason.clone()));
-            }
-        }
-        Some(blocklist) => {
-            for deployment in &blocklist.deployments {
-                indexer_indexings.insert(
-                    *deployment,
-                    Err(UnavailableReason::Blocked(blocklist.reason.clone())),
-                );
-            }
-        }
-    };
+    for deployment in blocklist {
+        indexer_indexings.insert(
+            deployment,
+            Err(UnavailableReason::Blocked("missing data".to_string())),
+        );
+    }
 
     // ref: df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
     let status_url = url.join("status").unwrap();

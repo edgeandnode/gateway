@@ -40,6 +40,7 @@ use budgets::{Budgeter, USD};
 use chains::Chains;
 use client_query::context::Context;
 use config::{ApiKeys, ExchangeRateProvider};
+use headers::ContentType;
 use indexer_client::IndexerClient;
 use indexing_performance::IndexingPerformance;
 use middleware::{
@@ -52,6 +53,7 @@ use thegraph_core::{
     alloy::{dyn_abi::Eip712Domain, primitives::ChainId, signers::local::PrivateKeySigner},
     attestation,
 };
+use thegraph_headers::HttpBuilderExt;
 use tokio::{net::TcpListener, signal::unix::SignalKind, sync::watch};
 use tower_http::cors::{self, CorsLayer};
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -112,11 +114,10 @@ async fn main() {
     let mut network = network::service::spawn(
         http_client.clone(),
         network_subgraph_client,
+        conf.blocklist.clone(),
         conf.min_indexer_version,
         conf.min_graph_node_version,
-        conf.blocked_indexers,
         indexer_host_blocklist,
-        conf.poi_blocklist.clone(),
     );
     let indexing_perf = IndexingPerformance::new(network.clone());
     network.wait_until_ready().await;
@@ -157,7 +158,7 @@ async fn main() {
         reporter,
     };
 
-    let poi_blocklist: &'static str = serde_json::to_string(&conf.poi_blocklist).unwrap().leak();
+    let blocklist: &'static str = serde_json::to_string(&conf.blocklist).unwrap().leak();
 
     // Host metrics on a separate server with a port that isn't open to public requests.
     tokio::spawn(async move {
@@ -226,8 +227,11 @@ async fn main() {
         .route(
             "/blocklist",
             routing::get(move || async move {
-                let headers = [(reqwest::header::CONTENT_TYPE, "application/json")];
-                (headers, poi_blocklist)
+                axum::http::Response::builder()
+                    .status(StatusCode::OK)
+                    .header_typed(ContentType::json())
+                    .body(blocklist.to_string())
+                    .unwrap()
             }),
         )
         .nest("/api", api);
