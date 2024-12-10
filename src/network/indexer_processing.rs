@@ -155,7 +155,13 @@ pub async fn process_info(
                     return (*indexer_id, Err(err));
                 }
 
-                let blocklist = state.indexer_blocklist.get(&*indexer.id);
+                let blocklist = state
+                    .indexer_blocklist
+                    .borrow()
+                    .get(&*indexer.id)
+                    .cloned()
+                    .unwrap_or_default();
+
                 // Resolve the indexer's indexings information
                 let indexings = process_indexer_indexings(
                     state,
@@ -190,20 +196,18 @@ async fn process_indexer_indexings(
     state: &InternalState,
     url: &Url,
     indexings: HashMap<DeploymentId, IndexingRawInfo>,
-    blocklist: Option<&HashSet<DeploymentId>>,
+    blocklist: HashSet<DeploymentId>,
 ) -> HashMap<DeploymentId, Result<ResolvedIndexingInfo, UnavailableReason>> {
     let mut indexer_indexings: HashMap<DeploymentId, Result<IndexingInfo<(), ()>, _>> = indexings
         .into_iter()
         .map(|(id, info)| (id, Ok(info.into())))
         .collect();
 
-    if let Some(blocklist) = blocklist {
-        for deployment in blocklist {
-            indexer_indexings.insert(
-                *deployment,
-                Err(UnavailableReason::Blocked("missing data".to_string())),
-            );
-        }
+    for deployment in blocklist {
+        indexer_indexings.insert(
+            deployment,
+            Err(UnavailableReason::Blocked("missing data".to_string())),
+        );
     }
 
     // ref: df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
