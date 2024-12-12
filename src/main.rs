@@ -109,7 +109,8 @@ async fn main() {
         }
         None => Default::default(),
     };
-    let indexer_blocklist = indexer_blocklist::Blocklist::spawn(conf.blocklist);
+    let indexer_blocklist =
+        indexer_blocklist::Blocklist::spawn(conf.blocklist, conf.kafka.clone().into());
     let mut network = network::service::spawn(
         http_client.clone(),
         network_subgraph_client,
@@ -127,7 +128,6 @@ async fn main() {
         conf.receipts.verifier,
     )));
 
-    // Initialize the auth service
     let auth_service =
         init_auth_service(http_client.clone(), conf.api_keys, conf.payment_required).await;
 

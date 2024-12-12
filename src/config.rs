@@ -110,8 +110,10 @@ pub enum BlocklistEntry {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct BlocklistInfo {
     /// Example query (should be minimal to reproduce bad response)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     query: Option<String>,
     /// Bad query response, from the above query executed on indexers with this blocked PoI
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     bad_query_response: Option<String>,
 }
 
@@ -140,7 +142,7 @@ pub enum ExchangeRateProvider {
 /// Kafka configuration.
 ///
 /// See [`Config`]'s [`kafka`](struct.Config.html#structfield.kafka).
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct KafkaConfig(BTreeMap<String, String>);
 
 impl Default for KafkaConfig {
