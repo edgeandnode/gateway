@@ -11,13 +11,14 @@ use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::{
     alloy::primitives::{Address, BlockNumber},
-    DeploymentId, IndexerId, ProofOfIndexing, SubgraphId,
+    DeploymentId, IndexerId, SubgraphId,
 };
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{
     cost_model::CostModelResolver,
     host_filter::HostFilter,
+    indexer_blocklist,
     indexer_processing::{self, IndexerRawInfo},
     indexing_progress::IndexingProgressResolver,
     poi_filter::PoiFilter,
@@ -28,7 +29,7 @@ use super::{
     version_filter::{MinimumVersionRequirements, VersionFilter},
     DeploymentError, SubgraphError,
 };
-use crate::{config::BlocklistEntry, errors::UnavailableReason};
+use crate::errors::UnavailableReason;
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
@@ -161,44 +162,13 @@ impl NetworkService {
 pub fn spawn(
     http: reqwest::Client,
     subgraph_client: SubgraphClient,
-    blocklist: Vec<BlocklistEntry>,
+    indexer_blocklist: indexer_blocklist::Blocklist,
     min_indexer_service_version: Version,
     min_graph_node_version: Version,
     indexer_host_blocklist: HashSet<IpNetwork>,
 ) -> NetworkService {
-    let mut poi_blocklist: HashMap<DeploymentId, Vec<(BlockNumber, ProofOfIndexing)>> =
-        Default::default();
-    let mut indexer_blocklist: HashMap<Address, HashSet<DeploymentId>> = Default::default();
-    for entry in blocklist {
-        match entry {
-            BlocklistEntry::Poi {
-                deployment,
-                block,
-                public_poi,
-                ..
-            } => {
-                poi_blocklist
-                    .entry(deployment)
-                    .or_default()
-                    .push((block, public_poi.into()));
-            }
-            BlocklistEntry::Other {
-                deployment,
-                indexer,
-                ..
-            } => {
-                indexer_blocklist
-                    .entry(indexer)
-                    .or_default()
-                    .insert(deployment);
-            }
-        };
-    }
-    let (_, poi_blocklist) = watch::channel(poi_blocklist);
-    let (_, indexer_blocklist) = watch::channel(indexer_blocklist);
-
     let internal_state = InternalState {
-        indexer_blocklist,
+        indexer_blocklist: indexer_blocklist.indexer,
         indexer_host_filter: HostFilter::new(indexer_host_blocklist)
             .expect("failed to create host resolver"),
         indexer_version_filter: VersionFilter::new(
@@ -208,7 +178,7 @@ pub fn spawn(
                 graph_node: min_graph_node_version,
             },
         ),
-        indexer_poi_filer: PoiFilter::new(http.clone(), poi_blocklist),
+        indexer_poi_filer: PoiFilter::new(http.clone(), indexer_blocklist.poi),
         indexing_progress_resolver: IndexingProgressResolver::new(http.clone()),
         cost_model_resolver: CostModelResolver::new(http.clone()),
     };

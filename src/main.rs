@@ -39,21 +39,19 @@ use axum::{
 use budgets::{Budgeter, USD};
 use chains::Chains;
 use client_query::context::Context;
-use config::{ApiKeys, ExchangeRateProvider};
-use headers::ContentType;
+use config::{ApiKeys, BlocklistEntry, ExchangeRateProvider};
 use indexer_client::IndexerClient;
 use indexing_performance::IndexingPerformance;
 use middleware::{
     legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
 };
-use network::subgraph_client::Client as SubgraphClient;
+use network::{indexer_blocklist, subgraph_client::Client as SubgraphClient};
 use prometheus::{self, Encoder as _};
 use receipts::ReceiptSigner;
 use thegraph_core::{
     alloy::{dyn_abi::Eip712Domain, primitives::ChainId, signers::local::PrivateKeySigner},
     attestation,
 };
-use thegraph_headers::HttpBuilderExt;
 use tokio::{net::TcpListener, signal::unix::SignalKind, sync::watch};
 use tower_http::cors::{self, CorsLayer};
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -111,10 +109,11 @@ async fn main() {
         }
         None => Default::default(),
     };
+    let indexer_blocklist = indexer_blocklist::Blocklist::spawn(conf.blocklist);
     let mut network = network::service::spawn(
         http_client.clone(),
         network_subgraph_client,
-        conf.blocklist.clone(),
+        indexer_blocklist.clone(),
         conf.min_indexer_version,
         conf.min_graph_node_version,
         indexer_host_blocklist,
@@ -158,7 +157,7 @@ async fn main() {
         reporter,
     };
 
-    let blocklist: &'static str = serde_json::to_string(&conf.blocklist).unwrap().leak();
+    let blocklist: watch::Receiver<Vec<BlocklistEntry>> = indexer_blocklist.blocklist;
 
     // Host metrics on a separate server with a port that isn't open to public requests.
     tokio::spawn(async move {
@@ -226,13 +225,7 @@ async fn main() {
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/blocklist",
-            routing::get(move || async move {
-                axum::http::Response::builder()
-                    .status(StatusCode::OK)
-                    .header_typed(ContentType::json())
-                    .body(blocklist.to_string())
-                    .unwrap()
-            }),
+            routing::get(move || async move { axum::Json(blocklist.borrow().clone()) }),
         )
         .nest("/api", api);
 

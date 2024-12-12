@@ -4,6 +4,7 @@ use thegraph_graphql_http::graphql::{IntoDocument as _, IntoDocumentWithVariable
 
 pub mod cost_model;
 pub mod host_filter;
+pub mod indexer_blocklist;
 mod indexer_processing;
 pub mod indexing_progress;
 pub mod poi_filter;
