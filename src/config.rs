@@ -1,5 +1,3 @@
-//! The Graph Gateway configuration.
-
 use std::{
     collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
@@ -26,9 +24,9 @@ pub struct Config {
     #[serde(default)]
     pub api_keys: Option<ApiKeys>,
     pub attestations: AttestationConfig,
-    /// List of indexer addresses to block. This should only be used temprorarily.
+    /// Blocklist applying to indexers.
     #[serde(default)]
-    pub blocked_indexers: BTreeMap<Address, BlockedIndexer>,
+    pub blocklist: Vec<BlocklistEntry>,
     /// Chain aliases
     #[serde(default)]
     pub chain_aliases: BTreeMap<String, String>,
@@ -53,9 +51,6 @@ pub struct Config {
     pub trusted_indexers: Vec<TrustedIndexer>,
     /// Check payment state of client (disable for testnets)
     pub payment_required: bool,
-    /// POI blocklist
-    #[serde(default)]
-    pub poi_blocklist: Vec<BlockedPoi>,
     /// public API port
     pub port_api: u16,
     /// private metrics port
@@ -96,11 +91,30 @@ pub enum ApiKeys {
     Fixed(Vec<ApiKey>),
 }
 
-#[derive(Deserialize)]
-pub struct BlockedIndexer {
-    /// empty array blocks on all deployments
-    pub deployments: Vec<DeploymentId>,
-    pub reason: String,
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum BlocklistEntry {
+    Poi {
+        deployment: DeploymentId,
+        info: BlocklistInfo,
+        public_poi: B256,
+        block: BlockNumber,
+    },
+    Other {
+        deployment: DeploymentId,
+        info: BlocklistInfo,
+        indexer: Address,
+    },
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct BlocklistInfo {
+    /// Example query (should be minimal to reproduce bad response)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    query: Option<String>,
+    /// Bad query response, from the above query executed on indexers with this blocked PoI
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bad_query_response: Option<String>,
 }
 
 /// Attestation configuration.
@@ -128,7 +142,7 @@ pub enum ExchangeRateProvider {
 /// Kafka configuration.
 ///
 /// See [`Config`]'s [`kafka`](struct.Config.html#structfield.kafka).
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct KafkaConfig(BTreeMap<String, String>);
 
 impl Default for KafkaConfig {
@@ -169,17 +183,6 @@ pub struct Receipts {
     pub signer: B256,
     /// TAP verifier contract address
     pub verifier: Address,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct BlockedPoi {
-    pub public_poi: B256,
-    pub deployment: DeploymentId,
-    pub block_number: BlockNumber,
-    /// Example query (should be minimal to reproduce bad response)
-    pub query: Option<String>,
-    /// Bad query response, from the above query executed on indexers with this blocked PoI
-    pub bad_query_response: Option<String>,
 }
 
 /// Load the configuration from a JSON file.

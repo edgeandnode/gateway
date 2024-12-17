@@ -39,13 +39,13 @@ use axum::{
 use budgets::{Budgeter, USD};
 use chains::Chains;
 use client_query::context::Context;
-use config::{ApiKeys, ExchangeRateProvider};
+use config::{ApiKeys, BlocklistEntry, ExchangeRateProvider};
 use indexer_client::IndexerClient;
 use indexing_performance::IndexingPerformance;
 use middleware::{
     legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
 };
-use network::subgraph_client::Client as SubgraphClient;
+use network::{indexer_blocklist, subgraph_client::Client as SubgraphClient};
 use prometheus::{self, Encoder as _};
 use receipts::ReceiptSigner;
 use thegraph_core::{
@@ -109,14 +109,15 @@ async fn main() {
         }
         None => Default::default(),
     };
+    let indexer_blocklist =
+        indexer_blocklist::Blocklist::spawn(conf.blocklist, conf.kafka.clone().into());
     let mut network = network::service::spawn(
         http_client.clone(),
         network_subgraph_client,
+        indexer_blocklist.clone(),
         conf.min_indexer_version,
         conf.min_graph_node_version,
-        conf.blocked_indexers,
         indexer_host_blocklist,
-        conf.poi_blocklist.clone(),
     );
     let indexing_perf = IndexingPerformance::new(network.clone());
     network.wait_until_ready().await;
@@ -127,7 +128,6 @@ async fn main() {
         conf.receipts.verifier,
     )));
 
-    // Initialize the auth service
     let auth_service =
         init_auth_service(http_client.clone(), conf.api_keys, conf.payment_required).await;
 
@@ -157,7 +157,7 @@ async fn main() {
         reporter,
     };
 
-    let poi_blocklist: &'static str = serde_json::to_string(&conf.poi_blocklist).unwrap().leak();
+    let blocklist: watch::Receiver<Vec<BlocklistEntry>> = indexer_blocklist.blocklist;
 
     // Host metrics on a separate server with a port that isn't open to public requests.
     tokio::spawn(async move {
@@ -225,10 +225,7 @@ async fn main() {
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/blocklist",
-            routing::get(move || async move {
-                let headers = [(reqwest::header::CONTENT_TYPE, "application/json")];
-                (headers, poi_blocklist)
-            }),
+            routing::get(move || async move { axum::Json(blocklist.borrow().clone()) }),
         )
         .nest("/api", api);
 

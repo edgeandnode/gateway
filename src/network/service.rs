@@ -3,7 +3,7 @@
 //! query processing pipeline
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     time::Duration,
 };
 
@@ -18,6 +18,7 @@ use tokio::{sync::watch, time::MissedTickBehavior};
 use super::{
     cost_model::CostModelResolver,
     host_filter::HostFilter,
+    indexer_blocklist,
     indexer_processing::{self, IndexerRawInfo},
     indexing_progress::IndexingProgressResolver,
     poi_filter::PoiFilter,
@@ -28,10 +29,7 @@ use super::{
     version_filter::{MinimumVersionRequirements, VersionFilter},
     DeploymentError, SubgraphError,
 };
-use crate::{
-    config::{BlockedIndexer, BlockedPoi},
-    errors::UnavailableReason,
-};
+use crate::errors::UnavailableReason;
 
 /// Subgraph resolution information returned by the [`NetworkService`].
 pub struct ResolvedSubgraphInfo {
@@ -164,30 +162,13 @@ impl NetworkService {
 pub fn spawn(
     http: reqwest::Client,
     subgraph_client: SubgraphClient,
+    indexer_blocklist: indexer_blocklist::Blocklist,
     min_indexer_service_version: Version,
     min_graph_node_version: Version,
-    indexer_blocklist: BTreeMap<Address, BlockedIndexer>,
     indexer_host_blocklist: HashSet<IpNetwork>,
-    poi_blocklist: Vec<BlockedPoi>,
 ) -> NetworkService {
-    let poi_blocklist = poi_blocklist
-        .iter()
-        .map(|entry| &entry.deployment)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .map(|deployment| {
-            (
-                *deployment,
-                poi_blocklist
-                    .iter()
-                    .filter(|entry| &entry.deployment == deployment)
-                    .map(|entry| (entry.block_number, entry.public_poi.into()))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect();
     let internal_state = InternalState {
-        indexer_blocklist,
+        indexer_blocklist: indexer_blocklist.indexer,
         indexer_host_filter: HostFilter::new(indexer_host_blocklist)
             .expect("failed to create host resolver"),
         indexer_version_filter: VersionFilter::new(
@@ -197,7 +178,7 @@ pub fn spawn(
                 graph_node: min_graph_node_version,
             },
         ),
-        indexer_poi_filer: PoiFilter::new(http.clone(), poi_blocklist),
+        indexer_poi_filer: PoiFilter::new(http.clone(), indexer_blocklist.poi),
         indexing_progress_resolver: IndexingProgressResolver::new(http.clone()),
         cost_model_resolver: CostModelResolver::new(http.clone()),
     };
@@ -207,7 +188,7 @@ pub fn spawn(
 }
 
 pub struct InternalState {
-    pub indexer_blocklist: BTreeMap<Address, BlockedIndexer>,
+    pub indexer_blocklist: watch::Receiver<HashMap<Address, HashSet<DeploymentId>>>,
     pub indexer_host_filter: HostFilter,
     pub indexer_version_filter: VersionFilter,
     pub indexer_poi_filer: PoiFilter,
