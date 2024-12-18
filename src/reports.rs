@@ -109,7 +109,7 @@ impl Reporter {
             .iter()
             .map(|indexer_request| IndexerQueryProtobuf {
                 indexer: indexer_request.indexer.to_vec(),
-                deployment: indexer_request.deployment.as_ref().to_vec(),
+                deployment: indexer_request.deployment.to_vec(),
                 allocation: indexer_request.receipt.allocation().to_vec(),
                 indexed_chain: indexer_request.subgraph_chain.clone(),
                 url: indexer_request.url.clone(),

@@ -52,7 +52,7 @@ impl PoiFilter {
 
         deployments
             .iter()
-            .filter(|deployment| match blocklist.get(deployment) {
+            .filter(|deployment| match blocklist.get(*deployment) {
                 None => false,
                 Some(blocklist) => blocklist.iter().any(|(block, poi)| {
                     pois.get(&(**deployment, *block))
