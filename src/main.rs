@@ -42,9 +42,7 @@ use client_query::context::Context;
 use config::{ApiKeys, BlocklistEntry, ExchangeRateProvider};
 use indexer_client::IndexerClient;
 use indexing_performance::IndexingPerformance;
-use middleware::{
-    legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer, SetRequestIdLayer,
-};
+use middleware::{legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer};
 use network::{indexer_blocklist, subgraph_client::Client as SubgraphClient};
 use prometheus::{self, Encoder as _};
 use receipts::ReceiptSigner;
@@ -209,13 +207,8 @@ async fn main() {
                         .allow_headers(cors::Any)
                         .allow_methods([http::Method::OPTIONS, http::Method::POST]),
                 )
-                // Set up the query tracing span
-                .layer(RequestTracingLayer)
-                // Set the query ID on the request
-                .layer(SetRequestIdLayer::new(format!("{:?}", signer_address)))
-                // Handle legacy in-path auth, and convert it into a header
+                .layer(RequestTracingLayer::new(format!("{:?}", signer_address)))
                 .layer(axum::middleware::from_fn(legacy_auth_adapter))
-                // Require the query to be authorized
                 .layer(RequireAuthorizationLayer::new(auth_service)),
         );
 
