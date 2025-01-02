@@ -1,4 +1,4 @@
-use http::header::CONTENT_TYPE;
+use http::{header::CONTENT_TYPE, StatusCode};
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use thegraph_core::{
@@ -59,17 +59,19 @@ impl IndexerClient {
             .body(query.to_string())
             .send()
             .await;
-        let response = match result.and_then(|r| r.error_for_status()) {
+        let response = match result {
             Ok(response) => response,
-            Err(err) if err.is_timeout() => return Err(Timeout),
-            Err(err) => {
-                return match err.status() {
-                    Some(status) => Err(BadResponse(status.as_u16().to_string())),
-                    _ if err.is_connect() => Err(BadResponse("failed to connect".to_string())),
-                    _ => Err(BadResponse(err.to_string())),
-                }
-            }
+            Err(e) if e.is_timeout() => return Err(Timeout),
+            Err(e) if e.is_connect() => return Err(BadResponse("failed to connect".to_string())),
+            Err(e) => return Err(BadResponse(e.to_string())),
         };
+        let status = response.status();
+        if status != StatusCode::OK {
+            if let Ok(body) = response.text().await {
+                tracing::info!(status = status.as_u16(), indexer_err_response = body);
+            }
+            return Err(BadResponse(status.as_u16().to_string()));
+        }
 
         #[derive(Debug, Deserialize)]
         pub struct IndexerResponsePayload {
