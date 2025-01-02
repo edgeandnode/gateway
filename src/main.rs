@@ -34,7 +34,9 @@ use std::{
 use auth::AuthContext;
 use axum::{
     http::{self, status::StatusCode},
-    routing, Router,
+    routing,
+    serve::ListenerExt,
+    Router,
 };
 use budgets::{Budgeter, USD};
 use chains::Chains;
@@ -160,40 +162,36 @@ async fn main() {
     // Host metrics on a separate server with a port that isn't open to public requests.
     tokio::spawn(async move {
         let router = Router::new().route("/metrics", routing::get(handle_metrics));
-
         let metrics_listener = TcpListener::bind(SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
             conf.port_metrics,
         ))
         .await
         .expect("Failed to bind metrics server");
-
         axum::serve(metrics_listener, router.into_make_service())
-            // disable Nagle's algorithm
-            .tcp_nodelay(true)
             .await
             .expect("Failed to start metrics server");
     });
 
     let api = Router::new()
         .route(
-            "/deployments/id/:deployment_id",
+            "/deployments/id/{deployment_id}",
             routing::post(client_query::handle_query),
         )
         .route(
-            "/deployments/id/:deployment_id/indexers/id/:indexer",
+            "/deployments/id/{deployment_id}/indexers/id/{indexer}",
             routing::post(client_query::handle_indexer_query),
         )
         .route(
-            "/subgraphs/id/:subgraph_id",
+            "/subgraphs/id/{subgraph_id}",
             routing::post(client_query::handle_query),
         )
         .route(
-            "/:api_key/deployments/id/:deployment_id",
+            "/{api_key}/deployments/id/{deployment_id}",
             routing::post(client_query::handle_query),
         )
         .route(
-            "/:api_key/subgraphs/id/:subgraph_id",
+            "/{api_key}/subgraphs/id/{subgraph_id}",
             routing::post(client_query::handle_query),
         )
         .with_state(ctx)
@@ -227,13 +225,15 @@ async fn main() {
         conf.port_api,
     ))
     .await
-    .expect("Failed to bind API server");
+    .expect("Failed to bind API server")
+    // disable Nagle's algorithm
+    .tap_io(|stream| {
+        let _ = stream.set_nodelay(true);
+    });
     axum::serve(
         app_listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    // disable Nagle's algorithm
-    .tcp_nodelay(true)
     .with_graceful_shutdown(await_shutdown_signals())
     .await
     .expect("Failed to start API server");
