@@ -4699,9 +4699,9 @@ dependencies = [
 
 [[package]]
 name = "thegraph-core"
-version = "0.9.5"
+version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1440d5da02c8d7ee616adc49577f8e7d2c15f293db1731d49b4e0f0dcc8df7f"
+checksum = "e669ad507b7afcf8b2d303e98de2d8bcd7af56042a8626cd708838349cc4d928"
 dependencies = [
  "alloy",
  "bs58",
