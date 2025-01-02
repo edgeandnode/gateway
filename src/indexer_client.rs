@@ -8,7 +8,6 @@ use thegraph_core::{
     },
     attestation::{self, Attestation},
 };
-use thegraph_graphql_http::http::response::Error as GQLError;
 use url::Url;
 
 use crate::{
@@ -146,19 +145,18 @@ impl IndexerClient {
     }
 }
 
-fn rewrite_response(
-    response: &str,
-) -> Result<(String, Vec<GQLError>, Option<Block>), IndexerError> {
+#[derive(Deserialize, Serialize)]
+struct Error {
+    message: String,
+}
+
+fn rewrite_response(response: &str) -> Result<(String, Vec<Error>, Option<Block>), IndexerError> {
     #[derive(Deserialize, Serialize)]
     struct Response {
         data: Option<ProbedData>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
-        errors: Vec<GQLError>,
-        // indexer-service sometimes returns errors in this form, which isn't ideal
-        #[serde(default)]
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
+        errors: Vec<Error>,
     }
     #[derive(Deserialize, Serialize)]
     struct ProbedData {
@@ -179,14 +177,6 @@ fn rewrite_response(
     }
     let mut payload: Response =
         serde_json::from_str(response).map_err(|err| BadResponse(err.to_string()))?;
-
-    if let Some(err) = payload.error.take() {
-        payload.errors.push(GQLError {
-            message: err,
-            locations: Default::default(),
-            path: Default::default(),
-        });
-    }
 
     // Avoid processing oversized errors.
     for err in &mut payload.errors {
