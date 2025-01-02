@@ -61,10 +61,10 @@ mod tests {
         }
 
         let api = Router::new()
-            .route("/subgraphs/id/:subgraph_id", post(handler))
-            .route("/:api_key/subgraphs/id/:subgraph_id", post(handler))
-            .route("/deployments/id/:deployment_id", post(handler))
-            .route("/:api_key/deployments/id/:deployment_id", post(handler))
+            .route("/subgraphs/id/{subgraph_id}", post(handler))
+            .route("/{api_key}/subgraphs/id/{subgraph_id}", post(handler))
+            .route("/deployments/id/{deployment_id}", post(handler))
+            .route("/{api_key}/deployments/id/{deployment_id}", post(handler))
             .layer(middleware::from_fn(legacy_auth_adapter));
         Router::new()
             .route("/", get(|| async { "OK" }))

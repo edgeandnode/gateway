@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use axum::{
-    async_trait,
     extract::{FromRequestParts, Path},
     http::request::Parts,
     response::IntoResponse,
@@ -51,7 +50,6 @@ impl std::fmt::Display for QuerySelector {
     }
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for QuerySelector
 where
     S: Send + Sync,
@@ -110,11 +108,11 @@ mod tests {
 
         Router::new()
             .route(
-                "/deployments/id/:deployment_id",
+                "/deployments/id/{deployment_id}",
                 axum::routing::post(handle_query),
             )
             .route(
-                "/subgraphs/id/:subgraph_id",
+                "/subgraphs/id/{subgraph_id}",
                 axum::routing::post(handle_query),
             )
     }
