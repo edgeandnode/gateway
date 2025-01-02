@@ -869,8 +869,8 @@ mod tests {
             }
 
             Router::new()
-                .route("/subgraphs/id/:subgraph_id", post(handler))
-                .route("/:api_key/subgraphs/id/:subgraph_id", post(handler))
+                .route("/subgraphs/id/{subgraph_id}", post(handler))
+                .route("/{api_key}/subgraphs/id/{subgraph_id}", post(handler))
                 .layer(
                     tower::ServiceBuilder::new()
                         .layer(middleware::from_fn(legacy_auth_adapter))
