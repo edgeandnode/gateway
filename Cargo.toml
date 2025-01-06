@@ -28,7 +28,7 @@ hickory-resolver = "0.24.0"
 http = "1.1.0"
 indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "c3a9ee8" }
 ipnetwork = { version = "0.20.0", default-features = false }
-itertools = "0.13.0"
+itertools = "0.14.0"
 lazy_static = "1.4.0"
 ordered-float = "4.2.0"
 parking_lot = "0.12.3"
