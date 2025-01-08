@@ -275,9 +275,9 @@ async fn handle_metrics() -> impl axum::response::IntoResponse {
         tracing::error!(%metrics_encode_err);
         buffer.clear();
         write!(&mut buffer, "Failed to encode metrics").unwrap();
-        return (StatusCode::INTERNAL_SERVER_ERROR, buffer);
+        return (StatusCode::INTERNAL_SERVER_ERROR, Default::default());
     }
-    (StatusCode::OK, buffer)
+    (StatusCode::OK, String::from_utf8(buffer).unwrap())
 }
 
 pub fn init_logging(executable_name: &str, json: bool) {
