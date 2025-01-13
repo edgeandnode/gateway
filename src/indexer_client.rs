@@ -40,10 +40,10 @@ pub enum IndexerAuth<'a> {
 }
 
 impl IndexerClient {
-    pub async fn query_indexer<'a>(
+    pub async fn query_indexer(
         &self,
         deployment_url: Url,
-        auth: IndexerAuth<'a>,
+        auth: IndexerAuth<'_>,
         query: &str,
     ) -> Result<IndexerResponse, IndexerError> {
         let (auth_key, auth_value) = match auth {
