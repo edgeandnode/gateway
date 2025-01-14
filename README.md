@@ -90,13 +90,12 @@ the startup time of the `tap-escrow-manager`.
 
 ## indexer payments
 
-The gateway serves its budget per indexer request, in USD, at `/budget`. Indexers make their prices
-available via Agora cost-models. These cost models are served, for each subgraph deployment, by
-indexer-service at `/cost`. When selecting indexers, the gateway first executes their cost models
-over the indexer request to obtain each indexer's fee. Indexer selection will favor indexers with
-lower fees, all else being equal. The gateway has a control system that may pay indexers more than
-they request via their cost models in an effort to hit an average of `budget` fees per client query.
-Indexer fees are clamped to a maximum of the gateway's budget.
+Indexers make their prices available via Agora cost-models. These cost models are served, for each
+subgraph deployment, by indexer-service at `/cost`. When selecting indexers, the gateway first
+executes their cost models over the indexer request to obtain each indexer's fee. Indexer selection
+will favor indexers with lower fees, all else being equal. The gateway has a control system that may
+pay indexers more than they request via their cost models in an effort to hit an average fees per
+client query. Indexer fees are clamped to a maximum of the gateway's budget.
 
 ### TAP
 
