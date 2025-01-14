@@ -73,6 +73,14 @@ impl IndexerClient {
             return Err(BadResponse(status.as_u16().to_string()));
         }
 
+        if let Some(indexed_block) = response
+            .headers()
+            .get("graph-indexed")
+            .and_then(|v| v.to_str().ok())
+        {
+            tracing::debug!(indexed_block);
+        }
+
         #[derive(Debug, Deserialize)]
         pub struct IndexerResponsePayload {
             #[serde(rename = "graphQLResponse")]
