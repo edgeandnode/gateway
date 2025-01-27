@@ -108,9 +108,7 @@ impl Chain {
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
-    use rand::{
-        rngs::SmallRng, seq::SliceRandom as _, thread_rng, Rng as _, RngCore as _, SeedableRng,
-    };
+    use rand::{rngs::SmallRng, seq::IndexedRandom as _, Rng as _, RngCore as _, SeedableRng};
     use thegraph_core::{
         alloy::primitives::{Address, BlockHash, U256},
         IndexerId,
@@ -125,14 +123,14 @@ mod tests {
         let indexers: Vec<IndexerId> = (1..=3)
             .map(|n| Address::from(concat_bytes!(20, [&[0; 19], &[n]])).into())
             .collect();
-        let seed = thread_rng().next_u64();
+        let seed = rand::rng().next_u64();
         println!("seed: {seed}");
         let mut rng = SmallRng::seed_from_u64(seed);
         let mut block_number: u64 = 0;
         let mut timestamp: u64 = 0;
         for _ in 0..(MAX_LEN * 2) {
-            block_number += rng.gen_range(0..=2);
-            timestamp += rng.gen_range(0..=1);
+            block_number += rng.random_range(0..=2);
+            timestamp += rng.random_range(0..=1);
             let block = Block {
                 number: block_number,
                 hash: BlockHash::from(U256::from(timestamp)),

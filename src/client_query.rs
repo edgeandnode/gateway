@@ -17,7 +17,7 @@ use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use ordered_float::NotNan;
 use prost::bytes::Buf;
-use rand::{thread_rng, Rng as _};
+use rand::Rng as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use thegraph_core::{alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId};
@@ -248,7 +248,7 @@ async fn run_indexer_queries(
     if tracing::enabled!(tracing::Level::TRACE) {
         tracing::trace!(client_query = client_request.query, variables);
         tracing::trace!(?candidates);
-    } else if tracing::enabled!(tracing::Level::DEBUG) && thread_rng().gen_bool(0.01) {
+    } else if tracing::enabled!(tracing::Level::DEBUG) && rand::rng().random_bool(0.01) {
         // Log candidates at a low rate to avoid log bloat
         tracing::debug!(client_query = client_request.query, variables);
         tracing::debug!(?candidates);
