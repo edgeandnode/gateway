@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use futures::StreamExt as _;
-use rand::{thread_rng, RngCore as _};
+use rand::RngCore as _;
 use rdkafka::{
     consumer::{Consumer as _, StreamConsumer},
     Message, TopicPartitionList,
@@ -195,7 +195,7 @@ async fn create_consumer(
     mut kafka_config: rdkafka::ClientConfig,
 ) -> anyhow::Result<StreamConsumer> {
     let topic = "gateway_blocklist";
-    let group_id = format!("gateway-{:x}", thread_rng().next_u64());
+    let group_id = format!("gateway-{:x}", rand::rng().next_u64());
     let consumer: StreamConsumer = kafka_config.set("group.id", group_id).create()?;
     let metadata = consumer
         .fetch_metadata(Some(topic), Duration::from_secs(30))
