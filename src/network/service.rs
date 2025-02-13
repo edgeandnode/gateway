@@ -13,7 +13,10 @@ use thegraph_core::{
     alloy::primitives::{Address, BlockNumber},
     DeploymentId, IndexerId, SubgraphId,
 };
-use tokio::{sync::watch, time::MissedTickBehavior};
+use tokio::{
+    sync::watch,
+    time::{Instant, MissedTickBehavior},
+};
 
 use super::{
     cost_model::CostModelResolver,
@@ -213,10 +216,14 @@ fn spawn_updater_task(
         loop {
             timer.tick().await;
 
-            match fetch_and_preprocess_subgraph_info(&mut subgraph_client, update_interval).await {
+            let start_time = Instant::now();
+            match fetch_and_preprocess_subgraph_info(&mut subgraph_client).await {
                 Ok(info) => network_info = Some(info),
                 Err(network_subgraph_update_err) => tracing::error!(%network_subgraph_update_err),
             };
+            if start_time.elapsed() > (update_interval * 2) {
+                tracing::warn!("subgraph processing taking too long");
+            }
             let network_info = match &network_info {
                 Some(info) => info,
                 None => continue,
@@ -251,10 +258,9 @@ fn spawn_updater_task(
 /// Invalid info is filtered out before converting into the internal representation.
 pub async fn fetch_and_preprocess_subgraph_info(
     client: &mut SubgraphClient,
-    timeout: Duration,
 ) -> anyhow::Result<PreprocessedNetworkInfo> {
     // Fetch the subgraphs information from the graph network subgraph
-    let data = tokio::time::timeout(timeout, client.fetch()).await??;
+    let data = client.fetch().await?;
     anyhow::ensure!(!data.is_empty(), "empty subgraph response");
 
     // Pre-process (validate and convert) the fetched subgraphs information
