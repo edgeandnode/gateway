@@ -341,7 +341,7 @@ dependencies = [
  "futures-utils-wasm",
  "lru",
  "parking_lot",
- "pin-project 1.1.8",
+ "pin-project 1.1.9",
  "reqwest",
  "schnellru",
  "serde",
@@ -408,7 +408,7 @@ dependencies = [
  "alloy-transport-ipc",
  "alloy-transport-ws",
  "futures",
- "pin-project 1.1.8",
+ "pin-project 1.1.9",
  "reqwest",
  "serde",
  "serde_json",
@@ -699,7 +699,7 @@ dependencies = [
  "bytes",
  "futures",
  "interprocess",
- "pin-project 1.1.8",
+ "pin-project 1.1.9",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -2250,7 +2250,7 @@ dependencies = [
  "lazy_static",
  "ordered-float",
  "parking_lot",
- "pin-project 1.1.8",
+ "pin-project 1.1.9",
  "prometheus",
  "prost",
  "rand 0.9.0",
@@ -3565,11 +3565,11 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-version = "1.1.8"
+version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e2ec53ad785f4d35dac0adea7f7dc6f1bb277ad84a680c7afefeae05d1f5916"
+checksum = "dfe2e71e1471fe07709406bf725f710b02927c9c54b2b5b2ec0e8087d97c327d"
 dependencies = [
- "pin-project-internal 1.1.8",
+ "pin-project-internal 1.1.9",
 ]
 
 [[package]]
@@ -3585,9 +3585,9 @@ dependencies = [
 
 [[package]]
 name = "pin-project-internal"
-version = "1.1.8"
+version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d56a66c0c55993aa927429d0f8a0abfd74f084e4d9c192cffed01e418d83eefb"
+checksum = "f6e859e6e5bd50440ab63c47e3ebabc90f26251f7c73c3d3e837b74a1cc3fa67"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5099,7 +5099,7 @@ dependencies = [
  "hyper-timeout",
  "hyper-util",
  "percent-encoding",
- "pin-project 1.1.8",
+ "pin-project 1.1.9",
  "prost",
  "rustls-native-certs",
  "rustls-pemfile",
@@ -5122,7 +5122,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "indexmap 1.9.3",
- "pin-project 1.1.8",
+ "pin-project 1.1.9",
  "pin-project-lite",
  "rand 0.8.5",
  "slab",
@@ -5181,7 +5181,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4546773ffeab9e4ea02b8872faa49bb616a80a7da66afc2f32688943f97efa7"
 dependencies = [
  "futures-util",
- "pin-project 1.1.8",
+ "pin-project 1.1.9",
  "tokio",
  "tokio-test",
  "tower-layer",
