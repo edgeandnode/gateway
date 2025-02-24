@@ -437,12 +437,18 @@ async fn run_indexer_queries(
         total_fees_usd = *total_fees_usd.0,
     );
 
+    let subgraph_id = if subgraph.subgraphs.len() == 1 {
+        Some(subgraph.subgraphs[0])
+    } else {
+        None
+    };
     let _ = ctx.reporter.send(reports::ClientRequest {
         id: request_id,
         response_time_ms,
         result,
         api_key: auth.key,
         user: auth.user,
+        subgraph: subgraph_id,
         grt_per_usd,
         indexer_requests,
         request_bytes: client_request_bytes,
@@ -760,6 +766,7 @@ pub async fn handle_indexer_query(
         result: report_result,
         api_key: auth.key,
         user: auth.user,
+        subgraph: None,
         grt_per_usd,
         request_bytes: indexer_request.request.len() as u32,
         response_bytes: result.as_ref().map(|r| r.client_response.len() as u32).ok(),

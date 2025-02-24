@@ -3,7 +3,7 @@ use std::{collections::HashSet, time::Duration};
 use anyhow::{anyhow, Context};
 use ordered_float::NotNan;
 use prost::Message;
-use thegraph_core::{alloy::primitives::Address, DeploymentId, IndexerId};
+use thegraph_core::{alloy::primitives::Address, DeploymentId, IndexerId, SubgraphId};
 use tokio::{sync::mpsc, time::Instant};
 
 use crate::{concat_bytes, errors, indexer_client::IndexerResponse, receipts::Receipt};
@@ -14,6 +14,7 @@ pub struct ClientRequest {
     pub result: Result<(), errors::Error>,
     pub api_key: String,
     pub user: String,
+    pub subgraph: Option<SubgraphId>,
     pub grt_per_usd: NotNan<f64>,
     pub indexer_requests: Vec<IndexerRequest>,
     pub request_bytes: u32,
@@ -149,6 +150,7 @@ impl Reporter {
             query_id: client_request.id,
             api_key: client_request.api_key,
             user_id: client_request.user,
+            subgraph: client_request.subgraph.map(|s| s.to_string()),
             result: client_request
                 .result
                 .map(|()| "success".to_string())
@@ -230,6 +232,8 @@ pub struct ClientQueryProtobuf {
     api_key: String,
     #[prost(string, tag = "11")]
     user_id: String,
+    #[prost(string, optional, tag = "12")]
+    subgraph: Option<String>,
     #[prost(string, tag = "5")]
     result: String,
     #[prost(uint32, tag = "6")]
