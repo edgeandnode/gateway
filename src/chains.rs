@@ -8,7 +8,7 @@ use thegraph_core::IndexerId;
 use tokio::{
     select, spawn,
     sync::mpsc,
-    time::{interval, MissedTickBehavior},
+    time::{MissedTickBehavior, interval},
 };
 
 use crate::{blocks::Block, chain::Chain, metrics::METRICS};

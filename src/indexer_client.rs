@@ -1,4 +1,4 @@
-use http::{header::CONTENT_TYPE, StatusCode};
+use http::{StatusCode, header::CONTENT_TYPE};
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use thegraph_core::{
@@ -235,14 +235,20 @@ mod tests {
     fn check_block_error() {
         let tests = [
             ("", Ok(())),
-            ("Failed to decode `block.number` value: `subgraph QmQqLJVgZLcRduoszARzRi12qGheUTWAHFf3ixMeGm2xML has only indexed up to block number 133239690 and data for block number 133239697 is therefore not yet available", Err(MissingBlockError {
-                missing: Some(133239697),
-                latest: Some(133239690),
-            })),
-            ("Failed to decode `block.hash` value", Err(MissingBlockError {
-                missing: None,
-                latest: None,
-            })),
+            (
+                "Failed to decode `block.number` value: `subgraph QmQqLJVgZLcRduoszARzRi12qGheUTWAHFf3ixMeGm2xML has only indexed up to block number 133239690 and data for block number 133239697 is therefore not yet available",
+                Err(MissingBlockError {
+                    missing: Some(133239697),
+                    latest: Some(133239690),
+                }),
+            ),
+            (
+                "Failed to decode `block.hash` value",
+                Err(MissingBlockError {
+                    missing: None,
+                    latest: None,
+                }),
+            ),
         ];
         for (input, expected) in tests {
             assert_eq!(super::check_block_error(input), expected);

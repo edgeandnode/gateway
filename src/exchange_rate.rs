@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
+use ChainlinkPriceFeed::ChainlinkPriceFeedInstance;
 use anyhow::ensure;
 use ordered_float::NotNan;
 use thegraph_core::alloy::{
@@ -7,10 +8,9 @@ use thegraph_core::alloy::{
 };
 use tokio::{
     sync::watch,
-    time::{interval, MissedTickBehavior},
+    time::{MissedTickBehavior, interval},
 };
 use url::Url;
-use ChainlinkPriceFeed::ChainlinkPriceFeedInstance;
 
 sol!(
     #[sol(rpc)]

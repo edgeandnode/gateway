@@ -90,9 +90,9 @@ where
 mod tests {
     use assert_matches::assert_matches;
     use axum::{
+        Router,
         body::Body,
         http::{Method, Request},
-        Router,
     };
     use http_body_util::BodyExt;
     use thegraph_core::{deployment_id, subgraph_id};

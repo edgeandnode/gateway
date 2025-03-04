@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use tokio::{
     sync::watch,
-    time::{interval, Duration, MissedTickBehavior},
+    time::{Duration, MissedTickBehavior, interval},
 };
 use url::Url;
 

@@ -43,7 +43,7 @@ impl VersionFilter {
             Ok(version) if version < self.min_versions.graph_node => {
                 return Err(UnavailableReason::NotSupported(
                     "graph-node version below minimum".to_string(),
-                ))
+                ));
             }
             _ => (),
         };

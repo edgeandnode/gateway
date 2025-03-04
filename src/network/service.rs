@@ -10,8 +10,8 @@ use std::{
 use ipnetwork::IpNetwork;
 use semver::Version;
 use thegraph_core::{
-    alloy::primitives::{Address, BlockNumber},
     DeploymentId, IndexerId, SubgraphId,
+    alloy::primitives::{Address, BlockNumber},
 };
 use tokio::{
     sync::watch,
@@ -19,6 +19,7 @@ use tokio::{
 };
 
 use super::{
+    DeploymentError, SubgraphError,
     cost_model::CostModelResolver,
     host_filter::HostFilter,
     indexer_blocklist,
@@ -30,7 +31,6 @@ use super::{
     subgraph_client::Client as SubgraphClient,
     subgraph_processing::{self, DeploymentInfo, SubgraphInfo},
     version_filter::{MinimumVersionRequirements, VersionFilter},
-    DeploymentError, SubgraphError,
 };
 use crate::errors::UnavailableReason;
 

@@ -1,9 +1,9 @@
 use std::{collections::HashSet, time::Duration};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use ordered_float::NotNan;
 use prost::Message;
-use thegraph_core::{alloy::primitives::Address, DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::{DeploymentId, IndexerId, SubgraphId, alloy::primitives::Address};
 use tokio::{sync::mpsc, time::Instant};
 
 use crate::{concat_bytes, errors, indexer_client::IndexerResponse, receipts::Receipt};
@@ -189,7 +189,7 @@ impl Reporter {
                 AttestationProtobuf {
                     request: Some(indexer_request.request).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
                     response: Some(original_response).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
-                    allocation: indexer_request.receipt.allocation().0 .0.into(),
+                    allocation: indexer_request.receipt.allocation().0.0.into(),
                     subgraph_deployment: attestation.deployment.0.into(),
                     request_cid: attestation.request_cid.0.into(),
                     response_cid: attestation.response_cid.0.into(),

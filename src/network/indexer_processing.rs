@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use custom_debug::CustomDebug;
-use thegraph_core::{alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId};
+use thegraph_core::{AllocationId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
 use tracing::Instrument;
 use url::Url;
 

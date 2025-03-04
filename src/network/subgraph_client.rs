@@ -4,9 +4,9 @@
 //! This module contains the logic necessary to query the Graph to get the latest state of the
 //! network subgraph.
 
-use anyhow::{anyhow, bail, ensure, Context};
+use anyhow::{Context, anyhow, bail, ensure};
 use custom_debug::CustomDebug;
-use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeMap};
 use serde_json::json;
 use serde_with::serde_as;
 use thegraph_core::alloy::primitives::{BlockHash, BlockNumber, BlockTimestamp};
@@ -34,7 +34,7 @@ pub mod types {
     use serde::Deserialize;
     use serde_with::serde_as;
     use thegraph_core::{
-        alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId, SubgraphId,
+        AllocationId, DeploymentId, IndexerId, SubgraphId, alloy::primitives::BlockNumber,
     };
 
     #[derive(Debug, Clone, Deserialize)]

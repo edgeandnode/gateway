@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use thegraph_core::{alloy::primitives::BlockNumber, DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::{DeploymentId, IndexerId, SubgraphId, alloy::primitives::BlockNumber};
 
 use crate::network::{DeploymentError, SubgraphError};
 

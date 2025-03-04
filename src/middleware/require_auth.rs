@@ -7,7 +7,7 @@ use std::{
 };
 
 use axum::http::Request;
-use headers::{authorization::Bearer, Authorization, HeaderMapExt, Origin};
+use headers::{Authorization, HeaderMapExt, Origin, authorization::Bearer};
 use tower::Service;
 
 use crate::{

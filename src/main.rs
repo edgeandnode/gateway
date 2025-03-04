@@ -33,10 +33,10 @@ use std::{
 
 use auth::AuthContext;
 use axum::{
+    Router,
     http::{self, status::StatusCode},
     routing,
     serve::ListenerExt,
-    Router,
 };
 use budgets::{Budgeter, USD};
 use chains::Chains;
@@ -44,7 +44,7 @@ use client_query::context::Context;
 use config::{ApiKeys, BlocklistEntry, ExchangeRateProvider};
 use indexer_client::IndexerClient;
 use indexing_performance::IndexingPerformance;
-use middleware::{legacy_auth_adapter, RequestTracingLayer, RequireAuthorizationLayer};
+use middleware::{RequestTracingLayer, RequireAuthorizationLayer, legacy_auth_adapter};
 use network::{indexer_blocklist, subgraph_client::Client as SubgraphClient};
 use prometheus::{self, Encoder as _};
 use receipts::ReceiptSigner;
@@ -54,7 +54,7 @@ use thegraph_core::{
 };
 use tokio::{net::TcpListener, signal::unix::SignalKind, sync::watch};
 use tower_http::cors::{self, CorsLayer};
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, prelude::*};
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;

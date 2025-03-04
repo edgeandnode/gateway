@@ -1,9 +1,9 @@
 use lazy_static::lazy_static;
 use prometheus::{
+    Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
     core::{MetricVec, MetricVecBuilder},
     register_gauge, register_histogram, register_histogram_vec, register_int_counter,
-    register_int_counter_vec, register_int_gauge_vec, Gauge, Histogram, HistogramVec, IntCounter,
-    IntCounterVec, IntGaugeVec,
+    register_int_counter_vec, register_int_gauge_vec,
 };
 
 lazy_static! {

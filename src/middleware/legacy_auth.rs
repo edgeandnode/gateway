@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
 use axum::{
+    RequestPartsExt,
     body::Body,
     extract::{Path, Request},
-    http::{header, Response},
+    http::{Response, header},
     middleware::Next,
-    RequestPartsExt,
 };
 use headers::{Authorization, HeaderMapExt};
 
@@ -40,11 +40,11 @@ pub async fn legacy_auth_adapter(mut request: Request, next: Next) -> Response<B
 #[cfg(test)]
 mod tests {
     use axum::{
+        Router,
         body::Body,
-        http::{header::AUTHORIZATION, HeaderMap, Method, Request, StatusCode},
+        http::{HeaderMap, Method, Request, StatusCode, header::AUTHORIZATION},
         middleware,
         routing::{get, post},
-        Router,
     };
     use http_body_util::BodyExt;
     use tower::ServiceExt;

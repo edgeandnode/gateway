@@ -3,14 +3,14 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use futures::StreamExt as _;
 use rand::RngCore as _;
 use rdkafka::{
-    consumer::{Consumer as _, StreamConsumer},
     Message, TopicPartitionList,
+    consumer::{Consumer as _, StreamConsumer},
 };
-use thegraph_core::{alloy::primitives::Address, DeploymentId, ProofOfIndexing};
+use thegraph_core::{DeploymentId, ProofOfIndexing, alloy::primitives::Address};
 use tokio::sync::watch;
 
 use crate::config::BlocklistEntry;

@@ -4,7 +4,7 @@ use ordered_float::NotNan;
 use tokio::{
     select, spawn,
     sync::{mpsc, watch},
-    time::{interval, MissedTickBehavior},
+    time::{MissedTickBehavior, interval},
 };
 
 use crate::metrics::METRICS;

@@ -4,7 +4,7 @@ use std::{
 };
 
 use serde_with::serde_as;
-use thegraph_core::{alloy::primitives::BlockNumber, DeploymentId, ProofOfIndexing};
+use thegraph_core::{DeploymentId, ProofOfIndexing, alloy::primitives::BlockNumber};
 use thegraph_graphql_http::http_client::ReqwestExt;
 use tokio::{sync::watch, time::Instant};
 use url::Url;
@@ -206,8 +206,8 @@ mod tests {
     };
 
     use thegraph_core::{
-        alloy::{hex, primitives::FixedBytes},
         DeploymentId,
+        alloy::{hex, primitives::FixedBytes},
     };
     use tokio::sync::watch;
     use url::Url;

@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 
 use anyhow::{anyhow, ensure};
 use thegraph_core::{AllocationId, DeploymentId, IndexerId, SubgraphId};

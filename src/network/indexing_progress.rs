@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use parking_lot::{Mutex, RwLock};
 use serde_with::serde_as;
-use thegraph_core::{alloy::primitives::BlockNumber, DeploymentId};
+use thegraph_core::{DeploymentId, alloy::primitives::BlockNumber};
 use thegraph_graphql_http::http_client::ReqwestExt;
 use url::Url;
 

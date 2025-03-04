@@ -6,8 +6,8 @@ use std::{
 use anyhow::{anyhow, bail};
 use cost_model::Context;
 use graphql::{
-    graphql_parser::query::{OperationDefinition, Selection, SelectionSet, Text, Value},
     IntoStaticValue as _, StaticValue,
+    graphql_parser::query::{OperationDefinition, Selection, SelectionSet, Text, Value},
 };
 use itertools::Itertools as _;
 use serde_json::{self, json};
@@ -100,14 +100,14 @@ fn block_constraints(context: &Context) -> Result<BTreeSet<BlockConstraint>, Err
             OperationDefinition::Query(_)
             | OperationDefinition::Mutation(_)
             | OperationDefinition::Subscription(_) => {
-                return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
+                return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")));
             }
         };
         for selection in &selection_set.items {
             let selection_field = match selection {
                 Selection::Field(field) => field,
                 Selection::FragmentSpread(_) | Selection::InlineFragment(_) => {
-                    return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")))
+                    return Err(Error::BadQuery(anyhow!("unsupported GraphQL features")));
                 }
             };
             let constraint = match selection_field

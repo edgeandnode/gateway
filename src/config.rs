@@ -8,10 +8,10 @@ use ipnetwork::IpNetwork;
 use ordered_float::NotNan;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use thegraph_core::{
-    alloy::primitives::{Address, BlockNumber, B256, U256},
     DeploymentId,
+    alloy::primitives::{Address, B256, BlockNumber, U256},
 };
 use url::Url;
 

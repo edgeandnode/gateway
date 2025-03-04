@@ -1,7 +1,7 @@
 use std::{
     sync::{
-        atomic::{self, AtomicU64},
         Arc,
+        atomic::{self, AtomicU64},
     },
     task::{Context, Poll},
 };

@@ -6,7 +6,7 @@ use std::{
 
 use custom_debug::CustomDebug;
 use thegraph_core::{
-    alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId, SubgraphId,
+    AllocationId, DeploymentId, IndexerId, SubgraphId, alloy::primitives::BlockNumber,
 };
 use url::Url;
 

@@ -6,10 +6,10 @@ use std::{
 
 use anyhow::anyhow;
 use axum::{
+    Extension,
     body::Bytes,
     extract::{Path, State},
     http::{Response, StatusCode},
-    Extension,
 };
 use cost_model::Context as AgoraContext;
 use custom_debug::CustomDebug;
@@ -20,21 +20,21 @@ use prost::bytes::Buf;
 use rand::Rng as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::{alloy::primitives::BlockNumber, AllocationId, DeploymentId, IndexerId};
-use thegraph_headers::{graph_attestation::GraphAttestation, HttpBuilderExt as _};
+use thegraph_core::{AllocationId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
+use thegraph_headers::{HttpBuilderExt as _, graph_attestation::GraphAttestation};
 use tokio::sync::mpsc;
-use tracing::{info_span, Instrument as _};
+use tracing::{Instrument as _, info_span};
 use url::Url;
 
 use self::{context::Context, query_selector::QuerySelector};
 use crate::{
     auth::AuthSettings,
-    block_constraints::{resolve_block_requirements, rewrite_query, BlockRequirements},
+    block_constraints::{BlockRequirements, resolve_block_requirements, rewrite_query},
     budgets::USD,
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     indexer_client::{IndexerAuth, IndexerResponse},
     indexing_performance,
-    metrics::{with_metric, METRICS},
+    metrics::{METRICS, with_metric},
     middleware::RequestId,
     network::{DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
     reports,
@@ -801,11 +801,11 @@ mod tests {
 
         use assert_matches::assert_matches;
         use axum::{
+            Extension, Router,
             body::Body,
             http::{Method, Request, StatusCode},
             middleware,
             routing::post,
-            Extension, Router,
         };
         use headers::{Authorization, ContentType, HeaderMapExt};
         use http_body_util::BodyExt;
@@ -814,7 +814,7 @@ mod tests {
 
         use crate::{
             auth::{ApiKey, AuthContext, AuthSettings},
-            middleware::{legacy_auth_adapter, RequireAuthorizationLayer},
+            middleware::{RequireAuthorizationLayer, legacy_auth_adapter},
         };
 
         /// Create a test authorization context.
