@@ -121,8 +121,6 @@ where
             }
         };
         let origin = req.headers().typed_get::<Origin>().unwrap_or(Origin::NULL);
-        tracing::debug!(domain = %origin.hostname());
-
         let auth = match self.ctx.check(bearer.token(), origin.hostname()) {
             Ok(token) => token,
             Err(err) => {
@@ -130,7 +128,6 @@ where
                 return ResponseFuture::error(graphql::error_response(Error::Auth(err)));
             }
         };
-        tracing::debug!(user_address = ?auth.user, api_key = %auth.key);
 
         // Insert the `AuthSettings` extension into the request
         req.extensions_mut().insert(auth);

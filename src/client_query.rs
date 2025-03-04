@@ -435,6 +435,7 @@ async fn run_indexer_queries(
         internal_latency_ms = response_time_ms.saturating_sub(ideal_response_time_ms),
         total_fees_grt,
         total_fees_usd = *total_fees_usd.0,
+        user_address = auth.user,
     );
 
     let subgraph_id = if subgraph.subgraphs.len() == 1 {
