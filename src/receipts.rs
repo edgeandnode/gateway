@@ -1,7 +1,7 @@
 use std::time::SystemTime;
 
 use rand::RngCore;
-use tap_core::{receipt::Receipt as TapReceipt, signed_message::EIP712SignedMessage};
+use tap_graph::{Receipt as TapReceipt, SignedReceipt};
 use thegraph_core::{
     AllocationId,
     alloy::{
@@ -11,7 +11,7 @@ use thegraph_core::{
     },
 };
 
-pub struct Receipt(EIP712SignedMessage<TapReceipt>);
+pub struct Receipt(SignedReceipt);
 
 impl Receipt {
     pub fn value(&self) -> u128 {
@@ -65,7 +65,7 @@ impl ReceiptSigner {
             nonce,
             value: fee,
         };
-        let signed = EIP712SignedMessage::new(&self.domain, receipt, &self.signer)
+        let signed = SignedReceipt::new(&self.domain, receipt, &self.signer)
             .map_err(|e| anyhow::anyhow!("failed to sign receipt: {:?}", e))?;
 
         Ok(Receipt(signed))
