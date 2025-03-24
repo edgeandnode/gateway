@@ -4,7 +4,6 @@ use std::{
     time::Duration,
 };
 
-use hickory_resolver::TokioAsyncResolver as DnsResolver;
 use ipnetwork::IpNetwork;
 use parking_lot::RwLock;
 use url::{Host, Url};
@@ -13,7 +12,7 @@ use crate::errors::UnavailableReason;
 
 pub struct HostFilter {
     blocklist: HashSet<IpNetwork>,
-    resolver: DnsResolver,
+    resolver: hickory_resolver::TokioResolver,
     cache: RwLock<HashMap<String, Vec<IpAddr>>>,
 }
 
@@ -21,7 +20,7 @@ impl HostFilter {
     pub fn new(blocklist: HashSet<IpNetwork>) -> anyhow::Result<Self> {
         Ok(Self {
             blocklist,
-            resolver: DnsResolver::tokio_from_system_conf()?,
+            resolver: hickory_resolver::TokioResolver::builder_tokio()?.build(),
             cache: Default::default(),
         })
     }

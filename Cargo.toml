@@ -24,7 +24,7 @@ faster-hex = "0.10.0"
 futures = "0.3"
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0", default-features = false }
 headers = "0.4.0"
-hickory-resolver = "0.24.0"
+hickory-resolver = "0.25.1"
 http = "1.1.0"
 indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "394d112" }
 ipnetwork = { version = "0.21.0", default-features = false }
