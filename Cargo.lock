@@ -345,7 +345,7 @@ dependencies = [
  "futures-utils-wasm",
  "lru",
  "parking_lot",
- "pin-project 1.1.9",
+ "pin-project 1.1.10",
  "reqwest",
  "serde",
  "serde_json",
@@ -390,7 +390,7 @@ dependencies = [
  "alloy-transport-http",
  "async-stream",
  "futures",
- "pin-project 1.1.9",
+ "pin-project 1.1.10",
  "reqwest",
  "serde",
  "serde_json",
@@ -2211,7 +2211,7 @@ dependencies = [
  "lazy_static",
  "ordered-float",
  "parking_lot",
- "pin-project 1.1.9",
+ "pin-project 1.1.10",
  "prometheus",
  "prost",
  "rand 0.9.0",
@@ -3514,11 +3514,11 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-version = "1.1.9"
+version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfe2e71e1471fe07709406bf725f710b02927c9c54b2b5b2ec0e8087d97c327d"
+checksum = "677f1add503faace112b9f1373e43e9e054bfdd22ff1a63c1bc485eaec6a6a8a"
 dependencies = [
- "pin-project-internal 1.1.9",
+ "pin-project-internal 1.1.10",
 ]
 
 [[package]]
@@ -3534,9 +3534,9 @@ dependencies = [
 
 [[package]]
 name = "pin-project-internal"
-version = "1.1.9"
+version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6e859e6e5bd50440ab63c47e3ebabc90f26251f7c73c3d3e837b74a1cc3fa67"
+checksum = "6e918e4ff8c4549eb882f14b3a4bc8c8bc93de829416eacf579f1207a8fbf861"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5036,7 +5036,7 @@ dependencies = [
  "hyper-timeout",
  "hyper-util",
  "percent-encoding",
- "pin-project 1.1.9",
+ "pin-project 1.1.10",
  "prost",
  "rustls-native-certs",
  "rustls-pemfile",
@@ -5059,7 +5059,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "indexmap 1.9.3",
- "pin-project 1.1.9",
+ "pin-project 1.1.10",
  "pin-project-lite",
  "rand 0.8.5",
  "slab",
@@ -5118,7 +5118,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4546773ffeab9e4ea02b8872faa49bb616a80a7da66afc2f32688943f97efa7"
 dependencies = [
  "futures-util",
- "pin-project 1.1.9",
+ "pin-project 1.1.10",
  "tokio",
  "tokio-test",
  "tower-layer",
@@ -5177,7 +5177,7 @@ checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
 dependencies = [
  "futures",
  "futures-task",
- "pin-project 1.1.9",
+ "pin-project 1.1.10",
  "tracing",
 ]
 
