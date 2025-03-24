@@ -4,7 +4,9 @@ use ChainlinkPriceFeed::ChainlinkPriceFeedInstance;
 use anyhow::ensure;
 use ordered_float::NotNan;
 use thegraph_core::alloy::{
-    primitives::Address, providers::ProviderBuilder, sol, transports::http::Http,
+    primitives::Address,
+    providers::{Provider, ProviderBuilder},
+    sol,
 };
 use tokio::{
     sync::watch,
@@ -17,9 +19,6 @@ sol!(
     ChainlinkPriceFeed,
     "src/contract_abis/ChainlinkPriceFeed.json",
 );
-
-// TODO: figure out how to erase this type
-type Provider = thegraph_core::alloy::providers::RootProvider<Http<reqwest::Client>>;
 
 pub async fn grt_per_usd(provider: Url) -> watch::Receiver<NotNan<f64>> {
     // https://data.chain.link/feeds/arbitrum/mainnet/grt-usd
@@ -58,7 +57,7 @@ pub async fn grt_per_usd(provider: Url) -> watch::Receiver<NotNan<f64>> {
 }
 
 async fn fetch_price(
-    contract: &ChainlinkPriceFeedInstance<Http<reqwest::Client>, Arc<Provider>>,
+    contract: &ChainlinkPriceFeedInstance<(), Arc<impl Provider>>,
 ) -> anyhow::Result<NotNan<f64>> {
     let decimals: u8 = contract.decimals().call().await?._0;
     ensure!(decimals <= 18);
