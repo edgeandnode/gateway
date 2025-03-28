@@ -1,9 +1,9 @@
-name: ci
+name: CI
+
 on:
   pull_request:
   push:
-    branches:
-      - "main"
+    branches: ["main"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -16,12 +16,12 @@ env:
 
 jobs:
   check_formatting:
-    name: "check formatting"
+    name: check formatting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      - name: Setup Rust toolchain
+      - name: setup Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly
@@ -30,21 +30,21 @@ jobs:
       - run: cargo +nightly fmt --all -- --check
 
   check_and_test:
-    name: "check and test"
+    name: check and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      - name: Setup Rust toolchain
+      - name: setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           components: rustfmt, clippy
 
-      - name: Cache Cargo build files
+      - name: cache Cargo build files
         uses: Leafwing-Studios/cargo-cache@a0709d80dd96c8734ac8f186c1f238c8f528d198 # v2
 
-      - name: Prepare build env
+      - name: prepare build env
         run: sudo apt-get install -y lld librdkafka-dev libsasl2-dev
 
       - run: cargo check
