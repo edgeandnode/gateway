@@ -65,9 +65,15 @@ impl Client {
             .get(self.url.clone())
             .bearer_auth(&self.auth)
             .send()
-            .await?
-            .json::<_ApiKeys>()
             .await?;
+        let status = response.status();
+        if !status.is_success() {
+            match response.text().await {
+                Ok(body) => anyhow::bail!("{body}"),
+                Err(_) => anyhow::bail!("{status}"),
+            };
+        }
+        let response = response.json::<_ApiKeys>().await?;
         let api_keys = response
             .api_keys
             .into_iter()
