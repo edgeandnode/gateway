@@ -76,13 +76,9 @@ pub fn into_internal_indexers_raw_info<'a>(
                 .entry(deployment_id)
                 .or_insert(IndexingRawInfo {
                     largest_allocation: allocation.id,
-                    total_allocated_tokens: 0,
                 });
 
             indexing.largest_allocation = indexing_largest_allocation;
-            indexing.total_allocated_tokens = indexing
-                .total_allocated_tokens
-                .saturating_add(allocation.allocated_tokens);
         }
 
         acc

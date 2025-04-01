@@ -576,7 +576,6 @@ fn build_candidates_list(
             fee: Normalized::new(indexing.fee as f64 / budget as f64).unwrap_or(Normalized::ONE),
             seconds_behind: perf.seconds_behind,
             slashable_grt: (indexing.indexer.staked_tokens as f64 * 1e-18) as u64,
-            zero_allocation: indexing.total_allocated_tokens == 0,
         });
     }
 
