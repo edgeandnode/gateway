@@ -54,8 +54,6 @@ pub struct IndexerInfo<I> {
 pub struct IndexingRawInfo {
     /// The largest allocation.
     pub largest_allocation: AllocationId,
-    /// The total amount of tokens allocated.
-    pub total_allocated_tokens: u128,
 }
 
 /// Internal representation of the fetched indexer's indexing information.
@@ -66,9 +64,6 @@ pub struct IndexingRawInfo {
 pub struct IndexingInfo<P, C> {
     /// The largest allocation.
     pub largest_allocation: AllocationId,
-
-    /// The total amount of tokens allocated.
-    pub total_allocated_tokens: u128,
 
     /// The indexing progress information
     ///
@@ -83,7 +78,6 @@ impl From<IndexingRawInfo> for IndexingInfo<(), ()> {
     fn from(raw: IndexingRawInfo) -> Self {
         Self {
             largest_allocation: raw.largest_allocation,
-            total_allocated_tokens: raw.total_allocated_tokens,
             progress: (),
             fee: (),
         }
@@ -99,7 +93,6 @@ impl IndexingInfo<(), ()> {
     ) -> IndexingInfo<IndexingProgress, ()> {
         IndexingInfo {
             largest_allocation: self.largest_allocation,
-            total_allocated_tokens: self.total_allocated_tokens,
             progress,
             fee: self.fee,
         }
@@ -112,7 +105,6 @@ impl IndexingInfo<IndexingProgress, ()> {
     fn with_fee(self, fee: u128) -> IndexingInfo<IndexingProgress, u128> {
         IndexingInfo {
             largest_allocation: self.largest_allocation,
-            total_allocated_tokens: self.total_allocated_tokens,
             progress: self.progress,
             fee,
         }

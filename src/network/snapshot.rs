@@ -36,10 +36,6 @@ pub struct Indexing {
     /// This is, among all allocations associated with the indexer and deployment, the address
     /// with the largest amount of allocated tokens.
     pub largest_allocation: AllocationId,
-    /// The indexer's indexing total allocated tokens.
-    ///
-    /// This is, the sum of all allocated tokens associated with the indexer and deployment.
-    pub total_allocated_tokens: u128,
     /// The indexer
     pub indexer: Arc<Indexer>,
     /// The indexing progress.
@@ -363,14 +359,12 @@ fn construct_indexings_table_row(
 
     // Construct the indexing table row
     let indexing_largest_allocation_addr = indexing_info.largest_allocation;
-    let indexing_total_allocated_tokens = indexing_info.total_allocated_tokens;
     let indexing_progress = indexing_info.progress.to_owned();
     let fee = indexing_info.fee;
 
     let indexing = Indexing {
         id: indexing_id,
         largest_allocation: indexing_largest_allocation_addr,
-        total_allocated_tokens: indexing_total_allocated_tokens,
         indexer: Arc::clone(indexer),
         progress: IndexingProgress {
             latest_block: indexing_progress.latest_block,
