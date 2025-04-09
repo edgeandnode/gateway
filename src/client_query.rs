@@ -20,7 +20,11 @@ use prost::bytes::Buf;
 use rand::Rng as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::{AllocationId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
+use thegraph_core::{
+    AllocationId, DeploymentId, IndexerId,
+    alloy::primitives::{B256, BlockNumber},
+    attestation::Attestation,
+};
 use thegraph_headers::{HttpBuilderExt as _, graph_attestation::GraphAttestation};
 use tokio::sync::mpsc;
 use tracing::{Instrument as _, info_span};
@@ -69,14 +73,19 @@ pub async fn handle_query(
 
     let grt_per_usd = *ctx.grt_per_usd.borrow();
     let one_grt = NotNan::new(1e18).unwrap();
-    let budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
+    let mut budget = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
+    let mut query_count = 1;
+    if auth.cross_check {
+        budget = budget.saturating_mul(2);
+        query_count = 3;
+    }
 
     let (tx, mut rx) = mpsc::channel(1);
     tokio::spawn(
         run_indexer_queries(
             ctx,
             request_id,
-            auth,
+            auth.clone(),
             start_time,
             subgraph,
             budget,
@@ -85,10 +94,28 @@ pub async fn handle_query(
         )
         .in_current_span(),
     );
-    let result = rx.recv().await.unwrap();
+    let mut results: Result<Vec<IndexerResponse>, Error> = Ok(vec![]);
+    while let Some(msg) = rx.recv().await {
+        match msg {
+            Ok(response) => {
+                let results = results.as_mut().ok().unwrap();
+                results.push(response);
+                if results.len() >= query_count {
+                    break;
+                }
+            }
+            Err(error) => {
+                results = Err(error);
+                break;
+            }
+        };
+    }
     drop(rx);
 
-    match &result {
+    // TODO: gracefully run out of indexers when waiting for multiple successes
+    // TODO: short circuit there are less than m candidates
+
+    match &results {
         Ok(_) => METRICS.client_query.ok.inc(),
         Err(_) => METRICS.client_query.err.inc(),
     };
@@ -97,24 +124,51 @@ pub async fn handle_query(
         .duration
         .observe(start_time.elapsed().as_secs_f64());
 
-    result.map(
-        |IndexerResponse {
-             client_response,
-             attestation,
-             ..
-         }| {
-            let mut builder = Response::builder()
-                .status(StatusCode::OK)
-                .header_typed(ContentType::json());
+    let responses = results?;
 
-            // Add attestation header if present
-            if let Some(attestation) = attestation {
-                builder = builder.header_typed(GraphAttestation(attestation));
+    let attestations: Vec<&Attestation> = responses
+        .iter()
+        .filter_map(|r| r.attestation.as_ref())
+        .collect();
+    let attestation_value = match attestations {
+        attestations if attestations.is_empty() => None,
+        attestations if attestations.len() == 1 => serde_json::to_string(&attestations[0]).ok(),
+        attestations => serde_json::to_string(&attestations).ok(),
+    };
+
+    let client_response = if auth.cross_check {
+        const M: usize = 2;
+        let mut response_hashes: BTreeMap<B256, Vec<IndexerResponse>> = BTreeMap::default();
+        for response in responses {
+            if let Some(attestation) = &response.attestation {
+                response_hashes
+                    .entry(attestation.response_cid)
+                    .or_default()
+                    .push(response);
             }
+        }
+        {
+            let debug_repr: BTreeMap<&B256, &str> = response_hashes
+                .iter()
+                .map(|(k, v)| (k, v[0].client_response.as_str()))
+                .collect();
+            tracing::debug!(responses = ?debug_repr);
+        }
+        match response_hashes.into_iter().find(|(_, r)| r.len() >= M) {
+            Some((_, r)) => r.into_iter().next().unwrap().client_response,
+            None => return Err(Error::InsufficientConsensus(attestation_value.unwrap())),
+        }
+    } else {
+        responses.into_iter().next().unwrap().client_response
+    };
 
-            builder.body(client_response).expect("valid response")
-        },
-    )
+    let mut builder = Response::builder()
+        .status(StatusCode::OK)
+        .header_typed(ContentType::json());
+    if let Some(attestation_value) = attestation_value {
+        builder = builder.header("graph-attestation", attestation_value);
+    }
+    Ok(builder.body(client_response).unwrap())
 }
 
 /// Resolve the subgraph info for the given query selector.
@@ -175,7 +229,7 @@ async fn run_indexer_queries(
     subgraph: ResolvedSubgraphInfo,
     budget: u128,
     client_request: QueryBody,
-    client_response: mpsc::Sender<Result<IndexerResponse, Error>>,
+    client_responses: mpsc::Sender<Result<IndexerResponse, Error>>,
 ) {
     let one_grt = NotNan::new(1e18).unwrap();
     let grt_per_usd = *ctx.grt_per_usd.borrow();
@@ -192,7 +246,7 @@ async fn run_indexer_queries(
     let agora_context = match AgoraContext::new(&client_request.query, &variables) {
         Ok(agora_context) => agora_context,
         Err(err) => {
-            client_response
+            client_responses
                 .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
                 .unwrap();
             return;
@@ -220,7 +274,7 @@ async fn run_indexer_queries(
             match resolve_block_requirements(&chain_reader, &agora_context, subgraph.start_block) {
                 Ok(block_requirements) => block_requirements,
                 Err(err) => {
-                    client_response
+                    client_responses
                         .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
                         .unwrap();
                     return;
@@ -259,6 +313,7 @@ async fn run_indexer_queries(
     let mut indexer_requests: Vec<reports::IndexerRequest> = Default::default();
     let mut client_response_time: Option<Duration> = None;
     let mut client_response_bytes: Option<u32> = None;
+    let mut client_response_count: usize = 0;
 
     // If a client query cannot be handled by the available indexers, we should give a reason for
     // all the available indexers in the `bad indexers` response.
@@ -269,6 +324,8 @@ async fn run_indexer_queries(
             tracing::error!("no candidates selected");
             break;
         }
+
+        // TODO: batch more indexers when using m/n cross-checking (n - selections.len())
 
         let (tx, mut rx) = mpsc::channel(SELECTION_LIMIT);
         let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
@@ -327,12 +384,16 @@ async fn run_indexer_queries(
         }
         drop(tx);
 
+        let query_count = if auth.cross_check { 3 } else { 1 };
         while let Some(report) = rx.recv().await {
             match report.result.as_ref() {
                 Ok(response) if client_response_time.is_none() => {
-                    let _ = client_response.try_send(Ok(response.clone()));
-                    client_response_time = Some(start_time.elapsed());
-                    client_response_bytes = Some(response.client_response.len() as u32);
+                    let _ = client_responses.try_send(Ok(response.clone()));
+                    client_response_count += 1;
+                    if client_response_count >= query_count {
+                        client_response_time = Some(start_time.elapsed());
+                        client_response_bytes = Some(response.client_response.len() as u32);
+                    }
                 }
                 Ok(_) => (),
                 Err(err) => {
@@ -357,7 +418,7 @@ async fn run_indexer_queries(
         Some(client_response_time) => client_response_time,
         // Send fallback error to use when no indexers are successful.
         None => {
-            let _ = client_response.try_send(Err(Error::BadIndexers(indexer_errors.clone())));
+            let _ = client_responses.try_send(Err(Error::BadIndexers(indexer_errors.clone())));
             start_time.elapsed()
         }
     };

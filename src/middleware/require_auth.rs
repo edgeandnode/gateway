@@ -121,7 +121,11 @@ where
             }
         };
         let origin = req.headers().typed_get::<Origin>().unwrap_or(Origin::NULL);
-        let auth = match self.ctx.check(bearer.token(), origin.hostname()) {
+        let cross_check = req.headers().get("graph-consensus-check").is_some();
+        let auth = match self
+            .ctx
+            .check(bearer.token(), origin.hostname(), cross_check)
+        {
             Ok(token) => token,
             Err(err) => {
                 // If the bearer token is invalid, return an error response

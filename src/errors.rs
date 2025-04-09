@@ -26,6 +26,9 @@ pub enum Error {
     /// There are no indexers allocated to the requested subgraph or deployment.
     #[error("no indexers found")]
     NoIndexers,
+    /// TODO
+    #[error("insufficient indexer consensus: {0}")]
+    InsufficientConsensus(String),
     /// Indexers are available, but failed to return a suitable result.
     #[error("bad indexers: {0}")]
     BadIndexers(IndexerErrors),

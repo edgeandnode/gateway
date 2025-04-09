@@ -13,6 +13,7 @@ pub struct AuthSettings {
     pub key: String,
     pub user: String,
     pub authorized_subgraphs: Vec<SubgraphId>,
+    pub cross_check: bool,
 }
 
 impl AuthSettings {
@@ -61,7 +62,12 @@ pub struct AuthContext {
 impl AuthContext {
     /// Parse an authorization token into its corresponding settings, and check that the query
     /// should be handled.
-    pub fn check(&self, token: &str, domain: &str) -> anyhow::Result<AuthSettings> {
+    pub fn check(
+        &self,
+        token: &str,
+        domain: &str,
+        cross_check: bool,
+    ) -> anyhow::Result<AuthSettings> {
         ensure!(!token.is_empty(), "missing API key");
         parse_api_key(token).ok_or_else(|| anyhow!("malformed API key"))?;
 
@@ -70,6 +76,7 @@ impl AuthContext {
                 key: token.to_string(),
                 user: String::new(),
                 authorized_subgraphs: vec![],
+                cross_check,
             });
         }
 
@@ -101,6 +108,7 @@ impl AuthContext {
             key: api_key.key.clone(),
             user: api_key.user_address.clone(),
             authorized_subgraphs: api_key.subgraphs.clone(),
+            cross_check,
         })
     }
 }
