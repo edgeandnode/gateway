@@ -96,25 +96,13 @@ pub enum ApiKeys {
 pub enum BlocklistEntry {
     Poi {
         deployment: DeploymentId,
-        info: BlocklistInfo,
         public_poi: B256,
         block: BlockNumber,
     },
     Other {
         deployment: DeploymentId,
-        info: BlocklistInfo,
         indexer: Address,
     },
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub struct BlocklistInfo {
-    /// Example query (should be minimal to reproduce bad response)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    query: Option<String>,
-    /// Bad query response, from the above query executed on indexers with this blocked PoI
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    bad_query_response: Option<String>,
 }
 
 /// Attestation configuration.
