@@ -160,13 +160,11 @@ impl Actor {
                         deployment,
                         public_poi,
                         block,
-                        info: _,
                     },
                     BlocklistEntry::Poi {
                         deployment: deployment_,
                         public_poi: public_poi_,
                         block: block_,
-                        info: _,
                     },
                 ) => {
                     (deployment == deployment_) && (public_poi == public_poi_) && (block == block_)
@@ -175,12 +173,10 @@ impl Actor {
                     BlocklistEntry::Other {
                         indexer,
                         deployment,
-                        info: _,
                     },
                     BlocklistEntry::Other {
                         indexer: indexer_,
                         deployment: deployment_,
-                        info: _,
                     },
                 ) => (indexer == indexer_) && (deployment == deployment_),
                 _ => false,
