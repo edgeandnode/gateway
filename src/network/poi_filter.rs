@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap},
     time::Duration,
 };
 
@@ -37,30 +37,40 @@ impl PoiFilter {
     pub async fn blocked_deployments(
         &self,
         status_url: &Url,
-        deployments: &[DeploymentId],
-    ) -> HashSet<DeploymentId> {
-        let blocklist = self.blocklist.borrow().clone();
+        deployments: BTreeSet<DeploymentId>,
+    ) -> BTreeSet<DeploymentId> {
+        let blocklist: HashMap<DeploymentId, Vec<(u64, ProofOfIndexing)>> = self
+            .blocklist
+            .borrow()
+            .iter()
+            .filter(|(d, _)| deployments.contains(*d))
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+        if blocklist.is_empty() {
+            return Default::default();
+        }
 
         let requests: Vec<(DeploymentId, BlockNumber)> = blocklist
             .iter()
-            .filter(|(deployment, _)| deployments.contains(deployment))
             .flat_map(|(deployment, entries)| {
                 entries.iter().map(|(block, _)| (*deployment, *block))
             })
             .collect();
-        let pois = self.resolve(status_url, requests).await;
+        if requests.is_empty() {
+            return Default::default();
+        }
 
+        let pois = self.resolve(status_url, requests).await;
         deployments
-            .iter()
-            .filter(|deployment| match blocklist.get(*deployment) {
+            .into_iter()
+            .filter(|deployment| match blocklist.get(deployment) {
                 None => false,
                 Some(blocklist) => blocklist.iter().any(|(block, poi)| {
-                    pois.get(&(**deployment, *block))
+                    pois.get(&(*deployment, *block))
                         .map(|poi_| poi == poi_)
                         .unwrap_or(true)
                 }),
             })
-            .cloned()
             .collect()
     }
 
@@ -200,7 +210,7 @@ pub struct PartialBlockPtr {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{HashMap, HashSet},
+        collections::{BTreeSet, HashMap},
         sync::Arc,
         time::Duration,
     };
@@ -262,9 +272,9 @@ mod tests {
         let status_url = indexer_url.join("status").unwrap();
         let assert_blocked = |blocked: Vec<DeploymentId>| async {
             let result = poi_filter
-                .blocked_deployments(&status_url, &[deployment])
+                .blocked_deployments(&status_url, [deployment].into_iter().collect())
                 .await;
-            assert_eq!(result, HashSet::from_iter(blocked));
+            assert_eq!(result, BTreeSet::from_iter(blocked));
         };
 
         assert_blocked(vec![deployment]).await;
