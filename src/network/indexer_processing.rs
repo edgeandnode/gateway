@@ -190,13 +190,13 @@ async fn process_indexer_indexings(
     indexings: HashMap<DeploymentId, IndexingRawInfo>,
     blocklist: HashSet<DeploymentId>,
 ) -> HashMap<DeploymentId, Result<ResolvedIndexingInfo, UnavailableReason>> {
-    let mut indexer_indexings: HashMap<DeploymentId, Result<IndexingInfo<(), ()>, _>> = indexings
+    let mut indexings: HashMap<DeploymentId, Result<IndexingInfo<(), ()>, _>> = indexings
         .into_iter()
         .map(|(id, info)| (id, Ok(info.into())))
         .collect();
 
     for deployment in blocklist {
-        indexer_indexings.insert(
+        indexings.insert(
             deployment,
             Err(UnavailableReason::Blocked("missing data".to_string())),
         );
@@ -205,49 +205,33 @@ async fn process_indexer_indexings(
     // ref: df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
     let status_url = url.join("status").unwrap();
 
-    // Keep track of the healthy indexers, so we efficiently resolve the indexer's indexings thar
-    // are not marked as unhealthy in a previous resolution step
-    let mut healthy_indexer_indexings = indexer_indexings.keys().copied().collect::<Vec<_>>();
-
-    // Check if the indexer's indexings should be blocked by POI
-    let blocked_indexings_by_poi = state
+    let poi_blocked_deployments = state
         .indexer_poi_filer
-        .blocked_deployments(&status_url, &healthy_indexer_indexings)
+        .blocked_deployments(&status_url, indexings.keys().copied().collect())
         .await;
+    for deployment in poi_blocked_deployments {
+        indexings.insert(
+            deployment,
+            Err(UnavailableReason::Blocked("bad PoI".to_string())),
+        );
+    }
 
-    // Remove the blocked indexings from the healthy indexers list
-    healthy_indexer_indexings.retain(|id| !blocked_indexings_by_poi.contains(id));
-
-    // Mark the indexings blocked by the POI blocklist as unhealthy
-    let indexer_indexings = indexer_indexings
-        .into_iter()
-        .map(|(id, res)| {
-            let info = res.and_then(|info| {
-                if blocked_indexings_by_poi.contains(&id) {
-                    Err(UnavailableReason::Blocked("bad PoI".to_string()))
-                } else {
-                    Ok(info)
-                }
-            });
-
-            (id, info)
-        })
-        .collect::<HashMap<_, _>>();
-
-    // Resolve the indexer's indexing progress information
+    let mut healthy_indexings: Vec<DeploymentId> = indexings
+        .iter()
+        .filter(|(_, result)| result.is_ok())
+        .map(|(deployment, _)| *deployment)
+        .collect();
     let mut indexing_progress = resolve_indexer_progress(
         &state.indexing_progress_resolver,
         &status_url,
-        &healthy_indexer_indexings,
+        &healthy_indexings,
     )
     .await;
-
-    // Remove the indexings with no indexing progress information from the healthy indexers list
-    healthy_indexer_indexings.retain(|id| indexing_progress.contains_key(id));
+    healthy_indexings.retain(|id| indexing_progress.contains_key(id));
 
     // Update the indexer's indexings with the progress information. If the progress information
     // is not found, the indexer must be marked as unhealthy
-    let indexer_indexings = indexer_indexings
+    let indexings = indexings
         .into_iter()
         .map(|(id, res)| {
             let info = match res {
@@ -274,11 +258,11 @@ async fn process_indexer_indexings(
     // Resolve the indexer's indexing cost models
     let mut indexer_cost_models = state
         .cost_model_resolver
-        .resolve(url, &healthy_indexer_indexings)
+        .resolve(url, &healthy_indexings)
         .await;
 
     // Update the indexer's indexings info with the cost models
-    indexer_indexings
+    indexings
         .into_iter()
         .map(|(id, res)| {
             let info = match res {
