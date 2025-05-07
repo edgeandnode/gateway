@@ -1,67 +1,103 @@
 {
-  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
   extends: [
-    "config:recommended",
-    ":semanticCommits",
-    ":semanticCommitTypeAll(chore)",
-    "helpers:pinGitHubActionDigests",
+    'config:recommended',
+    ':semanticCommits',
+    ':semanticCommitTypeAll(chore)',
+    'helpers:pinGitHubActionDigests',
   ],
-  schedule: ["before 6am on Monday"],
+  schedule: [
+    'before 6am on Monday',
+  ],
   configMigration: true,
-  rebaseWhen: "behind-base-branch",
+  rebaseWhen: 'behind-base-branch',
   lockFileMaintenance: {
     enabled: false,
   },
   packageRules: [
     {
-      groupName: "futures crates",
-      groupSlug: "futures",
-      matchManagers: ["cargo"],
-      matchPackageNames: ["futures", "futures-{/,}**", "futures_{/,}**"],
-    },
-    {
-      groupName: "serde crates",
-      groupSlug: "serde",
-      matchManagers: ["cargo"],
-      matchPackageNames: ["serde", "serde-{/,}**", "serde_{/,}**"],
-    },
-    {
-      groupName: "tonic crates",
-      groupSlug: "tonic",
-      matchManagers: ["cargo"],
-      matchSourceUrls: [
-        "https://github.com/hyperium/tonic{/,}**",
-        "https://github.com/tokio-rs/prost{/,}**",
+      groupName: 'futures crates',
+      groupSlug: 'futures',
+      matchManagers: [
+        'cargo',
+      ],
+      matchPackageNames: [
+        'futures',
+        'futures-{/,}**',
+        'futures_{/,}**',
       ],
     },
     {
-      groupName: "tracing crates",
-      groupSlug: "tracing",
-      matchManagers: ["cargo"],
-      matchSourceUrls: ["https://github.com/tokio-rs/tracing{/,}**"],
-      matchPackageNames: ["tracing-{/,}**", "tracing_{/,}**"],
+      groupName: 'serde crates',
+      groupSlug: 'serde',
+      matchManagers: [
+        'cargo',
+      ],
+      matchPackageNames: [
+        'serde',
+        'serde-{/,}**',
+        'serde_{/,}**',
+      ],
     },
     {
-      groupName: "alloy-rs core types monorepo",
-      groupSlug: "alloy-core",
-      matchManagers: ["cargo"],
-      matchSourceUrls: ["https://github.com/alloy-rs/core{/,}**"],
+      groupName: 'tonic crates',
+      groupSlug: 'tonic',
+      matchManagers: [
+        'cargo',
+      ],
+      matchSourceUrls: [
+        'https://github.com/hyperium/tonic{/,}**',
+        'https://github.com/tokio-rs/prost{/,}**',
+      ],
     },
     {
-      groupName: "async-graphql crates",
-      groupSlug: "async-graphql",
-      matchManagers: ["cargo"],
-      matchPackageNames: ["async-graphql", "async-graphql-{/,}**"],
+      groupName: 'tracing crates',
+      groupSlug: 'tracing',
+      matchManagers: [
+        'cargo',
+      ],
+      matchSourceUrls: [
+        'https://github.com/tokio-rs/tracing{/,}**',
+      ],
+      matchPackageNames: [
+        'tracing-{/,}**',
+        'tracing_{/,}**',
+      ],
+    },
+    {
+      groupName: 'alloy-rs core types monorepo',
+      groupSlug: 'alloy-core',
+      matchManagers: [
+        'cargo',
+      ],
+      matchSourceUrls: [
+        'https://github.com/alloy-rs/core{/,}**',
+      ],
+    },
+    {
+      groupName: 'async-graphql crates',
+      groupSlug: 'async-graphql',
+      matchManagers: [
+        'cargo',
+      ],
+      matchPackageNames: [
+        'async-graphql',
+        'async-graphql-{/,}**',
+      ],
     },
   ],
   customManagers: [
     {
-      customType: "regex",
-      fileMatch: ["^rust-toolchain(\\.toml)?$"],
-      matchStrings: ['channel\\s*=\\s*"(?<currentValue>\\d+\\.\\d+\\.\\d+)"'],
-      depNameTemplate: "rust",
-      packageNameTemplate: "rust-lang/rust",
-      datasourceTemplate: "github-releases",
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^rust-toolchain(\\.toml)?$/',
+      ],
+      matchStrings: [
+        'channel\\s*=\\s*"(?<currentValue>\\d+\\.\\d+\\.\\d+)"',
+      ],
+      depNameTemplate: 'rust',
+      packageNameTemplate: 'rust-lang/rust',
+      datasourceTemplate: 'github-releases',
     },
   ],
 }
