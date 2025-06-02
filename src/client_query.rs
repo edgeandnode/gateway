@@ -11,7 +11,6 @@ use axum::{
     extract::{Path, State},
     http::{Response, StatusCode},
 };
-use cost_model::Context as AgoraContext;
 use custom_debug::CustomDebug;
 use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
@@ -29,7 +28,9 @@ use url::Url;
 use self::{context::Context, query_selector::QuerySelector};
 use crate::{
     auth::AuthSettings,
-    block_constraints::{BlockRequirements, resolve_block_requirements, rewrite_query},
+    block_constraints::{
+        BlockRequirements, QueryContext, resolve_block_requirements, rewrite_query,
+    },
     budgets::USD,
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     indexer_client::{IndexerAuth, IndexerResponse},
@@ -189,8 +190,8 @@ async fn run_indexer_queries(
     // We handle these errors here, instead of `handle_query`, because the agora context is tied to
     // the lifetime of the query body which may need to extend past the client response. Even if
     // it doesn't, it is relatively difficult to convince the compiler of that.
-    let agora_context = match AgoraContext::new(&client_request.query, &variables) {
-        Ok(agora_context) => agora_context,
+    let query_context = match QueryContext::new(&client_request.query, &variables) {
+        Ok(query_context) => query_context,
         Err(err) => {
             client_response
                 .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
@@ -217,7 +218,7 @@ async fn run_indexer_queries(
         let blocks_per_minute = chain_reader.blocks_per_minute();
 
         let block_requirements =
-            match resolve_block_requirements(&chain_reader, &agora_context, subgraph.start_block) {
+            match resolve_block_requirements(&chain_reader, &query_context, subgraph.start_block) {
                 Ok(block_requirements) => block_requirements,
                 Err(err) => {
                     client_response
@@ -255,7 +256,7 @@ async fn run_indexer_queries(
     }
 
     let client_request_bytes = client_request.query.len() as u32;
-    let indexer_query = rewrite_query(&agora_context);
+    let indexer_query = rewrite_query(&query_context);
     let mut indexer_requests: Vec<reports::IndexerRequest> = Default::default();
     let mut client_response_time: Option<Duration> = None;
     let mut client_response_bytes: Option<u32> = None;

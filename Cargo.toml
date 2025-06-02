@@ -18,7 +18,6 @@ axum = { version = "0.8.1", default-features = false, features = [
     "tokio",
     "http1",
 ] }
-cost-model = { git = "https://github.com/graphprotocol/agora", rev = "e9530de" }
 custom_debug = "0.6.1"
 faster-hex = "0.10.0"
 futures = "0.3"
