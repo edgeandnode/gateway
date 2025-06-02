@@ -4,16 +4,54 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
-use cost_model::Context;
 use graphql::{
-    IntoStaticValue as _, StaticValue,
-    graphql_parser::query::{OperationDefinition, Selection, SelectionSet, Text, Value},
+    IntoStaticValue as _, QueryVariables, StaticValue,
+    graphql_parser::{
+        parse_query,
+        query::{
+            Definition, FragmentDefinition, OperationDefinition, Selection, SelectionSet, Text,
+            Value,
+        },
+    },
 };
 use itertools::Itertools as _;
 use serde_json::{self, json};
 use thegraph_core::alloy::primitives::{BlockHash, BlockNumber};
 
 use crate::{blocks::BlockConstraint, chain::Chain, errors::Error};
+
+pub struct QueryContext<'q> {
+    pub operations: Vec<OperationDefinition<'q, &'q str>>,
+    pub fragments: Vec<FragmentDefinition<'q, &'q str>>,
+    pub variables: QueryVariables,
+}
+
+impl<'q> QueryContext<'q> {
+    pub fn new(query: &'q str, variables: &'q str) -> anyhow::Result<Self> {
+        let variables = {
+            let vars = variables.trim();
+            if ["{}", "null", ""].contains(&vars) {
+                QueryVariables::default()
+            } else {
+                serde_json::from_str(vars).map_err(|_| anyhow!("Failed to parse variables"))?
+            }
+        };
+        let query = parse_query(query).map_err(|_| anyhow!("Failed to parse query"))?;
+        let mut operations = Vec::new();
+        let mut fragments = Vec::new();
+        for definition in query.definitions.into_iter() {
+            match definition {
+                Definition::Fragment(fragment) => fragments.push(fragment),
+                Definition::Operation(operation) => operations.push(operation),
+            }
+        }
+        Ok(Self {
+            variables,
+            fragments,
+            operations,
+        })
+    }
+}
 
 #[derive(Debug)]
 pub struct BlockRequirements {
@@ -27,7 +65,7 @@ pub struct BlockRequirements {
 
 pub fn resolve_block_requirements(
     chain: &Chain,
-    context: &Context,
+    context: &QueryContext,
     manifest_min_block: BlockNumber,
 ) -> Result<BlockRequirements, Error> {
     let constraints = block_constraints(context).unwrap_or_default();
@@ -76,7 +114,7 @@ pub fn resolve_block_requirements(
     })
 }
 
-fn block_constraints(context: &Context) -> Result<BTreeSet<BlockConstraint>, Error> {
+fn block_constraints(context: &QueryContext) -> Result<BTreeSet<BlockConstraint>, Error> {
     let mut constraints = BTreeSet::new();
     let vars = &context.variables;
     // ba6c90f1-3baf-45be-ac1c-f60733404436
@@ -126,7 +164,7 @@ fn block_constraints(context: &Context) -> Result<BTreeSet<BlockConstraint>, Err
     Ok(constraints)
 }
 
-pub fn rewrite_query<'q>(ctx: &Context<'q>) -> String {
+pub fn rewrite_query<'q>(ctx: &QueryContext<'q>) -> String {
     let mut buf: String = Default::default();
     for fragment in &ctx.fragments {
         write!(&mut buf, "{}", fragment).unwrap();
@@ -187,7 +225,7 @@ pub fn rewrite_query<'q>(ctx: &Context<'q>) -> String {
     serde_json::to_string(&json!({ "query": buf, "variables": ctx.variables })).unwrap()
 }
 
-fn contains_introspection(ctx: &Context<'_>) -> bool {
+fn contains_introspection(ctx: &QueryContext<'_>) -> bool {
     fn selection_set_has_introspection<'q>(s: &SelectionSet<'q, &'q str>) -> bool {
         s.items.iter().any(|selection| match selection {
             Selection::Field(f) => f.name.starts_with("__"), // only check top level
@@ -202,7 +240,7 @@ fn contains_introspection(ctx: &Context<'_>) -> bool {
 }
 
 fn field_constraint<'c, T: Text<'c>>(
-    vars: &cost_model::QueryVariables,
+    vars: &QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
     field: &Value<'c, T>,
 ) -> anyhow::Result<BlockConstraint> {
@@ -221,7 +259,7 @@ fn field_constraint<'c, T: Text<'c>>(
 }
 
 fn parse_constraint<'c, T: Text<'c>>(
-    vars: &cost_model::QueryVariables,
+    vars: &QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
     fields: &BTreeMap<T::Value, Value<'c, T>>,
 ) -> anyhow::Result<BlockConstraint> {
@@ -251,7 +289,7 @@ fn parse_constraint<'c, T: Text<'c>>(
 
 fn parse_hash<'c, T: Text<'c>>(
     hash: &Value<'c, T>,
-    variables: &cost_model::QueryVariables,
+    variables: &QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
 ) -> anyhow::Result<Option<BlockHash>> {
     match hash {
@@ -275,7 +313,7 @@ fn parse_hash<'c, T: Text<'c>>(
 
 fn parse_number<'c, T: Text<'c>>(
     number: &Value<'c, T>,
-    variables: &cost_model::QueryVariables,
+    variables: &QueryVariables,
     defaults: &BTreeMap<String, StaticValue>,
 ) -> anyhow::Result<Option<BlockNumber>> {
     let n = match number {
@@ -349,7 +387,7 @@ mod tests {
             ),
         ];
         for (query, expected) in tests {
-            let context = Context::new(query, "").unwrap();
+            let context = QueryContext::new(query, "").unwrap();
             let constraints = block_constraints(&context).map_err(|e| e.to_string());
             let expected = expected
                 .map(|v| BTreeSet::from_iter(v.iter().cloned()))
@@ -365,7 +403,7 @@ mod tests {
             "{ __type(name:\"Droid\") { name description } }",
         ];
         for example in examples {
-            let context = Context::new(example, "").unwrap();
+            let context = QueryContext::new(example, "").unwrap();
             assert!(super::contains_introspection(&context));
         }
     }
