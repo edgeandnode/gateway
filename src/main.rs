@@ -12,12 +12,12 @@ mod exchange_rate;
 mod graphql;
 mod indexer_client;
 mod indexing_performance;
+mod kafka;
 mod metrics;
 mod middleware;
 mod network;
 mod receipts;
 mod reports;
-mod subgraph_studio;
 mod time;
 mod unattestable_errors;
 
@@ -47,6 +47,7 @@ use indexing_performance::IndexingPerformance;
 use middleware::{RequestTracingLayer, RequireAuthorizationLayer, legacy_auth_adapter};
 use network::{indexer_blocklist, subgraph_client::Client as SubgraphClient};
 use prometheus::{self, Encoder as _};
+use rand::RngCore as _;
 use receipts::ReceiptSigner;
 use thegraph_core::{
     alloy::{dyn_abi::Eip712Domain, primitives::ChainId, signers::local::PrivateKeySigner},
@@ -55,6 +56,8 @@ use thegraph_core::{
 use tokio::{net::TcpListener, signal::unix::SignalKind, sync::watch};
 use tower_http::cors::{self, CorsLayer};
 use tracing_subscriber::{EnvFilter, prelude::*};
+
+use crate::config::KafkaConfig;
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
@@ -85,6 +88,7 @@ async fn main() {
         .timeout(Duration::from_secs(20))
         .build()
         .unwrap();
+    let kafka_consumer = KafkaConsumer::new(conf.kafka.clone());
 
     let grt_per_usd = match conf.exchange_rate_provider {
         ExchangeRateProvider::Fixed(grt_per_usd) => watch::channel(grt_per_usd).1,
@@ -116,7 +120,7 @@ async fn main() {
         None => Default::default(),
     };
     let indexer_blocklist =
-        indexer_blocklist::Blocklist::spawn(conf.blocklist, conf.kafka.clone().into());
+        indexer_blocklist::Blocklist::spawn(conf.blocklist, kafka_consumer.clone());
     let mut network = network::service::spawn(
         http_client.clone(),
         network_subgraph_client,
@@ -134,8 +138,14 @@ async fn main() {
         conf.receipts.verifier,
     )));
 
-    let auth_service =
-        init_auth_service(http_client.clone(), conf.api_keys, conf.payment_required).await;
+    let auth_service = init_auth_service(
+        http_client.clone(),
+        &kafka_consumer,
+        conf.api_keys,
+        conf.payment_required,
+    )
+    .await
+    .expect("failed to start auth service");
 
     let budgeter: &'static Budgeter =
         Box::leak(Box::new(Budgeter::new(USD(conf.query_fees_target))));
@@ -312,28 +322,59 @@ pub fn init_logging(executable_name: &str, json: bool) {
 /// This functions awaits the completion of the initial API keys fetch.
 async fn init_auth_service(
     http: reqwest::Client,
-    config: Option<ApiKeys>,
+    kafka: &KafkaConsumer,
+    config: ApiKeys,
     payment_required: bool,
-) -> AuthContext {
+) -> anyhow::Result<AuthContext> {
     let special_api_keys = match &config {
-        Some(ApiKeys::Endpoint { special, .. }) => Arc::new(HashSet::from_iter(special.clone())),
-        _ => Default::default(),
+        ApiKeys::Endpoint { special, .. } => Arc::new(HashSet::from_iter(special.clone())),
+        ApiKeys::KakfaTopic { special, .. } => Arc::new(HashSet::from_iter(special.clone())),
+        ApiKeys::Fixed(_) => Default::default(),
     };
 
     let api_keys = match config {
-        Some(ApiKeys::Endpoint { url, auth, .. }) => {
-            subgraph_studio::api_keys(http, url, auth).await
-        }
-        Some(ApiKeys::Fixed(api_keys)) => {
+        ApiKeys::Endpoint { url, auth, .. } => auth::studio_api::api_keys(http, url, auth).await,
+        ApiKeys::KakfaTopic {
+            topic,
+            bootstrap_url,
+            bootstrap_auth,
+            ..
+        } => auth::kafka::api_keys(kafka, &topic, &bootstrap_url, &bootstrap_auth).await?,
+        ApiKeys::Fixed(api_keys) => {
             let api_keys = api_keys.into_iter().map(|k| (k.key.clone(), k)).collect();
             watch::channel(api_keys).1
         }
-        None => watch::channel(Default::default()).1,
     };
 
-    AuthContext {
+    Ok(AuthContext {
         payment_required,
         api_keys,
         special_api_keys,
+    })
+}
+
+#[derive(Clone)]
+struct KafkaConsumer {
+    config: KafkaConfig,
+    group_id: String,
+}
+
+impl KafkaConsumer {
+    pub fn new(config: KafkaConfig) -> Self {
+        let group_id = format!("gateway-{:x}", rand::rng().next_u64());
+        Self { config, group_id }
+    }
+
+    pub fn stream_consumer(
+        &self,
+        topic: &str,
+    ) -> anyhow::Result<rdkafka::consumer::StreamConsumer> {
+        let consumer: rdkafka::consumer::StreamConsumer =
+            rdkafka::config::ClientConfig::from(self.config.clone())
+                .set("group.id", &self.group_id)
+                .set("auto.offset.reset", "beginning")
+                .create()?;
+        kafka::assign_partitions(&consumer, topic, rdkafka::Offset::Beginning)?;
+        Ok(consumer)
     }
 }
