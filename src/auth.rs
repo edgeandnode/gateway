@@ -1,3 +1,6 @@
+pub mod kafka;
+pub mod studio_api;
+
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,

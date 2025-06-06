@@ -21,8 +21,7 @@ use crate::{auth::ApiKey, network::subgraph_client::TrustedIndexer};
 #[serde_as]
 #[derive(Deserialize)]
 pub struct Config {
-    #[serde(default)]
-    pub api_keys: Option<ApiKeys>,
+    pub api_keys: ApiKeys,
     pub attestations: AttestationConfig,
     /// Blocklist applying to indexers.
     #[serde(default)]
@@ -83,6 +82,12 @@ pub enum ApiKeys {
         url: Url,
         /// Bearer auth token
         auth: String,
+        /// API keys that won't be blocked for non-payment
+        #[serde(default)]
+        special: Vec<String>,
+    },
+    KakfaTopic {
+        topic: String,
         /// API keys that won't be blocked for non-payment
         #[serde(default)]
         special: Vec<String>,
