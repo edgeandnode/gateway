@@ -75,6 +75,12 @@ async fn main() {
     init_logging("graph-gateway", conf.log_json);
     tracing::info!("gateway ID: {:?}", signer_address);
 
+    let setup_termination = tokio::spawn(async {
+        await_shutdown_signals().await;
+        tracing::warn!("shutdown");
+        std::process::exit(1);
+    });
+
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
@@ -219,6 +225,9 @@ async fn main() {
             routing::get(move || async move { axum::Json(blocklist.borrow().clone()) }),
         )
         .nest("/api", api);
+
+    // handle graceful shutdown via the axum server instead
+    setup_termination.abort();
 
     let app_listener = TcpListener::bind(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
