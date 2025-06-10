@@ -1,19 +1,11 @@
-use std::{
-    collections::{HashMap, HashSet},
-    time::Duration,
-};
+use std::collections::{HashMap, HashSet};
 
-use anyhow::{Context as _, anyhow};
 use futures::StreamExt as _;
-use rand::RngCore as _;
-use rdkafka::{
-    Message, TopicPartitionList,
-    consumer::{Consumer as _, StreamConsumer},
-};
+use rdkafka::Message;
 use thegraph_core::{DeploymentId, ProofOfIndexing, alloy::primitives::Address};
 use tokio::sync::watch;
 
-use crate::config::BlocklistEntry;
+use crate::{KafkaConsumer, config::BlocklistEntry};
 
 #[derive(Clone)]
 pub struct Blocklist {
@@ -23,7 +15,7 @@ pub struct Blocklist {
 }
 
 impl Blocklist {
-    pub fn spawn(init: Vec<BlocklistEntry>, kafka_config: rdkafka::ClientConfig) -> Self {
+    pub fn spawn(init: Vec<BlocklistEntry>, consumer: KafkaConsumer) -> Self {
         let (blocklist_tx, blocklist_rx) = watch::channel(Default::default());
         let (poi_tx, poi_rx) = watch::channel(Default::default());
         let (indexer_tx, indexer_rx) = watch::channel(Default::default());
@@ -36,7 +28,7 @@ impl Blocklist {
             actor.add_entry(entry);
         }
         tokio::spawn(async move {
-            actor.run(kafka_config).await;
+            actor.run(consumer).await;
         });
         Self {
             blocklist: blocklist_rx,
@@ -53,8 +45,8 @@ struct Actor {
 }
 
 impl Actor {
-    async fn run(&mut self, kafka_config: rdkafka::ClientConfig) {
-        let consumer = match create_consumer(kafka_config).await {
+    async fn run(&mut self, consumer: KafkaConsumer) {
+        let consumer = match consumer.stream_consumer("gateway_blocklist") {
             Ok(consumer) => consumer,
             Err(blocklist_err) => {
                 tracing::error!(%blocklist_err);
@@ -185,24 +177,4 @@ impl Actor {
         self.blocklist
             .send_modify(|blocklist| blocklist.retain(|value| !matching(entry, value)));
     }
-}
-
-async fn create_consumer(
-    mut kafka_config: rdkafka::ClientConfig,
-) -> anyhow::Result<StreamConsumer> {
-    let topic = "gateway_blocklist";
-    let group_id = format!("gateway-{:x}", rand::rng().next_u64());
-    let consumer: StreamConsumer = kafka_config.set("group.id", group_id).create()?;
-    let metadata = consumer
-        .fetch_metadata(Some(topic), Duration::from_secs(30))
-        .with_context(|| anyhow!("fetch {topic} metadata"))?;
-    anyhow::ensure!(!metadata.topics().is_empty());
-    let topic_info = &metadata.topics()[0];
-    let mut assignment = TopicPartitionList::new();
-    for partition in topic_info.partitions() {
-        assignment.add_partition_offset(topic, partition.id(), rdkafka::Offset::Beginning)?;
-    }
-    tracing::debug!(?assignment);
-    consumer.assign(&assignment)?;
-    Ok(consumer)
 }
