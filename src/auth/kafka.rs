@@ -21,10 +21,14 @@ pub async fn api_keys(
     boostrap_url: &Url,
     bootstrap_auth: &str,
 ) -> anyhow::Result<watch::Receiver<HashMap<String, ApiKey>>> {
-    let consumer = consumer.stream_consumer(topic)?;
-    let recent_timestamp = latest_timestamp(&consumer, topic).await?;
+    let recent_timestamp = {
+        let consumer = consumer.stream_consumer(topic)?;
+        let recent_timestamp = latest_timestamp(&consumer, topic).await?;
+        assign_partitions(&consumer, topic, Offset::Beginning)?;
+        recent_timestamp
+    }; // drop stream consumer to avoid issues with cached BEGINNING offset
     tracing::debug!(?recent_timestamp);
-    assign_partitions(&consumer, topic, Offset::Beginning)?;
+    let consumer = consumer.stream_consumer(topic)?;
 
     #[derive(Default)]
     struct Status {
