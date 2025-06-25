@@ -4568,9 +4568,9 @@ dependencies = [
 
 [[package]]
 name = "tap_graph"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef92cf034d1da570ad6c2fbb949ef6c481e973854b4123c7ae2cb6f4c35a6a8b"
+checksum = "ff0f8dd640afe0d3a53a6b6ae58f628f0f99267d33f61b7a1264daa9d4307003"
 dependencies = [
  "rand 0.9.1",
  "serde",
