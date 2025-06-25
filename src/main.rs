@@ -371,6 +371,10 @@ impl KafkaConsumer {
     ) -> anyhow::Result<rdkafka::consumer::StreamConsumer> {
         let consumer: rdkafka::consumer::StreamConsumer =
             rdkafka::config::ClientConfig::from(self.config.clone())
+                .remove("compression.codec")
+                .remove("queue.buffering.max.messages")
+                .remove("queue.buffering.max.ms")
+                .remove("message.timeout.ms")
                 .set("group.id", &self.group_id)
                 .set("auto.offset.reset", "beginning")
                 .create()?;
