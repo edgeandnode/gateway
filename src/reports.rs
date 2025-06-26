@@ -111,7 +111,7 @@ impl Reporter {
             .map(|indexer_request| IndexerQueryProtobuf {
                 indexer: indexer_request.indexer.to_vec(),
                 deployment: indexer_request.deployment.to_vec(),
-                allocation: indexer_request.receipt.allocation().to_vec(),
+                allocation: indexer_request.receipt.collection().as_address().to_vec(),
                 indexed_chain: indexer_request.subgraph_chain.clone(),
                 url: indexer_request.url.clone(),
                 fee_grt: indexer_request.receipt.value() as f64 * 1e-18,
@@ -189,7 +189,7 @@ impl Reporter {
                 AttestationProtobuf {
                     request: Some(indexer_request.request).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
                     response: Some(original_response).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
-                    allocation: indexer_request.receipt.allocation().0.0.into(),
+                    allocation: indexer_request.receipt.collection().0.into(),
                     subgraph_deployment: attestation.deployment.0.into(),
                     request_cid: attestation.request_cid.0.into(),
                     response_cid: attestation.response_cid.0.into(),
