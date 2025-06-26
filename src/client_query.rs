@@ -351,7 +351,7 @@ async fn run_indexer_queries(
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections.len() as f64;
             let indexer_fee = selection.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
-            let receipt = match ctx.receipt_signer.create_receipt(
+            let receipt = match ctx.receipt_signer.create_receipt_v2(
                 largest_collection,
                 fee,
                 ctx.receipt_signer.payer_address(),
@@ -754,7 +754,7 @@ pub async fn handle_indexer_query(
     let fee = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
 
     let collection = indexing.largest_collection;
-    let receipt = match ctx.receipt_signer.create_receipt(
+    let receipt = match ctx.receipt_signer.create_receipt_v2(
         collection,
         fee,
         ctx.receipt_signer.payer_address(),
