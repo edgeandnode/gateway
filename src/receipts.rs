@@ -1,7 +1,7 @@
 use std::time::SystemTime;
 
 use rand::RngCore;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use thegraph_core::{
     AllocationId, CollectionId,
     alloy::{
@@ -24,22 +24,14 @@ pub enum Receipt {
     V2(tap_graph::v2::SignedReceipt), // For generation and processing
 }
 
-/// V1 Receipt structure for processing (read-only)
-/// This is a simplified representation for receipt processing, not signing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct V1Receipt {
-    pub allocation_id: AllocationId,
-    pub value: u128,
-    pub timestamp_ns: u64,
-    pub nonce: u64,
-    // Additional fields can be added as needed for v1 compatibility
-}
+// Use tap_graph v1 types directly (should be available at root level)
+pub use tap_graph::{Receipt as V1ReceiptMessage, SignedReceipt as V1Receipt};
 
 impl Receipt {
     /// Get the fee value from either receipt version
     pub fn value(&self) -> u128 {
         match self {
-            Receipt::V1(receipt) => receipt.value,
+            Receipt::V1(receipt) => receipt.message.value,
             Receipt::V2(receipt) => receipt.message.value,
         }
     }
@@ -49,7 +41,7 @@ impl Receipt {
     /// For v2: returns the collection_id directly
     pub fn collection(&self) -> CollectionId {
         match self {
-            Receipt::V1(receipt) => receipt.allocation_id.into(),
+            Receipt::V1(receipt) => receipt.message.allocation_id.into(),
             Receipt::V2(receipt) => receipt.message.collection_id.into(),
         }
     }
@@ -60,7 +52,7 @@ impl Receipt {
     #[allow(dead_code)] // Used when processing v1 receipts
     pub fn allocation(&self) -> AllocationId {
         match self {
-            Receipt::V1(receipt) => receipt.allocation_id,
+            Receipt::V1(receipt) => receipt.message.allocation_id.into(),
             Receipt::V2(receipt) => CollectionId::from(receipt.message.collection_id).into(),
         }
     }
@@ -170,12 +162,20 @@ pub struct ReceiptConfig {
 
 pub struct ReceiptSigner {
     signer: PrivateKeySigner,
+    v1_config: ReceiptConfig,
     v2_config: ReceiptConfig,
-    // Note: No v1_config since we don't generate v1 receipts
 }
 
 impl ReceiptSigner {
     pub fn new(signer: PrivateKeySigner, chain_id: U256, verifying_contract: Address) -> Self {
+        let v1_domain = Eip712Domain {
+            name: Some("TAP".into()),
+            version: Some("1".into()),
+            chain_id: Some(chain_id),
+            verifying_contract: Some(verifying_contract),
+            salt: None,
+        };
+
         let v2_domain = Eip712Domain {
             name: Some("TAP".into()),
             version: Some("2".into()),
@@ -186,11 +186,42 @@ impl ReceiptSigner {
 
         Self {
             signer,
+            v1_config: ReceiptConfig {
+                version: ReceiptVersion::V1,
+                domain: v1_domain,
+            },
             v2_config: ReceiptConfig {
                 version: ReceiptVersion::V2,
                 domain: v2_domain,
             },
         }
+    }
+
+    /// Create a v1 receipt (allocation-based)
+    pub fn create_receipt_v1(
+        &self,
+        allocation: AllocationId,
+        fee: u128,
+    ) -> anyhow::Result<Receipt> {
+        let nonce = rand::rng().next_u64();
+        let timestamp_ns = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("failed to convert timestamp to ns"))?;
+
+        let receipt = V1ReceiptMessage {
+            allocation_id: allocation.0.into(),
+            timestamp_ns,
+            nonce,
+            value: fee,
+        };
+
+        let signed = V1Receipt::new(&self.v1_config.domain, receipt, &self.signer)
+            .map_err(|e| anyhow::anyhow!("failed to sign v1 receipt: {:?}", e))?;
+
+        Ok(Receipt::V1(signed))
     }
 
     /// Create a v2 receipt (collection-based) - ONLY method for generating receipts
@@ -228,6 +259,7 @@ impl ReceiptSigner {
     }
 
     /// Legacy method name for backwards compatibility - creates v2 receipt
+    #[allow(dead_code)] // Replaced with create_receipt_with_strategy for horizon awareness
     pub fn create_receipt_v2(
         &self,
         collection: CollectionId,
@@ -253,6 +285,39 @@ impl ReceiptSigner {
         self.create_receipt(collection, fee, payer, data_service, service_provider)
     }
 
+    /// Create a receipt based on the current TAP strategy (horizon-aware)
+    /// Pre-horizon: Creates v1 receipts (allocation-based)
+    /// Post-horizon: Creates v2 receipts (collection-based)
+    pub fn create_receipt_with_strategy(
+        &self,
+        strategy: crate::horizon::TapStrategy,
+        collection_or_allocation: CollectionId, // Can represent either collection or allocation
+        fee: u128,
+        payer: Address,
+        data_service: Address,
+        service_provider: Address,
+    ) -> anyhow::Result<Receipt> {
+        use crate::horizon::TapStrategy;
+
+        match strategy {
+            TapStrategy::PreHorizon => {
+                // Convert collection to allocation for v1 receipts
+                let allocation: AllocationId = collection_or_allocation.into();
+                self.create_receipt_v1(allocation, fee)
+            }
+            TapStrategy::PostHorizon => {
+                // Use collection for v2 receipts
+                self.create_receipt(
+                    collection_or_allocation,
+                    fee,
+                    payer,
+                    data_service,
+                    service_provider,
+                )
+            }
+        }
+    }
+
     pub fn payer_address(&self) -> Address {
         self.signer.address()
     }
@@ -275,10 +340,34 @@ impl ReceiptSigner {
         true // We always generate v2 receipts
     }
 
-    /// Check if the gateway should generate v1 receipts (always false)
-    #[allow(dead_code)] // Used for policy checking
-    pub fn should_generate_v1(&self) -> bool {
-        false // Never generate v1 receipts - only process existing ones
+    /// Check if the gateway can generate v1 receipts
+    #[allow(dead_code)] // Used for capability checking
+    pub fn can_generate_v1(&self) -> bool {
+        true // We can now generate v1 receipts
+    }
+
+    /// Create a receipt for a specific indexer based on their capabilities
+    /// This method chooses v1 or v2 based on what the indexer supports
+    #[allow(dead_code)] // Used when indexers have different TAP version support
+    pub fn create_receipt_for_indexer(
+        &self,
+        indexer_supports_v2: bool,
+        allocation_or_collection: impl Into<CollectionId>,
+        fee: u128,
+        payer: Address,
+        data_service: Address,
+        service_provider: Address,
+    ) -> anyhow::Result<Receipt> {
+        let collection = allocation_or_collection.into();
+
+        if indexer_supports_v2 {
+            // Indexer supports v2, send v2 receipt
+            self.create_receipt(collection, fee, payer, data_service, service_provider)
+        } else {
+            // Indexer only supports v1, create v1 receipt
+            let allocation: AllocationId = collection.into();
+            self.create_receipt_v1(allocation, fee)
+        }
     }
 }
 
@@ -292,8 +381,8 @@ impl Receipt {
         match self {
             Receipt::V1(receipt) => {
                 // Convert allocation to collection format
-                let collection = receipt.allocation_id.into();
-                (collection, receipt.value)
+                let collection = receipt.message.allocation_id.into();
+                (collection, receipt.message.value)
             }
             Receipt::V2(receipt) => {
                 let collection = receipt.message.collection_id.into();
@@ -310,12 +399,23 @@ impl Receipt {
         timestamp_ns: u64,
         nonce: u64,
     ) -> Self {
-        Receipt::V1(V1Receipt {
-            allocation_id,
+        // Create the v1 receipt message
+        let receipt_message = V1ReceiptMessage {
+            allocation_id: allocation_id.0.into(), // Convert AllocationId to Address
             value,
             timestamp_ns,
             nonce,
-        })
+        };
+
+        // Note: For testing purposes, we create an unsigned receipt
+        // In practice, v1 receipts from indexers would be properly signed
+        use thegraph_core::alloy::signers::Signature;
+        let signed_receipt = V1Receipt {
+            message: receipt_message,
+            signature: Signature::from_bytes_and_parity(&[0u8; 64], false), // Placeholder signature for testing
+        };
+
+        Receipt::V1(signed_receipt)
     }
 }
 
@@ -431,10 +531,78 @@ mod tests {
             "Should be able to generate v2 receipts"
         );
         assert!(
-            !signer.should_generate_v1(),
-            "Should never generate v1 receipts"
+            signer.can_generate_v1(),
+            "Should be able to generate v1 receipts"
         );
         assert_eq!(signer.generation_version(), ReceiptVersion::V2);
+    }
+
+    #[test]
+    fn test_v1_receipt_generation() {
+        let signer = create_test_signer();
+        let allocation = allocation_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2");
+        let fee = 1000;
+
+        let receipt = signer
+            .create_receipt_v1(allocation, fee)
+            .expect("failed to create v1 receipt");
+
+        assert_eq!(receipt.value(), fee);
+        assert_eq!(receipt.version(), "v1");
+        assert_eq!(receipt.allocation(), allocation);
+        assert!(receipt.is_v1());
+        assert!(!receipt.is_v2());
+
+        // v1 receipts don't have v2-specific fields
+        assert_eq!(receipt.payer(), None);
+        assert_eq!(receipt.data_service(), None);
+        assert_eq!(receipt.service_provider(), None);
+    }
+
+    #[test]
+    fn test_horizon_aware_receipt_creation() {
+        use crate::horizon::TapStrategy;
+
+        let signer = create_test_signer();
+        let collection_or_allocation =
+            collection_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2a00000000000000000000000");
+        let fee = 1000;
+        let payer = address!("1111111111111111111111111111111111111111");
+        let data_service = address!("2222222222222222222222222222222222222222");
+        let service_provider = address!("3333333333333333333333333333333333333333");
+
+        // Test pre-horizon strategy (should create v1 receipt)
+        let v1_receipt = signer
+            .create_receipt_with_strategy(
+                TapStrategy::PreHorizon,
+                collection_or_allocation,
+                fee,
+                payer,
+                data_service,
+                service_provider,
+            )
+            .expect("failed to create v1 receipt with pre-horizon strategy");
+
+        assert!(v1_receipt.is_v1());
+        assert_eq!(v1_receipt.value(), fee);
+
+        // Test post-horizon strategy (should create v2 receipt)
+        let v2_receipt = signer
+            .create_receipt_with_strategy(
+                TapStrategy::PostHorizon,
+                collection_or_allocation,
+                fee,
+                payer,
+                data_service,
+                service_provider,
+            )
+            .expect("failed to create v2 receipt with post-horizon strategy");
+
+        assert!(v2_receipt.is_v2());
+        assert_eq!(v2_receipt.value(), fee);
+        assert_eq!(v2_receipt.payer(), Some(payer));
+        assert_eq!(v2_receipt.data_service(), Some(data_service));
+        assert_eq!(v2_receipt.service_provider(), Some(service_provider));
     }
 
     #[test]

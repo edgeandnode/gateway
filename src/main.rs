@@ -10,6 +10,7 @@ mod config;
 mod errors;
 mod exchange_rate;
 mod graphql;
+mod horizon;
 mod indexer_client;
 mod indexing_performance;
 mod kafka;
@@ -42,6 +43,7 @@ use budgets::{Budgeter, USD};
 use chains::Chains;
 use client_query::context::Context;
 use config::{ApiKeys, BlocklistEntry, ExchangeRateProvider};
+use horizon::{HorizonTracker, TapStrategy};
 use indexer_client::IndexerClient;
 use indexing_performance::IndexingPerformance;
 use middleware::{RequestTracingLayer, RequireAuthorizationLayer, legacy_auth_adapter};
@@ -107,6 +109,7 @@ async fn main() {
     let indexer_client = IndexerClient {
         client: http_client.clone(),
     };
+    let trusted_indexers = conf.trusted_indexers.clone();
     let network_subgraph_client = SubgraphClient {
         client: indexer_client.clone(),
         indexers: conf.trusted_indexers,
@@ -161,6 +164,26 @@ async fn main() {
     )
     .unwrap();
 
+    // Initialize horizon tracking for production TAP strategy management
+    let (tap_strategy_tx, tap_strategy_rx) = watch::channel(TapStrategy::PostHorizon);
+    let horizon_tracker = Arc::new(HorizonTracker::new(
+        indexer_client.clone(),
+        trusted_indexers,
+        Duration::from_secs(60), // Check horizon status every minute
+    ));
+
+    // Start horizon monitoring in background
+    let horizon_tracker_clone = horizon_tracker.clone();
+    let tap_strategy_tx_clone = tap_strategy_tx;
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let strategy = horizon_tracker_clone.get_tap_strategy();
+            let _ = tap_strategy_tx_clone.send(strategy);
+        }
+    });
+
     let ctx = Context {
         indexer_client,
         receipt_signer,
@@ -171,6 +194,7 @@ async fn main() {
         network,
         attestation_domain,
         reporter,
+        tap_strategy: tap_strategy_rx,
     };
 
     let blocklist: watch::Receiver<Vec<BlocklistEntry>> = indexer_blocklist.blocklist;
