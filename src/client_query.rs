@@ -19,7 +19,7 @@ use prost::bytes::Buf;
 use rand::Rng as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::{AllocationId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
+use thegraph_core::{CollectionId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
 use thegraph_headers::{HttpBuilderExt as _, graph_attestation::GraphAttestation};
 use tokio::sync::mpsc;
 use tracing::{Instrument as _, info_span};
@@ -233,6 +233,7 @@ async fn resolve_subgraph_info(
 /// Kafka Export ← Performance Updates ← Budget Feedback ← Error Tracking
 /// ```
 ///
+#[allow(clippy::too_many_arguments)]
 async fn run_indexer_queries(
     ctx: Context,
     request_id: String,
@@ -341,7 +342,7 @@ async fn run_indexer_queries(
         for &selection in &selections {
             let indexer = selection.id;
             let deployment = selection.data.deployment;
-            let largest_allocation = selection.data.largest_allocation;
+            let largest_collection = selection.data.largest_collection;
             let url = selection.data.url.clone();
             let seconds_behind = selection.seconds_behind;
             let subgraph_chain = subgraph.chain.clone();
@@ -350,7 +351,13 @@ async fn run_indexer_queries(
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections.len() as f64;
             let indexer_fee = selection.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
-            let receipt = match ctx.receipt_signer.create_receipt(largest_allocation, fee) {
+            let receipt = match ctx.receipt_signer.create_receipt(
+                largest_collection,
+                fee,
+                ctx.receipt_signer.payer_address(),
+                indexer.into_inner(),
+                indexer.into_inner(),
+            ) {
                 Ok(receipt) => receipt,
                 Err(err) => {
                     tracing::error!(?indexer, %deployment, error=?err, "failed to create receipt");
@@ -477,7 +484,7 @@ async fn run_indexer_queries(
         tracing::info!(
             indexer = ?indexer_request.indexer,
             deployment = %indexer_request.deployment,
-            allocation = ?indexer_request.receipt.allocation(),
+            collection = ?indexer_request.receipt.collection(),
             url = indexer_request.url,
             result = ?indexer_request.result.as_ref().map(|_| ()),
             response_time_ms = indexer_request.response_time_ms,
@@ -528,7 +535,7 @@ struct CandidateMetadata {
     deployment: DeploymentId,
     #[debug(with = std::fmt::Display::fmt)]
     url: Url,
-    largest_allocation: AllocationId,
+    largest_collection: CollectionId,
 }
 
 /// Given a list of indexings, build a list of candidates that are within the required block range
@@ -636,7 +643,7 @@ fn build_candidates_list(
             data: CandidateMetadata {
                 deployment,
                 url: indexing.indexer.url.clone(),
-                largest_allocation: indexing.largest_allocation,
+                largest_collection: indexing.largest_collection,
             },
             perf: perf.response,
             fee: Normalized::new(indexing.fee as f64 / budget as f64).unwrap_or(Normalized::ONE),
@@ -746,8 +753,14 @@ pub async fn handle_indexer_query(
     let one_grt = NotNan::new(1e18).unwrap();
     let fee = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
 
-    let allocation = indexing.largest_allocation;
-    let receipt = match ctx.receipt_signer.create_receipt(allocation, fee) {
+    let collection = indexing.largest_collection;
+    let receipt = match ctx.receipt_signer.create_receipt(
+        collection,
+        fee,
+        ctx.receipt_signer.payer_address(),
+        indexer.into_inner(),
+        indexer.into_inner(),
+    ) {
         Ok(receipt) => receipt,
         Err(err) => {
             return Err(Error::Internal(anyhow!("failed to create receipt: {err}")));
@@ -809,7 +822,7 @@ pub async fn handle_indexer_query(
     tracing::info!(
         indexer = ?indexer_request.indexer,
         deployment = %indexer_request.deployment,
-        allocation = ?indexer_request.receipt.allocation(),
+        collection = ?indexer_request.receipt.collection(),
         url = indexer_request.url,
         result = ?indexer_request.result.as_ref().map(|_| ()),
         response_time_ms = indexer_request.response_time_ms,
