@@ -167,11 +167,11 @@ fn block_constraints(context: &QueryContext) -> Result<BTreeSet<BlockConstraint>
 pub fn rewrite_query<'q>(ctx: &QueryContext<'q>) -> String {
     let mut buf: String = Default::default();
     for fragment in &ctx.fragments {
-        write!(&mut buf, "{}", fragment).unwrap();
+        write!(&mut buf, "{fragment}").unwrap();
     }
     if contains_introspection(ctx) {
         for operation in &ctx.operations {
-            write!(&mut buf, "{}", operation).unwrap();
+            write!(&mut buf, "{operation}").unwrap();
         }
     } else {
         let serialize_selection_set =
@@ -180,13 +180,13 @@ pub fn rewrite_query<'q>(ctx: &QueryContext<'q>) -> String {
                 for selection in &selection_set.items {
                     match selection {
                         Selection::Field(field) => {
-                            write!(buf, "  {}", field).unwrap();
+                            write!(buf, "  {field}").unwrap();
                         }
                         Selection::FragmentSpread(spread) => {
-                            write!(buf, "  {}", spread).unwrap();
+                            write!(buf, "  {spread}").unwrap();
                         }
                         Selection::InlineFragment(fragment) => {
-                            write!(buf, "  {}", fragment).unwrap();
+                            write!(buf, "  {fragment}").unwrap();
                         }
                     };
                 }

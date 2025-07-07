@@ -44,8 +44,8 @@ pub enum QuerySelector {
 impl std::fmt::Display for QuerySelector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            QuerySelector::Deployment(id) => write!(f, "{}", id),
-            QuerySelector::Subgraph(id) => write!(f, "{}", id),
+            QuerySelector::Deployment(id) => write!(f, "{id}"),
+            QuerySelector::Subgraph(id) => write!(f, "{id}"),
         }
     }
 }
@@ -103,7 +103,7 @@ mod tests {
     /// Create a test router.
     fn test_router() -> Router {
         async fn handle_query(selector: QuerySelector) -> String {
-            format!("{}", selector)
+            format!("{selector}")
         }
 
         Router::new()

@@ -221,7 +221,7 @@ async fn main() {
                         .allow_headers(cors::Any)
                         .allow_methods([http::Method::OPTIONS, http::Method::POST]),
                 )
-                .layer(RequestTracingLayer::new(format!("{:?}", signer_address)))
+                .layer(RequestTracingLayer::new(format!("{signer_address:?}")))
                 .layer(axum::middleware::from_fn(legacy_auth_adapter))
                 .layer(RequireAuthorizationLayer::new(auth_service)),
         );
