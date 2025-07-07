@@ -58,7 +58,7 @@ impl std::ops::DerefMut for IndexerErrors {
 impl fmt::Display for IndexerErrors {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let entries = self.iter().map(|(k, v)| format!("{k:?}: {v}")).join(", ");
-        write!(f, "{{{}}}", entries)
+        write!(f, "{{{entries}}}")
     }
 }
 
