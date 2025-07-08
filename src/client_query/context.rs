@@ -3,7 +3,7 @@ use thegraph_core::alloy::dyn_abi::Eip712Domain;
 use tokio::sync::{mpsc, watch};
 
 use crate::{
-    budgets::Budgeter, chains::Chains, indexer_client::IndexerClient,
+    budgets::Budgeter, chains::Chains, horizon::TapStrategy, indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance, network::NetworkService, receipts::ReceiptSigner,
     reports,
 };
@@ -19,4 +19,6 @@ pub struct Context {
     pub indexing_perf: IndexingPerformance,
     pub attestation_domain: &'static Eip712Domain,
     pub reporter: mpsc::UnboundedSender<reports::ClientRequest>,
+    /// TAP strategy based on horizon contract deployment status
+    pub tap_strategy: watch::Receiver<TapStrategy>,
 }
