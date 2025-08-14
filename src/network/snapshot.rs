@@ -358,13 +358,13 @@ fn construct_indexings_table_row(
     };
 
     // Construct the indexing table row
-    let indexing_largest_allocation_addr = indexing_info.largest_allocation;
+    let indexing_largest_collection_id = indexing_info.largest_collection;
     let indexing_progress = indexing_info.progress.to_owned();
     let fee = indexing_info.fee;
 
     let indexing = Indexing {
         id: indexing_id,
-        largest_collection: indexing_largest_allocation_addr.into(),
+        largest_collection: indexing_largest_collection_id,
         indexer: Arc::clone(indexer),
         progress: IndexingProgress {
             latest_block: indexing_progress.latest_block,

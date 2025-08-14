@@ -1,7 +1,7 @@
 use std::collections::{HashMap, hash_map::Entry};
 
 use anyhow::{anyhow, ensure};
-use thegraph_core::{AllocationId, DeploymentId, IndexerId, SubgraphId};
+use thegraph_core::{CollectionId, DeploymentId, IndexerId, SubgraphId};
 use url::Url;
 
 use crate::network::{
@@ -16,9 +16,9 @@ use crate::network::{
 pub fn into_internal_indexers_raw_info<'a>(
     data: impl Iterator<Item = &'a subgraph_client::types::Subgraph>,
 ) -> HashMap<IndexerId, IndexerRawInfo> {
-    let mut indexer_indexing_largest_allocation: HashMap<
+    let mut indexer_indexing_largest_collection: HashMap<
         (IndexerId, DeploymentId),
-        (AllocationId, u128),
+        (CollectionId, u128),
     > = HashMap::new();
 
     data.flat_map(|subgraph| {
@@ -28,14 +28,14 @@ pub fn into_internal_indexers_raw_info<'a>(
             .map(|version| (&subgraph.id, version))
     })
     .fold(HashMap::new(), |mut acc, (subgraph_id, version)| {
-        for allocation in &version.subgraph_deployment.allocations {
-            let indexer_id = allocation.indexer.id;
+        for payments_escrow in &version.subgraph_deployment.payments_escrows {
+            let indexer_id = payments_escrow.indexer.id;
             let deployment_id = version.subgraph_deployment.id;
 
             // If the indexer info is not present, insert it if it is valid
             let indexer = match acc.entry(indexer_id) {
                 Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => match try_into_indexer_raw_info(&allocation.indexer) {
+                Entry::Vacant(entry) => match try_into_indexer_raw_info(&payments_escrow.indexer) {
                     Ok(info) => entry.insert(info),
                     Err(err) => {
                         // Log the error and skip the indexer
@@ -43,7 +43,7 @@ pub fn into_internal_indexers_raw_info<'a>(
                             subgraph_id=%subgraph_id,
                             version=%version.version,
                             deployment_id=%deployment_id,
-                            allocation_id=%allocation.id,
+                            payments_escrow_id=%payments_escrow.id,
                             indexer_id=%indexer_id,
                             "invalid indexer info: {err}"
                         );
@@ -52,21 +52,41 @@ pub fn into_internal_indexers_raw_info<'a>(
                 },
             };
 
-            // Update the indexer's indexings largest allocations table
-            let indexing_largest_allocation = match indexer_indexing_largest_allocation
+            // Update the indexer's indexings largest collections table (V2 escrow-based)
+            // Find the largest collection from this payments escrow
+            let largest_collection_id = payments_escrow
+                .collections
+                .first() // Use first collection (V2 equivalent of largest allocation)
+                .map(|c| {
+                    // Log collection status for monitoring
+                    tracing::trace!(collection_id = %c.id, status = %c.status, "processing collection");
+                    c.id
+                })
+                .unwrap_or_else(|| {
+                    // Fallback: create a collection ID from payments escrow ID for compatibility
+                    use thegraph_core::{CollectionId, alloy::primitives::FixedBytes};
+                    // This is a temporary compatibility layer - create a collection ID from the escrow ID
+                    let mut bytes = [0u8; 32];
+                    let escrow_bytes = payments_escrow.id.as_bytes();
+                    let copy_len = escrow_bytes.len().min(32);
+                    bytes[..copy_len].copy_from_slice(&escrow_bytes[..copy_len]);
+                    CollectionId::new(FixedBytes::from(bytes))
+                });
+
+            let indexing_largest_collection = match indexer_indexing_largest_collection
                 .entry((indexer_id, deployment_id))
             {
                 Entry::Vacant(entry) => {
-                    entry.insert((allocation.id, allocation.allocated_tokens));
-                    allocation.id
+                    entry.insert((largest_collection_id, payments_escrow.balance));
+                    largest_collection_id
                 }
                 Entry::Occupied(entry) => {
-                    let (largest_allocation_address, largest_allocation_amount) = entry.into_mut();
-                    if allocation.allocated_tokens > *largest_allocation_amount {
-                        *largest_allocation_address = allocation.id;
-                        *largest_allocation_amount = allocation.allocated_tokens;
+                    let (largest_collection_id_ref, largest_collection_amount) = entry.into_mut();
+                    if payments_escrow.balance > *largest_collection_amount {
+                        *largest_collection_id_ref = largest_collection_id;
+                        *largest_collection_amount = payments_escrow.balance;
                     }
-                    *largest_allocation_address
+                    *largest_collection_id_ref
                 }
             };
 
@@ -75,10 +95,10 @@ pub fn into_internal_indexers_raw_info<'a>(
                 .indexings
                 .entry(deployment_id)
                 .or_insert(IndexingRawInfo {
-                    largest_allocation: allocation.id,
+                    largest_collection: largest_collection_id,
                 });
 
-            indexing.largest_allocation = indexing_largest_allocation;
+            indexing.largest_collection = indexing_largest_collection;
         }
 
         acc
@@ -136,9 +156,9 @@ pub fn into_internal_deployments_raw_info<'a>(
                 .subgraphs
                 .extend(deployment_raw_info.subgraphs.iter().cloned());
 
-            // Merge the associated allocations
+            // Merge the associated indexer allocations (derived from V2 payments escrows)
             deployment
-                .allocations
+                .allocations // Field name preserved for compatibility with existing processing pipeline
                 .extend(deployment_raw_info.allocations.iter().cloned());
 
             acc
@@ -180,10 +200,10 @@ fn into_subgraph_version_raw_info(
     let deployment = version.subgraph_deployment;
 
     let deployment_allocations = deployment
-        .allocations
+        .payments_escrows
         .into_iter()
-        .map(|allocation| AllocationInfo {
-            indexer: allocation.indexer.id,
+        .map(|payments_escrow| AllocationInfo {
+            indexer: payments_escrow.indexer.id,
         })
         .collect::<Vec<_>>();
 

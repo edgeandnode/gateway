@@ -34,7 +34,7 @@ pub mod types {
     use serde::Deserialize;
     use serde_with::serde_as;
     use thegraph_core::{
-        AllocationId, DeploymentId, IndexerId, SubgraphId, alloy::primitives::BlockNumber,
+        CollectionId, DeploymentId, IndexerId, SubgraphId, alloy::primitives::BlockNumber,
     };
 
     #[derive(Debug, Clone, Deserialize)]
@@ -66,18 +66,26 @@ pub mod types {
         #[serde(rename = "ipfsHash")]
         pub id: DeploymentId,
         pub manifest: Option<Manifest>,
-        #[serde(rename = "indexerAllocations")]
-        pub allocations: Vec<Allocation>,
+        #[serde(rename = "paymentsEscrows")]
+        pub payments_escrows: Vec<PaymentsEscrow>,
     }
 
     #[serde_as]
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "camelCase")]
-    pub struct Allocation {
-        pub id: AllocationId,
+    pub struct PaymentsEscrow {
+        pub id: String,
         #[serde_as(as = "serde_with::DisplayFromStr")]
-        pub allocated_tokens: u128,
+        pub balance: u128,
         pub indexer: Indexer,
+        pub collections: Vec<Collection>,
+    }
+
+    #[derive(Debug, Clone, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Collection {
+        pub id: CollectionId,
+        pub status: String,
     }
 
     #[serde_as]
@@ -172,17 +180,21 @@ impl Client {
                                 network
                                 startBlock
                             }
-                            indexerAllocations(
+                            paymentsEscrows(
                                 first: 100
-                                orderBy: allocatedTokens, orderDirection: desc
+                                orderBy: balance, orderDirection: desc
                                 where: { status: Active }
                             ) {
                                 id
-                                allocatedTokens
+                                balance
                                 indexer {
                                     id
                                     url
                                     stakedTokens
+                                }
+                                collections {
+                                    id
+                                    status
                                 }
                             }
                         }
@@ -232,10 +244,14 @@ impl Client {
                     "last": last_id.unwrap_or_default(),
                 },
             });
+            let network_subgraph_url = indexer
+                .url
+                .join("subgraphs/name/graph-network")
+                .context("failed to construct network subgraph URL")?;
             let response = self
                 .client
                 .query_indexer(
-                    indexer.url.clone(),
+                    network_subgraph_url,
                     IndexerAuth::Free(&indexer.auth),
                     &page_query.to_string(),
                 )
