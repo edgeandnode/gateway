@@ -111,17 +111,11 @@ impl Reporter {
             .indexer_requests
             .iter()
             .map(|indexer_request| {
-                let (allocation, collection) = if indexer_request.receipt.is_v1() {
-                    (
-                        Some(indexer_request.receipt.allocation().as_ref().to_vec()),
-                        None,
-                    )
-                } else {
-                    (
-                        None,
-                        Some(indexer_request.receipt.collection().as_ref().to_vec()),
-                    )
-                };
+                // Only v2 receipts exist in this system
+                let (allocation, collection) = (
+                    None,
+                    Some(indexer_request.receipt.collection().as_ref().to_vec()),
+                );
 
                 IndexerQueryProtobuf {
                     indexer: indexer_request.indexer.to_vec(),
@@ -203,11 +197,8 @@ impl Reporter {
                 .and_then(|r| Some((r.original_response, r.attestation?)))
             {
                 const MAX_PAYLOAD_BYTES: usize = 100_000;
-                let allocation = if indexer_request.receipt.is_v1() {
-                    indexer_request.receipt.allocation().as_ref().to_vec() // Direct allocation for v1
-                } else {
-                    indexer_request.receipt.collection().as_address().to_vec() // Collection as address for v2
-                };
+                // Only v2 receipts exist - use collection as address
+                let allocation = indexer_request.receipt.collection().as_address().to_vec();
 
                 AttestationProtobuf {
                     request: Some(indexer_request.request).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
@@ -329,12 +320,11 @@ pub struct AttestationProtobuf {
 #[cfg(test)]
 mod tests {
     use thegraph_core::{
-        allocation_id,
         alloy::{primitives::address, signers::local::PrivateKeySigner},
         collection_id,
     };
 
-    use crate::receipts::{Receipt, ReceiptSigner};
+    use crate::receipts::ReceiptSigner;
 
     fn create_test_signer() -> ReceiptSigner {
         let secret_key = PrivateKeySigner::from_slice(&[0xcd; 32]).expect("invalid secret key");
@@ -343,30 +333,6 @@ mod tests {
             1.try_into().expect("invalid chain id"),
             address!("177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
         )
-    }
-
-    #[test]
-    fn test_protobuf_fields_v1_receipt() {
-        let allocation = allocation_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2");
-        let fee = 1000;
-        let v1_receipt = Receipt::create_v1_for_processing(allocation, fee, 1234567890, 42);
-
-        // Test IndexerQueryProtobuf fields
-        let (allocation_field, collection_field) = if v1_receipt.is_v1() {
-            (Some(v1_receipt.allocation().as_ref().to_vec()), None)
-        } else {
-            (None, Some(v1_receipt.collection().as_ref().to_vec()))
-        };
-
-        assert!(
-            allocation_field.is_some(),
-            "v1 receipt should have allocation field"
-        );
-        assert!(
-            collection_field.is_none(),
-            "v1 receipt should not have collection field"
-        );
-        assert_eq!(allocation_field.unwrap(), allocation.as_ref().to_vec());
     }
 
     #[test]
@@ -386,12 +352,9 @@ mod tests {
             )
             .expect("failed to create v2 receipt");
 
-        // Test IndexerQueryProtobuf fields
-        let (allocation_field, collection_field) = if v2_receipt.is_v1() {
-            (Some(v2_receipt.allocation().as_ref().to_vec()), None)
-        } else {
-            (None, Some(v2_receipt.collection().as_ref().to_vec()))
-        };
+        // Test IndexerQueryProtobuf fields - only v2 receipts exist
+        let (allocation_field, collection_field): (Option<Vec<u8>>, Option<Vec<u8>>) =
+            (None, Some(v2_receipt.collection().as_ref().to_vec()));
 
         assert!(
             allocation_field.is_none(),
@@ -402,35 +365,6 @@ mod tests {
             "v2 receipt should have collection field"
         );
         assert_eq!(collection_field.unwrap(), collection.as_ref().to_vec());
-    }
-
-    /// Test that simulates tap-aggregator receipt processing
-    #[test]
-    fn test_tap_aggregator_v1_compatibility() {
-        let allocation = allocation_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2");
-        let fee = 1000u128;
-        let v1_receipt = Receipt::create_v1_for_processing(allocation, fee, 1234567890, 42);
-
-        // Simulate IndexerQueryProtobuf creation (what gateway sends)
-        let (allocation_field, collection_field) = if v1_receipt.is_v1() {
-            (Some(v1_receipt.allocation().as_ref().to_vec()), None)
-        } else {
-            (None, Some(v1_receipt.collection().as_ref().to_vec()))
-        };
-
-        // Verify format matches tap-aggregator v1 expectations
-        assert!(
-            allocation_field.is_some(),
-            "v1 receipt must have allocation field"
-        );
-        assert!(
-            collection_field.is_none(),
-            "v1 receipt must not have collection field"
-        );
-
-        let allocation_bytes = allocation_field.unwrap();
-        assert_eq!(allocation_bytes.len(), 20, "allocation should be 20 bytes");
-        assert_eq!(allocation_bytes, allocation.as_ref().to_vec());
     }
 
     /// Test that simulates tap-aggregator v2 receipt processing
@@ -451,12 +385,9 @@ mod tests {
             )
             .expect("failed to create v2 receipt");
 
-        // Simulate IndexerQueryProtobuf creation (what gateway sends)
-        let (allocation_field, collection_field) = if v2_receipt.is_v1() {
-            (Some(v2_receipt.allocation().as_ref().to_vec()), None)
-        } else {
-            (None, Some(v2_receipt.collection().as_ref().to_vec()))
-        };
+        // Simulate IndexerQueryProtobuf creation (what gateway sends) - only v2 receipts
+        let (allocation_field, collection_field): (Option<Vec<u8>>, Option<Vec<u8>>) =
+            (None, Some(v2_receipt.collection().as_ref().to_vec()));
 
         // Verify format matches tap-aggregator v2 expectations
         assert!(
@@ -472,15 +403,6 @@ mod tests {
         assert_eq!(collection_bytes.len(), 32, "collection should be 32 bytes");
         assert_eq!(collection_bytes, collection.as_ref().to_vec());
 
-        // Also verify v2-specific fields are available
-        assert!(v2_receipt.payer().is_some(), "v2 receipt should have payer");
-        assert!(
-            v2_receipt.data_service().is_some(),
-            "v2 receipt should have data_service"
-        );
-        assert!(
-            v2_receipt.service_provider().is_some(),
-            "v2 receipt should have service_provider"
-        );
+        // v2 receipt verified by successful creation and collection extraction
     }
 }
