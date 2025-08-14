@@ -102,7 +102,7 @@ pub mod types {
 #[serde_as]
 #[derive(Clone, CustomDebug, Deserialize)]
 pub struct TrustedIndexer {
-    /// network subgraph endpoint
+    /// Complete network subgraph endpoint URL (e.g., http://indexer:7601/subgraphs/id/Qmc2Cb...)
     #[debug(with = std::fmt::Display::fmt)]
     #[serde_as(as = "serde_with::DisplayFromStr")]
     pub url: Url,
@@ -244,16 +244,13 @@ impl Client {
                     "last": last_id.unwrap_or_default(),
                 },
             });
-            let network_subgraph_url = indexer
-                .url
-                .join("subgraphs/name/graph-network")
-                .context("failed to construct network subgraph URL")?;
+            // Use trusted indexer URL directly - it already contains the complete network subgraph endpoint
+            let network_subgraph_url = indexer.url.clone();
 
-            // Debug logging for network subgraph URL construction
+            // Debug logging for network subgraph URL usage
             tracing::debug!(
-                indexer_base_url = %indexer.url,
-                constructed_url = %network_subgraph_url,
-                "constructed network subgraph URL for trusted indexer query"
+                network_subgraph_url = %network_subgraph_url,
+                "using trusted indexer URL for network subgraph query"
             );
 
             let response = self
