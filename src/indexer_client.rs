@@ -51,9 +51,17 @@ impl IndexerClient {
             IndexerAuth::Free(token) => (AUTHORIZATION.as_str(), format!("Bearer {token}")),
         };
 
+        // Debug logging to track actual HTTP request details
+        tracing::debug!(
+            url = %deployment_url,
+            auth_header = auth_key,
+            query_length = query.len(),
+            "sending HTTP POST request to indexer"
+        );
+
         let result = self
             .client
-            .post(deployment_url)
+            .post(deployment_url.clone())
             .header(CONTENT_TYPE.as_str(), "application/json")
             .header(auth_key, auth_value)
             .body(query.to_string())

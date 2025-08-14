@@ -248,6 +248,14 @@ impl Client {
                 .url
                 .join("subgraphs/name/graph-network")
                 .context("failed to construct network subgraph URL")?;
+
+            // Debug logging for network subgraph URL construction
+            tracing::debug!(
+                indexer_base_url = %indexer.url,
+                constructed_url = %network_subgraph_url,
+                "constructed network subgraph URL for trusted indexer query"
+            );
+
             let response = self
                 .client
                 .query_indexer(
