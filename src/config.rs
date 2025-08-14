@@ -46,7 +46,7 @@ pub struct Config {
     /// Minimum indexer-service version that will receive queries
     #[serde_as(as = "DisplayFromStr")]
     pub min_indexer_version: Version,
-    /// Indexers used to query the network subgraph
+    /// Trusted indexers that can serve the network subgraph for free
     pub trusted_indexers: Vec<TrustedIndexer>,
     /// Check payment state of client (disable for testnets)
     pub payment_required: bool,
