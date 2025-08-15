@@ -48,6 +48,9 @@ pub struct Config {
     pub min_indexer_version: Version,
     /// Trusted indexers that can serve the network subgraph for free
     pub trusted_indexers: Vec<TrustedIndexer>,
+    /// Maximum acceptable lag (in seconds) for network subgraph responses (default: 120)
+    #[serde(default = "default_network_subgraph_max_lag_seconds")]
+    pub network_subgraph_max_lag_seconds: u64,
     /// Check payment state of client (disable for testnets)
     pub payment_required: bool,
     /// public API port
@@ -58,6 +61,11 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_not_nan_f64")]
     pub query_fees_target: NotNan<f64>,
     pub receipts: Receipts,
+}
+
+/// Default network subgraph max lag threshold (120 seconds)
+fn default_network_subgraph_max_lag_seconds() -> u64 {
+    120
 }
 
 /// Deserialize a `NotNan<f64>` from a `f64` and return an error if the value is NaN.
