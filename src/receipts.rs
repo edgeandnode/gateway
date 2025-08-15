@@ -1,5 +1,7 @@
 use std::time::SystemTime;
 
+use base64::{Engine as _, engine::general_purpose};
+use prost::Message;
 use rand::RngCore;
 use serde::Serialize;
 use thegraph_core::{
@@ -28,9 +30,16 @@ impl Receipt {
         self.0.message.collection_id.into()
     }
 
-    /// Serialize the receipt to JSON string
+    /// Serialize the receipt to base64-encoded protobuf format for V2 compatibility
     pub fn serialize(&self) -> String {
-        serde_json::to_string(&self.0).unwrap()
+        // Convert tap_graph::v2::SignedReceipt to protobuf format
+        let protobuf_receipt: tap_aggregator::grpc::v2::SignedReceipt = self.0.clone().into();
+
+        // Encode to protobuf bytes
+        let bytes = protobuf_receipt.encode_to_vec();
+
+        // Base64 encode the bytes
+        general_purpose::STANDARD.encode(&bytes)
     }
 }
 

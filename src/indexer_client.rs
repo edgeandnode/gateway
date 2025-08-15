@@ -55,9 +55,19 @@ impl IndexerClient {
         tracing::debug!(
             url = %deployment_url,
             auth_header = auth_key,
+            auth_value_length = auth_value.len(),
             query_length = query.len(),
             "sending HTTP POST request to indexer"
         );
+
+        // CRITICAL DEBUG: Log if TAP receipt header is being set
+        if auth_key == "tap-receipt" {
+            tracing::warn!(
+                url = %deployment_url,
+                auth_value_preview = &auth_value[..auth_value.len().min(50)],
+                "TAP RECEIPT HEADER BEING SENT TO INDEXER"
+            );
+        }
 
         let result = self
             .client

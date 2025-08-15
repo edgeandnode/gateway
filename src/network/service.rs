@@ -128,9 +128,24 @@ impl NetworkService {
     ) -> Result<Option<ResolvedSubgraphInfo>, DeploymentError> {
         let network = self.network.borrow();
 
+        // Debug logging for deployment resolution
+        tracing::debug!(
+            ?id,
+            total_deployments = network.deployments.len(),
+            "attempting to resolve deployment ID"
+        );
+
+        // Log first few deployment IDs for comparison
+        for (dep_id, _) in network.deployments.iter().take(3) {
+            tracing::debug!(?dep_id, "available deployment in registry");
+        }
+
         // Resolve the deployment information
         let deployment = match network.deployments.get(id) {
-            None => return Ok(None),
+            None => {
+                tracing::warn!(?id, "deployment ID not found in registry");
+                return Ok(None);
+            }
             Some(Err(err)) => return Err(err.to_owned()),
             Some(Ok(deployment)) => deployment,
         };
