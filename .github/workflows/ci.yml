@@ -48,7 +48,7 @@ jobs:
         uses: Leafwing-Studios/cargo-cache@43ec9a5bad6e7f174e7fc65dcf533de75ff65881 # v2
 
       - name: prepare build env
-        run: sudo apt-get install -y lld librdkafka-dev libsasl2-dev
+        run: sudo apt-get install -y lld librdkafka-dev libsasl2-dev protobuf-compiler
 
       - run: cargo check
       - run: cargo clippy -- -Dwarnings --force-warn deprecated --force-warn dead-code

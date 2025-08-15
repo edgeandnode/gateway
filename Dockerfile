@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     libsasl2-dev \
     libssl-dev \
     pkg-config \
+    protobuf-compiler \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
