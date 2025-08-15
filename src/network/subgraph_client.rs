@@ -125,6 +125,7 @@ pub struct Client {
     pub indexers: Vec<TrustedIndexer>,
     pub page_size: usize,
     pub latest_block: Option<Block>,
+    pub max_lag_seconds: u64,
 }
 
 impl Client {
@@ -271,7 +272,8 @@ impl Client {
                     "response block before latest",
                 );
                 ensure!(
-                    (unix_timestamp() / 1_000).saturating_sub(block.timestamp) < 120,
+                    (unix_timestamp() / 1_000).saturating_sub(block.timestamp)
+                        < self.max_lag_seconds,
                     "response too far behind",
                 );
                 query_block = Some(block);
