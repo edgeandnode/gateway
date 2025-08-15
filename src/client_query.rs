@@ -61,9 +61,18 @@ pub async fn handle_query(
 ) -> Result<Response<String>, Error> {
     let start_time = Instant::now();
 
+    // CRITICAL DEBUG: Log query entry point
+    tracing::warn!(
+        ?selector,
+        payload_length = payload.len(),
+        "QUERY ENTRY POINT - starting query processing"
+    );
+
     // Check if the query selector is authorized by the auth token and
     // resolve the subgraph deployments for the query.
+    tracing::debug!("about to call resolve_subgraph_info");
     let subgraph = resolve_subgraph_info(&ctx, &auth, selector).await?;
+    tracing::debug!("resolve_subgraph_info completed successfully");
 
     let client_request: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
