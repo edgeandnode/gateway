@@ -381,9 +381,9 @@ async fn run_indexer_queries(
             let receipt = match ctx.receipt_signer.create_receipt(
                 largest_collection,
                 fee,
-                ctx.receipt_signer.payer_address(),
-                indexer.into_inner(),
-                indexer.into_inner(),
+                ctx.receipt_signer.payer_address(), // payer: gateway address
+                ctx.receipt_signer.payer_address(), // data_service: gateway address
+                indexer.into_inner(),               // service_provider: indexer address
             ) {
                 Ok(receipt) => {
                     tracing::debug!(
@@ -797,9 +797,9 @@ pub async fn handle_indexer_query(
     let receipt = match ctx.receipt_signer.create_receipt(
         collection,
         fee,
-        ctx.receipt_signer.payer_address(),
-        indexer.into_inner(),
-        indexer.into_inner(),
+        ctx.receipt_signer.payer_address(), // payer: gateway address
+        ctx.receipt_signer.payer_address(), // data_service: gateway address
+        indexer.into_inner(),               // service_provider: indexer address
     ) {
         Ok(receipt) => receipt,
         Err(err) => {
