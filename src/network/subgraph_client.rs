@@ -452,17 +452,14 @@ impl Client {
                                                 },
                                                 collections: vec![types::Collection {
                                                     id: {
-                                                        // Convert allocation ID to collection ID
-                                                        use thegraph_core::{
-                                                            CollectionId,
-                                                            alloy::primitives::FixedBytes,
-                                                        };
-                                                        let mut bytes = [0u8; 32];
-                                                        let id_bytes = allocation_id.as_bytes();
-                                                        let copy_len = id_bytes.len().min(32);
-                                                        bytes[..copy_len]
-                                                            .copy_from_slice(&id_bytes[..copy_len]);
-                                                        CollectionId::new(FixedBytes::from(bytes))
+                                                        // Convert allocation ID to collection ID using standard left-padding
+                                                        use thegraph_core::AllocationId;
+                                                        let allocation_parsed = allocation_id
+                                                            .parse::<AllocationId>()
+                                                            .expect(
+                                                                "V2 allocation ID should be valid",
+                                                            );
+                                                        allocation_parsed.into() // Uses standard left-padding conversion
                                                     },
                                                     status: "Active".to_string(), // Default status
                                                 }],
