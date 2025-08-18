@@ -172,6 +172,7 @@ async fn main() {
         network,
         attestation_domain,
         reporter,
+        subgraph_service: conf.subgraph_service,
     };
 
     let blocklist: watch::Receiver<Vec<BlocklistEntry>> = indexer_blocklist.blocklist;

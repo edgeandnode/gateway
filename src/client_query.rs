@@ -382,7 +382,7 @@ async fn run_indexer_queries(
                 largest_collection,
                 fee,
                 ctx.receipt_signer.payer_address(), // payer: gateway address
-                ctx.receipt_signer.payer_address(), // data_service: gateway address
+                ctx.subgraph_service,               // data_service: subgraph service address
                 indexer.into_inner(),               // service_provider: indexer address
             ) {
                 Ok(receipt) => {
@@ -798,7 +798,7 @@ pub async fn handle_indexer_query(
         collection,
         fee,
         ctx.receipt_signer.payer_address(), // payer: gateway address
-        ctx.receipt_signer.payer_address(), // data_service: gateway address
+        ctx.subgraph_service,               // data_service: subgraph service address
         indexer.into_inner(),               // service_provider: indexer address
     ) {
         Ok(receipt) => receipt,

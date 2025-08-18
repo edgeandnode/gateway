@@ -61,6 +61,8 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_not_nan_f64")]
     pub query_fees_target: NotNan<f64>,
     pub receipts: Receipts,
+    /// Address for the Subgraph Service
+    pub subgraph_service: Address,
 }
 
 /// Default network subgraph max lag threshold (120 seconds)

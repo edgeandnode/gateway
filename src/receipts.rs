@@ -76,8 +76,8 @@ pub struct ReceiptSigner {
 impl ReceiptSigner {
     pub fn new(signer: PrivateKeySigner, chain_id: U256, verifying_contract: Address) -> Self {
         let v2_domain = Eip712Domain {
-            name: Some("TAP".into()),
-            version: Some("2".into()),
+            name: Some("GraphTallyCollector".into()),
+            version: Some("1".into()),
             chain_id: Some(chain_id),
             verifying_contract: Some(verifying_contract),
             salt: None,

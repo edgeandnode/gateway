@@ -1,12 +1,11 @@
-use ordered_float::NotNan;
-use thegraph_core::alloy::dyn_abi::Eip712Domain;
-use tokio::sync::{mpsc, watch};
-
 use crate::{
     budgets::Budgeter, chains::Chains, indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance, network::NetworkService, receipts::ReceiptSigner,
     reports,
 };
+use ordered_float::NotNan;
+use thegraph_core::alloy::{dyn_abi::Eip712Domain, primitives::Address};
+use tokio::sync::{mpsc, watch};
 
 #[derive(Clone)]
 pub struct Context {
@@ -19,4 +18,5 @@ pub struct Context {
     pub indexing_perf: IndexingPerformance,
     pub attestation_domain: &'static Eip712Domain,
     pub reporter: mpsc::UnboundedSender<reports::ClientRequest>,
+    pub subgraph_service: Address,
 }
