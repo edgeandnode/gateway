@@ -1,11 +1,12 @@
+use ordered_float::NotNan;
+use thegraph_core::alloy::{dyn_abi::Eip712Domain, primitives::Address};
+use tokio::sync::{mpsc, watch};
+
 use crate::{
     budgets::Budgeter, chains::Chains, indexer_client::IndexerClient,
     indexing_performance::IndexingPerformance, network::NetworkService, receipts::ReceiptSigner,
     reports,
 };
-use ordered_float::NotNan;
-use thegraph_core::alloy::{dyn_abi::Eip712Domain, primitives::Address};
-use tokio::sync::{mpsc, watch};
 
 #[derive(Clone)]
 pub struct Context {
