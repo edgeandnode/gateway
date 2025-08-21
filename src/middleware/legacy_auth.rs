@@ -22,12 +22,12 @@ pub async fn legacy_auth_adapter(mut request: Request, next: Next) -> Response<B
         let (mut parts, body) = request.into_parts();
 
         // Extract the `api_key` from the path and add it to the Authorization header
-        if let Ok(Path(path)) = parts.extract::<Path<BTreeMap<String, String>>>().await {
-            if let Some(api_key) = path.get("api_key") {
-                parts
-                    .headers
-                    .typed_insert(Authorization::bearer(api_key).expect("valid api_key"));
-            }
+        if let Ok(Path(path)) = parts.extract::<Path<BTreeMap<String, String>>>().await
+            && let Some(api_key) = path.get("api_key")
+        {
+            parts
+                .headers
+                .typed_insert(Authorization::bearer(api_key).expect("valid api_key"));
         }
 
         // reconstruct the request

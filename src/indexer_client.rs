@@ -47,13 +47,31 @@ impl IndexerClient {
         query: &str,
     ) -> Result<IndexerResponse, IndexerError> {
         let (auth_key, auth_value) = match auth {
-            IndexerAuth::Paid(receipt, _) => ("Tap-Receipt", receipt.serialize()),
+            IndexerAuth::Paid(receipt, _) => ("tap-receipt", receipt.serialize()),
             IndexerAuth::Free(token) => (AUTHORIZATION.as_str(), format!("Bearer {token}")),
         };
 
+        // Debug logging to track actual HTTP request details
+        tracing::debug!(
+            url = %deployment_url,
+            auth_header = auth_key,
+            auth_value_length = auth_value.len(),
+            query_length = query.len(),
+            "sending HTTP POST request to indexer"
+        );
+
+        // CRITICAL DEBUG: Log if TAP receipt header is being set
+        if auth_key == "tap-receipt" {
+            tracing::warn!(
+                url = %deployment_url,
+                auth_value_preview = &auth_value[..auth_value.len().min(50)],
+                "TAP RECEIPT HEADER BEING SENT TO INDEXER"
+            );
+        }
+
         let result = self
             .client
-            .post(deployment_url)
+            .post(deployment_url.clone())
             .header(CONTENT_TYPE.as_str(), "application/json")
             .header(auth_key, auth_value)
             .body(query.to_string())
@@ -116,11 +134,11 @@ impl IndexerClient {
         if let IndexerAuth::Paid(receipt, attestation_domain) = auth {
             match &payload.attestation {
                 Some(attestation) => {
-                    let allocation = receipt.allocation();
+                    let collection = receipt.collection();
                     if let Err(err) = attestation::verify(
                         attestation_domain,
                         attestation,
-                        &allocation,
+                        &collection.as_address(),
                         query,
                         &original_response,
                     ) {

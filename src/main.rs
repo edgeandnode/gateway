@@ -112,6 +112,7 @@ async fn main() {
         indexers: conf.trusted_indexers,
         latest_block: None,
         page_size: 500,
+        max_lag_seconds: conf.network_subgraph_max_lag_seconds,
     };
     let indexer_host_blocklist = match &conf.ip_blocker_db {
         Some(path) => {
@@ -171,6 +172,7 @@ async fn main() {
         network,
         attestation_domain,
         reporter,
+        subgraph_service: conf.subgraph_service,
     };
 
     let blocklist: watch::Receiver<Vec<BlocklistEntry>> = indexer_blocklist.blocklist;

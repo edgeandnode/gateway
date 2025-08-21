@@ -34,13 +34,20 @@ pub mod types {
     use serde::Deserialize;
     use serde_with::serde_as;
     use thegraph_core::{
-        AllocationId, DeploymentId, IndexerId, SubgraphId, alloy::primitives::BlockNumber,
+        CollectionId, DeploymentId, IndexerId, SubgraphId, alloy::primitives::BlockNumber,
     };
 
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct Subgraph {
         pub id: SubgraphId,
+        // V2 Horizon fields (populated programmatically, not from JSON)
+        #[serde(skip)]
+        pub _service_provider: Option<ServiceProvider>,
+        #[serde(skip)]
+        pub _allocations: Vec<ServiceAllocation>,
+        // V1 compatibility (for gradual migration)
+        #[serde(default)]
         pub versions: Vec<SubgraphVersion>,
     }
 
@@ -66,18 +73,57 @@ pub mod types {
         #[serde(rename = "ipfsHash")]
         pub id: DeploymentId,
         pub manifest: Option<Manifest>,
-        #[serde(rename = "indexerAllocations")]
-        pub allocations: Vec<Allocation>,
+        #[serde(default)]
+        pub payments_escrows: Vec<PaymentsEscrow>,
     }
 
     #[serde_as]
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "camelCase")]
-    pub struct Allocation {
-        pub id: AllocationId,
+    pub struct PaymentsEscrow {
+        pub id: String,
         #[serde_as(as = "serde_with::DisplayFromStr")]
-        pub allocated_tokens: u128,
+        pub balance: u128,
         pub indexer: Indexer,
+        pub collections: Vec<Collection>,
+        pub _subgraph_deployment: SubgraphDeployment,
+    }
+
+    #[derive(Debug, Clone, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Collection {
+        pub id: CollectionId,
+        pub status: String,
+    }
+
+    #[derive(Debug, Clone, Deserialize)]
+    pub struct ServiceProvider {
+        pub _id: IndexerId,
+        pub _url: Option<String>,
+        #[serde(rename = "stakedTokens")]
+        pub _staked_tokens: String,
+    }
+
+    #[derive(Debug, Clone, Deserialize)]
+    pub struct ServiceAllocation {
+        pub _id: String,
+        pub _tokens: String,
+        #[serde(rename = "subgraphDeployment")]
+        pub _subgraph_deployment: DeploymentInfo,
+    }
+
+    #[derive(Debug, Clone, Deserialize)]
+    pub struct DeploymentInfo {
+        #[serde(rename = "ipfsHash")]
+        pub _ipfs_hash: DeploymentId,
+        pub _manifest: Option<ManifestInfo>,
+    }
+
+    #[derive(Debug, Clone, Deserialize)]
+    pub struct ManifestInfo {
+        pub _network: Option<String>,
+        #[serde(rename = "startBlock")]
+        pub _start_block: String,
     }
 
     #[serde_as]
@@ -94,7 +140,7 @@ pub mod types {
 #[serde_as]
 #[derive(Clone, CustomDebug, Deserialize)]
 pub struct TrustedIndexer {
-    /// network subgraph endpoint
+    /// Complete network subgraph endpoint URL (e.g., http://indexer:7601/subgraphs/id/Qmc2Cb...)
     #[debug(with = std::fmt::Display::fmt)]
     #[serde_as(as = "serde_with::DisplayFromStr")]
     pub url: Url,
@@ -125,6 +171,7 @@ pub struct Client {
     pub indexers: Vec<TrustedIndexer>,
     pub page_size: usize,
     pub latest_block: Option<Block>,
+    pub max_lag_seconds: u64,
 }
 
 impl Client {
@@ -152,31 +199,23 @@ impl Client {
         let query = r#"
             query ($block: Block_height!, $first: Int!, $last: String!) {
                 meta: _meta(block: $block) { block { number hash timestamp } }
-                results: subgraphs(
+                subgraphs(
                     block: $block
-                    orderBy: id, orderDirection: asc
                     first: $first
-                    where: {
-                        id_gt: $last
-                        entityVersion: 2
-                        versionCount_gte: 1
-                        active: true
-                    }
+                    orderBy: id, orderDirection: asc
+                    where: { id_gt: $last }
                 ) {
                     id
-                    versions(orderBy: version, orderDirection: desc) {
+                    versions {
                         version
                         subgraphDeployment {
+                            id
                             ipfsHash
                             manifest {
                                 network
                                 startBlock
                             }
-                            indexerAllocations(
-                                first: 100
-                                orderBy: allocatedTokens, orderDirection: desc
-                                where: { status: Active }
-                            ) {
+                            indexerAllocations {
                                 id
                                 allocatedTokens
                                 indexer {
@@ -199,7 +238,60 @@ impl Client {
         #[derive(Debug, Deserialize)]
         pub struct QueryData {
             meta: Meta,
-            results: Vec<Subgraph>,
+            subgraphs: Vec<SubgraphWithVersions>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct SubgraphWithVersions {
+            pub id: String,
+            pub versions: Vec<SubgraphVersionWithDeployment>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct SubgraphVersionWithDeployment {
+            pub version: u32,
+            #[serde(rename = "subgraphDeployment")]
+            pub subgraph_deployment: DeploymentWithAllocations,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct DeploymentWithAllocations {
+            pub id: String,
+            #[serde(rename = "ipfsHash")]
+            pub ipfs_hash: String,
+            pub manifest: Option<ManifestInfo>,
+            #[serde(rename = "indexerAllocations")]
+            pub indexer_allocations: Vec<AllocationWithIndexer>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct AllocationWithIndexer {
+            pub id: String,
+            #[serde(rename = "allocatedTokens")]
+            pub allocated_tokens: String,
+            pub indexer: IndexerInfo,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct IndexerInfo {
+            pub id: thegraph_core::IndexerId,
+            pub url: Option<String>,
+            #[serde(rename = "stakedTokens")]
+            pub staked_tokens: String,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct DeploymentInfo {
+            #[serde(rename = "ipfsHash")]
+            pub _ipfs_hash: thegraph_core::DeploymentId,
+            pub _manifest: Option<ManifestInfo>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct ManifestInfo {
+            pub network: String,
+            #[serde(rename = "startBlock")]
+            pub start_block: String,
         }
         #[derive(Debug, Deserialize)]
         pub struct Meta {
@@ -232,10 +324,19 @@ impl Client {
                     "last": last_id.unwrap_or_default(),
                 },
             });
+            // Use trusted indexer URL directly - it already contains the complete network subgraph endpoint
+            let network_subgraph_url = indexer.url.clone();
+
+            // Debug logging for network subgraph URL usage
+            tracing::debug!(
+                network_subgraph_url = %network_subgraph_url,
+                "using trusted indexer URL for network subgraph query"
+            );
+
             let response = self
                 .client
                 .query_indexer(
-                    indexer.url.clone(),
+                    network_subgraph_url,
                     IndexerAuth::Free(&indexer.auth),
                     &page_query.to_string(),
                 )
@@ -250,7 +351,7 @@ impl Client {
             if !response.errors.is_empty() {
                 bail!("{:?}", response.errors);
             }
-            let mut data = response
+            let data = response
                 .data
                 .ok_or_else(|| anyhow!("response missing data"))?;
             let block = Block {
@@ -271,14 +372,111 @@ impl Client {
                     "response block before latest",
                 );
                 ensure!(
-                    (unix_timestamp() / 1_000).saturating_sub(block.timestamp) < 120,
+                    (unix_timestamp() / 1_000).saturating_sub(block.timestamp)
+                        < self.max_lag_seconds,
                     "response too far behind",
                 );
                 query_block = Some(block);
             }
-            last_id = data.results.last().map(|entry| entry.id.to_string());
-            let page_len = data.results.len();
-            results.append(&mut data.results);
+            // Process V2 subgraphs data with correct SubgraphId → DeploymentId mapping
+            let subgraphs = data.subgraphs;
+            last_id = subgraphs.last().map(|entry| entry.id.clone());
+            let page_len = subgraphs.len();
+
+            results.extend(subgraphs.into_iter().map(|subgraph| {
+                // Parse the SubgraphId from the response
+                let subgraph_id = subgraph
+                    .id
+                    .parse::<thegraph_core::SubgraphId>()
+                    .unwrap_or_else(|_| {
+                        // Fallback: create SubgraphId from string bytes
+                        use thegraph_core::{SubgraphId, alloy::primitives::FixedBytes};
+                        let mut bytes = [0u8; 32];
+                        let id_bytes = subgraph.id.as_bytes();
+                        let copy_len = id_bytes.len().min(32);
+                        bytes[..copy_len].copy_from_slice(&id_bytes[..copy_len]);
+                        SubgraphId::new(FixedBytes::from(bytes))
+                    });
+
+                types::Subgraph {
+                    id: subgraph_id,
+                    _service_provider: None, // V2 doesn't use service providers
+                    _allocations: Vec::new(), // V2 data structure doesn't populate this
+                    versions: subgraph
+                        .versions
+                        .into_iter()
+                        .map(|version| {
+                            // Log deployment info for debugging
+                            tracing::debug!(
+                                deployment_id = %version.subgraph_deployment.id,
+                                ipfs_hash = %version.subgraph_deployment.ipfs_hash,
+                                "processing V2 subgraph deployment"
+                            );
+
+                            let deployment_id = version
+                                .subgraph_deployment
+                                .ipfs_hash
+                                .parse::<thegraph_core::DeploymentId>()
+                                .expect("V2 IPFS hash should be valid DeploymentId");
+
+                            types::SubgraphVersion {
+                                version: version.version,
+                                subgraph_deployment: types::SubgraphDeployment {
+                                    id: deployment_id,
+                                    manifest: version.subgraph_deployment.manifest.map(|m| {
+                                        types::Manifest {
+                                            network: Some(m.network),
+                                            start_block: m.start_block.parse().unwrap_or(0),
+                                        }
+                                    }),
+                                    payments_escrows: version
+                                        .subgraph_deployment
+                                        .indexer_allocations
+                                        .into_iter()
+                                        .map(|alloc| {
+                                            let allocation_id = alloc.id.clone();
+                                            types::PaymentsEscrow {
+                                                id: alloc.id,
+                                                balance: alloc
+                                                    .allocated_tokens
+                                                    .parse()
+                                                    .unwrap_or(0),
+                                                indexer: types::Indexer {
+                                                    id: alloc.indexer.id,
+                                                    url: alloc.indexer.url,
+                                                    staked_tokens: alloc
+                                                        .indexer
+                                                        .staked_tokens
+                                                        .parse()
+                                                        .unwrap_or(0),
+                                                },
+                                                collections: vec![types::Collection {
+                                                    id: {
+                                                        // Convert allocation ID to collection ID using standard left-padding
+                                                        use thegraph_core::AllocationId;
+                                                        let allocation_parsed = allocation_id
+                                                            .parse::<AllocationId>()
+                                                            .expect(
+                                                                "V2 allocation ID should be valid",
+                                                            );
+                                                        allocation_parsed.into() // Uses standard left-padding conversion
+                                                    },
+                                                    status: "Active".to_string(), // Default status
+                                                }],
+                                                _subgraph_deployment: types::SubgraphDeployment {
+                                                    id: deployment_id,
+                                                    manifest: None, // Avoid circular reference
+                                                    payments_escrows: Vec::new(), // Avoid circular reference
+                                                },
+                                            }
+                                        })
+                                        .collect(),
+                                },
+                            }
+                        })
+                        .collect(),
+                }
+            }));
             if page_len < self.page_size {
                 break;
             }

@@ -19,7 +19,7 @@ use prost::bytes::Buf;
 use rand::Rng as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::{AllocationId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
+use thegraph_core::{CollectionId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
 use thegraph_headers::{HttpBuilderExt as _, graph_attestation::GraphAttestation};
 use tokio::sync::mpsc;
 use tracing::{Instrument as _, info_span};
@@ -61,9 +61,18 @@ pub async fn handle_query(
 ) -> Result<Response<String>, Error> {
     let start_time = Instant::now();
 
+    // CRITICAL DEBUG: Log query entry point
+    tracing::warn!(
+        ?selector,
+        payload_length = payload.len(),
+        "QUERY ENTRY POINT - starting query processing"
+    );
+
     // Check if the query selector is authorized by the auth token and
     // resolve the subgraph deployments for the query.
+    tracing::debug!("about to call resolve_subgraph_info");
     let subgraph = resolve_subgraph_info(&ctx, &auth, selector).await?;
+    tracing::debug!("resolve_subgraph_info completed successfully");
 
     let client_request: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
@@ -167,6 +176,72 @@ async fn resolve_subgraph_info(
     }
 }
 
+/// Executes a GraphQL query across multiple indexers in the Graph Network.
+///
+/// This is the core orchestration function that handles the complete query lifecycle:
+/// indexer selection, concurrent query execution, TAP payment processing, and response aggregation.
+///
+/// # Arguments
+///
+/// * `ctx` - Gateway context containing shared services (indexer client, network state, etc.)
+/// * `request_id` - Unique identifier for this request used in tracing and reporting
+/// * `auth` - Authenticated user settings including API key and authorized subgraphs
+/// * `start_time` - Query start timestamp for latency calculations
+/// * `subgraph` - Resolved subgraph information including available indexers and deployments
+/// * `budget` - Maximum query budget in GRT smallest units (1 GRT = 10^18 units)
+/// * `client_request` - Original GraphQL query and variables from the client
+/// * `client_response` - Channel to send the first successful response back to the client
+///
+/// # Behavior
+///
+/// The function implements a multi-round retry strategy:
+///
+/// 1. **Query Parsing**: Validates GraphQL syntax and creates execution context
+/// 2. **Chain State**: Resolves current chain head and block requirements from query
+/// 3. **Candidate Selection**: Filters available indexers by performance, block range, and availability
+/// 4. **Concurrent Execution**: Selects up to 3 indexers per round and queries them simultaneously
+/// 5. **First Success Wins**: Returns the first successful response to the client immediately
+/// 6. **Retry Logic**: If all indexers fail, removes failed candidates and retries with remaining indexers
+/// 7. **Comprehensive Reporting**: Exports all request data to Kafka regardless of success/failure
+///
+/// # Payment Processing
+///
+/// Each indexer request includes a cryptographically signed TAP receipt:
+/// - Dynamic fee calculation based on budget and indexer count
+/// - EIP-712 signed receipt with allocation ID, timestamp, nonce, and fee amount
+/// - Budget feedback to dynamic pricing controller
+///
+/// # Error Handling
+///
+/// - **Query Errors**: Malformed GraphQL returns `Error::BadQuery`
+/// - **No Indexers**: All indexers filtered out returns `Error::NoIndexers`  
+/// - **All Failed**: All indexers failed returns `Error::BadIndexers` with detailed error map
+/// - **Timeout**: 60-second timeout with best available error response
+///
+/// # Performance Characteristics
+///
+/// - **Latency**: Optimized for first successful response (typically 100-500ms)
+/// - **Fault Tolerance**: Multiple indexer selection with automatic failover
+/// - **Concurrency**: All selected indexers queried simultaneously
+/// - **Monitoring**: Comprehensive metrics and tracing for observability
+///
+/// # Side Effects
+///
+/// - Updates indexer performance metrics based on response times and success rates
+/// - Sends budget feedback for dynamic pricing adjustments
+/// - Exports complete request data to Kafka topics for analytics
+/// - Updates chain head information from indexer responses
+///
+/// # Example Flow
+///
+/// ```text
+/// Client Query → Parse GraphQL → Select 3 Indexers → Concurrent Requests
+///                                     ↓
+/// First Success ← Client Response ← TAP Receipts ← Indexer Responses
+///                                     ↓
+/// Kafka Export ← Performance Updates ← Budget Feedback ← Error Tracking
+/// ```
+///
 #[allow(clippy::too_many_arguments)]
 async fn run_indexer_queries(
     ctx: Context,
@@ -265,6 +340,10 @@ async fn run_indexer_queries(
     // all the available indexers in the `bad indexers` response.
     while !candidates.is_empty() && (start_time.elapsed() < Duration::from_secs(60)) {
         let selections: ArrayVec<_, SELECTION_LIMIT> = indexer_selection::select(&candidates);
+        tracing::debug!(
+            selections_count = selections.len(),
+            "indexer_selection returned selections"
+        );
         if selections.is_empty() {
             // Candidates that would never be selected should be filtered out for improved errors.
             tracing::error!("no candidates selected");
@@ -273,10 +352,16 @@ async fn run_indexer_queries(
 
         let (tx, mut rx) = mpsc::channel(SELECTION_LIMIT);
         let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
+        tracing::debug!(
+            selections_count = selections.len(),
+            ?min_fee,
+            budget,
+            "about to process selections for receipt creation"
+        );
         for &selection in &selections {
             let indexer = selection.id;
             let deployment = selection.data.deployment;
-            let largest_allocation = selection.data.largest_allocation;
+            let largest_collection = selection.data.largest_collection;
             let url = selection.data.url.clone();
             let seconds_behind = selection.seconds_behind;
             let subgraph_chain = subgraph.chain.clone();
@@ -285,8 +370,30 @@ async fn run_indexer_queries(
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections.len() as f64;
             let indexer_fee = selection.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
-            let receipt = match ctx.receipt_signer.create_receipt(largest_allocation, fee) {
-                Ok(receipt) => receipt,
+            tracing::debug!(
+                ?indexer,
+                ?largest_collection,
+                fee,
+                indexer_fee,
+                min_fee,
+                "processing indexer for receipt creation"
+            );
+            let receipt = match ctx.receipt_signer.create_receipt(
+                largest_collection,
+                fee,
+                ctx.receipt_signer.payer_address(), // payer: gateway address
+                ctx.subgraph_service,               // data_service: subgraph service address
+                indexer.into_inner(),               // service_provider: indexer address
+            ) {
+                Ok(receipt) => {
+                    tracing::debug!(
+                        ?indexer,
+                        fee,
+                        receipt_value = receipt.value(),
+                        "successfully created TAP receipt"
+                    );
+                    receipt
+                }
                 Err(err) => {
                     tracing::error!(?indexer, %deployment, error=?err, "failed to create receipt");
                     continue;
@@ -304,6 +411,11 @@ async fn run_indexer_queries(
                     // URL checked: ref df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
                     let deployment_url = url.join(&format!("subgraphs/id/{deployment}")).unwrap();
                     let auth = IndexerAuth::Paid(&receipt, ctx.attestation_domain);
+                    tracing::debug!(
+                        ?indexer,
+                        receipt_value = receipt.value(),
+                        "querying indexer with Paid auth"
+                    );
                     let result = indexer_client
                         .query_indexer(deployment_url, auth, &indexer_query)
                         .in_current_span()
@@ -412,7 +524,7 @@ async fn run_indexer_queries(
         tracing::info!(
             indexer = ?indexer_request.indexer,
             deployment = %indexer_request.deployment,
-            allocation = ?indexer_request.receipt.allocation(),
+            collection = ?indexer_request.receipt.collection(),
             url = indexer_request.url,
             result = ?indexer_request.result.as_ref().map(|_| ()),
             response_time_ms = indexer_request.response_time_ms,
@@ -463,7 +575,7 @@ struct CandidateMetadata {
     deployment: DeploymentId,
     #[debug(with = std::fmt::Display::fmt)]
     url: Url,
-    largest_allocation: AllocationId,
+    largest_collection: CollectionId,
 }
 
 /// Given a list of indexings, build a list of candidates that are within the required block range
@@ -571,7 +683,7 @@ fn build_candidates_list(
             data: CandidateMetadata {
                 deployment,
                 url: indexing.indexer.url.clone(),
-                largest_allocation: indexing.largest_allocation,
+                largest_collection: indexing.largest_collection,
             },
             perf: perf.response,
             fee: Normalized::new(indexing.fee as f64 / budget as f64).unwrap_or(Normalized::ONE),
@@ -681,8 +793,14 @@ pub async fn handle_indexer_query(
     let one_grt = NotNan::new(1e18).unwrap();
     let fee = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
 
-    let allocation = indexing.largest_allocation;
-    let receipt = match ctx.receipt_signer.create_receipt(allocation, fee) {
+    let collection = indexing.largest_collection;
+    let receipt = match ctx.receipt_signer.create_receipt(
+        collection,
+        fee,
+        ctx.receipt_signer.payer_address(), // payer: gateway address
+        ctx.subgraph_service,               // data_service: subgraph service address
+        indexer.into_inner(),               // service_provider: indexer address
+    ) {
         Ok(receipt) => receipt,
         Err(err) => {
             return Err(Error::Internal(anyhow!("failed to create receipt: {err}")));
@@ -744,7 +862,7 @@ pub async fn handle_indexer_query(
     tracing::info!(
         indexer = ?indexer_request.indexer,
         deployment = %indexer_request.deployment,
-        allocation = ?indexer_request.receipt.allocation(),
+        collection = ?indexer_request.receipt.collection(),
         url = indexer_request.url,
         result = ?indexer_request.result.as_ref().map(|_| ()),
         response_time_ms = indexer_request.response_time_ms,

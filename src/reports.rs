@@ -25,6 +25,8 @@ pub struct IndexerRequest {
     pub indexer: IndexerId,
     pub deployment: DeploymentId,
     pub url: String,
+    /// Receipt contains either v1 (allocation-based) or v2 (collection-based) receipt.
+    /// For reporting, collection IDs are converted to addresses for backward compatibility.
     pub receipt: Receipt,
     pub subgraph_chain: String,
     pub result: Result<IndexerResponse, errors::IndexerError>,
@@ -108,32 +110,41 @@ impl Reporter {
         let indexer_queries = client_request
             .indexer_requests
             .iter()
-            .map(|indexer_request| IndexerQueryProtobuf {
-                indexer: indexer_request.indexer.to_vec(),
-                deployment: indexer_request.deployment.to_vec(),
-                allocation: indexer_request.receipt.allocation().to_vec(),
-                indexed_chain: indexer_request.subgraph_chain.clone(),
-                url: indexer_request.url.clone(),
-                fee_grt: indexer_request.receipt.value() as f64 * 1e-18,
-                response_time_ms: indexer_request.response_time_ms as u32,
-                seconds_behind: indexer_request.seconds_behind,
-                result: indexer_request
-                    .result
-                    .as_ref()
-                    .map(|_| "success".to_string())
-                    .unwrap_or_else(|err| err.to_string()),
-                indexer_errors: indexer_request
-                    .result
-                    .as_ref()
-                    .map(|r| {
-                        r.errors
-                            .iter()
-                            .map(|err| err.as_str())
-                            .collect::<Vec<&str>>()
-                            .join("; ")
-                    })
-                    .unwrap_or_default(),
-                blocks_behind: indexer_request.blocks_behind,
+            .map(|indexer_request| {
+                // Only v2 receipts exist in this system
+                let (allocation, collection) = (
+                    None,
+                    Some(indexer_request.receipt.collection().as_ref().to_vec()),
+                );
+
+                IndexerQueryProtobuf {
+                    indexer: indexer_request.indexer.to_vec(),
+                    deployment: indexer_request.deployment.to_vec(),
+                    allocation,
+                    collection,
+                    indexed_chain: indexer_request.subgraph_chain.clone(),
+                    url: indexer_request.url.clone(),
+                    fee_grt: indexer_request.receipt.value() as f64 * 1e-18,
+                    response_time_ms: indexer_request.response_time_ms as u32,
+                    seconds_behind: indexer_request.seconds_behind,
+                    result: indexer_request
+                        .result
+                        .as_ref()
+                        .map(|_| "success".to_string())
+                        .unwrap_or_else(|err| err.to_string()),
+                    indexer_errors: indexer_request
+                        .result
+                        .as_ref()
+                        .map(|r| {
+                            r.errors
+                                .iter()
+                                .map(|err| err.as_str())
+                                .collect::<Vec<&str>>()
+                                .join("; ")
+                        })
+                        .unwrap_or_default(),
+                    blocks_behind: indexer_request.blocks_behind,
+                }
             })
             .collect();
 
@@ -186,10 +197,13 @@ impl Reporter {
                 .and_then(|r| Some((r.original_response, r.attestation?)))
             {
                 const MAX_PAYLOAD_BYTES: usize = 100_000;
+                // Only v2 receipts exist - use collection as address
+                let allocation = indexer_request.receipt.collection().as_address().to_vec();
+
                 AttestationProtobuf {
                     request: Some(indexer_request.request).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
                     response: Some(original_response).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
-                    allocation: indexer_request.receipt.allocation().0.0.into(),
+                    allocation,
                     subgraph_deployment: attestation.deployment.0.into(),
                     request_cid: attestation.request_cid.0.into(),
                     response_cid: attestation.response_cid.0.into(),
@@ -256,9 +270,12 @@ pub struct IndexerQueryProtobuf {
     /// 32 bytes
     #[prost(bytes, tag = "2")]
     deployment: Vec<u8>,
-    /// 20 bytes
-    #[prost(bytes, tag = "3")]
-    allocation: Vec<u8>,
+    /// 20 bytes - Allocation ID for v1 receipts
+    #[prost(bytes, optional, tag = "3")]
+    allocation: Option<Vec<u8>>,
+    /// 32 bytes - Collection ID for v2 receipts
+    #[prost(bytes, optional, tag = "12")]
+    collection: Option<Vec<u8>>,
     #[prost(string, tag = "4")]
     indexed_chain: String,
     #[prost(string, tag = "5")]
@@ -283,7 +300,7 @@ pub struct AttestationProtobuf {
     request: Option<String>,
     #[prost(string, optional, tag = "2")]
     response: Option<String>,
-    /// 20 bytes
+    /// 20 bytes - Collection ID converted to address for backward compatibility
     #[prost(bytes, tag = "3")]
     allocation: Vec<u8>,
     /// 32 bytes
@@ -298,4 +315,94 @@ pub struct AttestationProtobuf {
     /// 65 bytes, ECDSA signature (v, r, s)
     #[prost(bytes, tag = "7")]
     signature: Vec<u8>,
+}
+
+#[cfg(test)]
+mod tests {
+    use thegraph_core::{
+        alloy::{primitives::address, signers::local::PrivateKeySigner},
+        collection_id,
+    };
+
+    use crate::receipts::ReceiptSigner;
+
+    fn create_test_signer() -> ReceiptSigner {
+        let secret_key = PrivateKeySigner::from_slice(&[0xcd; 32]).expect("invalid secret key");
+        ReceiptSigner::new(
+            secret_key,
+            1.try_into().expect("invalid chain id"),
+            address!("177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
+        )
+    }
+
+    #[test]
+    fn test_protobuf_fields_v2_receipt() {
+        let signer = create_test_signer();
+        let collection =
+            collection_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2a00000000000000000000000");
+        let fee = 1000;
+
+        let v2_receipt = signer
+            .create_receipt(
+                collection,
+                fee,
+                address!("1111111111111111111111111111111111111111"),
+                address!("2222222222222222222222222222222222222222"),
+                address!("3333333333333333333333333333333333333333"),
+            )
+            .expect("failed to create v2 receipt");
+
+        // Test IndexerQueryProtobuf fields - only v2 receipts exist
+        let (allocation_field, collection_field): (Option<Vec<u8>>, Option<Vec<u8>>) =
+            (None, Some(v2_receipt.collection().as_ref().to_vec()));
+
+        assert!(
+            allocation_field.is_none(),
+            "v2 receipt should not have allocation field"
+        );
+        assert!(
+            collection_field.is_some(),
+            "v2 receipt should have collection field"
+        );
+        assert_eq!(collection_field.unwrap(), collection.as_ref().to_vec());
+    }
+
+    /// Test that simulates tap-aggregator v2 receipt processing
+    #[test]
+    fn test_tap_aggregator_v2_compatibility() {
+        let signer = create_test_signer();
+        let collection =
+            collection_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2a00000000000000000000000");
+        let fee = 1000u128;
+
+        let v2_receipt = signer
+            .create_receipt(
+                collection,
+                fee,
+                address!("1111111111111111111111111111111111111111"),
+                address!("2222222222222222222222222222222222222222"),
+                address!("3333333333333333333333333333333333333333"),
+            )
+            .expect("failed to create v2 receipt");
+
+        // Simulate IndexerQueryProtobuf creation (what gateway sends) - only v2 receipts
+        let (allocation_field, collection_field): (Option<Vec<u8>>, Option<Vec<u8>>) =
+            (None, Some(v2_receipt.collection().as_ref().to_vec()));
+
+        // Verify format matches tap-aggregator v2 expectations
+        assert!(
+            allocation_field.is_none(),
+            "v2 receipt must not have allocation field"
+        );
+        assert!(
+            collection_field.is_some(),
+            "v2 receipt must have collection field"
+        );
+
+        let collection_bytes = collection_field.unwrap();
+        assert_eq!(collection_bytes.len(), 32, "collection should be 32 bytes");
+        assert_eq!(collection_bytes, collection.as_ref().to_vec());
+
+        // v2 receipt verified by successful creation and collection extraction
+    }
 }

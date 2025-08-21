@@ -6,6 +6,8 @@ A gateway, in the Graph Network, is a client capable of managing relationships b
 data consumers and many indexers. A gateway is not necessary for a consumer to access the indexers
 participating in the Graph Network, though it does simplify consumer interactions.
 
+**Note**: This is a horizon-ready gateway that generates TAP v2 (collection-based) receipts exclusively. It maintains backward compatibility for processing existing v1 (allocation-based) receipts.
+
 A gateway is expected to be a reliable system, to compensate for indexers being relatively
 unreliable. Indexers may become unresponsive, malicious, or otherwise unsuitable for serving queries
 at any time without warning. It is the responsibility of the gateway to maintain the highest
@@ -18,7 +20,7 @@ must have minimal impact on the primary responsibilities.
 ## indexer discovery
 
 For the gateway to route client queries to indexers, it must be able to associate subgraph and
-subgraph deployment IDs with the indexers that have active allocations on the subgraph deployment
+subgraph deployment IDs with the indexers that have active allocations or collections on the subgraph deployment
 being queried. The tree of subgraphs, subgraph deployments (versions), and allocated indexers is
 accessible via the network subgraph which indexes the Graph Network contracts.
 
@@ -29,7 +31,7 @@ bootstrapping process for payments.
 When an indexer registers itself via the contract, it provides a URL to access its indexer-service.
 After the subgraph data is collected and organized, the gateway requests more information from each
 active indexer via the indexer-service. This includes software version information and, for each
-allocation, the indexing status (progress on chain indexed by subgraph deployment) and cost models.
+allocation or collection, the indexing status (progress on chain indexed by subgraph deployment) and cost models.
 
 The gateway may be configured to block public Proofs Of Indexing (POIs) that have been associated
 with bad query responses. In this case deployments with such POIs require an additional step in
@@ -101,7 +103,7 @@ client query. Indexer fees are clamped to a maximum of the gateway's budget.
 
 For an overview of TAP see https://github.com/semiotic-ai/timeline-aggregation-protocol.
 
-The gateway acts as a TAP sender, where each indexer request is sent with a TAP receipt. The gateway
+The gateway acts as a TAP sender, where each indexer request is sent with a TAP v2 receipt. The gateway
 operator is expected to run 2 additional services:
 
 - [tap-aggregator](https://github.com/semiotic-ai/timeline-aggregation-protocol/tree/main/tap_aggregator):
@@ -109,11 +111,12 @@ operator is expected to run 2 additional services:
 - [tap-escrow-manager](https://github.com/edgeandnode/tap-escrow-manager):
   maintains escrow balances for the TAP sender. This service requires data exported by the gateway
   into the "indexer requests" topic to calculate the value of outstanding receipts to each indexer.
+  For horizon compatibility, collection IDs are converted to addresses in the exported data.
 
 The gateway operator is also expected to manage at least 2 wallets:
 
 - sender: requires ETH for transaction gas and GRT to allocate into TAP escrow balances for paying indexers
-- authorized signer: used by the gateway and tap-aggregator to sign receipts and RAVs
+- authorized signer: used by the gateway and tap-aggregator to sign v2 receipts and RAVs
 
 ## operational notes
 

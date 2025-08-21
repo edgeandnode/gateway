@@ -6,7 +6,7 @@ use std::{
 
 use custom_debug::CustomDebug;
 use thegraph_core::{
-    AllocationId, DeploymentId, IndexerId, SubgraphId, alloy::primitives::BlockNumber,
+    CollectionId, DeploymentId, IndexerId, SubgraphId, alloy::primitives::BlockNumber,
 };
 use url::Url;
 
@@ -35,7 +35,7 @@ pub struct Indexing {
     ///
     /// This is, among all allocations associated with the indexer and deployment, the address
     /// with the largest amount of allocated tokens.
-    pub largest_allocation: AllocationId,
+    pub largest_collection: CollectionId,
     /// The indexer
     pub indexer: Arc<Indexer>,
     /// The indexing progress.
@@ -358,13 +358,13 @@ fn construct_indexings_table_row(
     };
 
     // Construct the indexing table row
-    let indexing_largest_allocation_addr = indexing_info.largest_allocation;
+    let indexing_largest_collection_id = indexing_info.largest_collection;
     let indexing_progress = indexing_info.progress.to_owned();
     let fee = indexing_info.fee;
 
     let indexing = Indexing {
         id: indexing_id,
-        largest_allocation: indexing_largest_allocation_addr,
+        largest_collection: indexing_largest_collection_id,
         indexer: Arc::clone(indexer),
         progress: IndexingProgress {
             latest_block: indexing_progress.latest_block,
