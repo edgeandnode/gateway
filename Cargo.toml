@@ -1,7 +1,7 @@
 [package]
 edition = "2024"
 name = "graph-gateway"
-version = "27.2.2"
+version = "27.2.3"
 
 [profile.release]
 lto = true
