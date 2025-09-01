@@ -25,7 +25,9 @@ impl Receipt {
         self.0.message.value
     }
 
-    /// Get the collection identifier
+    /// Get the allocation identifier
+    /// TAP v2 receipts use collection ids which are 32 bytes.
+    /// For the Subgraph Service these are 20 byte allocation ids with zero padding.
     pub fn allocation(&self) -> Address {
         CollectionId::from(self.0.message.collection_id).as_address()
     }
@@ -119,6 +121,7 @@ impl ReceiptSigner {
         // DEBUG: Log all receipt fields before signing
         tracing::debug!(
             collection_id = ?receipt.collection_id,
+            allocation_id = ?allocation,
             payer = ?receipt.payer,
             data_service = ?receipt.data_service,
             service_provider = ?receipt.service_provider,

@@ -52,7 +52,7 @@ pub struct IndexerInfo<I> {
 /// This is not the final representation of the indexer's indexing information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IndexingRawInfo {
-    /// The largest collection.
+    /// The largest allocation.
     pub largest_allocation: AllocationId,
 }
 
