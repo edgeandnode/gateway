@@ -15,7 +15,7 @@ use thegraph_core::{
 
 /// TAP v2 receipts for the Horizon upgrade
 ///
-/// This gateway only generates v2 receipts, but can process v1 receipts as well.
+/// This gateway only generates v2 receipts
 #[derive(Debug, Clone)]
 pub struct Receipt(pub tap_graph::v2::SignedReceipt);
 

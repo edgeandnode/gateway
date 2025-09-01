@@ -303,7 +303,7 @@ pub struct AttestationProtobuf {
 #[cfg(test)]
 mod tests {
     use thegraph_core::{
-        AllocationId, allocation_id,
+        allocation_id,
         alloy::{
             primitives::{Address, address},
             signers::local::PrivateKeySigner,

@@ -151,45 +151,45 @@ impl Client {
     ) -> anyhow::Result<Vec<types::Subgraph>> {
         // ref: 9936786a-e286-45f3-9190-8409d8389e88
         let query = r#"
-        query ($block: Block_height!, $first: Int!, $last: String!) {
-            meta: _meta(block: $block) { block { number hash timestamp } }
-            results: subgraphs(
-                block: $block
-                orderBy: id, orderDirection: asc
-                first: $first
-                where: {
-                    id_gt: $last
-                    entityVersion: 2
-                    versionCount_gte: 1
-                    active: true
-                }
-            ) {
-                id
-                versions(orderBy: version, orderDirection: desc) {
-                    version
-                    subgraphDeployment {
-                        ipfsHash
-                        manifest {
-                            network
-                            startBlock
-                        }
-                        indexerAllocations(
-                            first: 100
-                            orderBy: allocatedTokens, orderDirection: desc
-                            where: { status: Active }
-                        ) {
-                            id
-                            allocatedTokens
-                            indexer {
+            query ($block: Block_height!, $first: Int!, $last: String!) {
+                meta: _meta(block: $block) { block { number hash timestamp } }
+                results: subgraphs(
+                    block: $block
+                    orderBy: id, orderDirection: asc
+                    first: $first
+                    where: {
+                        id_gt: $last
+                        entityVersion: 2
+                        versionCount_gte: 1
+                        active: true
+                    }
+                ) {
+                    id
+                    versions(orderBy: version, orderDirection: desc) {
+                        version
+                        subgraphDeployment {
+                            ipfsHash
+                            manifest {
+                                network
+                                startBlock
+                            }
+                            indexerAllocations(
+                                first: 100
+                                orderBy: allocatedTokens, orderDirection: desc
+                                where: { status: Active }
+                            ) {
                                 id
-                                url
-                                stakedTokens
+                                allocatedTokens
+                                indexer {
+                                    id
+                                    url
+                                    stakedTokens
+                                }
                             }
                         }
                     }
                 }
-            }
-        }"#;
+            }"#;
 
         #[derive(Debug, Deserialize)]
         pub struct QueryResponse {
