@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use custom_debug::CustomDebug;
-use thegraph_core::{CollectionId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
+use thegraph_core::{AllocationId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
 use tracing::Instrument;
 use url::Url;
 
@@ -52,8 +52,8 @@ pub struct IndexerInfo<I> {
 /// This is not the final representation of the indexer's indexing information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IndexingRawInfo {
-    /// The largest collection (V2 Horizon).
-    pub largest_collection: CollectionId,
+    /// The largest allocation.
+    pub largest_allocation: AllocationId,
 }
 
 /// Internal representation of the fetched indexer's indexing information.
@@ -62,8 +62,8 @@ pub struct IndexingRawInfo {
 /// information: unresolved, partially resolved (with indexing progress) and completely resolved.
 #[derive(Debug)]
 pub struct IndexingInfo<P, C> {
-    /// The largest collection (V2 Horizon).
-    pub largest_collection: CollectionId,
+    /// The largest allocation.
+    pub largest_allocation: AllocationId,
 
     /// The indexing progress information
     ///
@@ -77,7 +77,7 @@ pub struct IndexingInfo<P, C> {
 impl From<IndexingRawInfo> for IndexingInfo<(), ()> {
     fn from(raw: IndexingRawInfo) -> Self {
         Self {
-            largest_collection: raw.largest_collection,
+            largest_allocation: raw.largest_allocation,
             progress: (),
             fee: (),
         }
@@ -92,7 +92,7 @@ impl IndexingInfo<(), ()> {
         progress: IndexingProgress,
     ) -> IndexingInfo<IndexingProgress, ()> {
         IndexingInfo {
-            largest_collection: self.largest_collection,
+            largest_allocation: self.largest_allocation,
             progress,
             fee: self.fee,
         }
@@ -104,7 +104,7 @@ impl IndexingInfo<IndexingProgress, ()> {
     /// state by adding the cost model to the indexing information.
     fn with_fee(self, fee: u128) -> IndexingInfo<IndexingProgress, u128> {
         IndexingInfo {
-            largest_collection: self.largest_collection,
+            largest_allocation: self.largest_allocation,
             progress: self.progress,
             fee,
         }
