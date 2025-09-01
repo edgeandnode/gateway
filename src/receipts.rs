@@ -5,7 +5,7 @@ use prost::Message;
 use rand::RngCore;
 use serde::Serialize;
 use thegraph_core::{
-    CollectionId,
+    AllocationId, CollectionId,
     alloy::{
         dyn_abi::Eip712Domain,
         primitives::{Address, U256},
@@ -15,7 +15,7 @@ use thegraph_core::{
 
 /// TAP v2 receipts for the Horizon upgrade
 ///
-/// This gateway only generates and processes v2 receipts (collection-based)
+/// This gateway only generates v2 receipts, but can process v1 receipts as well.
 #[derive(Debug, Clone)]
 pub struct Receipt(pub tap_graph::v2::SignedReceipt);
 
@@ -26,8 +26,8 @@ impl Receipt {
     }
 
     /// Get the collection identifier
-    pub fn collection(&self) -> CollectionId {
-        self.0.message.collection_id.into()
+    pub fn allocation(&self) -> Address {
+        CollectionId::from(self.0.message.collection_id).as_address()
     }
 
     /// Serialize the receipt to base64-encoded protobuf format for V2 compatibility
@@ -89,10 +89,10 @@ impl ReceiptSigner {
         }
     }
 
-    /// Create a v2 receipt (collection-based) - ONLY method for generating receipts
+    /// Create a v2 receipt - ONLY method for generating receipts
     pub fn create_receipt(
         &self,
-        collection: CollectionId,
+        allocation: AllocationId,
         fee: u128,
         payer: Address,
         data_service: Address,
@@ -107,7 +107,7 @@ impl ReceiptSigner {
             .map_err(|_| anyhow::anyhow!("failed to convert timestamp to ns"))?;
 
         let receipt = tap_graph::v2::Receipt {
-            collection_id: collection.0.into(),
+            collection_id: CollectionId::from(allocation).0.into(),
             payer,
             data_service,
             service_provider,
@@ -160,8 +160,8 @@ impl ReceiptSigner {
 #[cfg(test)]
 mod tests {
     use thegraph_core::{
+        allocation_id,
         alloy::{primitives::address, signers::local::PrivateKeySigner},
-        collection_id,
     };
 
     use super::*;
@@ -178,13 +178,12 @@ mod tests {
     #[test]
     fn create_v2_receipt() {
         let signer = create_test_signer();
-        let collection =
-            collection_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2a00000000000000000000000");
+        let allocation = allocation_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2");
         let fee = 1000;
 
         let receipt = signer
             .create_receipt(
-                collection,
+                allocation,
                 fee,
                 address!("1111111111111111111111111111111111111111"), // payer
                 address!("2222222222222222222222222222222222222222"), // data_service
@@ -193,19 +192,18 @@ mod tests {
             .expect("failed to create v2 receipt");
 
         assert_eq!(receipt.value(), fee);
-        assert_eq!(receipt.collection(), collection);
+        assert_eq!(AllocationId::from(receipt.allocation()), allocation);
     }
 
     #[test]
     fn test_receipt_serialization() {
         let signer = create_test_signer();
-        let collection =
-            collection_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2a00000000000000000000000");
+        let allocation = allocation_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2");
         let fee = 1000;
 
         let receipt = signer
             .create_receipt(
-                collection,
+                allocation,
                 fee,
                 address!("1111111111111111111111111111111111111111"),
                 address!("2222222222222222222222222222222222222222"),

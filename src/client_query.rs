@@ -19,7 +19,7 @@ use prost::bytes::Buf;
 use rand::Rng as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use thegraph_core::{CollectionId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
+use thegraph_core::{AllocationId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
 use thegraph_headers::{HttpBuilderExt as _, graph_attestation::GraphAttestation};
 use tokio::sync::mpsc;
 use tracing::{Instrument as _, info_span};
@@ -361,7 +361,7 @@ async fn run_indexer_queries(
         for &selection in &selections {
             let indexer = selection.id;
             let deployment = selection.data.deployment;
-            let largest_collection = selection.data.largest_collection;
+            let largest_allocation = selection.data.largest_allocation;
             let url = selection.data.url.clone();
             let seconds_behind = selection.seconds_behind;
             let subgraph_chain = subgraph.chain.clone();
@@ -372,14 +372,14 @@ async fn run_indexer_queries(
             let fee = indexer_fee.max(min_fee) as u128;
             tracing::debug!(
                 ?indexer,
-                ?largest_collection,
+                ?largest_allocation,
                 fee,
                 indexer_fee,
                 min_fee,
                 "processing indexer for receipt creation"
             );
             let receipt = match ctx.receipt_signer.create_receipt(
-                largest_collection,
+                largest_allocation,
                 fee,
                 ctx.receipt_signer.payer_address(), // payer: gateway address
                 ctx.subgraph_service,               // data_service: subgraph service address
@@ -524,7 +524,7 @@ async fn run_indexer_queries(
         tracing::info!(
             indexer = ?indexer_request.indexer,
             deployment = %indexer_request.deployment,
-            collection = ?indexer_request.receipt.collection(),
+            allocation = ?indexer_request.receipt.allocation(),
             url = indexer_request.url,
             result = ?indexer_request.result.as_ref().map(|_| ()),
             response_time_ms = indexer_request.response_time_ms,
@@ -575,7 +575,7 @@ struct CandidateMetadata {
     deployment: DeploymentId,
     #[debug(with = std::fmt::Display::fmt)]
     url: Url,
-    largest_collection: CollectionId,
+    largest_allocation: AllocationId,
 }
 
 /// Given a list of indexings, build a list of candidates that are within the required block range
@@ -683,7 +683,7 @@ fn build_candidates_list(
             data: CandidateMetadata {
                 deployment,
                 url: indexing.indexer.url.clone(),
-                largest_collection: indexing.largest_collection,
+                largest_allocation: indexing.largest_allocation,
             },
             perf: perf.response,
             fee: Normalized::new(indexing.fee as f64 / budget as f64).unwrap_or(Normalized::ONE),
@@ -793,9 +793,9 @@ pub async fn handle_indexer_query(
     let one_grt = NotNan::new(1e18).unwrap();
     let fee = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
 
-    let collection = indexing.largest_collection;
+    let allocation = indexing.largest_allocation;
     let receipt = match ctx.receipt_signer.create_receipt(
-        collection,
+        allocation,
         fee,
         ctx.receipt_signer.payer_address(), // payer: gateway address
         ctx.subgraph_service,               // data_service: subgraph service address
@@ -862,7 +862,7 @@ pub async fn handle_indexer_query(
     tracing::info!(
         indexer = ?indexer_request.indexer,
         deployment = %indexer_request.deployment,
-        collection = ?indexer_request.receipt.collection(),
+        allocation = ?indexer_request.receipt.allocation(),
         url = indexer_request.url,
         result = ?indexer_request.result.as_ref().map(|_| ()),
         response_time_ms = indexer_request.response_time_ms,

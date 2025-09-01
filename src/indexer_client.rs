@@ -134,11 +134,11 @@ impl IndexerClient {
         if let IndexerAuth::Paid(receipt, attestation_domain) = auth {
             match &payload.attestation {
                 Some(attestation) => {
-                    let collection = receipt.collection();
+                    let allocation = receipt.allocation();
                     if let Err(err) = attestation::verify(
                         attestation_domain,
                         attestation,
-                        &collection.as_address(),
+                        &allocation,
                         query,
                         &original_response,
                     ) {
