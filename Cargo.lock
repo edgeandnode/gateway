@@ -5077,9 +5077,9 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tap_aggregator"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "264b69246b9b41cb983132c69bee391a1b8e2f6ebd99f95abfaf50474a8e1a37"
+checksum = "29686b638b5ac44a5435fb7ac3be4f82248c7d1e992a4b35a213aa04c08d9409"
 dependencies = [
  "anyhow",
  "axum",

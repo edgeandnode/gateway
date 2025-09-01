@@ -47,7 +47,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.116", features = ["raw_value"] }
 serde_with = "3.8.1"
 snmalloc-rs = "0.3"
-tap_aggregator = "0.6.0"
+tap_aggregator = "0.6.1"
 tap_graph = { version = "0.3.4", features = ["v2"] }
 thegraph-core = { version = "0.15.1", features = [
     "alloy-contract",
