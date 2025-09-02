@@ -137,6 +137,7 @@ async fn main() {
         receipt_signer,
         conf.receipts.chain_id,
         conf.receipts.verifier,
+        conf.subgraph_service,
     )));
 
     let auth_service = init_auth_service(
@@ -172,7 +173,6 @@ async fn main() {
         network,
         attestation_domain,
         reporter,
-        subgraph_service: conf.subgraph_service,
     };
 
     let blocklist: watch::Receiver<Vec<BlocklistEntry>> = indexer_blocklist.blocklist;

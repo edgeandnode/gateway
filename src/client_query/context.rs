@@ -1,5 +1,5 @@
 use ordered_float::NotNan;
-use thegraph_core::alloy::{dyn_abi::Eip712Domain, primitives::Address};
+use thegraph_core::alloy::dyn_abi::Eip712Domain;
 use tokio::sync::{mpsc, watch};
 
 use crate::{
@@ -19,5 +19,4 @@ pub struct Context {
     pub indexing_perf: IndexingPerformance,
     pub attestation_domain: &'static Eip712Domain,
     pub reporter: mpsc::UnboundedSender<reports::ClientRequest>,
-    pub subgraph_service: Address,
 }

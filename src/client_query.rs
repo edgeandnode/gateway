@@ -285,12 +285,10 @@ async fn run_indexer_queries(
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections.len() as f64;
             let indexer_fee = selection.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
-            let receipt = match ctx.receipt_signer.create_receipt(
-                largest_allocation,
-                fee,
-                ctx.subgraph_service,
-                indexer.into_inner(),
-            ) {
+            let receipt = match ctx
+                .receipt_signer
+                .create_receipt(largest_allocation, *indexer, fee)
+            {
                 Ok(receipt) => receipt,
                 Err(err) => {
                     tracing::error!(?indexer, %deployment, error=?err, "failed to create receipt");
@@ -687,12 +685,7 @@ pub async fn handle_indexer_query(
     let fee = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
 
     let allocation = indexing.largest_allocation;
-    let receipt = match ctx.receipt_signer.create_receipt(
-        allocation,
-        fee,
-        ctx.subgraph_service,
-        indexer.into_inner(),
-    ) {
+    let receipt = match ctx.receipt_signer.create_receipt(allocation, *indexer, fee) {
         Ok(receipt) => receipt,
         Err(err) => {
             return Err(Error::Internal(anyhow!("failed to create receipt: {err}")));

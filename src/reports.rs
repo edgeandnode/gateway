@@ -318,6 +318,7 @@ mod tests {
             secret_key,
             1.try_into().expect("invalid chain id"),
             address!("177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
+            address!("2222222222222222222222222222222222222222"),
         )
     }
 
@@ -330,9 +331,8 @@ mod tests {
         let v2_receipt = signer
             .create_receipt(
                 allocation,
-                fee,
-                address!("2222222222222222222222222222222222222222"),
                 address!("3333333333333333333333333333333333333333"),
+                fee,
             )
             .expect("failed to create v2 receipt");
 
@@ -357,9 +357,8 @@ mod tests {
         let v2_receipt = signer
             .create_receipt(
                 allocation,
-                fee,
                 address!("2222222222222222222222222222222222222222"),
-                address!("3333333333333333333333333333333333333333"),
+                fee,
             )
             .expect("failed to create v2 receipt");
 

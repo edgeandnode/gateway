@@ -70,10 +70,16 @@ impl Receipt {
 pub struct ReceiptSigner {
     signer: PrivateKeySigner,
     domain: Eip712Domain,
+    data_service: Address,
 }
 
 impl ReceiptSigner {
-    pub fn new(signer: PrivateKeySigner, chain_id: U256, verifying_contract: Address) -> Self {
+    pub fn new(
+        signer: PrivateKeySigner,
+        chain_id: U256,
+        verifying_contract: Address,
+        data_service: Address,
+    ) -> Self {
         let domain = Eip712Domain {
             name: Some("GraphTallyCollector".into()),
             version: Some("1".into()),
@@ -81,15 +87,18 @@ impl ReceiptSigner {
             verifying_contract: Some(verifying_contract),
             salt: None,
         };
-        Self { signer, domain }
+        Self {
+            signer,
+            domain,
+            data_service,
+        }
     }
 
     pub fn create_receipt(
         &self,
         allocation: AllocationId,
+        indexer: Address,
         fee: u128,
-        data_service: Address,
-        service_provider: Address,
     ) -> anyhow::Result<Receipt> {
         let nonce = rand::rng().next_u64();
         let timestamp_ns = SystemTime::now()
@@ -98,21 +107,18 @@ impl ReceiptSigner {
             .as_nanos()
             .try_into()
             .map_err(|_| anyhow::anyhow!("failed to convert timestamp to ns"))?;
-
         let receipt = tap_graph::v2::Receipt {
             collection_id: CollectionId::from(allocation).0.into(),
             payer: self.signer.address(),
-            data_service,
-            service_provider,
+            data_service: self.data_service,
+            service_provider: indexer,
             timestamp_ns,
             nonce,
             value: fee,
         };
-
-        let signed = tap_graph::v2::SignedReceipt::new(&self.domain, receipt, &self.signer)
-            .map_err(|e| anyhow::anyhow!("failed to sign v2 receipt: {:?}", e))?;
-
-        Ok(Receipt(signed))
+        tap_graph::v2::SignedReceipt::new(&self.domain, receipt, &self.signer)
+            .map(Receipt)
+            .map_err(|e| anyhow::anyhow!("failed to sign v2 receipt: {:?}", e))
     }
 }
 
@@ -131,6 +137,7 @@ mod tests {
             secret_key,
             1.try_into().expect("invalid chain id"),
             address!("177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
+            address!("2222222222222222222222222222222222222222"),
         )
     }
 
@@ -143,9 +150,8 @@ mod tests {
         let receipt = signer
             .create_receipt(
                 allocation,
-                fee,
-                address!("2222222222222222222222222222222222222222"),
                 address!("3333333333333333333333333333333333333333"),
+                fee,
             )
             .expect("failed to create v2 receipt");
 
@@ -162,9 +168,8 @@ mod tests {
         let receipt = signer
             .create_receipt(
                 allocation,
-                fee,
-                address!("2222222222222222222222222222222222222222"),
                 address!("3333333333333333333333333333333333333333"),
+                fee,
             )
             .expect("failed to create v2 receipt");
 
