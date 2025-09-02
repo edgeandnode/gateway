@@ -67,31 +67,21 @@ impl Receipt {
     }
 }
 
-/// Configuration for receipt creation
-#[derive(Debug, Clone)]
-pub struct ReceiptConfig {
-    pub domain: Eip712Domain,
-}
-
 pub struct ReceiptSigner {
     signer: PrivateKeySigner,
-    v2_config: ReceiptConfig,
+    domain: Eip712Domain,
 }
 
 impl ReceiptSigner {
     pub fn new(signer: PrivateKeySigner, chain_id: U256, verifying_contract: Address) -> Self {
-        let v2_domain = Eip712Domain {
+        let domain = Eip712Domain {
             name: Some("GraphTallyCollector".into()),
             version: Some("1".into()),
             chain_id: Some(chain_id),
             verifying_contract: Some(verifying_contract),
             salt: None,
         };
-
-        Self {
-            signer,
-            v2_config: ReceiptConfig { domain: v2_domain },
-        }
+        Self { signer, domain }
     }
 
     /// Create a v2 receipt - ONLY method for generating receipts
@@ -121,9 +111,8 @@ impl ReceiptSigner {
             value: fee,
         };
 
-        let signed =
-            tap_graph::v2::SignedReceipt::new(&self.v2_config.domain, receipt, &self.signer)
-                .map_err(|e| anyhow::anyhow!("failed to sign v2 receipt: {:?}", e))?;
+        let signed = tap_graph::v2::SignedReceipt::new(&self.domain, receipt, &self.signer)
+            .map_err(|e| anyhow::anyhow!("failed to sign v2 receipt: {:?}", e))?;
 
         Ok(Receipt(signed))
     }
