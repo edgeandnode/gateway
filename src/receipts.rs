@@ -1,9 +1,8 @@
 use std::time::SystemTime;
 
-use base64::{Engine as _, engine::general_purpose};
-use prost::Message;
-use rand::RngCore;
-use serde::Serialize;
+use base64::{Engine as _, prelude::BASE64_STANDARD};
+use prost::Message as _;
+use rand::RngCore as _;
 use thegraph_core::{
     AllocationId, CollectionId,
     alloy::{
@@ -13,46 +12,58 @@ use thegraph_core::{
     },
 };
 
-/// TAP v2 receipts for the Horizon upgrade
-///
-/// This gateway only generates v2 receipts
 #[derive(Debug, Clone)]
 pub struct Receipt(pub tap_graph::v2::SignedReceipt);
 
 impl Receipt {
-    /// Get the fee value from the receipt
     pub fn value(&self) -> u128 {
         self.0.message.value
     }
 
-    /// Get the allocation identifier
-    /// TAP v2 receipts use collection ids which are 32 bytes.
-    /// For the Subgraph Service these are 20 byte allocation ids with zero padding.
     pub fn allocation(&self) -> Address {
+        // TAP v2 receipts use collection ids which are 32 bytes.
+        // For the Subgraph Service these are 20 byte allocation ids with zero padding.
         CollectionId::from(self.0.message.collection_id).as_address()
     }
 
-    /// Serialize the receipt to base64-encoded protobuf format for V2 compatibility
     pub fn serialize(&self) -> String {
-        // Convert tap_graph::v2::SignedReceipt to protobuf format
-        let protobuf_receipt: tap_aggregator::grpc::v2::SignedReceipt = self.0.clone().into();
-
-        // Encode to protobuf bytes
-        let bytes = protobuf_receipt.encode_to_vec();
-
-        // Base64 encode the bytes
-        let serialized = general_purpose::STANDARD.encode(&bytes);
-
-        serialized
-    }
-}
-
-impl Serialize for Receipt {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.serialize(serializer)
+        #[derive(prost::Message)]
+        struct ReceiptMessage {
+            #[prost(bytes, tag = "1")]
+            collection_id: Vec<u8>,
+            #[prost(bytes, tag = "2")]
+            payer: Vec<u8>,
+            #[prost(bytes, tag = "3")]
+            data_service: Vec<u8>,
+            #[prost(bytes, tag = "4")]
+            service_provider: Vec<u8>,
+            #[prost(uint64, tag = "5")]
+            timestamp_ns: u64,
+            #[prost(uint64, tag = "6")]
+            nonce: u64,
+            #[prost(message, optional, tag = "7")]
+            value: Option<Uint128>,
+        }
+        #[derive(prost::Message)]
+        struct Uint128 {
+            #[prost(uint64, tag = "1")]
+            high: u64,
+            #[prost(uint64, tag = "2")]
+            low: u64,
+        }
+        let protobuf_receipt = ReceiptMessage {
+            collection_id: self.0.message.collection_id.to_vec(),
+            payer: self.0.message.payer.to_vec(),
+            data_service: self.0.message.data_service.to_vec(),
+            service_provider: self.0.message.service_provider.to_vec(),
+            timestamp_ns: self.0.message.timestamp_ns,
+            nonce: self.0.message.nonce,
+            value: Some(Uint128 {
+                high: (self.0.message.value >> 64) as u64,
+                low: self.0.message.value as u64,
+            }),
+        };
+        BASE64_STANDARD.encode(protobuf_receipt.encode_to_vec())
     }
 }
 
