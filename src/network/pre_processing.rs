@@ -122,19 +122,10 @@ pub fn into_internal_deployments_raw_info<'a>(
         .fold(HashMap::new(), |mut acc, deployment_raw_info| {
             let deployment_id = deployment_raw_info.id;
 
-            // Debug logging for deployment processing
-            tracing::debug!(
-                ?deployment_id,
-                subgraphs_count = deployment_raw_info.subgraphs.len(),
-                allocations_count = deployment_raw_info.allocations.len(),
-                "processing deployment in pre_processing pipeline"
-            );
-
             // If the deployment info is not present, insert it
             let deployment = match acc.entry(deployment_id) {
                 Entry::Occupied(entry) => entry.into_mut(),
                 Entry::Vacant(entry) => {
-                    tracing::debug!(?deployment_id, "inserting new deployment into registry");
                     entry.insert(deployment_raw_info.clone());
                     return acc;
                 }

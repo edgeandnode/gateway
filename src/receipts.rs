@@ -43,14 +43,6 @@ impl Receipt {
         // Base64 encode the bytes
         let serialized = general_purpose::STANDARD.encode(&bytes);
 
-        // DEBUG: Log receipt serialization details
-        tracing::debug!(
-            serialized_preview = &serialized[..serialized.len().min(100)],
-            serialized_length = serialized.len(),
-            protobuf_bytes_length = bytes.len(),
-            "TAP receipt serialized format"
-        );
-
         serialized
     }
 }
@@ -118,39 +110,9 @@ impl ReceiptSigner {
             value: fee,
         };
 
-        // DEBUG: Log all receipt fields before signing
-        tracing::debug!(
-            collection_id = ?receipt.collection_id,
-            allocation_id = ?allocation,
-            payer = ?receipt.payer,
-            data_service = ?receipt.data_service,
-            service_provider = ?receipt.service_provider,
-            timestamp_ns = receipt.timestamp_ns,
-            nonce = receipt.nonce,
-            value = receipt.value,
-            "TAP receipt fields before signing"
-        );
-
-        // DEBUG: Log EIP-712 domain components
-        tracing::debug!(
-            domain_name = ?self.v2_config.domain.name,
-            domain_version = ?self.v2_config.domain.version,
-            domain_chain_id = ?self.v2_config.domain.chain_id,
-            domain_verifying_contract = ?self.v2_config.domain.verifying_contract,
-            "TAP EIP-712 domain components"
-        );
-
         let signed =
             tap_graph::v2::SignedReceipt::new(&self.v2_config.domain, receipt, &self.signer)
                 .map_err(|e| anyhow::anyhow!("failed to sign v2 receipt: {:?}", e))?;
-
-        // DEBUG: Log the signature being generated
-        tracing::debug!(
-            signature = ?signed.signature,
-            signature_bytes = ?signed.signature.as_bytes(),
-            expected_signer = ?self.signer.address(),
-            "TAP receipt signature generated"
-        );
 
         Ok(Receipt(signed))
     }

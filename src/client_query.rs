@@ -61,18 +61,9 @@ pub async fn handle_query(
 ) -> Result<Response<String>, Error> {
     let start_time = Instant::now();
 
-    // CRITICAL DEBUG: Log query entry point
-    tracing::warn!(
-        ?selector,
-        payload_length = payload.len(),
-        "QUERY ENTRY POINT - starting query processing"
-    );
-
     // Check if the query selector is authorized by the auth token and
     // resolve the subgraph deployments for the query.
-    tracing::debug!("about to call resolve_subgraph_info");
     let subgraph = resolve_subgraph_info(&ctx, &auth, selector).await?;
-    tracing::debug!("resolve_subgraph_info completed successfully");
 
     let client_request: QueryBody =
         serde_json::from_reader(payload.reader()).map_err(|err| Error::BadQuery(err.into()))?;
@@ -340,10 +331,6 @@ async fn run_indexer_queries(
     // all the available indexers in the `bad indexers` response.
     while !candidates.is_empty() && (start_time.elapsed() < Duration::from_secs(60)) {
         let selections: ArrayVec<_, SELECTION_LIMIT> = indexer_selection::select(&candidates);
-        tracing::debug!(
-            selections_count = selections.len(),
-            "indexer_selection returned selections"
-        );
         if selections.is_empty() {
             // Candidates that would never be selected should be filtered out for improved errors.
             tracing::error!("no candidates selected");
@@ -352,12 +339,6 @@ async fn run_indexer_queries(
 
         let (tx, mut rx) = mpsc::channel(SELECTION_LIMIT);
         let min_fee = *ctx.budgeter.min_indexer_fees.borrow();
-        tracing::debug!(
-            selections_count = selections.len(),
-            ?min_fee,
-            budget,
-            "about to process selections for receipt creation"
-        );
         for &selection in &selections {
             let indexer = selection.id;
             let deployment = selection.data.deployment;
@@ -370,30 +351,14 @@ async fn run_indexer_queries(
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections.len() as f64;
             let indexer_fee = selection.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
-            tracing::debug!(
-                ?indexer,
-                ?largest_allocation,
-                fee,
-                indexer_fee,
-                min_fee,
-                "processing indexer for receipt creation"
-            );
             let receipt = match ctx.receipt_signer.create_receipt(
                 largest_allocation,
                 fee,
-                ctx.receipt_signer.payer_address(), // payer: gateway address
-                ctx.subgraph_service,               // data_service: subgraph service address
-                indexer.into_inner(),               // service_provider: indexer address
+                ctx.receipt_signer.payer_address(),
+                ctx.subgraph_service,
+                indexer.into_inner(),
             ) {
-                Ok(receipt) => {
-                    tracing::debug!(
-                        ?indexer,
-                        fee,
-                        receipt_value = receipt.value(),
-                        "successfully created TAP receipt"
-                    );
-                    receipt
-                }
+                Ok(receipt) => receipt,
                 Err(err) => {
                     tracing::error!(?indexer, %deployment, error=?err, "failed to create receipt");
                     continue;
@@ -411,11 +376,6 @@ async fn run_indexer_queries(
                     // URL checked: ref df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
                     let deployment_url = url.join(&format!("subgraphs/id/{deployment}")).unwrap();
                     let auth = IndexerAuth::Paid(&receipt, ctx.attestation_domain);
-                    tracing::debug!(
-                        ?indexer,
-                        receipt_value = receipt.value(),
-                        "querying indexer with Paid auth"
-                    );
                     let result = indexer_client
                         .query_indexer(deployment_url, auth, &indexer_query)
                         .in_current_span()
@@ -797,9 +757,9 @@ pub async fn handle_indexer_query(
     let receipt = match ctx.receipt_signer.create_receipt(
         allocation,
         fee,
-        ctx.receipt_signer.payer_address(), // payer: gateway address
-        ctx.subgraph_service,               // data_service: subgraph service address
-        indexer.into_inner(),               // service_provider: indexer address
+        ctx.receipt_signer.payer_address(),
+        ctx.subgraph_service,
+        indexer.into_inner(),
     ) {
         Ok(receipt) => receipt,
         Err(err) => {

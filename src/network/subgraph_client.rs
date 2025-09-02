@@ -233,19 +233,10 @@ impl Client {
                     "last": last_id.unwrap_or_default(),
                 },
             });
-            // Use trusted indexer URL directly - it already contains the complete network subgraph endpoint
-            let network_subgraph_url = indexer.url.clone();
-
-            // Debug logging for network subgraph URL usage
-            tracing::debug!(
-                network_subgraph_url = %network_subgraph_url,
-                "using trusted indexer URL for network subgraph query"
-            );
-
             let response = self
                 .client
                 .query_indexer(
-                    network_subgraph_url,
+                    indexer.url.clone(),
                     IndexerAuth::Free(&indexer.auth),
                     &page_query.to_string(),
                 )
