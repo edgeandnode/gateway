@@ -84,12 +84,10 @@ impl ReceiptSigner {
         Self { signer, domain }
     }
 
-    /// Create a v2 receipt - ONLY method for generating receipts
     pub fn create_receipt(
         &self,
         allocation: AllocationId,
         fee: u128,
-        payer: Address,
         data_service: Address,
         service_provider: Address,
     ) -> anyhow::Result<Receipt> {
@@ -103,7 +101,7 @@ impl ReceiptSigner {
 
         let receipt = tap_graph::v2::Receipt {
             collection_id: CollectionId::from(allocation).0.into(),
-            payer,
+            payer: self.signer.address(),
             data_service,
             service_provider,
             timestamp_ns,
@@ -115,10 +113,6 @@ impl ReceiptSigner {
             .map_err(|e| anyhow::anyhow!("failed to sign v2 receipt: {:?}", e))?;
 
         Ok(Receipt(signed))
-    }
-
-    pub fn payer_address(&self) -> Address {
-        self.signer.address()
     }
 }
 
@@ -150,9 +144,8 @@ mod tests {
             .create_receipt(
                 allocation,
                 fee,
-                address!("1111111111111111111111111111111111111111"), // payer
-                address!("2222222222222222222222222222222222222222"), // data_service
-                address!("3333333333333333333333333333333333333333"), // service_provider
+                address!("2222222222222222222222222222222222222222"),
+                address!("3333333333333333333333333333333333333333"),
             )
             .expect("failed to create v2 receipt");
 
@@ -170,7 +163,6 @@ mod tests {
             .create_receipt(
                 allocation,
                 fee,
-                address!("1111111111111111111111111111111111111111"),
                 address!("2222222222222222222222222222222222222222"),
                 address!("3333333333333333333333333333333333333333"),
             )

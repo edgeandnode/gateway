@@ -288,7 +288,6 @@ async fn run_indexer_queries(
             let receipt = match ctx.receipt_signer.create_receipt(
                 largest_allocation,
                 fee,
-                ctx.receipt_signer.payer_address(),
                 ctx.subgraph_service,
                 indexer.into_inner(),
             ) {
@@ -691,7 +690,6 @@ pub async fn handle_indexer_query(
     let receipt = match ctx.receipt_signer.create_receipt(
         allocation,
         fee,
-        ctx.receipt_signer.payer_address(),
         ctx.subgraph_service,
         indexer.into_inner(),
     ) {
