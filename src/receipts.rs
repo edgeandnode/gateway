@@ -51,7 +51,14 @@ impl Receipt {
             #[prost(uint64, tag = "2")]
             low: u64,
         }
-        let protobuf_receipt = ReceiptMessage {
+        #[derive(prost::Message)]
+        struct SignedReceipt {
+            #[prost(message, optional, tag = "1")]
+            message: Option<ReceiptMessage>,
+            #[prost(bytes, tag = "2")]
+            signature: Vec<u8>,
+        }
+        let receipt_message = ReceiptMessage {
             collection_id: self.0.message.collection_id.to_vec(),
             payer: self.0.message.payer.to_vec(),
             data_service: self.0.message.data_service.to_vec(),
@@ -63,7 +70,14 @@ impl Receipt {
                 low: self.0.message.value as u64,
             }),
         };
-        BASE64_STANDARD.encode(protobuf_receipt.encode_to_vec())
+        let signature_bytes = self.0.signature.as_bytes().to_vec();
+
+        let signed_receipt = SignedReceipt {
+            message: Some(receipt_message),
+            signature: signature_bytes,
+        };
+
+        BASE64_STANDARD.encode(signed_receipt.encode_to_vec())
     }
 }
 
