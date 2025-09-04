@@ -101,7 +101,7 @@ client query. Indexer fees are clamped to a maximum of the gateway's budget.
 
 For an overview of TAP see https://github.com/semiotic-ai/timeline-aggregation-protocol.
 
-This is a horizon-ready gateway that generates TAP v2 receipts exclusively. It maintains backward compatibility for processing existing TAP v1 receipts but it won't generate new ones. The gateway acts as a TAP sender, where each indexer request is sent with a TAP v2 receipt. The gateway
+This is a horizon-ready gateway that generates TAP v2 receipts exclusively. The gateway acts as a TAP sender, where each indexer request is sent with a TAP v2 receipt. The gateway
 operator is expected to run 2 additional services:
 
 - [tap-aggregator](https://github.com/semiotic-ai/timeline-aggregation-protocol/tree/main/tap_aggregator):
