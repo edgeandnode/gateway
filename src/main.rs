@@ -112,6 +112,7 @@ async fn main() {
         indexers: conf.trusted_indexers,
         latest_block: None,
         page_size: 500,
+        max_lag_seconds: conf.network_subgraph_max_lag_seconds,
     };
     let indexer_host_blocklist = match &conf.ip_blocker_db {
         Some(path) => {
