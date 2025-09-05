@@ -46,7 +46,7 @@ pub struct Config {
     /// Minimum indexer-service version that will receive queries
     #[serde_as(as = "DisplayFromStr")]
     pub min_indexer_version: Version,
-    /// Indexers used to query the network subgraph
+    /// Trusted indexers that can serve the network subgraph for free
     pub trusted_indexers: Vec<TrustedIndexer>,
     /// Maximum acceptable lag (in seconds) for network subgraph responses (default: 120)
     #[serde(default = "default_network_subgraph_max_lag_seconds")]
@@ -61,6 +61,13 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_not_nan_f64")]
     pub query_fees_target: NotNan<f64>,
     pub receipts: Receipts,
+    /// Address for the Subgraph Service
+    pub subgraph_service: Address,
+}
+
+/// Default network subgraph max lag threshold (120 seconds)
+fn default_network_subgraph_max_lag_seconds() -> u64 {
+    120
 }
 
 /// Default network subgraph max lag threshold (120 seconds)

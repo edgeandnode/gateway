@@ -137,6 +137,7 @@ async fn main() {
         receipt_signer,
         conf.receipts.chain_id,
         conf.receipts.verifier,
+        conf.subgraph_service,
     )));
 
     let auth_service = init_auth_service(

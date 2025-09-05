@@ -94,7 +94,7 @@ pub mod types {
 #[serde_as]
 #[derive(Clone, CustomDebug, Deserialize)]
 pub struct TrustedIndexer {
-    /// network subgraph endpoint
+    /// Complete network subgraph endpoint URL (e.g., http://indexer:7601/subgraphs/id/Qmc2Cb...)
     #[debug(with = std::fmt::Display::fmt)]
     #[serde_as(as = "serde_with::DisplayFromStr")]
     pub url: Url,
