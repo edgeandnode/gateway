@@ -185,6 +185,8 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
 pub struct Receipts {
     /// TAP verifier contract chain
     pub chain_id: U256,
+    /// TAP payer address
+    pub payer: Address,
     /// TAP signer key
     pub signer: B256,
     /// TAP verifier contract address
