@@ -82,6 +82,7 @@ impl Receipt {
 }
 
 pub struct ReceiptSigner {
+    payer: Address,
     signer: PrivateKeySigner,
     domain: Eip712Domain,
     data_service: Address,
@@ -89,6 +90,7 @@ pub struct ReceiptSigner {
 
 impl ReceiptSigner {
     pub fn new(
+        payer: Address,
         signer: PrivateKeySigner,
         chain_id: U256,
         verifying_contract: Address,
@@ -102,6 +104,7 @@ impl ReceiptSigner {
             salt: None,
         };
         Self {
+            payer,
             signer,
             domain,
             data_service,
@@ -123,7 +126,7 @@ impl ReceiptSigner {
             .map_err(|_| anyhow::anyhow!("failed to convert timestamp to ns"))?;
         let receipt = tap_graph::v2::Receipt {
             collection_id: CollectionId::from(allocation).0.into(),
-            payer: self.signer.address(),
+            payer: self.payer,
             data_service: self.data_service,
             service_provider: indexer,
             timestamp_ns,
@@ -148,6 +151,7 @@ mod tests {
     fn create_test_signer() -> ReceiptSigner {
         let secret_key = PrivateKeySigner::from_slice(&[0xcd; 32]).expect("invalid secret key");
         ReceiptSigner::new(
+            address!("1111111111111111111111111111111111111111"),
             secret_key,
             1.try_into().expect("invalid chain id"),
             address!("177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
