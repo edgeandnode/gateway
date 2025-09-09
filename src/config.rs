@@ -70,11 +70,6 @@ fn default_network_subgraph_max_lag_seconds() -> u64 {
     120
 }
 
-/// Default network subgraph max lag threshold (120 seconds)
-fn default_network_subgraph_max_lag_seconds() -> u64 {
-    120
-}
-
 /// Deserialize a `NotNan<f64>` from a `f64` and return an error if the value is NaN.
 fn deserialize_not_nan_f64<'de, D>(deserializer: D) -> Result<NotNan<f64>, D::Error>
 where
