@@ -2607,7 +2607,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -4752,9 +4752,9 @@ dependencies = [
 
 [[package]]
 name = "thegraph-graphql-http"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa92e2566cf027755a3cf7ea43250eb5fe44727004efe6d4d6c6d2f0fc2b7349"
+checksum = "47039e9174267bf71f7ad9ff0af478f31df576d3ec6adcbd88e406cf19546e4a"
 dependencies = [
  "async-trait",
  "reqwest",
