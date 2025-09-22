@@ -430,14 +430,34 @@ async fn run_indexer_queries(
         .map(|i| i.response_time_ms)
         .min()
         .unwrap_or(response_time_ms);
+    let internal_latency_ms = response_time_ms.saturating_sub(ideal_response_time_ms);
     tracing::info!(
         result = ?result,
         response_time_ms,
-        internal_latency_ms = response_time_ms.saturating_sub(ideal_response_time_ms),
+        internal_latency_ms,
         total_fees_grt,
         total_fees_usd = *total_fees_usd.0,
         user_address = auth.user,
     );
+    if internal_latency_ms > 100 {
+        let tokio_metrics = tokio::runtime::Handle::current().metrics();
+        tracing::warn!(
+            internal_latency_ms,
+            tokio_num_workers = tokio_metrics.num_workers(),
+            tokio_alive_tasks = tokio_metrics.num_alive_tasks(),
+            tokio_global_queue_depth = tokio_metrics.global_queue_depth(),
+            "high_internal_latency"
+        );
+    } else {
+        let tokio_metrics = tokio::runtime::Handle::current().metrics();
+        tracing::warn!(
+            internal_latency_ms,
+            tokio_num_workers = tokio_metrics.num_workers(),
+            tokio_alive_tasks = tokio_metrics.num_alive_tasks(),
+            tokio_global_queue_depth = tokio_metrics.global_queue_depth(),
+            "low_internal_latency"
+        );
+    }
 
     let subgraph_id = if subgraph.subgraphs.len() == 1 {
         Some(subgraph.subgraphs[0])
