@@ -104,6 +104,15 @@ async fn main() {
             conf.attestations.dispute_manager,
         )));
 
+    let legacy_attestation_domain: &'static Eip712Domain =
+        Box::leak(Box::new(attestation::eip712_domain(
+            conf.attestations
+                .chain_id
+                .parse::<ChainId>()
+                .expect("failed to parse attestation domain chain_id"),
+            conf.attestations.legacy_dispute_manager,
+        )));
+
     let indexer_client = IndexerClient {
         client: http_client.clone(),
     };
@@ -134,9 +143,11 @@ async fn main() {
     network.wait_until_ready().await;
 
     let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(ReceiptSigner::new(
+        conf.receipts.payer,
         receipt_signer,
         conf.receipts.chain_id,
         conf.receipts.verifier,
+        conf.subgraph_service,
     )));
 
     let auth_service = init_auth_service(
@@ -171,6 +182,7 @@ async fn main() {
         indexing_perf,
         network,
         attestation_domain,
+        legacy_attestation_domain,
         reporter,
     };
 
