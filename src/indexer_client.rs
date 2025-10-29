@@ -123,16 +123,16 @@ impl IndexerClient {
                         &allocation,
                         query,
                         &original_response,
+                    ) && let Err(err) = attestation::verify(
+                        attestation_domain,
+                        attestation,
+                        &allocation,
+                        query,
+                        &original_response,
                     ) {
-                        if let Err(err) = attestation::verify(
-                            attestation_domain,
-                            attestation,
-                            &allocation,
-                            query,
-                            &original_response,
-                        ) {
-                            return Err(BadResponse(format!("bad attestation: {legacy_err} - {err}")));
-                        }
+                        return Err(BadResponse(format!(
+                            "bad attestation: {legacy_err} - {err}"
+                        )));
                     }
                 }
                 None => {
