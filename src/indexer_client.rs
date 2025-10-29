@@ -47,7 +47,7 @@ impl IndexerClient {
         query: &str,
     ) -> Result<IndexerResponse, IndexerError> {
         let (auth_key, auth_value) = match auth {
-            IndexerAuth::Paid(receipt, _) => ("tap-receipt", receipt.serialize()),
+            IndexerAuth::Paid(receipt, _, _) => ("tap-receipt", receipt.serialize()),
             IndexerAuth::Free(token) => (AUTHORIZATION.as_str(), format!("Bearer {token}")),
         };
 

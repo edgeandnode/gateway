@@ -206,7 +206,7 @@ dependencies = [
  "serde",
  "serde_with",
  "sha2",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -2881,17 +2881,6 @@ dependencies = [
  "equivalent",
  "hashbrown 0.15.5",
  "serde",
-]
-
-[[package]]
-name = "io-uring"
-version = "0.7.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "046fa2d4d00aea763528b4950358d0ead425372445dc8ff86312b3c69ff7727b"
-dependencies = [
- "bitflags 2.9.4",
- "cfg-if",
- "libc",
 ]
 
 [[package]]
