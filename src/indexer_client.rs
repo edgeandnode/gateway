@@ -173,7 +173,7 @@ fn rewrite_response(response: &str) -> Result<(String, Vec<Error>, Option<Block>
         #[serde(rename = "_gateway_probe_", skip_serializing)]
         probe: Option<Meta>,
         #[serde(flatten)]
-        data: Box<serde_json::value::RawValue>,
+        data: serde_json::Value,
     }
     #[derive(Deserialize)]
     struct Meta {
