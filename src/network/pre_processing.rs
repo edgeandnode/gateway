@@ -18,7 +18,7 @@ pub fn into_internal_indexers_raw_info<'a>(
 ) -> HashMap<IndexerId, IndexerRawInfo> {
     let mut indexer_indexing_largest_allocation: HashMap<
         (IndexerId, DeploymentId),
-        (AllocationId, u128),
+        (AllocationId, u128, bool),
     > = HashMap::new();
 
     data.flat_map(|subgraph| {
@@ -53,20 +53,21 @@ pub fn into_internal_indexers_raw_info<'a>(
             };
 
             // Update the indexer's indexings largest allocations table
-            let indexing_largest_allocation = match indexer_indexing_largest_allocation
+            let (indexing_largest_allocation, indexing_largest_allocation_is_legacy) = match indexer_indexing_largest_allocation
                 .entry((indexer_id, deployment_id))
             {
                 Entry::Vacant(entry) => {
-                    entry.insert((allocation.id, allocation.allocated_tokens));
-                    allocation.id
+                    entry.insert((allocation.id, allocation.allocated_tokens, allocation.is_legacy));
+                    (allocation.id, allocation.is_legacy)
                 }
                 Entry::Occupied(entry) => {
-                    let (largest_allocation_address, largest_allocation_amount) = entry.into_mut();
+                    let (largest_allocation_address, largest_allocation_amount, largest_allocation_is_legacy) = entry.into_mut();
                     if allocation.allocated_tokens > *largest_allocation_amount {
                         *largest_allocation_address = allocation.id;
                         *largest_allocation_amount = allocation.allocated_tokens;
+                        *largest_allocation_is_legacy = allocation.is_legacy;
                     }
-                    *largest_allocation_address
+                    (*largest_allocation_address, *largest_allocation_is_legacy)
                 }
             };
 
@@ -76,9 +77,11 @@ pub fn into_internal_indexers_raw_info<'a>(
                 .entry(deployment_id)
                 .or_insert(IndexingRawInfo {
                     largest_allocation: allocation.id,
+                    largest_allocation_is_legacy: allocation.is_legacy,
                 });
 
             indexing.largest_allocation = indexing_largest_allocation;
+            indexing.largest_allocation_is_legacy = indexing_largest_allocation_is_legacy;
         }
 
         acc
