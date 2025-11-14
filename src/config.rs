@@ -128,6 +128,7 @@ pub enum BlocklistEntry {
 pub struct AttestationConfig {
     pub chain_id: String,
     pub dispute_manager: Address,
+    pub legacy_dispute_manager: Address,
 }
 
 /// The exchange rate provider.

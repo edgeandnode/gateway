@@ -35,7 +35,7 @@ pub struct IndexerClient {
 }
 
 pub enum IndexerAuth<'a> {
-    Paid(&'a Receipt, &'a Eip712Domain),
+    Paid(&'a Receipt, &'a Eip712Domain, &'a Eip712Domain),
     Free(&'a str),
 }
 
@@ -47,7 +47,7 @@ impl IndexerClient {
         query: &str,
     ) -> Result<IndexerResponse, IndexerError> {
         let (auth_key, auth_value) = match auth {
-            IndexerAuth::Paid(receipt, _) => ("Tap-Receipt", receipt.serialize()),
+            IndexerAuth::Paid(receipt, _, _) => ("Tap-Receipt", receipt.serialize()),
             IndexerAuth::Free(token) => (AUTHORIZATION.as_str(), format!("Bearer {token}")),
         };
 
@@ -113,18 +113,26 @@ impl IndexerClient {
             return Err(BadResponse(format!("unattestable response: {error}")));
         }
 
-        if let IndexerAuth::Paid(receipt, attestation_domain) = auth {
+        if let IndexerAuth::Paid(receipt, attestation_domain, legacy_attestation_domain) = auth {
             match &payload.attestation {
                 Some(attestation) => {
                     let allocation = receipt.allocation();
-                    if let Err(err) = attestation::verify(
+                    if let Err(legacy_err) = attestation::verify(
+                        legacy_attestation_domain,
+                        attestation,
+                        &allocation,
+                        query,
+                        &original_response,
+                    ) && let Err(err) = attestation::verify(
                         attestation_domain,
                         attestation,
                         &allocation,
                         query,
                         &original_response,
                     ) {
-                        return Err(BadResponse(format!("bad attestation: {err}")));
+                        return Err(BadResponse(format!(
+                            "bad attestation: {legacy_err} - {err}"
+                        )));
                     }
                 }
                 None => {
