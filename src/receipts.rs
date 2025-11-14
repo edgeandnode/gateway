@@ -13,20 +13,41 @@ use thegraph_core::{
 };
 
 #[derive(Debug, Clone)]
-pub struct Receipt(pub tap_graph::v2::SignedReceipt);
+pub enum Receipt {
+    V1(tap_graph::SignedReceipt),
+    V2(tap_graph::v2::SignedReceipt),
+}
 
 impl Receipt {
     pub fn value(&self) -> u128 {
-        self.0.message.value
+        match self {
+            Receipt::V1(receipt) => receipt.message.value,
+            Receipt::V2(receipt) => receipt.message.value,
+        }
     }
 
     pub fn allocation(&self) -> Address {
-        // TAP v2 receipts use collection ids which are 32 bytes.
-        // For the Subgraph Service these are 20 byte allocation ids with zero padding.
-        CollectionId::from(self.0.message.collection_id).as_address()
+        match self {
+            Receipt::V1(receipt) => receipt.message.allocation_id,
+            Receipt::V2(receipt) => {
+                // TAP v2 receipts use collection ids which are 32 bytes.
+                // For the Subgraph Service these are 20 byte allocation ids with zero padding.
+                CollectionId::from(receipt.message.collection_id).as_address()
+            }
+        }
     }
 
     pub fn serialize(&self) -> String {
+        match self {
+            Receipt::V1(receipt) => {
+                // V1 receipts use JSON serialization
+                serde_json::to_string(receipt).expect("failed to serialize v1 receipt")
+            }
+            Receipt::V2(receipt) => self.serialize_v2(receipt),
+        }
+    }
+
+    fn serialize_v2(&self, receipt: &tap_graph::v2::SignedReceipt) -> String {
         #[derive(prost::Message)]
         struct ReceiptMessage {
             #[prost(bytes, tag = "1")]
@@ -59,18 +80,18 @@ impl Receipt {
             signature: Vec<u8>,
         }
         let receipt_message = ReceiptMessage {
-            collection_id: self.0.message.collection_id.to_vec(),
-            payer: self.0.message.payer.to_vec(),
-            data_service: self.0.message.data_service.to_vec(),
-            service_provider: self.0.message.service_provider.to_vec(),
-            timestamp_ns: self.0.message.timestamp_ns,
-            nonce: self.0.message.nonce,
+            collection_id: receipt.message.collection_id.to_vec(),
+            payer: receipt.message.payer.to_vec(),
+            data_service: receipt.message.data_service.to_vec(),
+            service_provider: receipt.message.service_provider.to_vec(),
+            timestamp_ns: receipt.message.timestamp_ns,
+            nonce: receipt.message.nonce,
             value: Some(Uint128 {
-                high: (self.0.message.value >> 64) as u64,
-                low: self.0.message.value as u64,
+                high: (receipt.message.value >> 64) as u64,
+                low: receipt.message.value as u64,
             }),
         };
-        let signature_bytes = self.0.signature.as_bytes().to_vec();
+        let signature_bytes = receipt.signature.as_bytes().to_vec();
 
         let signed_receipt = SignedReceipt {
             message: Some(receipt_message),
@@ -84,7 +105,8 @@ impl Receipt {
 pub struct ReceiptSigner {
     payer: Address,
     signer: PrivateKeySigner,
-    domain: Eip712Domain,
+    v2_domain: Eip712Domain,
+    v1_domain: Eip712Domain,
     data_service: Address,
 }
 
@@ -94,24 +116,58 @@ impl ReceiptSigner {
         signer: PrivateKeySigner,
         chain_id: U256,
         verifying_contract: Address,
+        legacy_verifying_contract: Address,
         data_service: Address,
     ) -> Self {
-        let domain = Eip712Domain {
+        let v2_domain = Eip712Domain {
             name: Some("GraphTallyCollector".into()),
             version: Some("1".into()),
             chain_id: Some(chain_id),
             verifying_contract: Some(verifying_contract),
             salt: None,
         };
+        let v1_domain = Eip712Domain {
+            name: Some("TAP".into()),
+            version: Some("1".into()),
+            chain_id: Some(chain_id),
+            verifying_contract: Some(legacy_verifying_contract),
+            salt: None,
+        };
         Self {
             payer,
             signer,
-            domain,
+            v2_domain,
+            v1_domain,
             data_service,
         }
     }
 
-    pub fn create_receipt(
+    /// Create a v1 receipt for legacy allocations
+    pub fn create_v1_receipt(
+        &self,
+        allocation: AllocationId,
+        fee: u128,
+    ) -> anyhow::Result<Receipt> {
+        let nonce = rand::rng().next_u64();
+        let timestamp_ns = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("failed to convert timestamp to ns"))?;
+        let receipt = tap_graph::Receipt {
+            allocation_id: allocation.0.0.into(),
+            timestamp_ns,
+            nonce,
+            value: fee,
+        };
+        tap_graph::SignedReceipt::new(&self.v1_domain, receipt, &self.signer)
+            .map(Receipt::V1)
+            .map_err(|e| anyhow::anyhow!("failed to sign v1 receipt: {:?}", e))
+    }
+
+    /// Create a v2 receipt for new allocations
+    pub fn create_v2_receipt(
         &self,
         allocation: AllocationId,
         indexer: Address,
@@ -133,9 +189,24 @@ impl ReceiptSigner {
             nonce,
             value: fee,
         };
-        tap_graph::v2::SignedReceipt::new(&self.domain, receipt, &self.signer)
-            .map(Receipt)
+        tap_graph::v2::SignedReceipt::new(&self.v2_domain, receipt, &self.signer)
+            .map(Receipt::V2)
             .map_err(|e| anyhow::anyhow!("failed to sign v2 receipt: {:?}", e))
+    }
+
+    /// Create a receipt based on whether the allocation is legacy or not
+    pub fn create_receipt(
+        &self,
+        allocation: AllocationId,
+        indexer: Address,
+        fee: u128,
+        is_legacy: bool,
+    ) -> anyhow::Result<Receipt> {
+        if is_legacy {
+            self.create_v1_receipt(allocation, fee)
+        } else {
+            self.create_v2_receipt(allocation, indexer, fee)
+        }
     }
 }
 
@@ -155,6 +226,7 @@ mod tests {
             secret_key,
             1.try_into().expect("invalid chain id"),
             address!("177b557b12f22bb17a9d73dcc994d978dd6f5f89"),
+            address!("277b557b12f22bb17a9d73dcc994d978dd6f5f89"), // legacy verifier
             address!("2222222222222222222222222222222222222222"),
         )
     }
@@ -170,6 +242,7 @@ mod tests {
                 allocation,
                 address!("3333333333333333333333333333333333333333"),
                 fee,
+                false, // not legacy
             )
             .expect("failed to create v2 receipt");
 
@@ -188,11 +261,31 @@ mod tests {
                 allocation,
                 address!("3333333333333333333333333333333333333333"),
                 fee,
+                false, // not legacy
             )
             .expect("failed to create v2 receipt");
 
         let serialized = receipt.serialize();
         assert!(!serialized.is_empty());
         assert_eq!(receipt.value(), fee);
+    }
+
+    #[test]
+    fn create_v1_receipt() {
+        let signer = create_test_signer();
+        let allocation = allocation_id!("89b23fea4e46d40e8a4c6cca723e2a03fdd4bec2");
+        let fee = 1000;
+
+        let receipt = signer
+            .create_receipt(
+                allocation,
+                address!("3333333333333333333333333333333333333333"),
+                fee,
+                true, // legacy
+            )
+            .expect("failed to create v1 receipt");
+
+        assert_eq!(receipt.value(), fee);
+        assert_eq!(AllocationId::from(receipt.allocation()), allocation);
     }
 }

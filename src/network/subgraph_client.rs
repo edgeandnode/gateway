@@ -77,6 +77,7 @@ pub mod types {
         pub id: AllocationId,
         #[serde_as(as = "serde_with::DisplayFromStr")]
         pub allocated_tokens: u128,
+        pub is_legacy: bool,
         pub indexer: Indexer,
     }
 
@@ -180,6 +181,7 @@ impl Client {
                             ) {
                                 id
                                 allocatedTokens
+                                isLegacy
                                 indexer {
                                     id
                                     url

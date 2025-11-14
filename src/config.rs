@@ -190,8 +190,10 @@ pub struct Receipts {
     pub payer: Address,
     /// TAP signer key
     pub signer: B256,
-    /// TAP verifier contract address
+    /// TAP verifier contract address (v2)
     pub verifier: Address,
+    /// Legacy TAP verifier contract address (v1)
+    pub legacy_verifier: Address,
 }
 
 /// Load the configuration from a JSON file.

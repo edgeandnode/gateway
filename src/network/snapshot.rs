@@ -36,6 +36,8 @@ pub struct Indexing {
     /// This is, among all allocations associated with the indexer and deployment, the address
     /// with the largest amount of allocated tokens.
     pub largest_allocation: AllocationId,
+    /// Whether the largest allocation is a legacy allocation
+    pub largest_allocation_is_legacy: bool,
     /// The indexer
     pub indexer: Arc<Indexer>,
     /// The indexing progress.
@@ -365,6 +367,7 @@ fn construct_indexings_table_row(
     let indexing = Indexing {
         id: indexing_id,
         largest_allocation: indexing_largest_allocation_addr,
+        largest_allocation_is_legacy: indexing_info.largest_allocation_is_legacy,
         indexer: Arc::clone(indexer),
         progress: IndexingProgress {
             latest_block: indexing_progress.latest_block,
