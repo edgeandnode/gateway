@@ -18,5 +18,6 @@ pub struct Context {
     pub network: NetworkService,
     pub indexing_perf: IndexingPerformance,
     pub attestation_domain: &'static Eip712Domain,
+    pub legacy_attestation_domain: &'static Eip712Domain,
     pub reporter: mpsc::UnboundedSender<reports::ClientRequest>,
 }
