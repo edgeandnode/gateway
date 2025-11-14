@@ -53,23 +53,30 @@ pub fn into_internal_indexers_raw_info<'a>(
             };
 
             // Update the indexer's indexings largest allocations table
-            let (indexing_largest_allocation, indexing_largest_allocation_is_legacy) = match indexer_indexing_largest_allocation
-                .entry((indexer_id, deployment_id))
-            {
-                Entry::Vacant(entry) => {
-                    entry.insert((allocation.id, allocation.allocated_tokens, allocation.is_legacy));
-                    (allocation.id, allocation.is_legacy)
-                }
-                Entry::Occupied(entry) => {
-                    let (largest_allocation_address, largest_allocation_amount, largest_allocation_is_legacy) = entry.into_mut();
-                    if allocation.allocated_tokens > *largest_allocation_amount {
-                        *largest_allocation_address = allocation.id;
-                        *largest_allocation_amount = allocation.allocated_tokens;
-                        *largest_allocation_is_legacy = allocation.is_legacy;
+            let (indexing_largest_allocation, indexing_largest_allocation_is_legacy) =
+                match indexer_indexing_largest_allocation.entry((indexer_id, deployment_id)) {
+                    Entry::Vacant(entry) => {
+                        entry.insert((
+                            allocation.id,
+                            allocation.allocated_tokens,
+                            allocation.is_legacy,
+                        ));
+                        (allocation.id, allocation.is_legacy)
                     }
-                    (*largest_allocation_address, *largest_allocation_is_legacy)
-                }
-            };
+                    Entry::Occupied(entry) => {
+                        let (
+                            largest_allocation_address,
+                            largest_allocation_amount,
+                            largest_allocation_is_legacy,
+                        ) = entry.into_mut();
+                        if allocation.allocated_tokens > *largest_allocation_amount {
+                            *largest_allocation_address = allocation.id;
+                            *largest_allocation_amount = allocation.allocated_tokens;
+                            *largest_allocation_is_legacy = allocation.is_legacy;
+                        }
+                        (*largest_allocation_address, *largest_allocation_is_legacy)
+                    }
+                };
 
             // Update the indexer's indexings info
             let indexing = indexer

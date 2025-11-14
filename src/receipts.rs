@@ -3,7 +3,6 @@ use std::time::SystemTime;
 use base64::{Engine as _, prelude::BASE64_STANDARD};
 use prost::Message as _;
 use rand::RngCore as _;
-use serde_json;
 use thegraph_core::{
     AllocationId, CollectionId,
     alloy::{
