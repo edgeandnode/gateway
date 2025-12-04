@@ -77,6 +77,7 @@ pub mod types {
         pub id: AllocationId,
         #[serde_as(as = "serde_with::DisplayFromStr")]
         pub allocated_tokens: u128,
+        pub is_legacy: bool,
         pub indexer: Indexer,
     }
 
@@ -94,7 +95,7 @@ pub mod types {
 #[serde_as]
 #[derive(Clone, CustomDebug, Deserialize)]
 pub struct TrustedIndexer {
-    /// network subgraph endpoint
+    /// Complete network subgraph endpoint URL (e.g., http://indexer:7601/subgraphs/id/Qmc2Cb...)
     #[debug(with = std::fmt::Display::fmt)]
     #[serde_as(as = "serde_with::DisplayFromStr")]
     pub url: Url,
@@ -180,6 +181,7 @@ impl Client {
                             ) {
                                 id
                                 allocatedTokens
+                                isLegacy
                                 indexer {
                                     id
                                     url

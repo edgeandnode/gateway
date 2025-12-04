@@ -101,7 +101,7 @@ client query. Indexer fees are clamped to a maximum of the gateway's budget.
 
 For an overview of TAP see https://github.com/semiotic-ai/timeline-aggregation-protocol.
 
-The gateway acts as a TAP sender, where each indexer request is sent with a TAP receipt. The gateway
+This is a horizon-ready gateway that generates TAP v2 receipts exclusively. The gateway acts as a TAP sender, where each indexer request is sent with a TAP v2 receipt. The gateway
 operator is expected to run 2 additional services:
 
 - [tap-aggregator](https://github.com/semiotic-ai/timeline-aggregation-protocol/tree/main/tap_aggregator):
@@ -113,7 +113,7 @@ operator is expected to run 2 additional services:
 The gateway operator is also expected to manage at least 2 wallets:
 
 - sender: requires ETH for transaction gas and GRT to allocate into TAP escrow balances for paying indexers
-- authorized signer: used by the gateway and tap-aggregator to sign receipts and RAVs
+- authorized signer: used by the gateway and tap-aggregator to sign v2 receipts and RAVs
 
 ## operational notes
 
