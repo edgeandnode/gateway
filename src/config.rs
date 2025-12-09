@@ -46,7 +46,7 @@ pub struct Config {
     /// Minimum indexer-service version that will receive queries
     #[serde_as(as = "DisplayFromStr")]
     pub min_indexer_version: Version,
-    /// Indexers used to query the network subgraph
+    /// Trusted indexers that can serve the network subgraph for free
     pub trusted_indexers: Vec<TrustedIndexer>,
     /// Maximum acceptable lag (in seconds) for network subgraph responses (default: 120)
     #[serde(default = "default_network_subgraph_max_lag_seconds")]
@@ -61,6 +61,8 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_not_nan_f64")]
     pub query_fees_target: NotNan<f64>,
     pub receipts: Receipts,
+    /// Address for the Subgraph Service
+    pub subgraph_service: Address,
 }
 
 /// Default network subgraph max lag threshold (120 seconds)
@@ -184,10 +186,14 @@ impl From<KafkaConfig> for rdkafka::config::ClientConfig {
 pub struct Receipts {
     /// TAP verifier contract chain
     pub chain_id: U256,
+    /// TAP payer address
+    pub payer: Address,
     /// TAP signer key
     pub signer: B256,
-    /// TAP verifier contract address
+    /// TAP verifier contract address (v2)
     pub verifier: Address,
+    /// Legacy TAP verifier contract address (v1)
+    pub legacy_verifier: Address,
 }
 
 /// Load the configuration from a JSON file.
