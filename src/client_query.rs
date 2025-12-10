@@ -493,15 +493,16 @@ fn build_candidates_list(
     let mut candidates_list = Vec::new();
     let mut candidates_errors = BTreeMap::default();
 
-    // Select the latest subgraph version where indexers are near chain head, or else the latest.
-    let cutoff = chain_head.saturating_sub(blocks_per_minute * 30);
+    // Select the latest subgraph version that has any indexers allocated, or else the latest.
+    // We prefer the newest version to ensure schema compatibility (newer versions may have breaking
+    // schema changes). Sync status is handled later by indexer selection within the deployment.
     let deployment = *subgraph_versions
         .iter()
         .find(|v| {
             indexings
                 .iter()
                 .filter_map(|(_, result)| result.as_ref().ok())
-                .any(|i| (i.id.deployment == **v) && (i.progress.latest_block > cutoff))
+                .any(|i| i.id.deployment == **v)
         })
         .unwrap_or(&subgraph_versions[0]);
 
