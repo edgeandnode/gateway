@@ -1,3 +1,34 @@
+//! Kafka Reporting
+//!
+//! Reports query telemetry and attestations to Kafka topics for analytics and auditing.
+//!
+//! # Topics
+//!
+//! | Topic | Content | Format |
+//! |-------|---------|--------|
+//! | `gateway_queries` | Client request data | Protobuf ([`ClientQueryProtobuf`]) |
+//! | `gateway_attestations` | Indexer attestations | Protobuf ([`AttestationProtobuf`]) |
+//!
+//! # Client Query Data
+//!
+//! Each query report includes:
+//! - Request metadata (ID, API key, user, subgraph)
+//! - Response metadata (time, bytes, result)
+//! - Per-indexer request details (fees, latency, result)
+//!
+//! # Attestation Sampling
+//!
+//! To avoid overwhelming the attestations topic, attestations are sampled:
+//! - One attestation per (deployment, indexer) pair every 10 seconds
+//! - Payloads over 100KB are truncated
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let reporter = Reporter::create(signer, env_id, topics, kafka_config)?;
+//! reporter.send(ClientRequest { ... });
+//! ```
+
 use std::{collections::HashSet, time::Duration};
 
 use anyhow::{Context, anyhow};

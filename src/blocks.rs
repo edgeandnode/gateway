@@ -1,3 +1,7 @@
+//! Block Type Definitions
+//!
+//! Core types for representing blockchain blocks and query constraints.
+
 use serde::Deserialize;
 use thegraph_core::alloy::primitives::{BlockHash, BlockNumber, BlockTimestamp};
 

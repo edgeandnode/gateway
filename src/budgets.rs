@@ -1,3 +1,62 @@
+//! Query Fee Budget Management
+//!
+//! Implements a PID controller to dynamically adjust minimum indexer fees
+//! to hit a target average fee per query.
+//!
+//! # Overview
+//!
+//! The gateway has a `query_fees_target` configuration (e.g., $0.0001 per query).
+//! This module adjusts the `min_indexer_fees` parameter in real-time to achieve
+//! that target across all queries.
+//!
+//! # PID Controller
+//!
+//! Uses an integral-only controller (PI controller with k_p=0, k_d=0):
+//!
+//! ```text
+//! error = (target - actual) / target
+//! integral = sum of error over recent history (with decay)
+//! control_variable = integral * k_i * target
+//! ```
+//!
+//! Where:
+//! - `k_i = 0.2` (integral gain)
+//! - `target` = configured `query_fees_target`
+//! - `actual` = average fees from recent queries
+//!
+//! The control variable (`min_indexer_fees`) is clamped to `[10e-6, target]`.
+//!
+//! # Decay Buffer
+//!
+//! Historical error values are stored in a 6-frame [`DecayBuffer`] with exponential
+//! decay factor 4. This weights recent samples more heavily while maintaining
+//! some memory of past behavior.
+//!
+//! The decay formula for frame `i`:
+//! ```text
+//! frame[i] = frame[i] * (1 - 4^(-i)) * decay + frame[i-1] * 4^(-(i-1)) * decay
+//! ```
+//!
+//! # Actor Model
+//!
+//! The budgeter runs as a background actor that:
+//!
+//! 1. Receives fee feedback via [`Budgeter::feedback`] channel after each query
+//! 2. Every second, calculates the new `min_indexer_fees` value
+//! 3. Publishes the new value via [`Budgeter::min_indexer_fees`] watch channel
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let budgeter = Budgeter::new(USD(query_fees_target));
+//!
+//! // After each query, report the fees paid
+//! budgeter.feedback.send(USD(fees_paid));
+//!
+//! // Read current minimum fees when selecting indexers
+//! let min_fee = *budgeter.min_indexer_fees.borrow();
+//! ```
+
 use std::time::Duration;
 
 use ordered_float::NotNan;

@@ -1,3 +1,46 @@
+//! Graph Gateway Entry Point
+//!
+//! Initializes and starts the graph-gateway service, routing GraphQL queries
+//! from clients to Graph Network indexers.
+//!
+//! # Initialization Sequence
+//!
+//! 1. Load configuration from JSON file (path from CLI argument)
+//! 2. Initialize receipt signer from config and set up logging
+//! 3. Set up HTTP client with 20-second timeout
+//! 4. Initialize exchange rate provider (RPC or fixed value)
+//! 5. Create attestation EIP-712 domains for signature verification
+//! 6. Initialize network topology service and wait for initial data
+//! 7. Initialize auth service from API keys source (endpoint, Kafka, or fixed)
+//! 8. Create query budgeter with PID controller for fee management
+//! 9. Start metrics server on separate port
+//! 10. Start main API server with CORS and auth middleware
+//!
+//! # Static Allocations
+//!
+//! Several components use `Box::leak()` to create `&'static` references:
+//!
+//! - `attestation_domain` / `legacy_attestation_domain`: EIP-712 domains for attestation
+//!   verification. Static because they're immutable config derived from chain ID and
+//!   dispute manager address.
+//!
+//! - `receipt_signer`: TAP receipt signing service. Static because it holds the signing
+//!   key and is used by all query handlers.
+//!
+//! - `budgeter`: Fee budget controller. Static because it maintains state across all
+//!   requests and runs a background task.
+//!
+//! - `chains`: Chain head tracking. Static because it aggregates block info from all
+//!   query responses.
+//!
+//! This pattern is intentional: these are singletons that must outlive Axum's state
+//! lifetime requirements and are never deallocated during the gateway's lifetime.
+//!
+//! # Graceful Shutdown
+//!
+//! The gateway handles SIGINT and SIGTERM for graceful shutdown. The Axum server
+//! stops accepting new connections and waits for in-flight requests to complete.
+
 mod auth;
 mod block_constraints;
 mod blocks;
@@ -64,93 +107,51 @@ static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 #[tokio::main]
 async fn main() {
-    let conf_path = env::args()
-        .nth(1)
-        .expect("Missing argument for config path")
-        .parse::<PathBuf>()
-        .unwrap();
-    let conf = config::load_from_file(&conf_path).expect("Failed to load config");
+    // Phase 1: Load configuration
+    let conf = load_configuration();
 
-    let receipt_signer = PrivateKeySigner::from_bytes(&conf.receipts.signer)
+    // Phase 2: Initialize signing key and logging
+    let receipt_key = PrivateKeySigner::from_bytes(&conf.receipts.signer)
         .expect("failed to prepare receipt signer");
-    let signer_address = receipt_signer.address();
-
+    let signer_address = receipt_key.address();
     init_logging("graph-gateway", conf.log_json);
-    tracing::info!("gateway ID: {:?}", signer_address);
+    tracing::info!("gateway ID: {signer_address:?}");
 
+    // Set up termination handler (will be replaced by graceful shutdown)
     let setup_termination = tokio::spawn(async {
         await_shutdown_signals().await;
         tracing::warn!("shutdown");
         std::process::exit(1);
     });
 
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .unwrap();
+    // Phase 3: Initialize core services
+    let http_client = init_http_client();
     let kafka_consumer = KafkaConsumer::new(conf.kafka.clone());
+    let grt_per_usd = init_exchange_rate(&conf.exchange_rate_provider).await;
 
-    let grt_per_usd = match conf.exchange_rate_provider {
-        ExchangeRateProvider::Fixed(grt_per_usd) => watch::channel(grt_per_usd).1,
-        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url).await,
-    };
+    // Phase 4: Create attestation domains (static for Axum state lifetime)
+    let (attestation_domain, legacy_attestation_domain) =
+        init_attestation_domains(&conf.attestations);
 
-    let attestation_domain: &'static Eip712Domain =
-        Box::leak(Box::new(attestation::eip712_domain(
-            conf.attestations
-                .chain_id
-                .parse::<ChainId>()
-                .expect("failed to parse attestation domain chain_id"),
-            conf.attestations.dispute_manager,
-        )));
-
-    let legacy_attestation_domain: &'static Eip712Domain =
-        Box::leak(Box::new(attestation::eip712_domain(
-            conf.attestations
-                .chain_id
-                .parse::<ChainId>()
-                .expect("failed to parse attestation domain chain_id"),
-            conf.attestations.legacy_dispute_manager,
-        )));
-
+    // Phase 5: Initialize network topology service
     let indexer_client = IndexerClient {
         client: http_client.clone(),
     };
-    let network_subgraph_client = SubgraphClient {
-        client: indexer_client.clone(),
-        indexers: conf.trusted_indexers,
-        latest_block: None,
-        page_size: 500,
-        max_lag_seconds: conf.network_subgraph_max_lag_seconds,
-    };
-    let indexer_host_blocklist = match &conf.ip_blocker_db {
-        Some(path) => {
-            config::load_ip_blocklist_from_file(path).expect("failed to load IP blocker DB")
-        }
-        None => Default::default(),
-    };
-    let indexer_blocklist =
-        indexer_blocklist::Blocklist::spawn(conf.blocklist, kafka_consumer.clone());
-    let mut network = network::service::spawn(
-        http_client.clone(),
-        network_subgraph_client,
-        indexer_blocklist.clone(),
-        conf.min_indexer_version,
-        conf.min_graph_node_version,
-        indexer_host_blocklist,
-    );
-    let indexing_perf = IndexingPerformance::new(network.clone());
+    let (mut network, indexer_blocklist, indexing_perf) =
+        init_network_service(&http_client, &indexer_client, &conf, kafka_consumer.clone());
     network.wait_until_ready().await;
 
+    // Phase 6: Create receipt signer (static for Axum state lifetime)
     let receipt_signer: &'static ReceiptSigner = Box::leak(Box::new(ReceiptSigner::new(
         conf.receipts.payer,
-        receipt_signer,
+        receipt_key,
         conf.receipts.chain_id,
         conf.receipts.verifier,
         conf.receipts.legacy_verifier,
         conf.subgraph_service,
     )));
 
+    // Phase 7: Initialize auth service
     let auth_service = init_auth_service(
         http_client.clone(),
         &kafka_consumer,
@@ -160,9 +161,9 @@ async fn main() {
     .await
     .expect("failed to start auth service");
 
+    // Phase 8: Create budget controller and reporter (static for Axum state lifetime)
     let budgeter: &'static Budgeter =
         Box::leak(Box::new(Budgeter::new(USD(conf.query_fees_target))));
-
     let reporter = reports::Reporter::create(
         signer_address,
         conf.graph_env_id,
@@ -174,6 +175,7 @@ async fn main() {
     )
     .unwrap();
 
+    // Phase 9: Build query handler context
     let ctx = Context {
         indexer_client,
         receipt_signer,
@@ -187,22 +189,130 @@ async fn main() {
         reporter,
     };
 
+    // Phase 10: Start servers
     let blocklist: watch::Receiver<Vec<BlocklistEntry>> = indexer_blocklist.blocklist;
+    start_metrics_server(conf.port_metrics);
+    let router = build_router(ctx, auth_service, signer_address, blocklist);
 
-    // Host metrics on a separate server with a port that isn't open to public requests.
-    tokio::spawn(async move {
-        let router = Router::new().route("/metrics", routing::get(handle_metrics));
-        let metrics_listener = TcpListener::bind(SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            conf.port_metrics,
-        ))
-        .await
-        .expect("Failed to bind metrics server");
-        axum::serve(metrics_listener, router.into_make_service())
-            .await
-            .expect("Failed to start metrics server");
-    });
+    // Switch to graceful shutdown via Axum
+    setup_termination.abort();
+    start_api_server(router, conf.port_api).await;
+    tracing::warn!("shutdown");
+}
 
+// =============================================================================
+// Initialization Helpers
+// =============================================================================
+
+/// Load configuration from CLI argument path.
+fn load_configuration() -> config::Config {
+    let conf_path = env::args()
+        .nth(1)
+        .expect("Missing argument for config path")
+        .parse::<PathBuf>()
+        .unwrap();
+    config::load_from_file(&conf_path).expect("Failed to load config")
+}
+
+/// Create HTTP client with 20-second timeout.
+fn init_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .unwrap()
+}
+
+/// Initialize exchange rate provider (RPC or fixed value).
+async fn init_exchange_rate(
+    provider: &ExchangeRateProvider,
+) -> watch::Receiver<ordered_float::NotNan<f64>> {
+    match provider {
+        ExchangeRateProvider::Fixed(grt_per_usd) => watch::channel(*grt_per_usd).1,
+        ExchangeRateProvider::Rpc(url) => exchange_rate::grt_per_usd(url.clone()).await,
+    }
+}
+
+/// Create EIP-712 attestation domains.
+///
+/// Returns static references because Axum state requires `'static` lifetime.
+/// These domains are immutable config and never deallocated.
+fn init_attestation_domains(
+    config: &config::AttestationConfig,
+) -> (&'static Eip712Domain, &'static Eip712Domain) {
+    let chain_id = config
+        .chain_id
+        .parse::<ChainId>()
+        .expect("failed to parse attestation domain chain_id");
+
+    let attestation_domain: &'static Eip712Domain = Box::leak(Box::new(
+        attestation::eip712_domain(chain_id, config.dispute_manager),
+    ));
+
+    let legacy_attestation_domain: &'static Eip712Domain = Box::leak(Box::new(
+        attestation::eip712_domain(chain_id, config.legacy_dispute_manager),
+    ));
+
+    (attestation_domain, legacy_attestation_domain)
+}
+
+/// Initialize network topology service and related components.
+///
+/// Returns:
+/// - `NetworkService`: Handle for subgraph/deployment resolution
+/// - `Blocklist`: Indexer blocklist with Kafka updates
+/// - `IndexingPerformance`: Performance tracking for indexer selection
+fn init_network_service(
+    http_client: &reqwest::Client,
+    indexer_client: &IndexerClient,
+    conf: &config::Config,
+    kafka_consumer: KafkaConsumer,
+) -> (
+    network::NetworkService,
+    indexer_blocklist::Blocklist,
+    IndexingPerformance,
+) {
+    let network_subgraph_client = SubgraphClient {
+        client: indexer_client.clone(),
+        indexers: conf.trusted_indexers.clone(),
+        latest_block: None,
+        page_size: 500,
+        max_lag_seconds: conf.network_subgraph_max_lag_seconds,
+    };
+
+    let indexer_host_blocklist = match &conf.ip_blocker_db {
+        Some(path) => {
+            config::load_ip_blocklist_from_file(path).expect("failed to load IP blocker DB")
+        }
+        None => Default::default(),
+    };
+
+    let blocklist = indexer_blocklist::Blocklist::spawn(conf.blocklist.clone(), kafka_consumer);
+
+    let network = network::service::spawn(
+        http_client.clone(),
+        network_subgraph_client,
+        blocklist.clone(),
+        conf.min_indexer_version.clone(),
+        conf.min_graph_node_version.clone(),
+        indexer_host_blocklist,
+    );
+
+    let indexing_perf = IndexingPerformance::new(network.clone());
+
+    (network, blocklist, indexing_perf)
+}
+
+// =============================================================================
+// Router Building
+// =============================================================================
+
+/// Build the main API router with all middleware layers.
+fn build_router(
+    ctx: Context,
+    auth_service: AuthContext,
+    signer_address: thegraph_core::alloy::primitives::Address,
+    blocklist: watch::Receiver<Vec<BlocklistEntry>>,
+) -> Router {
     let api = Router::new()
         .route(
             "/deployments/id/{deployment_id}",
@@ -226,8 +336,7 @@ async fn main() {
         )
         .with_state(ctx)
         .layer(
-            // ServiceBuilder works by composing all layers into one such that they run top to
-            // bottom, and then the response would bubble back up through the layers in reverse
+            // ServiceBuilder composes layers top-to-bottom, responses bubble up in reverse
             tower::ServiceBuilder::new()
                 .layer(
                     CorsLayer::new()
@@ -240,37 +349,53 @@ async fn main() {
                 .layer(RequireAuthorizationLayer::new(auth_service)),
         );
 
-    let router = Router::new()
+    Router::new()
         .route("/", routing::get(|| async { "Ready to roll!" }))
-        // This path is required by NGINX ingress controller
         .route("/ready", routing::get(|| async { "Ready" }))
         .route(
             "/blocklist",
             routing::get(move || async move { axum::Json(blocklist.borrow().clone()) }),
         )
-        .nest("/api", api);
+        .nest("/api", api)
+}
 
-    // handle graceful shutdown via the axum server instead
-    setup_termination.abort();
+// =============================================================================
+// Server Startup
+// =============================================================================
 
-    let app_listener = TcpListener::bind(SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        conf.port_api,
-    ))
-    .await
-    .expect("Failed to bind API server")
-    // disable Nagle's algorithm
-    .tap_io(|stream| {
-        let _ = stream.set_nodelay(true);
+/// Start the metrics server on a separate port.
+///
+/// Runs in a background task. The metrics endpoint is not exposed publicly.
+fn start_metrics_server(port: u16) {
+    tokio::spawn(async move {
+        let router = Router::new().route("/metrics", routing::get(handle_metrics));
+        let listener =
+            TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
+                .await
+                .expect("Failed to bind metrics server");
+        axum::serve(listener, router.into_make_service())
+            .await
+            .expect("Failed to start metrics server");
     });
+}
+
+/// Start the main API server with graceful shutdown support.
+async fn start_api_server(router: Router, port: u16) {
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
+        .await
+        .expect("Failed to bind API server")
+        // Disable Nagle's algorithm for lower latency
+        .tap_io(|stream| {
+            let _ = stream.set_nodelay(true);
+        });
+
     axum::serve(
-        app_listener,
+        listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(await_shutdown_signals())
     .await
     .expect("Failed to start API server");
-    tracing::warn!("shutdown");
 }
 
 async fn await_shutdown_signals() {

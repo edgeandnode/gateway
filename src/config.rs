@@ -1,3 +1,72 @@
+//! Gateway Configuration
+//!
+//! JSON-based configuration loaded at startup from a file path passed as a CLI argument.
+//!
+//! # Example Configuration
+//!
+//! ```json
+//! {
+//!   "api_keys": {
+//!     "url": "https://api.example.com/gateway-api-keys",
+//!     "auth": "Bearer <token>",
+//!     "special": ["admin-key-1"]
+//!   },
+//!   "attestations": {
+//!     "chain_id": "42161",
+//!     "dispute_manager": "0x...",
+//!     "legacy_dispute_manager": "0x..."
+//!   },
+//!   "blocklist": [
+//!     { "deployment": "Qm...", "public_poi": "0x...", "block": 12345678 },
+//!     { "deployment": "Qm...", "indexer": "0x..." }
+//!   ],
+//!   "chain_aliases": { "mainnet": "ethereum" },
+//!   "exchange_rate_provider": "https://eth-mainnet.g.alchemy.com/v2/<key>",
+//!   "graph_env_id": "production",
+//!   "ip_blocker_db": "/path/to/ip-blocklist.csv",
+//!   "kafka": {
+//!     "bootstrap.servers": "localhost:9092",
+//!     "security.protocol": "SASL_SSL"
+//!   },
+//!   "log_json": true,
+//!   "min_graph_node_version": "0.35.0",
+//!   "min_indexer_version": "1.0.0",
+//!   "trusted_indexers": [
+//!     { "url": "https://indexer.example.com/", "auth": "Bearer <token>" }
+//!   ],
+//!   "payment_required": true,
+//!   "port_api": 8000,
+//!   "port_metrics": 8001,
+//!   "query_fees_target": 0.0001,
+//!   "receipts": {
+//!     "chain_id": "42161",
+//!     "payer": "0x...",
+//!     "signer": "0x<private_key_hex>",
+//!     "verifier": "0x...",
+//!     "legacy_verifier": "0x..."
+//!   },
+//!   "subgraph_service": "0x..."
+//! }
+//! ```
+//!
+//! # API Keys Configuration
+//!
+//! The `api_keys` field supports three variants:
+//!
+//! 1. **Endpoint**: Fetch from HTTP endpoint (polls periodically)
+//! 2. **KafkaTopic**: Stream from Kafka topic (note: typo `KakfaTopic` preserved for compatibility)
+//! 3. **Fixed**: Static list of API keys for testing
+//!
+//! # IP Blocklist
+//!
+//! The optional `ip_blocker_db` field points to a CSV file with format:
+//! ```csv
+//! 192.168.1.0/24,US
+//! 10.0.0.0/8,Internal
+//! ```
+//!
+//! Only the IP network (first column) is used; the country/label is ignored.
+
 use std::{
     collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
@@ -35,7 +104,7 @@ pub struct Config {
     pub graph_env_id: String,
     /// File path of CSV containing rows of `IpNetwork,Country`
     pub ip_blocker_db: Option<PathBuf>,
-    /// See https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
+    /// See <https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md>
     #[serde(default)]
     pub kafka: KafkaConfig,
     /// Format log output as JSON
