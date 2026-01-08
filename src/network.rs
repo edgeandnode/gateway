@@ -1,3 +1,23 @@
+//! Network Topology Management
+//!
+//! This module provides network topology services for resolving subgraphs and
+//! deployments to their available indexers.
+//!
+//! # Module Structure
+//!
+//! | Module | Purpose |
+//! |--------|---------|
+//! | [`service`] | Main [`NetworkService`] interface for resolution |
+//! | [`subgraph_client`] | Fetches data from network subgraph via trusted indexers |
+//! | [`cost_model`] | Resolves indexer query fees |
+//! | [`indexing_progress`] | Resolves indexer block progress |
+//! | [`host_filter`] | IP-based indexer filtering |
+//! | [`version_filter`] | Version-based indexer filtering |
+//! | [`poi_filter`] | Proof-of-indexing filtering |
+//! | [`indexer_blocklist`] | Manual indexer blocklist |
+//!
+//! See [`service`] module for architecture details.
+
 pub use service::{NetworkService, ResolvedSubgraphInfo};
 pub use snapshot::{DeploymentError, Indexing, IndexingId, SubgraphError};
 use thegraph_graphql_http::graphql::{IntoDocument as _, IntoDocumentWithVariables};

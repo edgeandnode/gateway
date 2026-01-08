@@ -1,3 +1,36 @@
+//! Client-Facing Error Types
+//!
+//! Defines error types returned to GraphQL clients and internal error tracking.
+//!
+//! # Error Hierarchy
+//!
+//! ```text
+//! Error (client-facing)
+//! ├── Internal(anyhow::Error)      -- Unexpected server errors
+//! ├── Auth(anyhow::Error)          -- Authentication/authorization failures
+//! ├── SubgraphNotFound(anyhow::Error) -- Subgraph/deployment not found
+//! ├── BadQuery(anyhow::Error)      -- Invalid GraphQL query
+//! ├── NoIndexers(String)           -- No indexers allocated (includes query selector)
+//! └── BadIndexers(IndexerErrors)   -- All indexers failed
+//!         │
+//!         └── IndexerError
+//!             ├── Unavailable(UnavailableReason)
+//!             ├── Timeout
+//!             └── BadResponse(String)
+//! ```
+//!
+//! # Response Format
+//!
+//! All errors implement [`IntoResponse`] and are serialized as GraphQL errors:
+//!
+//! ```json
+//! {
+//!   "errors": [{ "message": "auth error: API key not found" }]
+//! }
+//! ```
+//!
+//! [`IntoResponse`]: axum::response::IntoResponse
+
 use std::{
     collections::BTreeMap,
     fmt::{self, Write as _},
@@ -24,8 +57,8 @@ pub enum Error {
     #[error("bad query: {0:#}")]
     BadQuery(anyhow::Error),
     /// There are no indexers allocated to the requested subgraph or deployment.
-    #[error("no indexers found")]
-    NoIndexers,
+    #[error("no indexers found for {0}")]
+    NoIndexers(String),
     /// Indexers are available, but failed to return a suitable result.
     #[error("bad indexers: {0}")]
     BadIndexers(IndexerErrors),

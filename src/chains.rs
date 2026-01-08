@@ -1,3 +1,47 @@
+//! Multi-Chain Head Tracking
+//!
+//! Manages chain head tracking across all indexed blockchains.
+//!
+//! # Architecture
+//!
+//! ```text
+//! ┌──────────────┐
+//! │   Chains     │  Main container, maps chain name → ChainReader
+//! │ (with        │
+//! │  aliases)    │
+//! └──────┬───────┘
+//!        │
+//!        ▼
+//! ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+//! │ ChainReader  │     │ ChainReader  │     │ ChainReader  │
+//! │ "ethereum"   │     │ "polygon"    │     │ "arbitrum"   │
+//! └──────┬───────┘     └──────────────┘     └──────────────┘
+//!        │
+//!        ▼
+//! ┌──────────────┐
+//! │   Actor      │  Background task updating Chain state
+//! │ (per chain)  │
+//! └──────────────┘
+//! ```
+//!
+//! # Chain Aliases
+//!
+//! Supports aliases like `"mainnet"` → `"ethereum"` configured in gateway config.
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let chains = Chains::new(aliases);
+//! let eth = chains.chain("ethereum");
+//!
+//! // Report a block from an indexer
+//! eth.notify(block, indexer);
+//!
+//! // Read chain state
+//! let chain = eth.read();
+//! let head = chain.latest();
+//! ```
+
 use std::{
     collections::{BTreeMap, HashMap},
     time::Duration,

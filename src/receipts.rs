@@ -1,3 +1,47 @@
+//! TAP Receipt Signing
+//!
+//! Creates and signs Timeline Aggregation Protocol (TAP) receipts for indexer payments.
+//! Receipts are cryptographic commitments to pay indexers for query execution.
+//!
+//! # Receipt Versions
+//!
+//! | Version | Contract | Allocation Type | Serialization |
+//! |---------|----------|-----------------|---------------|
+//! | V1 | `TAP` verifier | Legacy allocations | JSON |
+//! | V2 | `GraphTallyCollector` | New allocations (Horizon) | Protobuf + Base64 |
+//!
+//! The version is determined by the `is_legacy` flag on the allocation. Legacy
+//! allocations were created before the Horizon upgrade and use the original TAP
+//! verifier contract.
+//!
+//! # EIP-712 Domains
+//!
+//! Each receipt version uses a different EIP-712 domain for signing:
+//!
+//! - **V1**: `name="TAP", version="1", chainId=<chain>, verifyingContract=<legacy_verifier>`
+//! - **V2**: `name="GraphTallyCollector", version="1", chainId=<chain>, verifyingContract=<verifier>`
+//!
+//! # Receipt Fields
+//!
+//! Common fields in both versions:
+//! - `allocation_id` / `collection_id`: Identifies the allocation being paid
+//! - `value`: Payment amount in GRT wei
+//! - `timestamp_ns`: Creation time (nanoseconds since epoch)
+//! - `nonce`: Random value to prevent replay attacks
+//!
+//! V2 adds:
+//! - `payer`: Gateway's payment address
+//! - `data_service`: Subgraph service contract address
+//! - `service_provider`: Indexer's address
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let signer = ReceiptSigner::new(payer, key, chain_id, verifier, legacy_verifier, data_service);
+//! let receipt = signer.create_receipt(allocation_id, indexer, fee, is_legacy)?;
+//! let serialized = receipt.serialize(); // Send this to indexer
+//! ```
+
 use std::time::SystemTime;
 
 use base64::{Engine as _, prelude::BASE64_STANDARD};

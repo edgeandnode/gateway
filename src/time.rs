@@ -1,3 +1,7 @@
+//! Time Utilities
+//!
+//! Simple timestamp helpers for consistent time handling.
+
 use std::time::SystemTime;
 
 /// Return milliseconds since Unix epoch

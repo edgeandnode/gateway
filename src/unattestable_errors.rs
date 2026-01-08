@@ -1,3 +1,28 @@
+//! Unattestable Error Detection
+//!
+//! Identifies indexer errors that should not be attested (signed) because they
+//! indicate internal issues rather than valid query results.
+//!
+//! # Background
+//!
+//! Indexers sign attestations for their query responses. However, some errors
+//! from graph-node are "unattestable" - they indicate bugs or temporary issues,
+//! not legitimate query results. The gateway must detect these to avoid:
+//!
+//! 1. Returning broken responses to clients
+//! 2. Triggering disputes for non-malicious indexer behavior
+//!
+//! # Error Categories
+//!
+//! The [`UNATTESTABLE_ERROR_MESSAGE_FRAGMENTS`] list includes:
+//! - Store errors (database issues)
+//! - Timeout errors
+//! - Query complexity limits
+//! - Chain reorganization
+//! - Internal panics
+//!
+//! See graph-node source for authoritative list.
+
 // This list should not be necessary, but it is a temporary measure to avoid unattestable errors
 // from getting to users.
 // Derived from https://github.com/graphprotocol/graph-node/blob/master/graph/src/data/query/error.rs
