@@ -185,6 +185,7 @@ async fn main() {
         attestation_domain,
         legacy_attestation_domain,
         reporter,
+        max_response_staleness_seconds: conf.max_response_staleness_seconds,
     };
 
     let blocklist: watch::Receiver<Vec<BlocklistEntry>> = indexer_blocklist.blocklist;

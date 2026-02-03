@@ -51,6 +51,9 @@ pub struct Config {
     /// Maximum acceptable lag (in seconds) for network subgraph responses (default: 120)
     #[serde(default = "default_network_subgraph_max_lag_seconds")]
     pub network_subgraph_max_lag_seconds: u64,
+    /// Maximum staleness (seconds) for indexer response data (default: 1800)
+    #[serde(default = "default_max_response_staleness_seconds")]
+    pub max_response_staleness_seconds: u64,
     /// Check payment state of client (disable for testnets)
     pub payment_required: bool,
     /// public API port
@@ -68,6 +71,11 @@ pub struct Config {
 /// Default network subgraph max lag threshold (120 seconds)
 fn default_network_subgraph_max_lag_seconds() -> u64 {
     120
+}
+
+/// Default max response staleness threshold (30 minutes)
+fn default_max_response_staleness_seconds() -> u64 {
+    60 * 30
 }
 
 /// Deserialize a `NotNan<f64>` from a `f64` and return an error if the value is NaN.

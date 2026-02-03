@@ -31,6 +31,7 @@ use crate::{
     block_constraints::{
         BlockRequirements, QueryContext, resolve_block_requirements, rewrite_query,
     },
+    blocks::Block,
     budgets::USD,
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     indexer_client::{IndexerAuth, IndexerResponse},
@@ -39,6 +40,7 @@ use crate::{
     middleware::RequestId,
     network::{DeploymentError, Indexing, IndexingId, ResolvedSubgraphInfo, SubgraphError},
     reports,
+    time::unix_timestamp,
 };
 
 pub mod context;
@@ -340,9 +342,38 @@ async fn run_indexer_queries(
         while let Some(report) = rx.recv().await {
             match report.result.as_ref() {
                 Ok(response) if client_response_time.is_none() => {
-                    let _ = client_response.try_send(Ok(response.clone()));
-                    client_response_time = Some(start_time.elapsed());
-                    client_response_bytes = Some(response.client_response.len() as u32);
+                    let now_seconds = unix_timestamp() / 1000;
+                    match validate_response_staleness(
+                        response.probe_block.as_ref(),
+                        ctx.max_response_staleness_seconds,
+                        now_seconds,
+                    ) {
+                        Ok(()) => {
+                            let _ = client_response.try_send(Ok(response.clone()));
+                            client_response_time = Some(start_time.elapsed());
+                            client_response_bytes = Some(response.client_response.len() as u32);
+                        }
+                        Err(seconds_behind) => {
+                            tracing::warn!(
+                                indexer = ?report.indexer,
+                                deployment = %report.deployment,
+                                seconds_behind,
+                                "rejecting stale response"
+                            );
+                            let deployment = report.deployment.to_string();
+                            with_metric(
+                                &METRICS.stale_responses_rejected,
+                                &[deployment.as_str()],
+                                |c| c.inc(),
+                            );
+                            indexer_errors.insert(
+                                report.indexer,
+                                IndexerError::Unavailable(UnavailableReason::ResponseTooStale {
+                                    seconds_behind,
+                                }),
+                            );
+                        }
+                    }
                 }
                 Ok(_) => (),
                 Err(err) => {
@@ -372,11 +403,16 @@ async fn run_indexer_queries(
         }
     };
 
-    let result = if indexer_requests.iter().any(|r| r.result.is_ok()) {
-        Ok(())
-    } else {
-        Err(Error::BadIndexers(indexer_errors))
-    };
+    // Check upfront so we can move indexer_errors later without cloning
+    let has_non_stale_success = indexer_requests.iter().any(|r| {
+        r.result.is_ok()
+            && !matches!(
+                indexer_errors.get(&r.indexer),
+                Some(IndexerError::Unavailable(
+                    UnavailableReason::ResponseTooStale { .. }
+                ))
+            )
+    });
 
     let total_fees_grt: f64 = indexer_requests
         .iter()
@@ -391,19 +427,31 @@ async fn run_indexer_queries(
             Err(IndexerError::Unavailable(UnavailableReason::MissingBlock(err))) => err.latest,
             _ => None,
         };
+        // Treat staleness rejections as failures for performance feedback
+        let was_stale_rejection = indexer_errors
+            .get(&indexer_request.indexer)
+            .map(|e| {
+                matches!(
+                    e,
+                    IndexerError::Unavailable(UnavailableReason::ResponseTooStale { .. })
+                )
+            })
+            .unwrap_or(false);
+        let success = indexer_request.result.is_ok() && !was_stale_rejection;
         ctx.indexing_perf.feedback(
             indexer_request.indexer,
             indexer_request.deployment,
-            indexer_request.result.is_ok(),
+            success,
             indexer_request.response_time_ms,
             latest_block,
         );
 
-        if let Some(block) = indexer_request
-            .result
-            .as_ref()
-            .ok()
-            .and_then(|r| r.probe_block.clone())
+        if !was_stale_rejection
+            && let Some(block) = indexer_request
+                .result
+                .as_ref()
+                .ok()
+                .and_then(|r| r.probe_block.clone())
         {
             chain.notify(block, indexer_request.indexer);
         }
@@ -431,6 +479,12 @@ async fn run_indexer_queries(
         );
         tracing::trace!(indexer_request = indexer_request.request);
     }
+
+    let result = if has_non_stale_success {
+        Ok(())
+    } else {
+        Err(Error::BadIndexers(indexer_errors))
+    };
 
     let response_time_ms = client_response_time.as_millis() as u16;
     let ideal_response_time_ms = indexer_requests
@@ -649,6 +703,28 @@ fn perf(
 
 fn blocks_behind(seconds_behind: u32, blocks_per_minute: u64) -> u64 {
     ((seconds_behind as f64 / 60.0) * blocks_per_minute as f64) as u64
+}
+
+/// Validates that a response's probe_block timestamp is not too stale.
+/// Returns Ok(()) if fresh enough, or Err(seconds_behind) if too stale.
+fn validate_response_staleness(
+    probe_block: Option<&Block>,
+    max_staleness_seconds: u64,
+    current_time_seconds: u64,
+) -> Result<(), u64> {
+    let Some(block) = probe_block else {
+        return Ok(());
+    };
+    // Treat future timestamps as fresh (clock skew)
+    if block.timestamp >= current_time_seconds {
+        return Ok(());
+    }
+    let seconds_behind = current_time_seconds - block.timestamp;
+    if seconds_behind > max_staleness_seconds {
+        Err(seconds_behind)
+    } else {
+        Ok(())
+    }
 }
 
 pub async fn handle_indexer_query(
@@ -1007,6 +1083,72 @@ mod tests {
             assert_matches!(parse_text_response_body(res.body_mut()).await, Ok(res_body) => {
                 assert_eq!(res_body, api_key);
             });
+        }
+    }
+
+    mod response_staleness {
+        use thegraph_core::alloy::primitives::B256;
+
+        use super::super::validate_response_staleness;
+        use crate::blocks::Block;
+
+        const NOW: u64 = 1_700_000_000;
+        const MAX_STALENESS: u64 = 1800;
+
+        fn make_block(timestamp: u64) -> Block {
+            Block {
+                number: 1,
+                hash: B256::ZERO,
+                timestamp,
+            }
+        }
+
+        #[test]
+        fn none_probe_block_passes() {
+            let result = validate_response_staleness(None, MAX_STALENESS, NOW);
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn fresh_response_passes() {
+            let block = make_block(NOW - 60);
+            let result = validate_response_staleness(Some(&block), MAX_STALENESS, NOW);
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn stale_response_rejected() {
+            let block = make_block(NOW - 3600);
+            let result = validate_response_staleness(Some(&block), MAX_STALENESS, NOW);
+            assert_eq!(result, Err(3600));
+        }
+
+        #[test]
+        fn exactly_at_threshold_passes() {
+            let block = make_block(NOW - MAX_STALENESS);
+            let result = validate_response_staleness(Some(&block), MAX_STALENESS, NOW);
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn just_over_threshold_rejected() {
+            let block = make_block(NOW - MAX_STALENESS - 1);
+            let result = validate_response_staleness(Some(&block), MAX_STALENESS, NOW);
+            assert_eq!(result, Err(MAX_STALENESS + 1));
+        }
+
+        #[test]
+        fn future_timestamp_passes() {
+            let block = make_block(NOW + 60);
+            let result = validate_response_staleness(Some(&block), MAX_STALENESS, NOW);
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn zero_threshold_rejects_any_lag() {
+            let block = make_block(NOW - 1);
+            let result = validate_response_staleness(Some(&block), 0, NOW);
+            assert_eq!(result, Err(1));
         }
     }
 }

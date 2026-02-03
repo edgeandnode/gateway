@@ -15,6 +15,7 @@ pub struct Metrics {
     pub avg_query_fees: Gauge,
     pub indexer_query: ResponseMetricVecs,
     pub blocks_per_minute: IntGaugeVec,
+    pub stale_responses_rejected: IntCounterVec,
 }
 
 impl Metrics {
@@ -35,6 +36,12 @@ impl Metrics {
                 "gw_blocks_per_minute",
                 "chain blocks per minute",
                 &["chain"]
+            )
+            .unwrap(),
+            stale_responses_rejected: register_int_counter_vec!(
+                "gw_stale_responses_rejected",
+                "indexer responses rejected due to stale data",
+                &["deployment"]
             )
             .unwrap(),
         }

@@ -20,4 +20,5 @@ pub struct Context {
     pub attestation_domain: &'static Eip712Domain,
     pub legacy_attestation_domain: &'static Eip712Domain,
     pub reporter: mpsc::UnboundedSender<reports::ClientRequest>,
+    pub max_response_staleness_seconds: u64,
 }

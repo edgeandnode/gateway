@@ -100,6 +100,10 @@ pub enum UnavailableReason {
     #[error("too far behind")]
     TooFarBehind,
 
+    /// The indexer response data is too stale.
+    #[error("response too stale: {seconds_behind}s behind")]
+    ResponseTooStale { seconds_behind: u64 },
+
     /// An internal error occurred.
     #[error("internal error: {0}")]
     Internal(&'static str),
