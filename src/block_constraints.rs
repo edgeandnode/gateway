@@ -250,7 +250,7 @@ fn field_constraint<'c, T: Text<'c>>(
             .get(name.as_ref())
             .or_else(|| defaults.get(name.as_ref()))
         {
-            None => Ok(BlockConstraint::Unconstrained),
+            None | Some(Value::Null) => Ok(BlockConstraint::Unconstrained),
             Some(Value::Object(fields)) => parse_constraint(vars, defaults, fields),
             _ => Err(anyhow!("malformed block constraint")),
         },
@@ -406,5 +406,29 @@ mod tests {
             let context = QueryContext::new(example, "").unwrap();
             assert!(super::contains_introspection(&context));
         }
+    }
+
+    #[test]
+    fn test_null_block_variable() {
+        use BlockConstraint::*;
+        // When $block variable is explicitly set to null, it should be treated as Unconstrained
+        let query = "query($b: Block_height) { a(block:$b) }";
+        let variables = r#"{"b": null}"#;
+        let context = QueryContext::new(query, variables).unwrap();
+        let constraints = block_constraints(&context).unwrap();
+        let expected = BTreeSet::from_iter([Unconstrained]);
+        assert_eq!(constraints, expected);
+    }
+
+    #[test]
+    fn test_empty_block_variable() {
+        use BlockConstraint::*;
+        // When $block variable is set to an empty object, it should be treated as Unconstrained
+        let query = "query($b: Block_height) { a(block:$b) }";
+        let variables = r#"{"b": {}}"#;
+        let context = QueryContext::new(query, variables).unwrap();
+        let constraints = block_constraints(&context).unwrap();
+        let expected = BTreeSet::from_iter([Unconstrained]);
+        assert_eq!(constraints, expected);
     }
 }
