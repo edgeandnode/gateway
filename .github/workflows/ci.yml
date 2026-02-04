@@ -45,7 +45,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: cache Cargo build files
-        uses: Leafwing-Studios/cargo-cache@43ec9a5bad6e7f174e7fc65dcf533de75ff65881 # v2
+        uses: Leafwing-Studios/cargo-cache@ba6ee760ccdefa26b630cff8094e3243ae86a2c9 # v2
 
       - name: prepare build env
         run: sudo apt-get install -y lld librdkafka-dev libsasl2-dev
