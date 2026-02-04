@@ -1,3 +1,67 @@
+//! Client Query Handler
+//!
+//! This module handles GraphQL queries from clients, orchestrating the full
+//! query lifecycle from request to response.
+//!
+//! # Query Flow
+//!
+//! 1. **Authorization**: Verify API key and check subgraph/deployment permissions
+//! 2. **Resolution**: Map subgraph/deployment ID to available indexers via [`NetworkService`]
+//! 3. **Block Requirements**: Parse query to extract block constraints (specific block, range, latest)
+//! 4. **Candidate Selection**: Build list of eligible indexers filtered by:
+//!    - Block requirements (indexer must have required blocks)
+//!    - Indexing progress (how far behind chain head)
+//!    - Historical performance (success rate, latency)
+//!    - Fee constraints (within budget)
+//! 5. **Query Execution**: Send queries to up to 3 indexers in parallel
+//! 6. **Response Handling**: Return first successful response, or aggregate errors
+//!
+//! # Endpoints
+//!
+//! | Path | Handler | Description |
+//! |------|---------|-------------|
+//! | `/api/subgraphs/id/{id}` | [`handle_query`] | Query by subgraph ID (resolves to latest deployment) |
+//! | `/api/deployments/id/{id}` | [`handle_query`] | Query by deployment ID directly |
+//! | `/api/deployments/id/{id}/indexers/id/{indexer}` | [`handle_indexer_query`] | Query specific indexer (for cross-checking) |
+//!
+//! # Indexer Selection Algorithm
+//!
+//! The [`build_candidates_list`] function selects indexers using these criteria:
+//!
+//! 1. **Version Selection**: Choose the latest subgraph version where at least one indexer
+//!    is within 30 blocks of chain head. Falls back to latest version if none qualify.
+//!
+//! 2. **Block Range Filtering**: For queries with block constraints, exclude indexers
+//!    whose indexing progress doesn't cover the required range.
+//!
+//! 3. **Freshness Filtering**: For "latest block" queries, exclude indexers more than
+//!    30 minutes behind chain head (if any indexers are within that threshold).
+//!
+//! 4. **Final Selection**: The `indexer_selection` crate scores candidates by:
+//!    - Success rate (historical)
+//!    - Latency (response time)
+//!    - Fee (lower is better)
+//!    - Stake (higher is better)
+//!
+//! # Fee Calculation
+//!
+//! ```text
+//! budget = query_fees_target * grt_per_usd * 1e18  (in GRT wei)
+//! min_fee = min_indexer_fees / num_selections      (spread across parallel queries)
+//! actual_fee = max(indexer_advertised_fee, min_fee)
+//! ```
+//!
+//! The gateway "over-pays" to hit the target average fee across all indexer attempts.
+//!
+//! # Error Handling
+//!
+//! - [`Error::NoIndexers`]: No indexers allocated to the subgraph/deployment
+//! - [`Error::BadIndexers`]: Indexers exist but all failed (aggregates per-indexer errors)
+//! - [`Error::BadQuery`]: GraphQL parsing or validation failed
+//! - [`Error::SubgraphNotFound`]: Subgraph/deployment ID not found or no valid versions
+//!
+//! [`NetworkService`]: crate::network::NetworkService
+
 use std::{
     cmp::max,
     collections::{BTreeMap, HashMap},
@@ -142,7 +206,9 @@ async fn resolve_subgraph_info(
                     Err(Error::SubgraphNotFound(anyhow!("no valid versions",)))
                 }
                 Ok(None) => Err(Error::SubgraphNotFound(anyhow!("{selector}",))),
-                Ok(Some(info)) if info.indexings.is_empty() => Err(Error::NoIndexers),
+                Ok(Some(info)) if info.indexings.is_empty() => {
+                    Err(Error::NoIndexers(selector.to_string()))
+                }
                 Ok(Some(info)) => Ok(info),
             }
         }
@@ -154,7 +220,9 @@ async fn resolve_subgraph_info(
                     Err(Error::SubgraphNotFound(anyhow!("no allocations",)))
                 }
                 Ok(None) => Err(Error::SubgraphNotFound(anyhow!("{selector}",))),
-                Ok(Some(info)) if info.indexings.is_empty() => Err(Error::NoIndexers),
+                Ok(Some(info)) if info.indexings.is_empty() => {
+                    Err(Error::NoIndexers(selector.to_string()))
+                }
                 Ok(Some(info)) => {
                     if !auth.is_any_deployment_subgraph_authorized(&info.subgraphs) {
                         Err(Error::Auth(anyhow!("deployment not authorized by user")))
@@ -672,7 +740,7 @@ pub async fn handle_indexer_query(
     let indexing = subgraph
         .indexings
         .get(&indexing_id)
-        .ok_or_else(|| Error::NoIndexers)?
+        .ok_or_else(|| Error::NoIndexers(deployment.to_string()))?
         .as_ref()
         .map_err(|err| bad_indexers(IndexerError::Unavailable(err.clone())))?;
 

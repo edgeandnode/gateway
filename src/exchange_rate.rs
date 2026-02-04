@@ -1,3 +1,25 @@
+//! GRT/USD Exchange Rate
+//!
+//! Fetches the GRT/USD exchange rate from Chainlink price feeds.
+//!
+//! # Data Source
+//!
+//! Uses the Chainlink GRT/USD price feed on Arbitrum:
+//! - Contract: `0x0F38D86FceF4955B705F35c9e41d1A16e0637c73`
+//! - Feed: <https://data.chain.link/feeds/arbitrum/mainnet/grt-usd>
+//!
+//! # Update Frequency
+//!
+//! Polls the price feed every 60 seconds. The rate is inverted from USD/GRT
+//! (Chainlink format) to GRT/USD (used for fee calculations).
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let grt_per_usd = exchange_rate::grt_per_usd(rpc_url).await;
+//! let rate = *grt_per_usd.borrow();
+//! ```
+
 use std::time::Duration;
 
 use ChainlinkPriceFeed::ChainlinkPriceFeedInstance;

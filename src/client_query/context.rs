@@ -1,3 +1,15 @@
+//! Query Handler Context
+//!
+//! Shared context passed to all query handlers via Axum state.
+//!
+//! # Lifetime Requirements
+//!
+//! Several fields use `&'static` references because Axum's state must be
+//! `Clone + Send + Sync + 'static`. These are singletons initialized once
+//! at startup and never deallocated (via `Box::leak`).
+//!
+//! See [`main`](crate::main) module documentation for rationale.
+
 use ordered_float::NotNan;
 use thegraph_core::alloy::dyn_abi::Eip712Domain;
 use tokio::sync::{mpsc, watch};

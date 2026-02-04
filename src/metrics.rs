@@ -1,3 +1,24 @@
+//! Prometheus Metrics
+//!
+//! Defines and registers all Prometheus metrics for the gateway.
+//!
+//! # Metrics
+//!
+//! | Metric | Type | Description |
+//! |--------|------|-------------|
+//! | `gw_client_query_ok` | Counter | Successful client queries |
+//! | `gw_client_query_err` | Counter | Failed client queries |
+//! | `gw_client_query_duration` | Histogram | Client query latency |
+//! | `gw_avg_query_fees` | Gauge | Average indexer fees per query (USD) |
+//! | `gw_indexer_query_ok` | Counter (vec) | Successful indexer queries by deployment/indexer |
+//! | `gw_indexer_query_err` | Counter (vec) | Failed indexer queries by deployment/indexer |
+//! | `gw_indexer_query_duration` | Histogram (vec) | Indexer query latency by deployment/indexer |
+//! | `gw_blocks_per_minute` | Gauge (vec) | Chain blocks per minute by chain name |
+//!
+//! # Endpoint
+//!
+//! Metrics are exposed at `http://localhost:{port_metrics}/metrics` in Prometheus text format.
+
 use lazy_static::lazy_static;
 use prometheus::{
     Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,

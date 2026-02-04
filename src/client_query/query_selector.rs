@@ -1,3 +1,16 @@
+//! Query Selector Extraction
+//!
+//! Axum extractor for parsing subgraph/deployment IDs from URL paths.
+//!
+//! # Supported Paths
+//!
+//! - `/api/subgraphs/id/{subgraph_id}` → `QuerySelector::Subgraph`
+//! - `/api/deployments/id/{deployment_id}` → `QuerySelector::Deployment`
+//!
+//! # Error Handling
+//!
+//! Invalid IDs return a GraphQL error response (HTTP 200 with error body).
+
 use std::collections::HashMap;
 
 use anyhow::anyhow;

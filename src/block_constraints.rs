@@ -1,3 +1,59 @@
+//! Block Constraint Resolution
+//!
+//! Parses GraphQL queries to extract block constraints and rewrites queries
+//! to include gateway probe metadata for chain head tracking.
+//!
+//! # Block Constraint Types
+//!
+//! GraphQL queries can specify which block to query against using the `block` argument:
+//!
+//! | Constraint | GraphQL Example | Behavior |
+//! |------------|-----------------|----------|
+//! | `Unconstrained` | `{ tokens { id } }` | Use any recent block |
+//! | `Number` | `{ tokens(block: {number: 100}) { ... } }` | Exact block number required |
+//! | `Hash` | `{ tokens(block: {hash: "0x..."}) { ... } }` | Exact block by hash required |
+//! | `NumberGTE` | `{ tokens(block: {number_gte: 100}) { ... } }` | Block >= N |
+//!
+//! # Query Rewriting
+//!
+//! The gateway injects a `_gateway_probe_` field into queries to capture the actual
+//! block used by the indexer. This probe is used for:
+//!
+//! - Chain head tracking (updating known block numbers)
+//! - Indexer performance feedback
+//! - Block constraint validation
+//!
+//! ```text
+//! # Original query
+//! { tokens { id } }
+//!
+//! # Rewritten query (via rewrite_query)
+//! {
+//!   tokens { id }
+//!   _gateway_probe_: _meta { block { hash number timestamp } }
+//! }
+//! ```
+//!
+//! The probe response is stripped from the client response by [`IndexerClient`].
+//!
+//! # Block Requirements
+//!
+//! The [`resolve_block_requirements`] function analyzes a query to determine:
+//!
+//! - `range`: For exact constraints (`number`, `hash`), the min/max block range needed
+//! - `number_gte`: Maximum `number_gte` constraint (if any)
+//! - `latest`: Whether the query benefits from using the latest block
+//!
+//! This information is used by indexer selection to filter candidates that don't
+//! have the required blocks indexed.
+//!
+//! # Validation
+//!
+//! Queries are rejected if they request blocks before the subgraph's `startBlock`
+//! from the manifest (for exact constraints only - `number_gte: 0` is always allowed).
+//!
+//! [`IndexerClient`]: crate::indexer_client::IndexerClient
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,

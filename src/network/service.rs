@@ -1,6 +1,64 @@
-//! The [`NetworkService`] is a `graph-gateway` specific abstraction layer providing a
-//! simplified interface for resolving the subgraph-specific information required by the
-//! query processing pipeline
+//! Network Topology Service
+//!
+//! The [`NetworkService`] provides a simplified interface for resolving subgraph-specific
+//! information required by the query processing pipeline.
+//!
+//! # Architecture
+//!
+//! ```text
+//! ┌─────────────────┐
+//! │ SubgraphClient  │  Fetches from network subgraph via trusted indexers
+//! │ (every 30s)     │
+//! └────────┬────────┘
+//!          │
+//!          ▼
+//! ┌─────────────────┐
+//! │ Pre-processing  │  Validates and converts raw subgraph data
+//! │                 │  - Filters invalid entries
+//! │                 │  - Converts to internal types
+//! └────────┬────────┘
+//!          │
+//!          ▼
+//! ┌─────────────────┐
+//! │ Indexer         │  Resolves per-indexer information:
+//! │ Processing      │  - Host filter (IP blocklist)
+//! │                 │  - Version filter (min indexer-service/graph-node)
+//! │                 │  - POI filter (proof-of-indexing blocklist)
+//! │                 │  - Indexing progress (latest/min block)
+//! │                 │  - Cost models (query fees)
+//! └────────┬────────┘
+//!          │
+//!          ▼
+//! ┌─────────────────┐
+//! │ NetworkTopology │  Published via watch channel
+//! │ Snapshot        │  - Subgraphs: SubgraphId → versions, indexings
+//! │                 │  - Deployments: DeploymentId → indexings
+//! └─────────────────┘
+//! ```
+//!
+//! # Update Cycle
+//!
+//! The service spawns a background task ([`spawn_updater_task`]) that:
+//!
+//! 1. Fetches subgraph info from the network subgraph every 30 seconds
+//! 2. Validates and pre-processes the data (filters invalid entries)
+//! 3. Resolves indexer information (version, POI, progress, cost models)
+//! 4. Constructs a new [`NetworkTopologySnapshot`]
+//! 5. Publishes the snapshot via a watch channel for consumers
+//!
+//! # Resolution Methods
+//!
+//! - [`NetworkService::resolve_with_subgraph_id`]: Resolves a subgraph ID to its
+//!   deployments (versions) and available indexers
+//! - [`NetworkService::resolve_with_deployment_id`]: Resolves a deployment ID
+//!   directly to available indexers
+//!
+//! # Error Handling
+//!
+//! Resolution can fail with:
+//! - [`SubgraphError::NoAllocations`]: No indexers allocated to this subgraph
+//! - [`SubgraphError::NoValidVersions`]: All deployment versions are invalid
+//! - [`DeploymentError::NoAllocations`]: No indexers allocated to this deployment
 
 use std::{
     collections::{HashMap, HashSet},
@@ -71,7 +129,7 @@ impl ResolvedSubgraphInfo {
 /// The [`NetworkService`] is responsible for extracting and providing information about
 /// the network topology and subgraphs associated with a given query selector, e.g., a subgraph ID.
 ///
-/// To create a new [`NetworkService`] instance, use the [`NetworkServiceBuilder`].
+/// To create a new [`NetworkService`] instance, use the [`spawn`] function.
 #[derive(Clone)]
 pub struct NetworkService {
     network: watch::Receiver<NetworkTopologySnapshot>,
