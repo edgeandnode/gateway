@@ -88,10 +88,15 @@ impl IndexerClient {
             pub attestation: Option<Attestation>,
             pub error: Option<String>,
         }
-        let payload = response
-            .json::<IndexerResponsePayload>()
+        let body = response
+            .text()
             .await
             .map_err(|err| BadResponse(err.to_string()))?;
+        let payload: IndexerResponsePayload = serde_json::from_str(&body).map_err(|err| {
+            // Truncate body to avoid huge error messages
+            let preview: String = body.chars().take(200).collect();
+            BadResponse(format!("{err}, body: {preview}"))
+        })?;
         if let Some(err) = payload.error {
             return Err(BadResponse(err));
         }
