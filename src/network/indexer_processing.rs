@@ -1,3 +1,51 @@
+//! Indexer Information Processing
+//!
+//! Processes raw indexer data through multiple resolution stages using a type-state
+//! pattern to ensure compile-time correctness.
+//!
+//! # Type-State Pattern
+//!
+//! The [`IndexingInfo<P, C>`] type uses generic parameters to track processing state:
+//!
+//! ```text
+//! IndexingInfo<(), ()>                    -- Raw allocation data only
+//!         │
+//!         │ with_indexing_progress()
+//!         ▼
+//! IndexingInfo<IndexingProgress, ()>      -- Has progress info (latest/min block)
+//!         │
+//!         │ with_fee()
+//!         ▼
+//! IndexingInfo<IndexingProgress, u128>    -- Fully resolved (= ResolvedIndexingInfo)
+//! ```
+//!
+//! This pattern provides compile-time guarantees that fields aren't accessed before
+//! they're populated. For example, you cannot access `.progress` on `IndexingInfo<(), ()>`.
+//!
+//! # Processing Pipeline
+//!
+//! For each indexer, [`process_info`] performs these checks in order:
+//!
+//! 1. **Host Filter**: Check IP blocklist (rejects blocked IPs)
+//! 2. **Version Filter**: Check minimum indexer-service and graph-node versions
+//! 3. **Deployment Blocklist**: Check manually blocklisted indexer+deployment pairs
+//! 4. **POI Filter**: Check proof-of-indexing blocklist (bad data detection)
+//! 5. **Indexing Progress**: Resolve latest/min block numbers via status endpoint
+//! 6. **Cost Models**: Resolve query fees via cost model endpoint
+//!
+//! If any check fails, the indexer is marked with an [`UnavailableReason`] and
+//! excluded from query routing.
+//!
+//! # Key Types
+//!
+//! - [`IndexerRawInfo`]: Pre-processed indexer info from network subgraph
+//! - [`IndexerInfo<I>`]: Processed indexer with resolved indexings
+//! - [`IndexingInfo<P, C>`]: Type-state indexing info (allocation → progress → fee)
+//! - [`ResolvedIndexingInfo`]: Fully resolved indexing (alias for `IndexingInfo<IndexingProgress, u128>`)
+//! - [`IndexingProgress`]: Block range an indexer has indexed (latest/min block)
+//!
+//! [`UnavailableReason`]: crate::errors::UnavailableReason
+
 use std::collections::{HashMap, HashSet};
 
 use custom_debug::CustomDebug;

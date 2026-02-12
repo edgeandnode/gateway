@@ -1,3 +1,51 @@
+//! Indexer Performance Tracking
+//!
+//! Tracks success rates and latency for each indexer+deployment pair to inform
+//! indexer selection decisions.
+//!
+//! # Data Model
+//!
+//! For each `(IndexerId, DeploymentId)` pair, tracks:
+//! - `response`: Success rate and latency statistics (via `indexer_selection::Performance`)
+//! - `latest_block`: Most recent block number seen from this indexer
+//!
+//! # Double Buffer Pattern
+//!
+//! Uses a double-buffer ([`DoubleBuffer`]) to allow lock-free reads:
+//!
+//! ```text
+//! ┌──────────────┐     ┌──────────────┐
+//! │   Buffer A   │◄────│   Readers    │  (try_read on both)
+//! │   (RwLock)   │     │              │
+//! └──────────────┘     └──────────────┘
+//! ┌──────────────┐
+//! │   Buffer B   │◄────Writer (updates both sequentially)
+//! │   (RwLock)   │
+//! └──────────────┘
+//! ```
+//!
+//! The writer updates both buffers, readers try to acquire a read lock on either.
+//! This guarantees readers never block for long.
+//!
+//! # Update Sources
+//!
+//! 1. **Query Feedback**: After each indexer query, report success/failure and latency
+//! 2. **Network Updates**: When `NetworkService` publishes new indexing progress
+//! 3. **Decay Timer**: Every second, decay historical statistics
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let perf = IndexingPerformance::new(network);
+//!
+//! // Report query result
+//! perf.feedback(indexer, deployment, success, latency_ms, latest_block);
+//!
+//! // Read latest performance data
+//! let snapshots = perf.latest();
+//! let snapshot = snapshots.get(&(indexer, deployment));
+//! ```
+
 use std::{collections::HashMap, ops::Deref, time::Duration};
 
 use parking_lot::RwLock;

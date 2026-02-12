@@ -1,3 +1,31 @@
+//! Indexer HTTP Client
+//!
+//! Sends GraphQL queries to indexers and processes their responses.
+//!
+//! # Query Flow
+//!
+//! 1. Build HTTP POST request to `{indexer_url}/subgraphs/id/{deployment}`
+//! 2. Attach auth header (`tap-receipt` for paid, `Authorization` for free)
+//! 3. Send request with 20s timeout (configured in main.rs)
+//! 4. Parse response payload containing `graphQLResponse` and `attestation`
+//! 5. Rewrite response: strip `_gateway_probe_` field, extract block info
+//! 6. Verify attestation signature (for paid queries)
+//! 7. Return [`IndexerResponse`] with client response and metadata
+//!
+//! # Response Rewriting
+//!
+//! The gateway injects a `_gateway_probe_` field into queries (see [`block_constraints`]).
+//! This field is stripped from the client response but used to extract the actual
+//! block number/hash/timestamp for chain head tracking.
+//!
+//! # Error Detection
+//!
+//! - **Timeout**: Request exceeded timeout
+//! - **BadResponse**: HTTP error, parse error, or unattestable response
+//! - **MissingBlock**: Indexer doesn't have the requested block (parsed from error message)
+//!
+//! [`block_constraints`]: crate::block_constraints
+
 use http::{StatusCode, header::CONTENT_TYPE};
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};

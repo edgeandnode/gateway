@@ -29,7 +29,7 @@ use crate::{
 /// Please, DO NOT mix or merge them.
 /// </div>
 ///
-/// See: https://github.com/graphprotocol/graph-network-subgraph/blob/master/schema.graphql
+/// See: <https://github.com/graphprotocol/graph-network-subgraph/blob/master/schema.graphql>
 pub mod types {
     use serde::Deserialize;
     use serde_with::serde_as;

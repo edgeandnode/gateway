@@ -1,3 +1,16 @@
+//! Kafka Consumer Utilities
+//!
+//! Helpers for consuming data from Kafka topics.
+//!
+//! # Functions
+//!
+//! - [`assign_partitions`]: Assign all partitions of a topic to a consumer
+//! - [`latest_timestamp`]: Get the timestamp of the most recent message
+//!
+//! Used by [`auth::kafka`] for API key streaming.
+//!
+//! [`auth::kafka`]: crate::auth::kafka
+
 use std::time::Duration;
 
 use anyhow::{Context as _, anyhow};

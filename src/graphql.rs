@@ -1,3 +1,21 @@
+//! GraphQL Response Utilities
+//!
+//! Helpers for creating GraphQL-compliant error responses.
+//!
+//! # Response Format
+//!
+//! All errors are returned as HTTP 200 with GraphQL error body:
+//!
+//! ```json
+//! {
+//!   "data": null,
+//!   "errors": [{ "message": "error message here" }]
+//! }
+//! ```
+//!
+//! This follows the GraphQL spec where transport errors (HTTP 4xx/5xx) are
+//! reserved for network issues, while query errors are returned as GraphQL errors.
+
 use axum::http::{Response, StatusCode};
 use headers::ContentType;
 use thegraph_graphql_http::http::response::{IntoError as IntoGraphqlResponseError, ResponseBody};

@@ -1,3 +1,27 @@
+//! Single Chain Head Tracking
+//!
+//! Tracks recent blocks for a single blockchain, determining consensus among indexers.
+//!
+//! # Consensus Algorithm
+//!
+//! The [`Chain::consensus_blocks`] method returns blocks with simple majority consensus:
+//! - At each block number, count indexers reporting each block hash
+//! - If one hash has strictly more indexers than all other hashes at that number,
+//!   it's considered the consensus block
+//! - Used to determine the "true" chain head among potentially forking indexers
+//!
+//! # Block Storage
+//!
+//! - Stores up to 512 blocks ([`MAX_LEN`])
+//! - When full, evicts blocks with the lowest block number
+//! - Each block tracks which indexers reported it
+//!
+//! # Block Production Rate
+//!
+//! The [`Chain::blocks_per_minute`] method estimates block production rate from
+//! the timestamp difference between oldest and newest consensus blocks.
+//! Defaults to 6 blocks/minute if insufficient data.
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     iter,

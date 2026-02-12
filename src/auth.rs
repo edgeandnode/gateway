@@ -1,3 +1,32 @@
+//! API Key Authentication
+//!
+//! Handles API key validation, payment status checks, and domain authorization.
+//!
+//! # Authentication Flow
+//!
+//! 1. Extract API key from `Authorization: Bearer <key>` header
+//! 2. Parse and validate key format (32-char hex string → 16 bytes)
+//! 3. Look up key in `api_keys` map (from Studio API or Kafka)
+//! 4. Check payment status (`QueryStatus::Active`, `ServiceShutoff`, `MonthlyCapReached`)
+//! 5. Verify origin domain against authorized domains list
+//! 6. Return [`AuthSettings`] with user address and authorized subgraphs
+//!
+//! # Special API Keys
+//!
+//! Keys in `special_api_keys` bypass payment checks. Used for admin/monitoring.
+//!
+//! # Domain Authorization
+//!
+//! The `domains` field supports wildcards:
+//! - `"example.com"` → exact match only
+//! - `"*.example.com"` → matches `foo.example.com`, `bar.example.com`
+//! - Empty list → all domains authorized
+//!
+//! # API Key Sources
+//!
+//! - [`studio_api`]: Poll HTTP endpoint periodically
+//! - [`kafka`]: Stream updates from Kafka topic
+
 pub mod kafka;
 pub mod studio_api;
 
