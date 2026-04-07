@@ -1,19 +1,25 @@
-//! x402 payment authentication middleware.
+//! x402 payment middleware
 //!
-//! This middleware handles x402 payment verification and injects `AuthSettings`
-//! for downstream handlers.
+//! Middleware consists of two layers:
+//! - x402 middleware, handling base x402 payments
+//! - x402 auth adapter, extracting payer info and injecting `AuthSettings` request extension for downstream handlers.
 
 use axum::{body::Body, extract::Request, http::Response, middleware::Next};
 use base64::Engine;
 use ordered_float::NotNan;
-use x402_axum::{facilitator_client::FacilitatorClient, StaticPriceTags, X402LayerBuilder, X402Middleware};
+use x402_axum::{
+    StaticPriceTags, X402LayerBuilder, X402Middleware, facilitator_client::FacilitatorClient,
+};
 use x402_chain_eip155::{
     KnownNetworkEip155, V2Eip155Exact,
     v2_eip155_exact::types::{ExactEvmPayload, PaymentPayload},
 };
 use x402_types::{networks::USDC, proto::v2::PriceTag};
 
-use crate::{auth::AuthSettings, config::{X402Chain, X402Config}};
+use crate::{
+    auth::AuthSettings,
+    config::{X402Chain, X402Config},
+};
 
 /// Creates middleware that manages the x402 payment flow.
 pub fn create_layer(

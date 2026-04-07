@@ -44,7 +44,10 @@ use client_query::context::Context;
 use config::{ApiKeys, BlocklistEntry, ExchangeRateProvider};
 use indexer_client::IndexerClient;
 use indexing_performance::IndexingPerformance;
-use middleware::{RequestTracingLayer, RequireAuthorizationLayer, create_x402_layer, legacy_auth_adapter, x402_auth_adapter};
+use middleware::{
+    RequestTracingLayer, RequireAuthorizationLayer, create_x402_layer, legacy_auth_adapter,
+    x402_auth_adapter,
+};
 use network::{indexer_blocklist, subgraph_client::Client as SubgraphClient};
 use prometheus::{self, Encoder as _};
 use rand::RngCore as _;
