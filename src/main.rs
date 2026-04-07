@@ -44,7 +44,7 @@ use client_query::context::Context;
 use config::{ApiKeys, BlocklistEntry, ExchangeRateProvider};
 use indexer_client::IndexerClient;
 use indexing_performance::IndexingPerformance;
-use middleware::{RequestTracingLayer, RequireAuthorizationLayer, legacy_auth_adapter};
+use middleware::{RequestTracingLayer, RequireAuthorizationLayer, create_x402_layer, legacy_auth_adapter, x402_auth_adapter};
 use network::{indexer_blocklist, subgraph_client::Client as SubgraphClient};
 use prometheus::{self, Encoder as _};
 use rand::RngCore as _;
@@ -230,7 +230,7 @@ async fn main() {
             "/{api_key}/subgraphs/id/{subgraph_id}",
             routing::post(client_query::handle_query),
         )
-        .with_state(ctx)
+        .with_state(ctx.clone())
         .layer(
             // ServiceBuilder works by composing all layers into one such that they run top to
             // bottom, and then the response would bubble back up through the layers in reverse
@@ -246,7 +246,7 @@ async fn main() {
                 .layer(RequireAuthorizationLayer::new(auth_service)),
         );
 
-    let router = Router::new()
+    let mut router = Router::new()
         .route("/", routing::get(|| async { "Ready to roll!" }))
         // This path is required by NGINX ingress controller
         .route("/ready", routing::get(|| async { "Ready" }))
@@ -255,6 +255,37 @@ async fn main() {
             routing::get(move || async move { axum::Json(blocklist.borrow().clone()) }),
         )
         .nest("/api", api);
+
+    if let Some(x402_config) = conf.x402 {
+        let x402_api = Router::new()
+            .route(
+                "/subgraphs/id/{subgraph_id}",
+                routing::post(client_query::handle_query),
+            )
+            .route(
+                "/deployments/id/{deployment_id}",
+                routing::post(client_query::handle_query),
+            )
+            .route(
+                "/deployments/id/{deployment_id}/indexers/id/{indexer}",
+                routing::post(client_query::handle_indexer_query),
+            )
+            .with_state(ctx)
+            .layer(
+                tower::ServiceBuilder::new()
+                    .layer(
+                        CorsLayer::new()
+                            .allow_origin(cors::Any)
+                            .allow_headers(cors::Any)
+                            .allow_methods([http::Method::OPTIONS, http::Method::POST]),
+                    )
+                    .layer(RequestTracingLayer::new(format!("{signer_address:?}")))
+                    .layer(create_x402_layer(&x402_config, conf.query_fees_target))
+                    .layer(axum::middleware::from_fn(x402_auth_adapter)),
+            );
+        router = router.nest("/api/x402", x402_api);
+        tracing::info!("x402 payment endpoints enabled at /api/x402/*");
+    }
 
     // handle graceful shutdown via the axum server instead
     setup_termination.abort();
