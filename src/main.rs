@@ -259,6 +259,10 @@ async fn main() {
         )
         .nest("/api", api);
 
+    // x402 payment endpoints at /api/x402/*
+    // Note: This path overlaps with legacy /api/{api_key}/* routes. Axum routes literal
+    // segments before parameters, so /api/x402/* matches here first. This effectively
+    // reserves "x402" as an API key value when x402 is enabled.
     if let Some(x402_config) = conf.x402 {
         let x402_api = Router::new()
             .route(
