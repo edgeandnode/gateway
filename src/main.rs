@@ -257,6 +257,10 @@ async fn main() {
             "/blocklist",
             routing::get(move || async move { axum::Json(blocklist.borrow().clone()) }),
         )
+        .route(
+            "/SKILL.md",
+            routing::get(|| async { include_str!("../SKILL.md") }),
+        )
         .nest("/api", api);
 
     // x402 payment endpoints at /api/x402/*
