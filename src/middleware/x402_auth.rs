@@ -74,3 +74,76 @@ fn extract_payer_address(headers: &axum::http::HeaderMap) -> Option<String> {
 
     Some(address)
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::http::HeaderMap;
+    use base64::Engine;
+
+    use super::extract_payer_address;
+
+    #[test]
+    fn extract_payer_missing_header() {
+        let headers = HeaderMap::new();
+        assert_eq!(extract_payer_address(&headers), None);
+    }
+
+    #[test]
+    fn extract_payer_invalid_base64() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-payment", "not-valid-base64!!!".parse().unwrap());
+        assert_eq!(extract_payer_address(&headers), None);
+    }
+
+    #[test]
+    fn extract_payer_invalid_json() {
+        let mut headers = HeaderMap::new();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"not json");
+        headers.insert("x-payment", encoded.parse().unwrap());
+        assert_eq!(extract_payer_address(&headers), None);
+    }
+
+    #[test]
+    fn extract_payer_valid_eip3009_payload() {
+        // Minimal valid Eip3009 payment payload
+        let payload = serde_json::json!({
+            "x402Version": 2,
+            "accepted": {
+                "scheme": "exact",
+                "network": "eip155:8453",
+                "amount": "100",
+                "payTo": "0x0000000000000000000000000000000000000001",
+                "maxTimeoutSeconds": 300,
+                "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "extra": {
+                    "assetTransferMethod": "eip3009",
+                    "name": "USDC",
+                    "version": "2"
+                }
+            },
+            "payload": {
+                "signature": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                "authorization": {
+                    "from": "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
+                    "to": "0x0000000000000000000000000000000000000001",
+                    "value": "100",
+                    "validAfter": "0",
+                    "validBefore": "1999999999",
+                    "nonce": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                }
+            },
+            "resource": null
+        });
+
+        let mut headers = HeaderMap::new();
+        let encoded =
+            base64::engine::general_purpose::STANDARD.encode(payload.to_string().as_bytes());
+        headers.insert("x-payment", encoded.parse().unwrap());
+
+        let result = extract_payer_address(&headers);
+        assert_eq!(
+            result,
+            Some("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF".to_string())
+        );
+    }
+}
