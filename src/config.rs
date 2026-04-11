@@ -33,6 +33,10 @@ pub struct Config {
     pub exchange_rate_provider: ExchangeRateProvider,
     /// Graph network environment identifier, inserted into Kafka messages
     pub graph_env_id: String,
+    /// Optional environment qualifier appended to Kafka topic names (e.g. "staging" results in
+    /// topics like "gateway_queries_staging"). When absent, default topic names are used.
+    #[serde(default)]
+    pub kafka_topic_environment: Option<String>,
     /// File path of CSV containing rows of `IpNetwork,Country`
     pub ip_blocker_db: Option<PathBuf>,
     /// See https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
@@ -196,6 +200,15 @@ pub struct Receipts {
     pub legacy_verifier: Address,
 }
 
+/// Returns `base` with `_{env}` appended when `env` is `Some` and non-empty, or `base` unchanged
+/// otherwise.
+pub fn topic_name(env: Option<&str>, base: &str) -> String {
+    match env.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(env) => format!("{base}_{env}"),
+        None => base.to_string(),
+    }
+}
+
 /// Load the configuration from a JSON file.
 pub fn load_from_file(path: &Path) -> anyhow::Result<Config> {
     let config_content = std::fs::read_to_string(path)?;
@@ -212,4 +225,59 @@ pub fn load_ip_blocklist_from_file(path: &Path) -> anyhow::Result<HashSet<IpNetw
         .lines()
         .filter_map(|line| line.split_once(',')?.0.parse().ok())
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::topic_name;
+
+    #[test]
+    fn topic_name_no_env() {
+        assert_eq!(topic_name(None, "gateway_queries"), "gateway_queries");
+        assert_eq!(
+            topic_name(None, "gateway_attestations"),
+            "gateway_attestations"
+        );
+        assert_eq!(topic_name(None, "gateway_blocklist"), "gateway_blocklist");
+    }
+
+    #[test]
+    fn topic_name_with_env() {
+        assert_eq!(
+            topic_name(Some("staging"), "gateway_queries"),
+            "gateway_queries_staging",
+        );
+        assert_eq!(
+            topic_name(Some("staging"), "gateway_attestations"),
+            "gateway_attestations_staging",
+        );
+        assert_eq!(
+            topic_name(Some("staging"), "gateway_blocklist"),
+            "gateway_blocklist_staging",
+        );
+    }
+
+    #[test]
+    fn topic_name_env_applies_to_any_base() {
+        assert_eq!(topic_name(Some("mainnet"), "foo"), "foo_mainnet");
+        assert_eq!(topic_name(Some("testnet"), "bar"), "bar_testnet");
+    }
+
+    #[test]
+    fn topic_name_empty_env_treated_as_none() {
+        assert_eq!(topic_name(Some(""), "gateway_queries"), "gateway_queries");
+        assert_eq!(topic_name(Some("  "), "gateway_queries"), "gateway_queries");
+        assert_eq!(
+            topic_name(Some("\t\n"), "gateway_queries"),
+            "gateway_queries"
+        );
+    }
+
+    #[test]
+    fn topic_name_env_is_trimmed() {
+        assert_eq!(
+            topic_name(Some(" staging "), "gateway_queries"),
+            "gateway_queries_staging"
+        );
+    }
 }

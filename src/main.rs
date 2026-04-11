@@ -129,8 +129,14 @@ async fn main() {
         }
         None => Default::default(),
     };
-    let indexer_blocklist =
-        indexer_blocklist::Blocklist::spawn(conf.blocklist, kafka_consumer.clone());
+    let topic_env = conf.kafka_topic_environment.as_deref();
+    let topic_name = |base: &str| config::topic_name(topic_env, base);
+
+    let indexer_blocklist = indexer_blocklist::Blocklist::spawn(
+        conf.blocklist,
+        kafka_consumer.clone(),
+        topic_name("gateway_blocklist"),
+    );
     let mut network = network::service::spawn(
         http_client.clone(),
         network_subgraph_client,
@@ -167,8 +173,8 @@ async fn main() {
         signer_address,
         conf.graph_env_id,
         reports::Topics {
-            queries: "gateway_queries",
-            attestations: "gateway_attestations",
+            queries: topic_name("gateway_queries"),
+            attestations: topic_name("gateway_attestations"),
         },
         conf.kafka,
     )
