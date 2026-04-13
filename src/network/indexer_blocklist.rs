@@ -15,7 +15,7 @@ pub struct Blocklist {
 }
 
 impl Blocklist {
-    pub fn spawn(init: Vec<BlocklistEntry>, consumer: KafkaConsumer) -> Self {
+    pub fn spawn(init: Vec<BlocklistEntry>, consumer: KafkaConsumer, topic: String) -> Self {
         let (blocklist_tx, blocklist_rx) = watch::channel(Default::default());
         let (poi_tx, poi_rx) = watch::channel(Default::default());
         let (indexer_tx, indexer_rx) = watch::channel(Default::default());
@@ -28,7 +28,7 @@ impl Blocklist {
             actor.add_entry(entry);
         }
         tokio::spawn(async move {
-            actor.run(consumer).await;
+            actor.run(consumer, &topic).await;
         });
         Self {
             blocklist: blocklist_rx,
@@ -45,8 +45,8 @@ struct Actor {
 }
 
 impl Actor {
-    async fn run(&mut self, consumer: KafkaConsumer) {
-        let consumer = match consumer.stream_consumer("gateway_blocklist") {
+    async fn run(&mut self, consumer: KafkaConsumer, topic: &str) {
+        let consumer = match consumer.stream_consumer(topic) {
             Ok(consumer) => consumer,
             Err(blocklist_err) => {
                 tracing::error!(%blocklist_err);

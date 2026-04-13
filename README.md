@@ -84,6 +84,13 @@ The gateway exports data into the following kafka topics:
 - queries (`gateway_queries`)
 - attestations (`gateway_attestations`)
 
+The gateway also consumes from `gateway_blocklist`.
+
+When multiple gateway environments share a single Kafka cluster, set `kafka_topic_environment` in the
+config to append an environment qualifier to all topic names. For example, setting
+`"kafka_topic_environment": "staging"` produces topics like `gateway_queries_staging`. When unset,
+the default topic names above are used.
+
 Optionally, the [titorelli](https://github.com/edgeandnode/titorelli/) system can do aggregations
 over these topics. For now, this is limited to creating `gateway_indexer_fees_hourly` to improve
 the startup time of the `tap-escrow-manager`.

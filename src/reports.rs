@@ -35,8 +35,8 @@ pub struct IndexerRequest {
 }
 
 pub struct Topics {
-    pub queries: &'static str,
-    pub attestations: &'static str,
+    pub queries: String,
+    pub attestations: String,
 }
 
 pub struct Reporter {
@@ -164,7 +164,7 @@ impl Reporter {
 
         client_query_msg.encode(&mut self.write_buf).unwrap();
         let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
-            rdkafka::producer::BaseRecord::to(self.topics.queries).payload(&self.write_buf);
+            rdkafka::producer::BaseRecord::to(&self.topics.queries).payload(&self.write_buf);
         self.kafka_producer
             .send(record)
             .map_err(|(err, _)| err)
@@ -202,7 +202,7 @@ impl Reporter {
                 .encode(&mut self.write_buf)
                 .unwrap();
                 let record: rdkafka::producer::BaseRecord<(), [u8], ()> =
-                    rdkafka::producer::BaseRecord::to(self.topics.attestations)
+                    rdkafka::producer::BaseRecord::to(&self.topics.attestations)
                         .payload(&self.write_buf);
                 self.kafka_producer
                     .send(record)
