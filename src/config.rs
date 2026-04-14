@@ -200,6 +200,9 @@ pub struct X402Config {
     /// Chain for USDC payments (base, base_sepolia)
     #[serde(default = "default_x402_chain")]
     pub chain: X402Chain,
+    /// Price per query in USD (e.g., 0.002 for $0.002 per query)
+    #[serde(deserialize_with = "deserialize_not_nan_f64")]
+    pub price: NotNan<f64>,
 }
 
 /// Supported chains for x402 USDC payments.

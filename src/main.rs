@@ -291,7 +291,7 @@ async fn main() {
                             .allow_methods([http::Method::OPTIONS, http::Method::POST]),
                     )
                     .layer(RequestTracingLayer::new(format!("{signer_address:?}")))
-                    .layer(create_x402_layer(&x402_config, conf.query_fees_target))
+                    .layer(create_x402_layer(&x402_config))
                     .layer(axum::middleware::from_fn(x402_auth_adapter)),
             );
         router = router.nest("/api/x402", x402_api);

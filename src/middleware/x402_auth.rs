@@ -6,7 +6,6 @@
 
 use axum::{body::Body, extract::Request, http::Response, middleware::Next};
 use base64::Engine;
-use ordered_float::NotNan;
 use x402_axum::{
     StaticPriceTags, X402LayerBuilder, X402Middleware, facilitator_client::FacilitatorClient,
 };
@@ -24,9 +23,8 @@ use crate::{
 /// Creates middleware that manages the x402 payment flow.
 pub fn create_layer(
     config: &X402Config,
-    query_fees_target: NotNan<f64>,
 ) -> X402LayerBuilder<StaticPriceTags<PriceTag>, std::sync::Arc<FacilitatorClient>> {
-    let usdc_amount = (*query_fees_target * 1_000_000.0) as u64;
+    let usdc_amount = (*config.price * 1_000_000.0) as u64;
     let token = match config.chain {
         X402Chain::Base => USDC::base(),
         X402Chain::BaseSepolia => USDC::base_sepolia(),
