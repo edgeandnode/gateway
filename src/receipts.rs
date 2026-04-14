@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use base64::{Engine as _, prelude::BASE64_STANDARD};
 use prost::Message as _;
-use rand::RngCore as _;
+use rand::Rng as _;
 use thegraph_core::{
     AllocationId, CollectionId,
     alloy::{

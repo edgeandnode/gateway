@@ -16,7 +16,7 @@ use headers::ContentType;
 use indexer_selection::{ArrayVec, Candidate, Normalized};
 use ordered_float::NotNan;
 use prost::bytes::Buf;
-use rand::Rng as _;
+use rand::RngExt as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use thegraph_core::{AllocationId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
