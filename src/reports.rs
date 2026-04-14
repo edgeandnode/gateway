@@ -180,15 +180,15 @@ impl Reporter {
             ) {
                 continue;
             }
-            if let Some((original_response, attestation)) = indexer_request
+            if let Some((response_body, attestation)) = indexer_request
                 .result
                 .ok()
-                .and_then(|r| Some((r.original_response, r.attestation?)))
+                .and_then(|r| Some((r.response_body, r.attestation?)))
             {
                 const MAX_PAYLOAD_BYTES: usize = 100_000;
                 AttestationProtobuf {
                     request: Some(indexer_request.request).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
-                    response: Some(original_response).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
+                    response: Some(response_body).filter(|r| r.len() <= MAX_PAYLOAD_BYTES),
                     allocation: indexer_request.receipt.allocation().0.0.into(),
                     subgraph_deployment: attestation.deployment.0.into(),
                     request_cid: attestation.request_cid.0.into(),

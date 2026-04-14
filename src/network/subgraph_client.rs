@@ -242,12 +242,11 @@ impl Client {
                 )
                 .await?;
             tracing::trace!(
-                response.original_response,
-                response.client_response,
+                response.response_body,
                 ?response.errors,
             );
             let response: QueryResponse =
-                serde_json::from_str(&response.client_response).context("parse body")?;
+                serde_json::from_str(&response.response_body).context("parse body")?;
             if !response.errors.is_empty() {
                 bail!("{:?}", response.errors);
             }

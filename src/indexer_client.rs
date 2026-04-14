@@ -22,11 +22,10 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct IndexerResponse {
-    pub original_response: String,
+    pub response_body: String,
     pub attestation: Option<Attestation>,
-    pub client_response: String,
     pub errors: Vec<String>,
-    pub probe_block: Option<Block>,
+    pub indexed_block: Option<Block>,
 }
 
 #[derive(Clone)]
@@ -78,6 +77,7 @@ impl IndexerClient {
             .get("graph-indexed")
             .and_then(|v| v.to_str().ok());
         tracing::debug!(indexed_block = indexed_block.unwrap_or("null"));
+        let indexed_block = indexed_block.and_then(parse_graph_indexed_header);
 
         #[derive(Debug, Deserialize)]
         pub struct IndexerResponsePayload {
@@ -94,10 +94,10 @@ impl IndexerClient {
             return Err(BadResponse(err));
         }
 
-        let original_response = payload
+        let response_body = payload
             .graphql_response
             .ok_or_else(|| BadResponse("missing response".into()))?;
-        let (client_response, errors, probe_block) = rewrite_response(&original_response)?;
+        let errors = response_errors(&response_body)?;
         let errors: Vec<String> = errors.into_iter().map(|err| err.message).collect();
 
         errors
@@ -120,7 +120,7 @@ impl IndexerClient {
                         attestation,
                         &allocation,
                         query,
-                        &original_response,
+                        &response_body,
                     ) {
                         return Err(BadResponse(format!("bad attestation: {err}")));
                     }
@@ -144,11 +144,10 @@ impl IndexerClient {
         }
 
         Ok(IndexerResponse {
-            original_response,
+            response_body,
             attestation: payload.attestation,
-            client_response,
             errors,
-            probe_block,
+            indexed_block,
         })
     }
 }
@@ -158,30 +157,12 @@ struct Error {
     message: String,
 }
 
-fn rewrite_response(response: &str) -> Result<(String, Vec<Error>, Option<Block>), IndexerError> {
+fn response_errors(response: &str) -> Result<Vec<Error>, IndexerError> {
     #[derive(Deserialize, Serialize)]
     struct Response {
-        data: Option<ProbedData>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
         errors: Vec<Error>,
-    }
-    #[derive(Deserialize, Serialize)]
-    struct ProbedData {
-        #[serde(rename = "_gateway_probe_", skip_serializing)]
-        probe: Option<Meta>,
-        #[serde(flatten)]
-        data: serde_json::Value,
-    }
-    #[derive(Deserialize)]
-    struct Meta {
-        block: MaybeBlock,
-    }
-    #[derive(Deserialize)]
-    struct MaybeBlock {
-        number: BlockNumber,
-        hash: BlockHash,
-        timestamp: Option<u64>,
     }
     let mut payload: Response =
         serde_json::from_str(response).map_err(|err| BadResponse(err.to_string()))?;
@@ -192,25 +173,27 @@ fn rewrite_response(response: &str) -> Result<(String, Vec<Error>, Option<Block>
         err.message.shrink_to_fit();
     }
 
-    let block = payload
-        .data
-        .as_mut()
-        .and_then(|data| data.probe.take())
-        .and_then(|meta| {
-            Some(Block {
-                number: meta.block.number,
-                hash: meta.block.hash,
-                timestamp: meta.block.timestamp?,
-            })
-        });
-    let client_response = serde_json::to_string(&payload).unwrap();
-    Ok((client_response, payload.errors, block))
+    Ok(payload.errors)
+}
+
+fn parse_graph_indexed_header(header: &str) -> Option<Block> {
+    #[derive(Deserialize)]
+    struct GraphIndexed {
+        number: BlockNumber,
+        hash: BlockHash,
+        timestamp: Option<u64>,
+    }
+
+    let payload: GraphIndexed = serde_json::from_str(header).ok()?;
+    Some(Block {
+        number: payload.number,
+        hash: payload.hash,
+        timestamp: payload.timestamp?,
+    })
 }
 
 fn check_block_error(err: &str) -> Result<(), MissingBlockError> {
-    // TODO: indexers should *always* report their block status in a header on every query. This
-    // will significantly reduce how brittle this feedback is, and also give a stronger basis for
-    // prediction in the happy path.
+    // Older indexers may still only communicate block availability through GraphQL errors.
     if !err.contains("Failed to decode `block") {
         return Ok(());
     }

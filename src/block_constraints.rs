@@ -1,55 +1,25 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::Write as _,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{anyhow, bail};
 use graphql::{
     IntoStaticValue as _, QueryVariables, StaticValue,
     graphql_parser::{
         parse_query,
-        query::{
-            Definition, FragmentDefinition, OperationDefinition, Selection, SelectionSet, Text,
-            Value,
-        },
+        query::{Definition, OperationDefinition, Selection, Text, Value},
     },
 };
 use itertools::Itertools as _;
-use serde_json::{self, json};
+use serde_json::{self};
 use thegraph_core::alloy::primitives::{BlockHash, BlockNumber};
 
 use crate::{blocks::BlockConstraint, chain::Chain, errors::Error};
 
-pub struct QueryContext<'q> {
-    pub operations: Vec<OperationDefinition<'q, &'q str>>,
-    pub fragments: Vec<FragmentDefinition<'q, &'q str>>,
-    pub variables: QueryVariables,
-}
-
-impl<'q> QueryContext<'q> {
-    pub fn new(query: &'q str, variables: &'q str) -> anyhow::Result<Self> {
-        let variables = {
-            let vars = variables.trim();
-            if ["{}", "null", ""].contains(&vars) {
-                QueryVariables::default()
-            } else {
-                serde_json::from_str(vars).map_err(|_| anyhow!("Failed to parse variables"))?
-            }
-        };
-        let query = parse_query(query).map_err(|_| anyhow!("Failed to parse query"))?;
-        let mut operations = Vec::new();
-        let mut fragments = Vec::new();
-        for definition in query.definitions.into_iter() {
-            match definition {
-                Definition::Fragment(fragment) => fragments.push(fragment),
-                Definition::Operation(operation) => operations.push(operation),
-            }
-        }
-        Ok(Self {
-            variables,
-            fragments,
-            operations,
-        })
+pub fn parse_variables(variables: &str) -> anyhow::Result<QueryVariables> {
+    let vars = variables.trim();
+    if ["{}", "null", ""].contains(&vars) {
+        Ok(QueryVariables::default())
+    } else {
+        serde_json::from_str(vars).map_err(|_| anyhow!("Failed to parse variables"))
     }
 }
 
@@ -65,10 +35,11 @@ pub struct BlockRequirements {
 
 pub fn resolve_block_requirements(
     chain: &Chain,
-    context: &QueryContext,
+    query: &str,
+    variables: &QueryVariables,
     manifest_min_block: BlockNumber,
 ) -> Result<BlockRequirements, Error> {
-    let constraints = block_constraints(context).unwrap_or_default();
+    let constraints = block_constraints(query, variables).unwrap_or_default();
 
     let latest = constraints.iter().any(|c| match c {
         BlockConstraint::Unconstrained | BlockConstraint::NumberGTE(_) => true,
@@ -114,11 +85,22 @@ pub fn resolve_block_requirements(
     })
 }
 
-fn block_constraints(context: &QueryContext) -> Result<BTreeSet<BlockConstraint>, Error> {
+fn block_constraints(
+    query: &str,
+    vars: &QueryVariables,
+) -> Result<BTreeSet<BlockConstraint>, Error> {
+    let query = parse_query::<&str>(query)
+        .map_err(|_| Error::BadQuery(anyhow!("Failed to parse query")))?;
     let mut constraints = BTreeSet::new();
-    let vars = &context.variables;
     // ba6c90f1-3baf-45be-ac1c-f60733404436
-    for operation in &context.operations {
+    for operation in query
+        .definitions
+        .iter()
+        .filter_map(|definition| match definition {
+            Definition::Fragment(_) => None,
+            Definition::Operation(operation) => Some(operation),
+        })
+    {
         let (selection_set, defaults) = match operation {
             OperationDefinition::SelectionSet(selection_set) => {
                 (selection_set, BTreeMap::default())
@@ -162,81 +144,6 @@ fn block_constraints(context: &QueryContext) -> Result<BTreeSet<BlockConstraint>
         }
     }
     Ok(constraints)
-}
-
-pub fn rewrite_query<'q>(ctx: &QueryContext<'q>) -> String {
-    let mut buf: String = Default::default();
-    for fragment in &ctx.fragments {
-        write!(&mut buf, "{fragment}").unwrap();
-    }
-    if contains_introspection(ctx) {
-        for operation in &ctx.operations {
-            write!(&mut buf, "{operation}").unwrap();
-        }
-    } else {
-        let serialize_selection_set =
-            |buf: &mut String, selection_set: &SelectionSet<'q, &'q str>| {
-                buf.push_str("{\n");
-                for selection in &selection_set.items {
-                    match selection {
-                        Selection::Field(field) => {
-                            write!(buf, "  {field}").unwrap();
-                        }
-                        Selection::FragmentSpread(spread) => {
-                            write!(buf, "  {spread}").unwrap();
-                        }
-                        Selection::InlineFragment(fragment) => {
-                            write!(buf, "  {fragment}").unwrap();
-                        }
-                    };
-                }
-                buf.push_str("  _gateway_probe_: _meta { block { hash number timestamp } }\n}\n");
-            };
-        let serialize_operation =
-            |buf: &mut String, operation: &OperationDefinition<'q, &'q str>| {
-                match operation {
-                    OperationDefinition::SelectionSet(selection_set) => {
-                        serialize_selection_set(buf, selection_set);
-                    }
-                    OperationDefinition::Query(query) => {
-                        buf.push_str("query");
-                        if let Some(name) = query.name {
-                            write!(buf, " {name}").unwrap();
-                        }
-                        if !query.variable_definitions.is_empty() {
-                            write!(buf, "({}", query.variable_definitions[0]).unwrap();
-                            for var in &query.variable_definitions[1..] {
-                                write!(buf, ", {var}").unwrap();
-                            }
-                            buf.push(')');
-                        }
-                        debug_assert!(query.directives.is_empty());
-                        buf.push(' ');
-                        serialize_selection_set(buf, &query.selection_set);
-                    }
-                    OperationDefinition::Mutation(_) | OperationDefinition::Subscription(_) => (),
-                };
-            };
-        for operation in &ctx.operations {
-            serialize_operation(&mut buf, operation);
-        }
-    }
-
-    serde_json::to_string(&json!({ "query": buf, "variables": ctx.variables })).unwrap()
-}
-
-fn contains_introspection(ctx: &QueryContext<'_>) -> bool {
-    fn selection_set_has_introspection<'q>(s: &SelectionSet<'q, &'q str>) -> bool {
-        s.items.iter().any(|selection| match selection {
-            Selection::Field(f) => f.name.starts_with("__"), // only check top level
-            Selection::InlineFragment(_) | Selection::FragmentSpread(_) => false,
-        })
-    }
-    ctx.operations.iter().any(|op| match op {
-        OperationDefinition::Query(q) => selection_set_has_introspection(&q.selection_set),
-        OperationDefinition::SelectionSet(s) => selection_set_has_introspection(s),
-        OperationDefinition::Mutation(_) | OperationDefinition::Subscription(_) => false,
-    })
 }
 
 fn field_constraint<'c, T: Text<'c>>(
@@ -387,24 +294,12 @@ mod tests {
             ),
         ];
         for (query, expected) in tests {
-            let context = QueryContext::new(query, "").unwrap();
-            let constraints = block_constraints(&context).map_err(|e| e.to_string());
+            let variables = parse_variables("").unwrap();
+            let constraints = block_constraints(query, &variables).map_err(|e| e.to_string());
             let expected = expected
                 .map(|v| BTreeSet::from_iter(v.iter().cloned()))
                 .map_err(ToString::to_string);
             assert_eq!(constraints, expected);
-        }
-    }
-
-    #[test]
-    fn query_contains_introspection() {
-        let examples = [
-            "{ __schema { queryType { name } } }",
-            "{ __type(name:\"Droid\") { name description } }",
-        ];
-        for example in examples {
-            let context = QueryContext::new(example, "").unwrap();
-            assert!(super::contains_introspection(&context));
         }
     }
 
@@ -414,8 +309,8 @@ mod tests {
         // When $block variable is explicitly set to null, it should be treated as Unconstrained
         let query = "query($b: Block_height) { a(block:$b) }";
         let variables = r#"{"b": null}"#;
-        let context = QueryContext::new(query, variables).unwrap();
-        let constraints = block_constraints(&context).unwrap();
+        let variables = parse_variables(variables).unwrap();
+        let constraints = block_constraints(query, &variables).unwrap();
         let expected = BTreeSet::from_iter([Unconstrained]);
         assert_eq!(constraints, expected);
     }
@@ -426,8 +321,8 @@ mod tests {
         // When $block variable is set to an empty object, it should be treated as Unconstrained
         let query = "query($b: Block_height) { a(block:$b) }";
         let variables = r#"{"b": {}}"#;
-        let context = QueryContext::new(query, variables).unwrap();
-        let constraints = block_constraints(&context).unwrap();
+        let variables = parse_variables(variables).unwrap();
+        let constraints = block_constraints(query, &variables).unwrap();
         let expected = BTreeSet::from_iter([Unconstrained]);
         assert_eq!(constraints, expected);
     }

@@ -18,7 +18,7 @@ use ordered_float::NotNan;
 use prost::bytes::Buf;
 use rand::RngExt as _;
 use serde::Deserialize;
-use serde_json::value::RawValue;
+use serde_json::{json, value::RawValue};
 use thegraph_core::{AllocationId, DeploymentId, IndexerId, alloy::primitives::BlockNumber};
 use thegraph_headers::{HttpBuilderExt as _, graph_attestation::GraphAttestation};
 use tokio::sync::mpsc;
@@ -28,9 +28,7 @@ use url::Url;
 use self::{context::Context, query_selector::QuerySelector};
 use crate::{
     auth::AuthSettings,
-    block_constraints::{
-        BlockRequirements, QueryContext, resolve_block_requirements, rewrite_query,
-    },
+    block_constraints::{BlockRequirements, parse_variables, resolve_block_requirements},
     budgets::USD,
     errors::{Error, IndexerError, IndexerErrors, MissingBlockError, UnavailableReason},
     indexer_client::{IndexerAuth, IndexerResponse},
@@ -100,7 +98,7 @@ pub async fn handle_query(
 
     result.map(
         |IndexerResponse {
-             client_response,
+             response_body,
              attestation,
              ..
          }| {
@@ -113,7 +111,7 @@ pub async fn handle_query(
                 builder = builder.header_typed(GraphAttestation(attestation));
             }
 
-            builder.body(client_response).expect("valid response")
+            builder.body(response_body).expect("valid response")
         },
     )
 }
@@ -181,17 +179,13 @@ async fn run_indexer_queries(
     let one_grt = NotNan::new(1e18).unwrap();
     let grt_per_usd = *ctx.grt_per_usd.borrow();
 
-    // Create the Agora context from the query and variables
-    let variables = client_request
+    let variables_json = client_request
         .variables
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_default();
-    // We handle these errors here, instead of `handle_query`, because the agora context is tied to
-    // the lifetime of the query body which may need to extend past the client response. Even if
-    // it doesn't, it is relatively difficult to convince the compiler of that.
-    let query_context = match QueryContext::new(&client_request.query, &variables) {
-        Ok(query_context) => query_context,
+    let variables = match parse_variables(&variables_json) {
+        Ok(variables) => variables,
         Err(err) => {
             client_response
                 .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
@@ -217,16 +211,20 @@ async fn run_indexer_queries(
         // Get the estimated blocks per minute for the chain
         let blocks_per_minute = chain_reader.blocks_per_minute();
 
-        let block_requirements =
-            match resolve_block_requirements(&chain_reader, &query_context, subgraph.start_block) {
-                Ok(block_requirements) => block_requirements,
-                Err(err) => {
-                    client_response
-                        .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
-                        .unwrap();
-                    return;
-                }
-            };
+        let block_requirements = match resolve_block_requirements(
+            &chain_reader,
+            &client_request.query,
+            &variables,
+            subgraph.start_block,
+        ) {
+            Ok(block_requirements) => block_requirements,
+            Err(err) => {
+                client_response
+                    .try_send(Err(Error::BadQuery(anyhow!("{err}"))))
+                    .unwrap();
+                return;
+            }
+        };
 
         (chain_head, blocks_per_minute, block_requirements)
     };
@@ -247,16 +245,26 @@ async fn run_indexer_queries(
     indexer_errors.extend(errors);
 
     if tracing::enabled!(tracing::Level::TRACE) {
-        tracing::trace!(client_query = client_request.query, variables);
+        tracing::trace!(
+            client_query = client_request.query,
+            variables = variables_json
+        );
         tracing::trace!(?candidates);
     } else if tracing::enabled!(tracing::Level::DEBUG) && rand::rng().random_bool(0.01) {
         // Log candidates at a low rate to avoid log bloat
-        tracing::debug!(client_query = client_request.query, variables);
+        tracing::debug!(
+            client_query = client_request.query,
+            variables = variables_json
+        );
         tracing::debug!(?candidates);
     }
 
     let client_request_bytes = client_request.query.len() as u32;
-    let indexer_query = rewrite_query(&query_context);
+    let indexer_query = serde_json::to_string(&json!({
+        "query": client_request.query,
+        "variables": variables,
+    }))
+    .unwrap();
     let mut indexer_requests: Vec<reports::IndexerRequest> = Default::default();
     let mut client_response_time: Option<Duration> = None;
     let mut client_response_bytes: Option<u32> = None;
@@ -336,7 +344,7 @@ async fn run_indexer_queries(
                 Ok(response) if client_response_time.is_none() => {
                     let _ = client_response.try_send(Ok(response.clone()));
                     client_response_time = Some(start_time.elapsed());
-                    client_response_bytes = Some(response.client_response.len() as u32);
+                    client_response_bytes = Some(response.response_body.len() as u32);
                 }
                 Ok(_) => (),
                 Err(err) => {
@@ -381,7 +389,7 @@ async fn run_indexer_queries(
 
     for indexer_request in &indexer_requests {
         let latest_block = match &indexer_request.result {
-            Ok(response) => response.probe_block.as_ref().map(|b| b.number),
+            Ok(response) => response.indexed_block.as_ref().map(|b| b.number),
             Err(IndexerError::Unavailable(UnavailableReason::MissingBlock(err))) => err.latest,
             _ => None,
         };
@@ -397,7 +405,7 @@ async fn run_indexer_queries(
             .result
             .as_ref()
             .ok()
-            .and_then(|r| r.probe_block.clone())
+            .and_then(|r| r.indexed_block.clone())
         {
             chain.notify(block, indexer_request.indexer);
         }
@@ -773,13 +781,13 @@ pub async fn handle_indexer_query(
         subgraph: None,
         grt_per_usd,
         request_bytes: indexer_request.request.len() as u32,
-        response_bytes: result.as_ref().map(|r| r.client_response.len() as u32).ok(),
+        response_bytes: result.as_ref().map(|r| r.response_body.len() as u32).ok(),
         indexer_requests: vec![indexer_request],
     });
 
     result.map(
         |IndexerResponse {
-             client_response,
+             response_body,
              attestation,
              ..
          }| {
@@ -792,7 +800,7 @@ pub async fn handle_indexer_query(
                 builder = builder.header_typed(GraphAttestation(attestation));
             }
 
-            builder.body(client_response).expect("valid response")
+            builder.body(response_body).expect("valid response")
         },
     )
 }
