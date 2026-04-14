@@ -13,7 +13,7 @@ Query blockchain data from The Graph Network's decentralized indexers.
 
 Two options for accessing the API:
 
-### Option 1: API Key
+### Option 1: API Key (best for humans)
 
 Get an API key from [Subgraph Studio](https://thegraph.com/studio) and include it in requests.
 
@@ -23,7 +23,7 @@ Get an API key from [Subgraph Studio](https://thegraph.com/studio) and include i
 
 **Header:** `Authorization: Bearer <API_KEY>`
 
-### Option 2: x402 Payment
+### Option 2: x402 Payment (best for agents)
 
 Pay per query with USDC. No API key required.
 
@@ -42,12 +42,72 @@ curl -X POST https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6
   -d '{"query": "{ tokens(first: 5) { symbol } }"}'
 ```
 
-### With x402 (using x402-proxy cli)
+### With x402 Payment
+
+Any x402 tooling that supports exact scheme will work with the gateway's x402 endpoints. We recommend to use the official Graph x402 client:
 
 ```bash
-X402_PROXY_WALLET_EVM_KEY="<PAYER_WALLET_PRIVATE_KEY>" \
-npx x402-proxy http://gateway.thegraph.com/api/x402/deployments/id/QmXU9FEf1tUwSjsnGGsuvMHFmGq3CeEi1RiWrNXSQXzkAi \
-  -X POST \
-  --header 'content-type: application/json' \
-  -d '{"query":"{ indexers { id stakedTokens allocations { id } } }"}'
+npm install @graphprotocol/client-x402
 ```
+
+**Option A: Command Line**
+
+```bash
+export X402_PRIVATE_KEY=0xabc123...
+
+npx graphclient-x402 "{ pairs(first: 5) { id } }" \
+  --endpoint https://gateway.thegraph.com/api/x402/subgraphs/id/<SUBGRAPH_ID> \
+  --chain base
+```
+
+**Option B: Programmatic**
+
+```typescript
+import { createGraphQuery } from '@graphprotocol/client-x402'
+
+const query = createGraphQuery({
+  endpoint: 'https://gateway.thegraph.com/api/x402/subgraphs/id/<SUBGRAPH_ID>',
+  chain: 'base',
+})
+
+const result = await query('{ pairs(first: 5) { id } }')
+```
+
+**Option C: Typed SDK (full type safety)**
+
+```bash
+npm install @graphprotocol/client-cli @graphprotocol/client-x402
+```
+
+Configure `.graphclientrc.yml`:
+
+```yaml
+customFetch: '@graphprotocol/client-x402'
+
+sources:
+  - name: uniswap
+    handler:
+      graphql:
+        endpoint: https://gateway.thegraph.com/api/x402/subgraphs/id/<SUBGRAPH_ID>
+
+documents:
+  - ./src/queries/*.graphql
+```
+
+Build and use:
+
+```bash
+export X402_PRIVATE_KEY=0xabc123...
+export X402_CHAIN=base
+npx graphclient build
+```
+
+```typescript
+import { execute, GetPairsDocument } from './.graphclient'
+
+const result = await execute(GetPairsDocument, { first: 5 })
+```
+
+**Environment Variables:**
+- `X402_PRIVATE_KEY`: Wallet private key for payment signing
+- `X402_CHAIN`: `base` (mainnet) or `base-sepolia` (testnet)
