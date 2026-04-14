@@ -73,13 +73,11 @@ impl IndexerClient {
             return Err(BadResponse(status.as_u16().to_string()));
         }
 
-        if let Some(indexed_block) = response
+        let indexed_block = response
             .headers()
             .get("graph-indexed")
-            .and_then(|v| v.to_str().ok())
-        {
-            tracing::debug!(indexed_block);
-        }
+            .and_then(|v| v.to_str().ok());
+        tracing::debug!(indexed_block = indexed_block.unwrap_or("null"));
 
         #[derive(Debug, Deserialize)]
         pub struct IndexerResponsePayload {
