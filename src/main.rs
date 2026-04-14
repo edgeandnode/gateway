@@ -50,7 +50,7 @@ use middleware::{
 };
 use network::{indexer_blocklist, subgraph_client::Client as SubgraphClient};
 use prometheus::{self, Encoder as _};
-use rand::RngCore as _;
+use rand::Rng as _;
 use receipts::ReceiptSigner;
 use thegraph_core::{
     alloy::{dyn_abi::Eip712Domain, primitives::ChainId, signers::local::PrivateKeySigner},
