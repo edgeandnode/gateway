@@ -6589,9 +6589,8 @@ dependencies = [
 
 [[package]]
 name = "x402-axum"
-version = "1.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8577ebc8ce69139ba0b368f0b149d63b2f018d6cb3adce0b9a8be4320cd0976a"
+version = "1.4.6"
+source = "git+https://github.com/edgeandnode/x402-rs?branch=main#168b9bdf0af319718c28577ece11062002ddd15d"
 dependencies = [
  "axum-core",
  "http 1.4.0",
@@ -6607,9 +6606,8 @@ dependencies = [
 
 [[package]]
 name = "x402-chain-eip155"
-version = "1.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3497af3e8f41291db4274f16bc86cd69e40e762bdad25439ddea2044ba8948a7"
+version = "1.4.6"
+source = "git+https://github.com/edgeandnode/x402-rs?branch=main#168b9bdf0af319718c28577ece11062002ddd15d"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -6621,9 +6619,8 @@ dependencies = [
 
 [[package]]
 name = "x402-types"
-version = "1.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9791920783dc19ba223634cc7203aac695c58ba7cc38b62f8f00b81eaf47af78"
+version = "1.4.6"
+source = "git+https://github.com/edgeandnode/x402-rs?branch=main#168b9bdf0af319718c28577ece11062002ddd15d"
 dependencies = [
  "alloy-primitives",
  "async-trait",

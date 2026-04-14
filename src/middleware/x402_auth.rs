@@ -4,8 +4,11 @@
 //! - x402 middleware, handling base x402 payments
 //! - x402 auth adapter, extracting payer info and injecting `AuthSettings` request extension for downstream handlers.
 
+use std::sync::Arc;
+
 use axum::{body::Body, extract::Request, http::Response, middleware::Next};
 use base64::Engine;
+use http::HeaderMap;
 use x402_axum::{
     StaticPriceTags, X402LayerBuilder, X402Middleware, facilitator_client::FacilitatorClient,
 };
@@ -23,14 +26,33 @@ use crate::{
 /// Creates middleware that manages the x402 payment flow.
 pub fn create_layer(
     config: &X402Config,
-) -> X402LayerBuilder<StaticPriceTags<PriceTag>, std::sync::Arc<FacilitatorClient>> {
+) -> X402LayerBuilder<StaticPriceTags<PriceTag>, Arc<FacilitatorClient>> {
     let usdc_amount = (*config.price * 1_000_000.0) as u64;
     let token = match config.chain {
         X402Chain::Base => USDC::base(),
         X402Chain::BaseSepolia => USDC::base_sepolia(),
     };
     let price_tag = V2Eip155Exact::price_tag(config.receiver_address, token.amount(usdc_amount));
-    X402Middleware::new(config.facilitator_url.as_str()).with_price_tag(price_tag)
+
+    // Build facilitator client with optional custom headers
+    let client = FacilitatorClient::try_from(config.facilitator_url.as_str())
+        .expect("Invalid facilitator URL");
+    let client = if config.facilitator_headers.is_empty() {
+        client
+    } else {
+        let mut headers = HeaderMap::new();
+        for (key, value) in &config.facilitator_headers {
+            if let (Ok(name), Ok(val)) = (
+                key.parse::<http::HeaderName>(),
+                value.parse::<http::HeaderValue>(),
+            ) {
+                headers.insert(name, val);
+            }
+        }
+        client.with_headers(headers)
+    };
+
+    X402Middleware::from_facilitator(Arc::new(client)).with_price_tag(price_tag)
 }
 
 /// Extracts payer address from x402 payment header and inserts AuthSettings.

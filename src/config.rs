@@ -203,6 +203,9 @@ pub struct X402Config {
     /// Price per query in USD (e.g., 0.002 for $0.002 per query)
     #[serde(deserialize_with = "deserialize_not_nan_f64")]
     pub price: NotNan<f64>,
+    /// Optional headers to send with requests to the facilitator (e.g., for authentication)
+    #[serde(default)]
+    pub facilitator_headers: BTreeMap<String, String>,
 }
 
 /// Supported chains for x402 USDC payments.
