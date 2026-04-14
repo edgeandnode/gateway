@@ -364,7 +364,7 @@ dependencies = [
  "futures-utils-wasm",
  "lru",
  "parking_lot",
- "pin-project 1.1.10",
+ "pin-project 1.1.11",
  "reqwest",
  "serde",
  "serde_json",
@@ -408,7 +408,7 @@ dependencies = [
  "alloy-transport",
  "alloy-transport-http",
  "futures",
- "pin-project 1.1.10",
+ "pin-project 1.1.11",
  "reqwest",
  "serde",
  "serde_json",
@@ -2446,7 +2446,7 @@ dependencies = [
  "lazy_static",
  "ordered-float",
  "parking_lot",
- "pin-project 1.1.10",
+ "pin-project 1.1.11",
  "prometheus",
  "prost 0.14.3",
  "rand 0.9.4",
@@ -3669,11 +3669,11 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-version = "1.1.10"
+version = "1.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "677f1add503faace112b9f1373e43e9e054bfdd22ff1a63c1bc485eaec6a6a8a"
+checksum = "f1749c7ed4bcaf4c3d0a3efc28538844fb29bcdd7d2b67b2be7e20ba861ff517"
 dependencies = [
- "pin-project-internal 1.1.10",
+ "pin-project-internal 1.1.11",
 ]
 
 [[package]]
@@ -3689,9 +3689,9 @@ dependencies = [
 
 [[package]]
 name = "pin-project-internal"
-version = "1.1.10"
+version = "1.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e918e4ff8c4549eb882f14b3a4bc8c8bc93de829416eacf579f1207a8fbf861"
+checksum = "d9b20ed30f105399776b9c883e68e536ef602a16ae6f596d2c473591d6ad64c6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5370,7 +5370,7 @@ dependencies = [
  "hyper-timeout",
  "hyper-util",
  "percent-encoding",
- "pin-project 1.1.10",
+ "pin-project 1.1.11",
  "prost 0.13.5",
  "rustls-native-certs",
  "socket2 0.5.10",
@@ -5444,7 +5444,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4546773ffeab9e4ea02b8872faa49bb616a80a7da66afc2f32688943f97efa7"
 dependencies = [
  "futures-util",
- "pin-project 1.1.10",
+ "pin-project 1.1.11",
  "tokio",
  "tokio-test",
  "tower-layer",
