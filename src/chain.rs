@@ -108,7 +108,7 @@ impl Chain {
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
-    use rand::{Rng as _, RngCore as _, SeedableRng, rngs::SmallRng, seq::IndexedRandom as _};
+    use rand::{Rng as _, RngExt as _, SeedableRng, rngs::SmallRng, seq::IndexedRandom as _};
     use thegraph_core::{
         IndexerId,
         alloy::primitives::{Address, BlockHash, U256},
