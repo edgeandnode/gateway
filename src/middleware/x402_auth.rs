@@ -55,7 +55,6 @@ pub fn create_layer(
     X402Middleware::from_facilitator(Arc::new(client)).with_price_tag(price_tag)
 }
 
-/// Extracts payer address from x402 payment header and inserts AuthSettings.
 /// This adapter middleware extracts the payer address from the x402 payment header,
 /// and adds it to the request as an `AuthSettings` extension.
 ///
