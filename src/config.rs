@@ -67,20 +67,8 @@ pub struct Config {
     pub receipts: Receipts,
     /// Address for the Subgraph Service
     pub subgraph_service: Address,
-}
-
-/// Default network subgraph max lag threshold (120 seconds)
-fn default_network_subgraph_max_lag_seconds() -> u64 {
-    120
-}
-
-/// Deserialize a `NotNan<f64>` from a `f64` and return an error if the value is NaN.
-fn deserialize_not_nan_f64<'de, D>(deserializer: D) -> Result<NotNan<f64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = f64::deserialize(deserializer)?;
-    NotNan::new(value).map_err(serde::de::Error::custom)
+    /// x402 payment support configuration
+    pub x402: Option<X402Config>,
 }
 
 /// API keys configuration.
@@ -198,6 +186,57 @@ pub struct Receipts {
     pub verifier: Address,
     /// Legacy TAP verifier contract address (v1)
     pub legacy_verifier: Address,
+}
+
+/// x402 payment support configuration.
+#[serde_as]
+#[derive(Clone, Deserialize)]
+pub struct X402Config {
+    /// x402 facilitator URL (e.g., "https://x402.org/facilitator")
+    #[serde_as(as = "DisplayFromStr")]
+    pub facilitator_url: Url,
+    /// Wallet address to receive USDC payments
+    pub receiver_address: Address,
+    /// Chain for USDC payments (base, base_sepolia)
+    #[serde(default = "default_x402_chain")]
+    pub chain: X402Chain,
+    /// Price per query in USD (e.g., 0.002 for $0.002 per query)
+    #[serde(deserialize_with = "deserialize_not_nan_f64")]
+    pub price: NotNan<f64>,
+    /// Optional headers to send with requests to the facilitator (e.g., for authentication)
+    #[serde(default)]
+    pub facilitator_headers: BTreeMap<String, String>,
+}
+
+/// Supported chains for x402 USDC payments.
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum X402Chain {
+    #[default]
+    Base,
+    BaseSepolia,
+}
+
+// -----------------------------------------------------------------------------
+// Helper functions
+// -----------------------------------------------------------------------------
+
+/// Default network subgraph max lag threshold (120 seconds)
+fn default_network_subgraph_max_lag_seconds() -> u64 {
+    120
+}
+
+/// Deserialize a `NotNan<f64>` from a `f64` and return an error if the value is NaN.
+fn deserialize_not_nan_f64<'de, D>(deserializer: D) -> Result<NotNan<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = f64::deserialize(deserializer)?;
+    NotNan::new(value).map_err(serde::de::Error::custom)
+}
+
+fn default_x402_chain() -> X402Chain {
+    X402Chain::Base
 }
 
 /// Returns `base` with `_{env}` appended when `env` is `Some` and non-empty, or `base` unchanged
