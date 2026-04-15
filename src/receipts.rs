@@ -27,10 +27,6 @@ impl Receipt {
     }
 
     pub fn serialize(&self) -> String {
-        self.serialize_v2(&self.0)
-    }
-
-    fn serialize_v2(&self, receipt: &tap_graph::v2::SignedReceipt) -> String {
         #[derive(prost::Message)]
         struct ReceiptMessage {
             #[prost(bytes, tag = "1")]
@@ -63,24 +59,21 @@ impl Receipt {
             signature: Vec<u8>,
         }
         let receipt_message = ReceiptMessage {
-            collection_id: receipt.message.collection_id.to_vec(),
-            payer: receipt.message.payer.to_vec(),
-            data_service: receipt.message.data_service.to_vec(),
-            service_provider: receipt.message.service_provider.to_vec(),
-            timestamp_ns: receipt.message.timestamp_ns,
-            nonce: receipt.message.nonce,
+            collection_id: self.0.message.collection_id.to_vec(),
+            payer: self.0.message.payer.to_vec(),
+            data_service: self.0.message.data_service.to_vec(),
+            service_provider: self.0.message.service_provider.to_vec(),
+            timestamp_ns: self.0.message.timestamp_ns,
+            nonce: self.0.message.nonce,
             value: Some(Uint128 {
-                high: (receipt.message.value >> 64) as u64,
-                low: receipt.message.value as u64,
+                high: (self.0.message.value >> 64) as u64,
+                low: self.0.message.value as u64,
             }),
         };
-        let signature_bytes = receipt.signature.as_bytes().to_vec();
-
         let signed_receipt = SignedReceipt {
             message: Some(receipt_message),
-            signature: signature_bytes,
+            signature: self.0.signature.as_bytes().to_vec(),
         };
-
         BASE64_STANDARD.encode(signed_receipt.encode_to_vec())
     }
 }
