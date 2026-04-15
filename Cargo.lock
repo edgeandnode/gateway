@@ -2454,7 +2454,7 @@ dependencies = [
  "chrono",
  "futures",
  "hyper",
- "jsonwebtoken",
+ "jsonwebtoken 10.3.0",
  "once_cell",
  "prost 0.14.3",
  "prost-types 0.14.3",
@@ -2549,6 +2549,7 @@ dependencies = [
  "indexer-selection",
  "ipnetwork",
  "itertools 0.14.0",
+ "jsonwebtoken 9.3.1",
  "lazy_static",
  "ordered-float",
  "parking_lot",
@@ -2576,6 +2577,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
  "x402-axum",
  "x402-chain-eip155",
  "x402-types",
@@ -3302,6 +3304,21 @@ dependencies = [
  "futures-util",
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "jsonwebtoken"
+version = "9.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
+dependencies = [
+ "base64",
+ "js-sys",
+ "pem",
+ "ring",
+ "serde",
+ "serde_json",
+ "simple_asn1",
 ]
 
 [[package]]

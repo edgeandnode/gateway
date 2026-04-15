@@ -20,7 +20,9 @@ use x402_types::{networks::USDC, proto::v2::PriceTag};
 
 use crate::{
     auth::AuthSettings,
-    config::{X402Chain, X402Config},
+    cdp_auth,
+    config::{FacilitatorAuth, X402Chain, X402Config},
+    payai_auth,
 };
 
 /// Creates middleware that manages the x402 payment flow.
@@ -34,25 +36,103 @@ pub fn create_layer(
     };
     let price_tag = V2Eip155Exact::price_tag(config.receiver_address, token.amount(usdc_amount));
 
-    // Build facilitator client with optional custom headers
-    let client = FacilitatorClient::try_from(config.facilitator_url.as_str())
+    // Build facilitator client
+    let mut client = FacilitatorClient::try_from(config.facilitator_url.as_str())
         .expect("Invalid facilitator URL");
-    let client = if config.facilitator_headers.is_empty() {
-        client
-    } else {
-        let mut headers = HeaderMap::new();
-        for (key, value) in &config.facilitator_headers {
-            if let (Ok(name), Ok(val)) = (
-                key.parse::<http::HeaderName>(),
-                value.parse::<http::HeaderValue>(),
-            ) {
-                headers.insert(name, val);
-            }
-        }
-        client.with_headers(headers)
-    };
+
+    // Add dynamic auth header provider if configured
+    // TODO: Requires `with_header_provider` method in edgeandnode/x402-rs fork
+    if let Some(auth) = &config.facilitator_auth {
+        let auth_type = match auth {
+            FacilitatorAuth::Cdp { .. } => "CDP",
+            FacilitatorAuth::PayAi { .. } => "PayAI",
+        };
+        let _provider = create_auth_header_provider(auth, config.facilitator_url.as_str());
+        // client = client.with_header_provider(provider);
+        tracing::info!("{} authentication configured for x402 facilitator", auth_type);
+    }
+
+    // Add static headers from config
+    let static_headers = build_static_headers(config);
+    if !static_headers.is_empty() {
+        client = client.with_headers(static_headers);
+    }
 
     X402Middleware::from_facilitator(Arc::new(client)).with_price_tag(price_tag)
+}
+
+/// Builds static headers for the facilitator client.
+///
+/// Only includes static headers from config. Dynamic auth headers are
+/// generated per-request via header_provider.
+fn build_static_headers(config: &X402Config) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+
+    for (key, value) in &config.facilitator_headers {
+        if let (Ok(name), Ok(val)) = (
+            key.parse::<http::HeaderName>(),
+            value.parse::<http::HeaderValue>(),
+        ) {
+            headers.insert(name, val);
+        }
+    }
+
+    headers
+}
+
+/// Creates a header provider closure for dynamic authentication.
+///
+/// Returns a closure that generates fresh auth headers on each call.
+/// This is needed because JWTs expire and must be regenerated per-request.
+fn create_auth_header_provider(
+    auth: &FacilitatorAuth,
+    facilitator_url: &str,
+) -> Box<dyn Fn() -> HeaderMap + Send + Sync> {
+    match auth {
+        FacilitatorAuth::Cdp {
+            api_key_id,
+            api_key_secret,
+        } => {
+            let api_key_id = api_key_id.clone();
+            let api_key_secret = api_key_secret.clone();
+            let uri = facilitator_url.to_string();
+            wrap_auth_generator("CDP", move || {
+                cdp_auth::generate_auth_header(&api_key_id, &api_key_secret, &uri)
+            })
+        }
+        FacilitatorAuth::PayAi {
+            api_key_id,
+            api_key_secret,
+        } => {
+            let api_key_id = api_key_id.clone();
+            let api_key_secret = api_key_secret.clone();
+            wrap_auth_generator("PayAI", move || {
+                payai_auth::generate_auth_header(&api_key_id, &api_key_secret)
+            })
+        }
+    }
+}
+
+/// Wraps an auth header generator function into a HeaderMap provider.
+fn wrap_auth_generator<F, E>(name: &'static str, generate: F) -> Box<dyn Fn() -> HeaderMap + Send + Sync>
+where
+    F: Fn() -> Result<String, E> + Send + Sync + 'static,
+    E: std::fmt::Debug,
+{
+    Box::new(move || {
+        let mut headers = HeaderMap::new();
+        match generate() {
+            Ok(auth_value) => {
+                if let Ok(header_value) = auth_value.parse() {
+                    headers.insert(http::header::AUTHORIZATION, header_value);
+                }
+            }
+            Err(err) => {
+                tracing::error!(?err, "Failed to generate {} JWT", name);
+            }
+        }
+        headers
+    })
 }
 
 /// Extracts payer address from x402 payment header and inserts AuthSettings.

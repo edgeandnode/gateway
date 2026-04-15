@@ -29,6 +29,7 @@ http = "1.1.0"
 indexer-selection = { git = "https://github.com/edgeandnode/candidate-selection", rev = "8bc7d42" }
 ipnetwork = { version = "0.21.0", default-features = false }
 itertools = "0.14.0"
+jsonwebtoken = "9"
 lazy_static = "1.4.0"
 ordered-float = "5.0.0"
 parking_lot = "0.12.3"
@@ -74,6 +75,7 @@ tracing-subscriber = { version = "0.3", features = [
     "json",
 ] }
 url = "2.5.0"
+uuid = { version = "1", features = ["v4"] }
 # TODO: Switch back to crates.io once https://github.com/x402-rs/x402-rs/pull/87 is released
 x402-axum = { git = "https://github.com/edgeandnode/x402-rs", branch = "main" }
 x402-types = { git = "https://github.com/edgeandnode/x402-rs", branch = "main" }

@@ -203,9 +203,31 @@ pub struct X402Config {
     /// Price per query in USD (e.g., 0.002 for $0.002 per query)
     #[serde(deserialize_with = "deserialize_not_nan_f64")]
     pub price: NotNan<f64>,
-    /// Optional headers to send with requests to the facilitator (e.g., for authentication)
+    /// Optional static headers to send with requests to the facilitator
     #[serde(default)]
     pub facilitator_headers: BTreeMap<String, String>,
+    /// Authentication configuration for the facilitator
+    pub facilitator_auth: Option<FacilitatorAuth>,
+}
+
+/// Facilitator authentication configuration.
+#[derive(Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum FacilitatorAuth {
+    /// Coinbase Developer Platform authentication (ES256 JWT)
+    Cdp {
+        /// CDP API key ID
+        api_key_id: String,
+        /// CDP API key secret (EC private key in PEM format)
+        api_key_secret: String,
+    },
+    /// PayAI authentication (EdDSA/Ed25519 JWT)
+    PayAi {
+        /// PayAI API key ID
+        api_key_id: String,
+        /// PayAI API key secret (Ed25519 private key in base64 PKCS#8/DER format)
+        api_key_secret: String,
+    },
 }
 
 /// Supported chains for x402 USDC payments.
