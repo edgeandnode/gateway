@@ -285,12 +285,10 @@ async fn run_indexer_queries(
             let min_fee = *(min_fee.0 * grt_per_usd * one_grt) / selections.len() as f64;
             let indexer_fee = selection.fee.as_f64() * budget as f64;
             let fee = indexer_fee.max(min_fee) as u128;
-            let receipt = match ctx.receipt_signer.create_receipt(
-                largest_allocation,
-                *indexer,
-                fee,
-                selection.data.largest_allocation_is_legacy,
-            ) {
+            let receipt = match ctx
+                .receipt_signer
+                .create_receipt(largest_allocation, *indexer, fee)
+            {
                 Ok(receipt) => receipt,
                 Err(err) => {
                     tracing::error!(?indexer, %deployment, error=?err, "failed to create receipt");
@@ -308,11 +306,7 @@ async fn run_indexer_queries(
                     let start_time = Instant::now();
                     // URL checked: ref df8e647b-1e6e-422a-8846-dc9ee7e0dcc2
                     let deployment_url = url.join(&format!("subgraphs/id/{deployment}")).unwrap();
-                    let auth = IndexerAuth::Paid(
-                        &receipt,
-                        ctx.attestation_domain,
-                        ctx.legacy_attestation_domain,
-                    );
+                    let auth = IndexerAuth::Paid(&receipt, ctx.attestation_domain);
                     let result = indexer_client
                         .query_indexer(deployment_url, auth, &indexer_query)
                         .in_current_span()
@@ -473,7 +467,6 @@ struct CandidateMetadata {
     #[debug(with = std::fmt::Display::fmt)]
     url: Url,
     largest_allocation: AllocationId,
-    largest_allocation_is_legacy: bool,
 }
 
 /// Given a list of indexings, build a list of candidates that are within the required block range
@@ -582,7 +575,6 @@ fn build_candidates_list(
                 deployment,
                 url: indexing.indexer.url.clone(),
                 largest_allocation: indexing.largest_allocation,
-                largest_allocation_is_legacy: indexing.largest_allocation_is_legacy,
             },
             perf: perf.response,
             fee: Normalized::new(indexing.fee as f64 / budget as f64).unwrap_or(Normalized::ONE),
@@ -693,12 +685,7 @@ pub async fn handle_indexer_query(
     let fee = *(ctx.budgeter.query_fees_target.0 * grt_per_usd * one_grt) as u128;
 
     let allocation = indexing.largest_allocation;
-    let receipt = match ctx.receipt_signer.create_receipt(
-        allocation,
-        *indexer,
-        fee,
-        indexing.largest_allocation_is_legacy,
-    ) {
+    let receipt = match ctx.receipt_signer.create_receipt(allocation, *indexer, fee) {
         Ok(receipt) => receipt,
         Err(err) => {
             return Err(Error::Internal(anyhow!("failed to create receipt: {err}")));
@@ -711,11 +698,7 @@ pub async fn handle_indexer_query(
         .url
         .join(&format!("subgraphs/id/{deployment}"))
         .unwrap();
-    let indexer_auth = IndexerAuth::Paid(
-        &receipt,
-        ctx.attestation_domain,
-        ctx.legacy_attestation_domain,
-    );
+    let indexer_auth = IndexerAuth::Paid(&receipt, ctx.attestation_domain);
 
     let indexer_start_time = Instant::now();
     let result = ctx
