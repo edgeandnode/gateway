@@ -122,7 +122,6 @@ pub enum BlocklistEntry {
 pub struct AttestationConfig {
     pub chain_id: String,
     pub dispute_manager: Address,
-    pub legacy_dispute_manager: Address,
 }
 
 /// The exchange rate provider.
@@ -182,10 +181,8 @@ pub struct Receipts {
     pub payer: Address,
     /// TAP signer key
     pub signer: B256,
-    /// TAP verifier contract address (v2)
+    /// TAP verifier contract address
     pub verifier: Address,
-    /// Legacy TAP verifier contract address (v1)
-    pub legacy_verifier: Address,
 }
 
 /// x402 payment support configuration.
