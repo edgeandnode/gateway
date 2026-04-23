@@ -69,6 +69,13 @@ pub struct Config {
     pub subgraph_service: Address,
     /// x402 payment support configuration
     pub x402: Option<X402Config>,
+    /// Maximum response size from indexers in bytes (default: 50MB)
+    #[serde(default = "default_max_indexer_response_size")]
+    pub max_indexer_response_size: usize,
+}
+
+fn default_max_indexer_response_size() -> usize {
+    50 * 1024 * 1024 // 50 MB
 }
 
 /// API keys configuration.

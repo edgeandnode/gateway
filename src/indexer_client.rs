@@ -1,4 +1,4 @@
-use http::{StatusCode, header::CONTENT_TYPE};
+use http::{StatusCode, header::{CONTENT_LENGTH, CONTENT_TYPE}};
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use thegraph_core::{
@@ -31,6 +31,9 @@ pub struct IndexerResponse {
 #[derive(Clone)]
 pub struct IndexerClient {
     pub client: reqwest::Client,
+    /// Maximum allowed response size from indexers.
+    /// Prevents memory exhaustion from malicious or buggy indexers.
+    pub max_response_size: usize,
 }
 
 pub enum IndexerAuth<'a> {
@@ -79,6 +82,23 @@ impl IndexerClient {
         tracing::debug!(indexed_block = indexed_block.unwrap_or("null"));
         let indexed_block = indexed_block.and_then(parse_graph_indexed_header);
 
+        // Fast-path rejection: check Content-Length header before reading body
+        let max_response_size = self.max_response_size;
+        if let Some(content_length) = response.headers().get(CONTENT_LENGTH) {
+            if let Ok(len) = content_length.to_str().unwrap_or("0").parse::<usize>() {
+                if len > max_response_size {
+                    return Err(BadResponse(format!(
+                        "response too large: {len} bytes (max {max_response_size})"
+                    )));
+                }
+            }
+        }
+
+        // Read body with size limit to prevent memory exhaustion
+        let body = read_body_limited(response, max_response_size)
+            .await
+            .map_err(BadResponse)?;
+
         #[derive(Debug, Deserialize)]
         pub struct IndexerResponsePayload {
             #[serde(rename = "graphQLResponse")]
@@ -86,10 +106,8 @@ impl IndexerClient {
             pub attestation: Option<Attestation>,
             pub error: Option<String>,
         }
-        let payload = response
-            .json::<IndexerResponsePayload>()
-            .await
-            .map_err(|err| BadResponse(err.to_string()))?;
+        let payload: IndexerResponsePayload =
+            serde_json::from_slice(&body).map_err(|err| BadResponse(err.to_string()))?;
         if let Some(err) = payload.error {
             return Err(BadResponse(err));
         }
@@ -206,6 +224,21 @@ fn check_block_error(err: &str) -> Result<(), MissingBlockError> {
         missing: extract_block_number("and data for block number "),
         latest: extract_block_number("has only indexed up to block number "),
     })
+}
+
+/// Read response body with size limit, streaming to avoid unbounded memory allocation.
+async fn read_body_limited(
+    mut response: reqwest::Response,
+    max_size: usize,
+) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        if body.len() + chunk.len() > max_size {
+            return Err(format!("response exceeds {max_size} byte limit"));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 #[cfg(test)]
