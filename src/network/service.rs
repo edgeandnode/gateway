@@ -155,8 +155,8 @@ impl NetworkService {
         self.network
             .borrow()
             .deployments
-            .iter()
-            .flat_map(|(_, result)| result.iter().flat_map(|d| &d.indexings))
+            .values()
+            .flat_map(|result| result.iter().flat_map(|d| &d.indexings))
             .flat_map(|(id, indexing)| indexing.iter().map(|i| (*id, i.progress.latest_block)))
             .collect()
     }

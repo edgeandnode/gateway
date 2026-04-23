@@ -500,8 +500,8 @@ fn build_candidates_list(
         .iter()
         .find(|v| {
             indexings
-                .iter()
-                .filter_map(|(_, result)| result.as_ref().ok())
+                .values()
+                .filter_map(|result| result.as_ref().ok())
                 .any(|i| (i.id.deployment == **v) && (i.progress.latest_block > cutoff))
         })
         .unwrap_or(&subgraph_versions[0]);
