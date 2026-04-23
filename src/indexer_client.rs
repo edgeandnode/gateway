@@ -1,4 +1,7 @@
-use http::{StatusCode, header::{CONTENT_LENGTH, CONTENT_TYPE}};
+use http::{
+    StatusCode,
+    header::{CONTENT_LENGTH, CONTENT_TYPE},
+};
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use thegraph_core::{
@@ -84,14 +87,13 @@ impl IndexerClient {
 
         // Fast-path rejection: check Content-Length header before reading body
         let max_response_size = self.max_response_size;
-        if let Some(content_length) = response.headers().get(CONTENT_LENGTH) {
-            if let Ok(len) = content_length.to_str().unwrap_or("0").parse::<usize>() {
-                if len > max_response_size {
-                    return Err(BadResponse(format!(
-                        "response too large: {len} bytes (max {max_response_size})"
-                    )));
-                }
-            }
+        if let Some(content_length) = response.headers().get(CONTENT_LENGTH)
+            && let Ok(len) = content_length.to_str().unwrap_or("0").parse::<usize>()
+            && len > max_response_size
+        {
+            return Err(BadResponse(format!(
+                "response too large: {len} bytes (max {max_response_size})"
+            )));
         }
 
         // Read body with size limit to prevent memory exhaustion
