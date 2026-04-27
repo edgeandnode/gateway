@@ -163,3 +163,11 @@ log levels:
 
 Prometheus metrics are served at `:${METRICS_PORT}/metrics`.
 The available metrics are defined in [metrics.rs](src/metrics.rs).
+
+## 💰 Bounty Contribution
+
+- **Task:** x402 subgraph endpoint returns "auth error: malformed API key" instead of 402 ch
+- **Reward:** $2
+- **Source:** GitHub-Paid
+- **Date:** 2026-04-27
+
