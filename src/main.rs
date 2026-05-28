@@ -109,6 +109,7 @@ async fn main() {
 
     let indexer_client = IndexerClient {
         client: http_client.clone(),
+        max_response_size: conf.max_indexer_response_size,
     };
     let network_subgraph_client = SubgraphClient {
         client: indexer_client.clone(),
