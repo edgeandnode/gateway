@@ -20,7 +20,7 @@ impl HostFilter {
     pub fn new(blocklist: HashSet<IpNetwork>) -> anyhow::Result<Self> {
         Ok(Self {
             blocklist,
-            resolver: hickory_resolver::TokioResolver::builder_tokio()?.build(),
+            resolver: hickory_resolver::TokioResolver::builder_tokio()?.build()?,
             cache: Default::default(),
         })
     }
@@ -66,6 +66,6 @@ impl HostFilter {
     async fn resolve_host(&self, host: &str) -> anyhow::Result<Vec<IpAddr>> {
         let lookup =
             tokio::time::timeout(Duration::from_secs(5), self.resolver.lookup_ip(host)).await??;
-        Ok(lookup.into_iter().collect())
+        Ok(lookup.iter().collect())
     }
 }
