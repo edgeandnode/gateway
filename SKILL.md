@@ -4,10 +4,10 @@ Query blockchain data from The Graph Network's decentralized indexers.
 
 ## Environments
 
-| Environment | Base URL |
-|-------------|----------|
-| Mainnet | `https://gateway.thegraph.com` |
-| Testnet | `https://testnet.gateway.thegraph.com` |
+| Environment | Base URL | x402 Payment Network |
+|-------------|----------|---------------------|
+| Mainnet | `https://gateway.thegraph.com` | Base |
+| Testnet | `https://testnet.gateway.thegraph.com` | Base Sepolia |
 
 ## Authentication
 
@@ -25,7 +25,7 @@ Get an API key from [Subgraph Studio](https://thegraph.com/studio) and include i
 
 ### Option 2: x402 Payment (best for agents)
 
-Pay per query with USDC. No API key required.
+Pay per query with USDC on Base. No API key required. The x402 protocol handles payment negotiation automatically.
 
 **Endpoints:**
 - `POST /api/x402/subgraphs/id/{subgraph_id}`
@@ -44,23 +44,23 @@ curl -X POST https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6
 
 ### With x402 Payment
 
-Any x402 tooling that supports exact scheme will work with the gateway's x402 endpoints. We recommend to use the official Graph x402 client:
+Any x402 tooling that supports exact scheme will work with the gateway's x402 endpoints. We recommend the official Graph x402 client.
 
-```bash
-npm install @graphprotocol/client-x402
-```
-
-**Option A: Command Line**
+**Option A: Command Line (no install required)**
 
 ```bash
 export X402_PRIVATE_KEY=0xabc123...
 
-npx graphclient-x402 "{ pairs(first: 5) { id } }" \
+npx @graphprotocol/client-x402 "{ pairs(first: 5) { id } }" \
   --endpoint https://gateway.thegraph.com/api/x402/subgraphs/id/<SUBGRAPH_ID> \
   --chain base
 ```
 
 **Option B: Programmatic**
+
+```bash
+npm install @graphprotocol/client-x402
+```
 
 ```typescript
 import { createGraphQuery } from '@graphprotocol/client-x402'
@@ -109,5 +109,5 @@ const result = await execute(GetPairsDocument, { first: 5 })
 ```
 
 **Environment Variables:**
-- `X402_PRIVATE_KEY`: Wallet private key for payment signing
-- `X402_CHAIN`: `base` (mainnet) or `base-sepolia` (testnet)
+- `X402_PRIVATE_KEY` (required): Wallet private key for payment signing
+- `X402_CHAIN` (optional): `base` (mainnet, default) or `base-sepolia` (testnet)
