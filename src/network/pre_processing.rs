@@ -16,73 +16,21 @@ use crate::network::{
 pub fn into_internal_indexers_raw_info<'a>(
     data: impl Iterator<Item = &'a subgraph_client::types::Subgraph>,
 ) -> HashMap<IndexerId, IndexerRawInfo> {
-    let mut indexer_indexing_largest_allocation: HashMap<
-        (IndexerId, DeploymentId),
-        (AllocationId, u128),
-    > = HashMap::new();
+    let mut indexers = HashMap::new();
+    let mut largest_allocations = HashMap::new();
 
-    data.flat_map(|subgraph| {
-        subgraph
-            .versions
-            .iter()
-            .map(|version| (&subgraph.id, version))
-    })
-    .fold(HashMap::new(), |mut acc, (subgraph_id, version)| {
-        for allocation in &version.subgraph_deployment.allocations {
-            let indexer_id = allocation.indexer.id;
-            let deployment_id = version.subgraph_deployment.id;
-
-            // If the indexer info is not present, insert it if it is valid
-            let indexer = match acc.entry(indexer_id) {
-                Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => match try_into_indexer_raw_info(&allocation.indexer) {
-                    Ok(info) => entry.insert(info),
-                    Err(err) => {
-                        // Log the error and skip the indexer
-                        tracing::info!(
-                            subgraph_id=%subgraph_id,
-                            version=%version.version,
-                            deployment_id=%deployment_id,
-                            allocation_id=%allocation.id,
-                            indexer_id=%indexer_id,
-                            "invalid indexer info: {err}"
-                        );
-                        continue;
-                    }
-                },
-            };
-
-            // Update the indexer's indexings largest allocations table
-            let indexing_largest_allocation = match indexer_indexing_largest_allocation
-                .entry((indexer_id, deployment_id))
-            {
-                Entry::Vacant(entry) => {
-                    entry.insert((allocation.id, allocation.allocated_tokens));
-                    allocation.id
-                }
-                Entry::Occupied(entry) => {
-                    let (largest_allocation_address, largest_allocation_amount) = entry.into_mut();
-                    if allocation.allocated_tokens > *largest_allocation_amount {
-                        *largest_allocation_address = allocation.id;
-                        *largest_allocation_amount = allocation.allocated_tokens;
-                    }
-                    *largest_allocation_address
-                }
-            };
-
-            // Update the indexer's indexings info
-            let indexing = indexer
-                .indexings
-                .entry(deployment_id)
-                .or_insert(IndexingRawInfo {
-                    largest_allocation: allocation.id,
-                });
-
-            indexing.largest_allocation = indexing_largest_allocation;
+    for subgraph in data {
+        for version in &subgraph.versions {
+            process_allocations_into_indexers(
+                &version.subgraph_deployment.allocations,
+                version.subgraph_deployment.id,
+                &mut indexers,
+                &mut largest_allocations,
+            );
         }
+    }
 
-        acc
-    })
+    indexers
 }
 
 /// Convert from the fetched subgraphs information into the internal representation.
@@ -234,4 +182,117 @@ fn try_into_indexer_raw_info(
         staked_tokens: indexer.staked_tokens,
         indexings: Default::default(),
     })
+}
+
+/// Convert orphaned deployments (not linked to any active subgraph) into internal representation.
+///
+/// Orphaned deployments have `activeSubgraphCount: 0`. This function filters out deployments
+/// without a valid manifest or without active allocations.
+pub fn into_orphaned_deployments_raw_info(
+    data: impl Iterator<Item = subgraph_client::types::SubgraphDeployment>,
+) -> HashMap<DeploymentId, DeploymentRawInfo> {
+    data.filter_map(|deployment| {
+        // Validate manifest exists
+        let manifest = deployment.manifest.as_ref()?;
+        let network = manifest.network.as_ref()?;
+
+        // Skip if no active allocations
+        if deployment.allocations.is_empty() {
+            return None;
+        }
+
+        let allocations = deployment
+            .allocations
+            .iter()
+            .map(|a| AllocationInfo {
+                indexer: a.indexer.id,
+            })
+            .collect();
+
+        Some((
+            deployment.id,
+            DeploymentRawInfo {
+                id: deployment.id,
+                manifest_network: network.clone(),
+                manifest_start_block: manifest.start_block,
+                subgraphs: Default::default(), // Empty - orphaned
+                allocations,
+            },
+        ))
+    })
+    .collect()
+}
+
+/// Extract indexer information from orphaned deployments.
+pub fn into_indexers_raw_info_from_orphaned_deployments<'a>(
+    data: impl Iterator<Item = &'a subgraph_client::types::SubgraphDeployment>,
+) -> HashMap<IndexerId, IndexerRawInfo> {
+    let mut indexers = HashMap::new();
+    let mut largest_allocations = HashMap::new();
+
+    for deployment in data {
+        process_allocations_into_indexers(
+            &deployment.allocations,
+            deployment.id,
+            &mut indexers,
+            &mut largest_allocations,
+        );
+    }
+
+    indexers
+}
+
+/// Process allocations and update indexer maps.
+///
+/// For each allocation, validates the indexer info and tracks the largest allocation
+/// per (indexer, deployment) pair.
+fn process_allocations_into_indexers(
+    allocations: &[subgraph_client::types::Allocation],
+    deployment_id: DeploymentId,
+    indexers: &mut HashMap<IndexerId, IndexerRawInfo>,
+    largest_allocations: &mut HashMap<(IndexerId, DeploymentId), (AllocationId, u128)>,
+) {
+    for allocation in allocations {
+        let indexer_id = allocation.indexer.id;
+
+        let indexer = match indexers.entry(indexer_id) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => match try_into_indexer_raw_info(&allocation.indexer) {
+                Ok(info) => entry.insert(info),
+                Err(err) => {
+                    tracing::info!(
+                        %deployment_id,
+                        allocation_id = %allocation.id,
+                        %indexer_id,
+                        "invalid indexer info: {err}"
+                    );
+                    continue;
+                }
+            },
+        };
+
+        let indexing_largest_allocation =
+            match largest_allocations.entry((indexer_id, deployment_id)) {
+                Entry::Vacant(entry) => {
+                    entry.insert((allocation.id, allocation.allocated_tokens));
+                    allocation.id
+                }
+                Entry::Occupied(entry) => {
+                    let (addr, amount) = entry.into_mut();
+                    if allocation.allocated_tokens > *amount {
+                        *addr = allocation.id;
+                        *amount = allocation.allocated_tokens;
+                    }
+                    *addr
+                }
+            };
+
+        indexer
+            .indexings
+            .entry(deployment_id)
+            .or_insert(IndexingRawInfo {
+                largest_allocation: allocation.id,
+            })
+            .largest_allocation = indexing_largest_allocation;
+    }
 }

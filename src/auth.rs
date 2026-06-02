@@ -25,10 +25,15 @@ impl AuthSettings {
         self.authorized_subgraphs.is_empty() || self.authorized_subgraphs.contains(subgraph)
     }
 
+    /// Check if any of the deployment's subgraphs is authorized.
+    ///
+    /// If the set of authorized subgraphs is empty, then any deployment is authorized (including
+    /// orphaned deployments with no parent subgraphs).
     pub fn is_any_deployment_subgraph_authorized(&self, subgraphs: &[SubgraphId]) -> bool {
-        subgraphs
-            .iter()
-            .any(|subgraph| self.is_subgraph_authorized(subgraph))
+        self.authorized_subgraphs.is_empty()
+            || subgraphs
+                .iter()
+                .any(|subgraph| self.is_subgraph_authorized(subgraph))
     }
 }
 

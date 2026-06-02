@@ -11,7 +11,7 @@ use serde_json::json;
 use serde_with::serde_as;
 use thegraph_core::alloy::primitives::{BlockHash, BlockNumber, BlockTimestamp};
 use thegraph_graphql_http::http::response::Error as GqlError;
-use types::Subgraph;
+use types::{Subgraph, SubgraphDeployment};
 use url::Url;
 
 use crate::{
@@ -47,7 +47,7 @@ pub mod types {
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct SubgraphVersion {
-        pub version: u32,
+        pub _version: u32,
         pub subgraph_deployment: SubgraphDeployment,
     }
 
@@ -128,9 +128,17 @@ pub struct Client {
     pub max_lag_seconds: u64,
 }
 
+/// Result of fetching network subgraph data.
+pub struct FetchResult {
+    /// Active subgraphs with their versions and deployments.
+    pub subgraphs: Vec<Subgraph>,
+    /// Orphaned deployments (not linked to any active subgraph but with active allocations).
+    pub orphaned_deployments: Vec<SubgraphDeployment>,
+}
+
 impl Client {
-    /// Fetch the list of subgraphs (and deployments) from the network subgraph.
-    pub async fn fetch(&mut self) -> anyhow::Result<Vec<types::Subgraph>> {
+    /// Fetch the list of subgraphs and orphaned deployments from the network subgraph.
+    pub async fn fetch(&mut self) -> anyhow::Result<FetchResult> {
         for indexer in &self.indexers.clone() {
             match self.fetch_from_indexer(indexer).await {
                 Ok(results) => return Ok(results),
@@ -148,10 +156,10 @@ impl Client {
     async fn fetch_from_indexer(
         &mut self,
         indexer: &TrustedIndexer,
-    ) -> anyhow::Result<Vec<types::Subgraph>> {
+    ) -> anyhow::Result<FetchResult> {
         // ref: 9936786a-e286-45f3-9190-8409d8389e88
         let query = r#"
-            query ($block: Block_height!, $first: Int!, $last: String!) {
+            query ($block: Block_height!, $first: Int!, $last: String!, $lastOrphaned: String!) {
                 meta: _meta(block: $block) { block { number hash timestamp } }
                 results: subgraphs(
                     block: $block
@@ -189,6 +197,34 @@ impl Client {
                         }
                     }
                 }
+                orphanedDeployments: subgraphDeployments(
+                    block: $block
+                    orderBy: id, orderDirection: asc
+                    first: $first
+                    where: {
+                        id_gt: $lastOrphaned
+                        activeSubgraphCount: 0
+                    }
+                ) {
+                    ipfsHash
+                    manifest {
+                        network
+                        startBlock
+                    }
+                    indexerAllocations(
+                        first: 100
+                        orderBy: allocatedTokens, orderDirection: desc
+                        where: { status: Active }
+                    ) {
+                        id
+                        allocatedTokens
+                        indexer {
+                            id
+                            url
+                            stakedTokens
+                        }
+                    }
+                }
             }"#;
 
         #[derive(Debug, Deserialize)]
@@ -198,9 +234,11 @@ impl Client {
             errors: Vec<GqlError>,
         }
         #[derive(Debug, Deserialize)]
+        #[serde(rename_all = "camelCase")]
         pub struct QueryData {
             meta: Meta,
             results: Vec<Subgraph>,
+            orphaned_deployments: Vec<SubgraphDeployment>,
         }
         #[derive(Debug, Deserialize)]
         pub struct Meta {
@@ -216,8 +254,17 @@ impl Client {
         debug_assert!(self.page_size > 0);
         let mut query_block: Option<Block> = None;
         let mut last_id: Option<String> = None;
+        let mut last_orphaned_id: Option<String> = None;
+        let mut subgraphs_done = false;
+        let mut orphaned_done = false;
         let mut results: Vec<Subgraph> = Default::default();
+        let mut orphaned_results: Vec<SubgraphDeployment> = Default::default();
 
+        // Pagination uses independent cursors for subgraphs and orphaned deployments. Both
+        // subqueries are included in every request, even after one completes. When one finishes,
+        // its cursor remains at the final value causing subsequent queries to return empty results
+        // for that subquery. This avoids the complexity of dynamically constructing the query string
+        // and dealing with multiple result types.
         loop {
             let block_height = match &query_block {
                 Some(block) => BlockHeight::Hash(block.hash),
@@ -230,7 +277,8 @@ impl Client {
                 "variables": {
                     "block": block_height,
                     "first": self.page_size,
-                    "last": last_id.unwrap_or_default(),
+                    "last": last_id.clone().unwrap_or_default(),
+                    "lastOrphaned": last_orphaned_id.clone().unwrap_or_default(),
                 },
             });
             let response = self
@@ -277,16 +325,36 @@ impl Client {
                 );
                 query_block = Some(block);
             }
-            last_id = data.results.last().map(|entry| entry.id.to_string());
-            let page_len = data.results.len();
-            results.append(&mut data.results);
-            if page_len < self.page_size {
+
+            if !subgraphs_done {
+                last_id = data.results.last().map(|entry| entry.id.to_string());
+                if data.results.len() < self.page_size {
+                    subgraphs_done = true;
+                }
+                results.append(&mut data.results);
+            }
+
+            if !orphaned_done {
+                last_orphaned_id = data
+                    .orphaned_deployments
+                    .last()
+                    .map(|entry| entry.id.to_string());
+                if data.orphaned_deployments.len() < self.page_size {
+                    orphaned_done = true;
+                }
+                orphaned_results.append(&mut data.orphaned_deployments);
+            }
+
+            if subgraphs_done && orphaned_done {
                 break;
             }
         }
 
         self.latest_block = Some(query_block.unwrap());
 
-        Ok(results)
+        Ok(FetchResult {
+            subgraphs: results,
+            orphaned_deployments: orphaned_results,
+        })
     }
 }

@@ -250,8 +250,9 @@ fn spawn_updater_task(
 /// Fetch the subgraphs information from the graph network subgraph and performs pre-processing
 /// steps, i.e., validation and conversion into the internal representation.
 ///
-///   1. Fetch the subgraphs information from the graph network subgraph.
-///   2. Validate and convert the subgraphs fetched info into the internal representation.
+///   1. Fetch the subgraphs and orphaned deployments from the graph network subgraph.
+///   2. Validate and convert the fetched info into the internal representation.
+///   3. Merge orphaned deployments into the deployments map.
 ///
 /// If the fetch fails or the response is empty, an error is returned.
 ///
@@ -259,14 +260,29 @@ fn spawn_updater_task(
 pub async fn fetch_and_preprocess_subgraph_info(
     client: &mut SubgraphClient,
 ) -> anyhow::Result<PreprocessedNetworkInfo> {
-    // Fetch the subgraphs information from the graph network subgraph
+    // Fetch the subgraphs and orphaned deployments from the graph network subgraph
     let data = client.fetch().await?;
-    anyhow::ensure!(!data.is_empty(), "empty subgraph response");
+    anyhow::ensure!(!data.subgraphs.is_empty(), "empty subgraph response");
 
     // Pre-process (validate and convert) the fetched subgraphs information
-    let indexers = pre_processing::into_internal_indexers_raw_info(data.iter());
-    let subgraphs = pre_processing::into_internal_subgraphs_raw_info(data.into_iter());
-    let deployments = pre_processing::into_internal_deployments_raw_info(subgraphs.values());
+    let mut indexers = pre_processing::into_internal_indexers_raw_info(data.subgraphs.iter());
+    let subgraphs = pre_processing::into_internal_subgraphs_raw_info(data.subgraphs.into_iter());
+    let mut deployments = pre_processing::into_internal_deployments_raw_info(subgraphs.values());
+
+    // Pre-process orphaned deployments and merge them
+    let orphaned_indexers = pre_processing::into_indexers_raw_info_from_orphaned_deployments(
+        data.orphaned_deployments.iter(),
+    );
+    let orphaned_deployments =
+        pre_processing::into_orphaned_deployments_raw_info(data.orphaned_deployments.into_iter());
+
+    for (id, indexer) in orphaned_indexers {
+        indexers.entry(id).or_insert(indexer);
+    }
+
+    for (id, deployment) in orphaned_deployments {
+        deployments.entry(id).or_insert(deployment);
+    }
 
     let subgraphs = subgraph_processing::process_subgraph_info(subgraphs);
     let deployments = subgraph_processing::process_deployments_info(deployments);
