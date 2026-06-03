@@ -250,9 +250,9 @@ fn spawn_updater_task(
 /// Fetch the subgraphs information from the graph network subgraph and performs pre-processing
 /// steps, i.e., validation and conversion into the internal representation.
 ///
-///   1. Fetch the subgraphs and orphaned deployments from the graph network subgraph.
+///   1. Fetch the subgraphs and unpublished deployments from the graph network subgraph.
 ///   2. Validate and convert the fetched info into the internal representation.
-///   3. Merge orphaned deployments into the deployments map.
+///   3. Merge unpublished deployments into the deployments map.
 ///
 /// If the fetch fails or the response is empty, an error is returned.
 ///
@@ -260,7 +260,7 @@ fn spawn_updater_task(
 pub async fn fetch_and_preprocess_subgraph_info(
     client: &mut SubgraphClient,
 ) -> anyhow::Result<PreprocessedNetworkInfo> {
-    // Fetch the subgraphs and orphaned deployments from the graph network subgraph
+    // Fetch the subgraphs and unpublished deployments from the graph network subgraph
     let data = client.fetch().await?;
     anyhow::ensure!(!data.subgraphs.is_empty(), "empty subgraph response");
 
@@ -269,18 +269,19 @@ pub async fn fetch_and_preprocess_subgraph_info(
     let subgraphs = pre_processing::into_internal_subgraphs_raw_info(data.subgraphs.into_iter());
     let mut deployments = pre_processing::into_internal_deployments_raw_info(subgraphs.values());
 
-    // Pre-process orphaned deployments and merge them
-    let orphaned_indexers = pre_processing::into_indexers_raw_info_from_orphaned_deployments(
-        data.orphaned_deployments.iter(),
+    // Pre-process unpublished deployments and merge them
+    let unpublished_indexers = pre_processing::into_indexers_raw_info_from_unpublished_deployments(
+        data.unpublished_deployments.iter(),
     );
-    let orphaned_deployments =
-        pre_processing::into_orphaned_deployments_raw_info(data.orphaned_deployments.into_iter());
+    let unpublished_deployments = pre_processing::into_unpublished_deployments_raw_info(
+        data.unpublished_deployments.into_iter(),
+    );
 
-    for (id, indexer) in orphaned_indexers {
+    for (id, indexer) in unpublished_indexers {
         indexers.entry(id).or_insert(indexer);
     }
 
-    for (id, deployment) in orphaned_deployments {
+    for (id, deployment) in unpublished_deployments {
         deployments.entry(id).or_insert(deployment);
     }
 
