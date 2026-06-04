@@ -277,8 +277,21 @@ pub async fn fetch_and_preprocess_subgraph_info(
         data.unpublished_deployments.into_iter(),
     );
 
-    for (id, indexer) in unpublished_indexers {
-        indexers.entry(id).or_insert(indexer);
+    for (id, unpublished_indexer) in unpublished_indexers {
+        match indexers.entry(id) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(unpublished_indexer);
+            }
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                for (deployment_id, indexing) in unpublished_indexer.indexings {
+                    entry
+                        .get_mut()
+                        .indexings
+                        .entry(deployment_id)
+                        .or_insert(indexing);
+                }
+            }
+        }
     }
 
     for (id, deployment) in unpublished_deployments {
