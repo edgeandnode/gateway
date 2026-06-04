@@ -132,12 +132,12 @@ pub struct Client {
 pub struct FetchResult {
     /// Active subgraphs with their versions and deployments.
     pub subgraphs: Vec<Subgraph>,
-    /// Orphaned deployments (not linked to any active subgraph but with active allocations).
-    pub orphaned_deployments: Vec<SubgraphDeployment>,
+    /// Unpublished deployments (not linked to any active subgraph but with active allocations).
+    pub unpublished_deployments: Vec<SubgraphDeployment>,
 }
 
 impl Client {
-    /// Fetch the list of subgraphs and orphaned deployments from the network subgraph.
+    /// Fetch the list of subgraphs and unpublished deployments from the network subgraph.
     pub async fn fetch(&mut self) -> anyhow::Result<FetchResult> {
         for indexer in &self.indexers.clone() {
             match self.fetch_from_indexer(indexer).await {
@@ -159,7 +159,7 @@ impl Client {
     ) -> anyhow::Result<FetchResult> {
         // ref: 9936786a-e286-45f3-9190-8409d8389e88
         let query = r#"
-            query ($block: Block_height!, $first: Int!, $last: String!, $lastOrphaned: String!) {
+            query ($block: Block_height!, $first: Int!, $last: String!, $lastUnpublished: String!) {
                 meta: _meta(block: $block) { block { number hash timestamp } }
                 results: subgraphs(
                     block: $block
@@ -197,12 +197,12 @@ impl Client {
                         }
                     }
                 }
-                orphanedDeployments: subgraphDeployments(
+                unpublishedDeployments: subgraphDeployments(
                     block: $block
                     orderBy: id, orderDirection: asc
                     first: $first
                     where: {
-                        id_gt: $lastOrphaned
+                        id_gt: $lastUnpublished
                         activeSubgraphCount: 0
                     }
                 ) {
@@ -238,7 +238,7 @@ impl Client {
         pub struct QueryData {
             meta: Meta,
             results: Vec<Subgraph>,
-            orphaned_deployments: Vec<SubgraphDeployment>,
+            unpublished_deployments: Vec<SubgraphDeployment>,
         }
         #[derive(Debug, Deserialize)]
         pub struct Meta {
@@ -254,13 +254,13 @@ impl Client {
         debug_assert!(self.page_size > 0);
         let mut query_block: Option<Block> = None;
         let mut last_id: Option<String> = None;
-        let mut last_orphaned_id: Option<String> = None;
+        let mut last_unpublished_id: Option<String> = None;
         let mut subgraphs_done = false;
-        let mut orphaned_done = false;
+        let mut unpublished_done = false;
         let mut results: Vec<Subgraph> = Default::default();
-        let mut orphaned_results: Vec<SubgraphDeployment> = Default::default();
+        let mut unpublished_results: Vec<SubgraphDeployment> = Default::default();
 
-        // Pagination uses independent cursors for subgraphs and orphaned deployments. Both
+        // Pagination uses independent cursors for subgraphs and unpublished deployments. Both
         // subqueries are included in every request, even after one completes. When one finishes,
         // its cursor remains at the final value causing subsequent queries to return empty results
         // for that subquery. This avoids the complexity of dynamically constructing the query string
@@ -278,7 +278,7 @@ impl Client {
                     "block": block_height,
                     "first": self.page_size,
                     "last": last_id.clone().unwrap_or_default(),
-                    "lastOrphaned": last_orphaned_id.clone().unwrap_or_default(),
+                    "lastUnpublished": last_unpublished_id.clone().unwrap_or_default(),
                 },
             });
             let response = self
@@ -334,18 +334,18 @@ impl Client {
                 results.append(&mut data.results);
             }
 
-            if !orphaned_done {
-                last_orphaned_id = data
-                    .orphaned_deployments
+            if !unpublished_done {
+                last_unpublished_id = data
+                    .unpublished_deployments
                     .last()
                     .map(|entry| entry.id.to_string());
-                if data.orphaned_deployments.len() < self.page_size {
-                    orphaned_done = true;
+                if data.unpublished_deployments.len() < self.page_size {
+                    unpublished_done = true;
                 }
-                orphaned_results.append(&mut data.orphaned_deployments);
+                unpublished_results.append(&mut data.unpublished_deployments);
             }
 
-            if subgraphs_done && orphaned_done {
+            if subgraphs_done && unpublished_done {
                 break;
             }
         }
@@ -354,7 +354,7 @@ impl Client {
 
         Ok(FetchResult {
             subgraphs: results,
-            orphaned_deployments: orphaned_results,
+            unpublished_deployments: unpublished_results,
         })
     }
 }

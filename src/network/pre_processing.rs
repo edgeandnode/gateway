@@ -184,11 +184,11 @@ fn try_into_indexer_raw_info(
     })
 }
 
-/// Convert orphaned deployments (not linked to any active subgraph) into internal representation.
+/// Convert unpublished deployments (not linked to any active subgraph) into internal representation.
 ///
-/// Orphaned deployments have `activeSubgraphCount: 0`. This function filters out deployments
+/// Unpublished deployments have `activeSubgraphCount: 0`. This function filters out deployments
 /// without a valid manifest or without active allocations.
-pub fn into_orphaned_deployments_raw_info(
+pub fn into_unpublished_deployments_raw_info(
     data: impl Iterator<Item = subgraph_client::types::SubgraphDeployment>,
 ) -> HashMap<DeploymentId, DeploymentRawInfo> {
     data.filter_map(|deployment| {
@@ -215,7 +215,7 @@ pub fn into_orphaned_deployments_raw_info(
                 id: deployment.id,
                 manifest_network: network.clone(),
                 manifest_start_block: manifest.start_block,
-                subgraphs: Default::default(), // Empty - orphaned
+                subgraphs: Default::default(), // Empty - unpublished
                 allocations,
             },
         ))
@@ -223,8 +223,8 @@ pub fn into_orphaned_deployments_raw_info(
     .collect()
 }
 
-/// Extract indexer information from orphaned deployments.
-pub fn into_indexers_raw_info_from_orphaned_deployments<'a>(
+/// Extract indexer information from unpublished deployments.
+pub fn into_indexers_raw_info_from_unpublished_deployments<'a>(
     data: impl Iterator<Item = &'a subgraph_client::types::SubgraphDeployment>,
 ) -> HashMap<IndexerId, IndexerRawInfo> {
     let mut indexers = HashMap::new();
