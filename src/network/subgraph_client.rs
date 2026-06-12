@@ -199,10 +199,10 @@ impl Client {
                 }
                 unpublishedDeployments: subgraphDeployments(
                     block: $block
-                    orderBy: id, orderDirection: asc
+                    orderBy: ipfsHash, orderDirection: asc
                     first: $first
                     where: {
-                        id_gt: $lastUnpublished
+                        ipfsHash_gt: $lastUnpublished
                         activeSubgraphCount: 0
                     }
                 ) {
@@ -253,8 +253,8 @@ impl Client {
 
         debug_assert!(self.page_size > 0);
         let mut query_block: Option<Block> = None;
-        let mut last_id: Option<String> = None;
-        let mut last_unpublished_id: Option<String> = None;
+        let mut last_subgraph_id: Option<String> = None;
+        let mut last_unpublished_ipfs_hash: Option<String> = None;
         let mut subgraphs_done = false;
         let mut unpublished_done = false;
         let mut results: Vec<Subgraph> = Default::default();
@@ -277,8 +277,8 @@ impl Client {
                 "variables": {
                     "block": block_height,
                     "first": self.page_size,
-                    "last": last_id.clone().unwrap_or_default(),
-                    "lastUnpublished": last_unpublished_id.clone().unwrap_or_default(),
+                    "last": last_subgraph_id.clone().unwrap_or_default(),
+                    "lastUnpublished": last_unpublished_ipfs_hash.clone().unwrap_or_default(),
                 },
             });
             let response = self
@@ -327,7 +327,7 @@ impl Client {
             }
 
             if !subgraphs_done {
-                last_id = data.results.last().map(|entry| entry.id.to_string());
+                last_subgraph_id = data.results.last().map(|entry| entry.id.to_string());
                 if data.results.len() < self.page_size {
                     subgraphs_done = true;
                 }
@@ -335,7 +335,7 @@ impl Client {
             }
 
             if !unpublished_done {
-                last_unpublished_id = data
+                last_unpublished_ipfs_hash = data
                     .unpublished_deployments
                     .last()
                     .map(|entry| entry.id.to_string());
