@@ -199,10 +199,10 @@ impl Client {
                 }
                 unpublishedDeployments: subgraphDeployments(
                     block: $block
-                    orderBy: id, orderDirection: asc
+                    orderBy: ipfsHash, orderDirection: asc
                     first: $first
                     where: {
-                        id_gt: $lastUnpublished
+                        ipfsHash_gt: $lastUnpublished
                         activeSubgraphCount: 0
                     }
                 ) {
