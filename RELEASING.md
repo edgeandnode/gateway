@@ -30,7 +30,7 @@ The source of truth for the version is `version` in `Cargo.toml`.
 
 4. **Check the Docker image.** Pushing the tag triggers `.github/workflows/docker-image.yml`, which
    builds `linux/amd64` and `linux/arm64` images and publishes a multi-arch manifest to
-   `ghcr.io/edgeandnode/graph-gateway` with these tags:
+   `ghcr.io/graphprotocol/graph-gateway` with these tags:
 
    - `vX.Y.Z`
    - `sha-<short commit sha>`

@@ -10,7 +10,7 @@ on:
     tags: ["v*"]
 
 env:
-  IMAGE: ghcr.io/edgeandnode/graph-gateway
+  IMAGE: ghcr.io/graphprotocol/graph-gateway
 
 jobs:
   build:
